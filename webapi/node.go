@@ -52,12 +52,17 @@ type Node struct {
 	raw *html.Node
 }
 
-func wrap(n *html.Node) *Node {
+// Wrap creates a Node from a raw html.Node. Exported so sibling
+// packages (scraper, bridge, etc.) can integrate with cascadia and
+// other html.Node consumers.
+func Wrap(n *html.Node) *Node {
 	if n == nil {
 		return nil
 	}
 	return &Node{raw: n}
 }
+
+func wrap(n *html.Node) *Node { return Wrap(n) }
 
 // Raw returns the underlying golang.org/x/net/html node. Intended for
 // integrating with libraries that operate on html.Node directly.

@@ -60,6 +60,46 @@ func TestStructuredOpenGraphAndTwitter(t *testing.T) {
 	}
 }
 
+func TestStructuredMicrodata(t *testing.T) {
+	src := `<html><head></head><body>
+<div itemscope itemtype="https://schema.org/Product">
+  <span itemprop="name">Widget</span>
+  <span itemprop="price">9.99</span>
+</div>
+</body></html>`
+	doc, _ := parser.ParseHTML(strings.NewReader(src), "")
+	s := Structured(doc)
+	if len(s.Microdata) != 1 {
+		t.Fatalf("expected 1 microdata item, got %d", len(s.Microdata))
+	}
+	if s.Microdata[0].Type != "https://schema.org/Product" {
+		t.Errorf("type = %q", s.Microdata[0].Type)
+	}
+	if s.Microdata[0].Props["name"] != "Widget" {
+		t.Errorf("name = %q", s.Microdata[0].Props["name"])
+	}
+}
+
+func TestStructuredRDFa(t *testing.T) {
+	src := `<html><head></head><body>
+<div typeof="schema:Product">
+  <span property="schema:name">Gadget</span>
+</div>
+</body></html>`
+	doc, _ := parser.ParseHTML(strings.NewReader(src), "")
+	s := Structured(doc)
+	found := false
+	for _, r := range s.RDFa {
+		if r.Property["schema:name"] == "Gadget" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected RDFa property schema:name=Gadget, got %+v", s.RDFa)
+	}
+}
+
 func TestStructuredHandlesMalformedJSON(t *testing.T) {
 	src := `<script type="application/ld+json">{"broken</script>`
 	doc, _ := parser.ParseHTML(strings.NewReader(src), "")

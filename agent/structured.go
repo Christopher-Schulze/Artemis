@@ -14,6 +14,20 @@ type StructuredData struct {
 	Twitter   map[string]string
 	Meta      map[string]string
 	Title     string
+	Microdata []MicrodataItem
+	RDFa      []RDFaItem
+}
+
+// MicrodataItem is a single microdata item (itemscope/itemtype/itemprop).
+type MicrodataItem struct {
+	Type  string            `json:"type"`
+	Props map[string]string `json:"props"`
+}
+
+// RDFaItem is a single RDFa triple (property/typeof/resource).
+type RDFaItem struct {
+	Type     string            `json:"type"`
+	Property map[string]string `json:"property"`
 }
 
 // Structured extracts JSON-LD scripts and meta-tag conventions from the
@@ -68,6 +82,42 @@ func Structured(d *webapi.Document) StructuredData {
 			out.Meta[hv] = content
 		}
 	}
+
+	// Microdata extraction: itemscope elements with itemprop children
+	if items, err := d.QuerySelectorAll("[itemscope]"); err == nil {
+		for _, item := range items {
+			it := MicrodataItem{Props: map[string]string{}}
+			if t, ok := item.Attr("itemtype"); ok {
+				it.Type = t
+			}
+			props, _ := item.QuerySelectorAll("[itemprop]")
+			for _, p := range props {
+				if propName, ok := p.Attr("itemprop"); ok {
+					it.Props[propName] = strings.TrimSpace(p.Text())
+				}
+			}
+			if len(it.Props) > 0 || it.Type != "" {
+				out.Microdata = append(out.Microdata, it)
+			}
+		}
+	}
+
+	// RDFa extraction: elements with property and/or typeof
+	if rdfaNodes, err := d.QuerySelectorAll("[property]"); err == nil {
+		for _, n := range rdfaNodes {
+			ri := RDFaItem{Property: map[string]string{}}
+			if t, ok := n.Attr("typeof"); ok {
+				ri.Type = t
+			}
+			if prop, ok := n.Attr("property"); ok {
+				ri.Property[prop] = strings.TrimSpace(n.Text())
+			}
+			if len(ri.Property) > 0 || ri.Type != "" {
+				out.RDFa = append(out.RDFa, ri)
+			}
+		}
+	}
+
 	return out
 }
 
