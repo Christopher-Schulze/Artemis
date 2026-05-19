@@ -226,7 +226,10 @@ func newCryptoAESGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		raw := make([]byte, nbits/8)
-		_, _ = rand.Read(raw)
+		if _, err := rand.Read(raw); err != nil {
+			rejectErr(iso, resolver, errors.New("AES generateKey: entropy source unavailable"))
+			return resolver.GetPromise().Value
+		}
 		extractable := args[1].Boolean()
 		usagesObj, _ := args[2].AsObject()
 		usages := readStringArray(usagesObj)

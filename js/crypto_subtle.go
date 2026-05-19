@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"errors"
 	"hash"
 	"strings"
 	"sync"
@@ -281,7 +282,10 @@ func newSubtleGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			}
 		}
 		raw := make([]byte, (nbits+7)/8)
-		_, _ = rand.Read(raw)
+		if _, err := rand.Read(raw); err != nil {
+			rejectErr(iso, resolver, errors.New("HMAC generateKey: entropy source unavailable"))
+			return resolver.GetPromise().Value
+		}
 		extractable := args[1].Boolean()
 		usagesObj, _ := args[2].AsObject()
 		usages := readStringArray(usagesObj)
