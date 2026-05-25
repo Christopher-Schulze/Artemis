@@ -87,6 +87,11 @@ func (e *DiffEngine) DiffRegions(url string, regions map[string]string) DiffResu
 // Is304 checks if a response status indicates unmodified content.
 func Is304(status int) bool { return status == http.StatusNotModified }
 
+// Apply304 marks a diff result as served from conditional cache.
+func (e *DiffEngine) Apply304(url string) DiffResult {
+	return DiffResult{URL: url, Conditional304: true}
+}
+
 // Prune removes fingerprints older than maxAge.
 func (e *DiffEngine) Prune(maxAge time.Duration) int {
 	now := time.Now().Unix()

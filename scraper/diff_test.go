@@ -54,6 +54,44 @@ func TestIs304(t *testing.T) {
 	}
 }
 
+func TestDiffConditional304(t *testing.T) {
+	e := NewDiffEngine()
+	e.RecordGlobalFingerprint("https://shop.example/item", "etag-v1", time.Time{})
+	h := e.CheckConditionalGET("https://shop.example/item")
+	if h.Get("If-None-Match") != "etag-v1" {
+		t.Fatalf("missing conditional header: %v", h)
+	}
+	res := e.Apply304("https://shop.example/item")
+	if !res.Conditional304 {
+		t.Fatal("expected 304 result flag")
+	}
+	if !Is304(304) {
+		t.Fatal("Is304 must recognize 304")
+	}
+}
+
+func TestFingerprintSQLite(t *testing.T) {
+	path := t.TempDir() + "/fp.db"
+	store, err := OpenFingerprintStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewDiffEngine()
+	e.DiffRegions("https://example.com/", map[string]string{"price": "10"})
+	if err := PersistDiffEngine(store, e, "https://example.com/", "cust-1"); err != nil {
+		t.Fatal(err)
+	}
+	e2 := NewDiffEngine()
+	if err := store.LoadInto(e2, "https://example.com/"); err != nil {
+		t.Fatal(err)
+	}
+	r := e2.DiffRegions("https://example.com/", map[string]string{"price": "10"})
+	if len(r.ChangedRegions) != 0 {
+		t.Fatalf("expected unchanged after reload, got %+v", r.ChangedRegions)
+	}
+}
+
 func TestDiffEngine_Prune(t *testing.T) {
 	e := NewDiffEngine()
 	e.fingerprints["https://example.com/|__global__"] = RegionFingerprint{
