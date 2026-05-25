@@ -40,7 +40,7 @@ func OpenDNSPrefetchCache(path string, ttl time.Duration) (*DNSPrefetchCache, er
 		ttl = 5 * time.Minute
 	}
 	c := &DNSPrefetchCache{
-		l1: make(map[string]dnsEntry),
+		l1:  make(map[string]dnsEntry),
 		ttl: ttl,
 		resolver: func(ctx context.Context, host string) ([]net.IP, error) {
 			return net.DefaultResolver.LookupIP(ctx, "ip", host)
@@ -114,10 +114,12 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 	c.l1[host] = dnsEntry{ips: strs, expiresAt: exp}
 	c.mu.Unlock()
 	if c.db != nil {
-		_, _ = c.db.Exec(
+		if _, err := c.db.Exec(
 			`INSERT OR REPLACE INTO dns_cache(host,ips,expires_at) VALUES(?,?,?)`,
 			host, strings.Join(strs, ","), exp.Unix(),
-		)
+		); err != nil {
+			return nil, fmt.Errorf("dns cache: persist %s: %w", host, err)
+		}
 	}
 	return ips, nil
 }
