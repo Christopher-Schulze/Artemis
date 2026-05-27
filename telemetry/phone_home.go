@@ -9,7 +9,7 @@ import (
 
 // PhoneHomeContract documents what an opt-out phone-home channel would
 // transmit. No URLs, no headers, no content. Today the channel is a
-// stub: the values are gathered locally and emitted at info level via
+// local-only contract: the values are gathered locally and emitted at info level via
 // slog. Real transmission is intentionally deferred so embedders can
 // inspect what would be sent.
 type PhoneHomeContract struct {
@@ -24,7 +24,7 @@ type PhoneHomeContract struct {
 
 // PhoneHome aggregates the counters described in PhoneHomeContract.
 type PhoneHome struct {
-	logger *slog.Logger
+	logger   *slog.Logger
 	disabled bool
 
 	fetches atomic.Uint64
@@ -89,7 +89,7 @@ func (p *PhoneHome) Flush() {
 		return
 	}
 	c := p.Snapshot()
-	p.logger.Info("telemetry phone_home (stub)",
+	p.logger.Info("telemetry phone_home local-only",
 		"version", c.Version,
 		"os", c.GOOS, "arch", c.GOARCH,
 		"fetches", c.Fetches, "evals", c.Evals, "errors", c.Errors)
