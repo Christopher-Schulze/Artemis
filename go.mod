@@ -6,6 +6,7 @@ require (
 	github.com/andybalholm/cascadia v1.3.3
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/coder/websocket v1.8.14
+	github.com/google/uuid v1.6.0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/net v0.53.0
 	modernc.org/sqlite v1.34.5
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/bits-and-blooms/bitset v1.10.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
