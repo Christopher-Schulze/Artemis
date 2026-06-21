@@ -91,8 +91,16 @@ func Script(p Profile) string {
 	// 3. navigator.languages
 	b.WriteString("  _defineProperty(navigator, 'languages', { get: () => ['" + strings.ReplaceAll(p.Languages, ",", "','") + "'] });\n")
 
-	// 4. window.chrome
-	b.WriteString("  window.chrome = window.chrome || { runtime: {} };\n")
+	// 4. window.chrome runtime with csi/loadTimes
+	b.WriteString("  window.chrome = window.chrome || {};\n")
+	b.WriteString("  window.chrome.runtime = window.chrome.runtime || {\n")
+	b.WriteString("    connect: () => ({ onMessage: { addListener: () => {}, removeListener: () => {} }, postMessage: () => {}, disconnect: () => {} }),\n")
+	b.WriteString("    sendMessage: () => {},\n")
+	b.WriteString("    onConnect: { addListener: () => {}, removeListener: () => {} },\n")
+	b.WriteString("    onMessage: { addListener: () => {}, removeListener: () => {} }\n")
+	b.WriteString("  };\n")
+	b.WriteString("  window.chrome.csi = window.chrome.csi || (() => ({ startE: Date.now(), onloadT: Date.now(), tran: 15 }));\n")
+	b.WriteString("  window.chrome.loadTimes = window.chrome.loadTimes || (() => ({ commitLoadTime: Date.now()/1000}));\n")
 
 	// 5. navigator.permissions query override
 	b.WriteString("  if (navigator.permissions) {\n")
@@ -214,6 +222,70 @@ func Script(p Profile) string {
 
 	// 27. window.speechSynthesis presence
 	b.WriteString("  if (!window.speechSynthesis) window.speechSynthesis = { getVoices: () => [], speak: () => {}, cancel: () => {}, pause: () => {}, resume: () => {} };\n")
+
+	// 28. navigator.connection LIVE RTT refresh 60s
+	b.WriteString("  const _conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;\n")
+	b.WriteString("  if (_conn) {\n")
+	b.WriteString("    _defineProperty(_conn, 'rtt', { get: () => window.__artemisRTT || 50 });\n")
+	b.WriteString("    _defineProperty(_conn, 'effectiveType', { get: () => '4g' });\n")
+	b.WriteString("    _defineProperty(_conn, 'downlink', { get: () => 10 });\n")
+	b.WriteString("    _defineProperty(_conn, 'saveData', { get: () => false });\n")
+	b.WriteString("    _defineProperty(_conn, 'type', { get: () => 'wifi' });\n")
+	b.WriteString("  } else {\n")
+	b.WriteString("    _defineProperty(navigator, 'connection', { get: () => ({ rtt: 50, effectiveType: '4g', downlink: 10, saveData: false, type: 'wifi', downlinkMax: Infinity }) });\n")
+	b.WriteString("  }\n")
+	b.WriteString("  window.__artemisRTT = 50;\n")
+	b.WriteString("  setInterval(function() { window.__artemisRTT = 30 + Math.floor(Math.random() * 40); }, 60000);\n")
+
+	// 29. connection.downlinkMax = Infinity
+	b.WriteString("  if (navigator.connection) {\n")
+	b.WriteString("    _defineProperty(navigator.connection, 'downlinkMax', { get: () => Infinity });\n")
+	b.WriteString("  }\n")
+
+	// 30. navigator.userAgentData brands
+	b.WriteString("  if (!navigator.userAgentData) {\n")
+	b.WriteString("    const _major = '126';\n")
+	b.WriteString("    _defineProperty(navigator, 'userAgentData', { get: () => ({\n")
+	b.WriteString("      brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n")
+	b.WriteString("      mobile: false,\n")
+	b.WriteString(fmt.Sprintf("      platform: '%s',\n", p.Platform))
+	b.WriteString("      getHighEntropyValues: (hints) => Promise.resolve({\n")
+	b.WriteString(fmt.Sprintf("        architecture: 'arm', brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n"))
+	b.WriteString(fmt.Sprintf("        bitness: '64', mobile: false, model: '', platform: '%s', platformVersion: '14.0', uaFullVersion: '126.0.6478.126'\n", p.Platform))
+	b.WriteString("      })\n")
+	b.WriteString("    }) });\n")
+	b.WriteString("  }\n")
+
+	// 31. history.length = 1
+	b.WriteString("  _defineProperty(history, 'length', { get: () => 1 });\n")
+
+	// 32. CDP Marker cleanup
+	b.WriteString("  try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array; } catch(e) {}\n")
+	b.WriteString("  try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise; } catch(e) {}\n")
+	b.WriteString("  try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol; } catch(e) {}\n")
+	b.WriteString("  try { delete window.__webdriver; } catch(e) {}\n")
+	b.WriteString("  try { delete window.__selenium; } catch(e) {}\n")
+	b.WriteString("  try { delete window.__driver_evaluate; } catch(e) {}\n")
+	b.WriteString("  try { delete window.__webdriver_script_fn; } catch(e) {}\n")
+	b.WriteString("  try { delete window.__fxdriver; } catch(e) {}\n")
+	b.WriteString("  try { delete window.$chrome_asyncScriptInfo; } catch(e) {}\n")
+
+	// 33. UA version coherence - ensure Sec-CH-UA matches navigator
+	b.WriteString("  const _origGet = Object.getOwnPropertyDescriptor(navigator, 'userAgent');\n")
+	b.WriteString("  if (_origGet && _origGet.get) {\n")
+	b.WriteString("    const _ua = _origGet.get.call(navigator);\n")
+	b.WriteString(fmt.Sprintf("    const _expectedUA = %q;\n", p.UserAgent))
+	b.WriteString("    if (_ua !== _expectedUA) {\n")
+	b.WriteString("      _defineProperty(navigator, 'userAgent', { get: () => _expectedUA });\n")
+	b.WriteString("    }\n")
+	b.WriteString("  }\n")
+
+	// 34. Battery API rejection
+	b.WriteString("  if (navigator.getBattery) {\n")
+	b.WriteString("    navigator.getBattery = () => Promise.reject(new TypeError('getBattery is not a function'));\n")
+	b.WriteString("  } else {\n")
+	b.WriteString("    _defineProperty(navigator, 'getBattery', { get: () => (() => Promise.reject(new TypeError('getBattery is not a function'))) });\n")
+	b.WriteString("  }\n")
 
 	b.WriteString("})();\n")
 	return b.String()

@@ -13,7 +13,7 @@ const (
 func PatchCountFor(level StealthLevel) int {
 	switch level {
 	case StealthParanoid:
-		return 29
+		return PatchCount() + 2 // 37 fingerprint + 2 paranoid (typing rhythm, referrer)
 	case StealthStealth:
 		return PatchCount()
 	default:

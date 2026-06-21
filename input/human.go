@@ -65,3 +65,40 @@ func PathLength(path []Point) float64 {
 	}
 	return sum
 }
+
+// HoverDwell returns a Gaussian-distributed hover delay before click (mu=200ms, sigma=100ms).
+// Humans hover before clicking; linear fixed delays are detectable.
+func HoverDwell(rng *rand.Rand) float64 {
+	if rng == nil {
+		rng = rand.New(rand.NewPCG(5, 6))
+	}
+	d := 200 + rng.NormFloat64()*100
+	if d < 50 {
+		d = 50
+	}
+	return d
+}
+
+// EaseInOutScroll returns scroll offsets using easeInOut cubic easing.
+// easeInOut(t) = t<0.5 ? 2t^2 : -1+(4-2t)*t. Linear scroll is bot-detectable.
+// totalDistance is the full scroll distance; steps is the number of scroll increments.
+func EaseInOutScroll(totalDistance float64, steps int) []float64 {
+	if steps <= 0 {
+		return []float64{totalDistance}
+	}
+	out := make([]float64, steps)
+	var prev float64
+	for i := 0; i < steps; i++ {
+		t := float64(i) / float64(steps-1)
+		var eased float64
+		if t < 0.5 {
+			eased = 2 * t * t
+		} else {
+			eased = -1 + (4-2*t)*t
+		}
+		pos := eased * totalDistance
+		out[i] = pos - prev
+		prev = pos
+	}
+	return out
+}

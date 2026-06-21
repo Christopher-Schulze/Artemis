@@ -50,8 +50,8 @@ func TestDetermineStealthLevel(t *testing.T) {
 	if level != StealthStealth {
 		t.Fatalf("expected stealth with valid ack, got %s", level)
 	}
-	if PatchCountFor(level) != 27 {
-		t.Fatalf("expected 27 patches, got %d", PatchCountFor(level))
+	if PatchCountFor(level) != 37 {
+		t.Fatalf("expected 37 patches, got %d", PatchCountFor(level))
 	}
 	level2, _ := DetermineStealthLevel("https://blocked.example/page", StealthPolicy{
 		Requested: StealthParanoid,
