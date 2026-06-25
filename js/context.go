@@ -142,7 +142,22 @@ type ContextOpts struct {
 // CPU cost. State that persists across pages (custom-element
 // definitions, mutations to built-in prototypes) is the caller's
 // responsibility.
+// NewContext serialises isolate access via r.ctxMu against any other NewContext,
+// Close, or Eval on the same Runtime. A Runtime's Contexts all share r.iso, and
+// v8::Isolate is single-threaded: concurrent V8 work on one isolate (creation,
+// GlobalHandles bookkeeping, or script execution) from two goroutines crashes the
+// process. The lock is the single point that serialises all of it.
 func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (*Context, error) {
+	r.ctxMu.Lock()
+	defer r.ctxMu.Unlock()
+	return r.newContextLocked(doc, opts)
+}
+
+// newContextLocked builds the Context assuming the caller already holds r.ctxMu.
+// It is called by NewContext (which takes the lock) and by the iframe sub-Context
+// builder invoked from a __iframe_load callback during Eval (which already holds
+// the lock), so it must NOT re-acquire ctxMu.
+func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Context, error) {
 	if doc == nil {
 		return nil, errors.New("nil document")
 	}
@@ -150,14 +165,6 @@ func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (*Context, 
 	if console == nil {
 		console = DiscardConsole{}
 	}
-	// Serialise the v8.Context creation + install* + flushBootstraps
-	// against any other NewContext / Close on the same Runtime. Without
-	// this, two goroutines can race inside V8's GlobalHandles bookkeeping
-	// and crash the process. Each *js.Context, once built, is fine to
-	// use from a single goroutine concurrently with other Contexts in
-	// the same Runtime.
-	r.ctxMu.Lock()
-	defer r.ctxMu.Unlock()
 	var v8ctx *v8.Context
 	pooled := false
 	if r.poolEnabled {
@@ -203,7 +210,9 @@ func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (*Context, 
 	iframeBuilder := func(d *webapi.Document) (*Context, error) {
 		subOpts := opts
 		subOpts.LoadIFrame = nil
-		return r.NewContext(d, subOpts)
+		// Runs from a __iframe_load callback during the parent's Eval, which
+		// already holds r.ctxMu; use the locked variant to avoid re-acquiring it.
+		return r.newContextLocked(d, subOpts)
 	}
 	var ifLoader func(string) ([]byte, error)
 	if opts.LoadIFrame != nil {
@@ -418,6 +427,14 @@ func (c *Context) Eval(_ context.Context, expr string) (*Value, error) {
 	if c.closed {
 		return nil, errors.New("eval on closed context")
 	}
+	// Serialise V8 execution on the shared isolate. A Runtime's pooled Contexts all
+	// share r.iso and v8::Isolate is single-threaded; without this, two goroutines
+	// evaluating on different Contexts of the same Runtime race inside V8 and crash
+	// (SIGSEGV in cgo, e.g. mid-callback in Value.String). The drains, timer/mutation
+	// firing and any iframe sub-Context creation triggered by the script all run on
+	// this thread under the lock (iframe creation via newContextLocked, no re-lock).
+	c.rt.ctxMu.Lock()
+	defer c.rt.ctxMu.Unlock()
 	val, err := c.v8ctx.RunScript(expr, "<eval>")
 	if c.async != nil {
 		c.async.drain(c)
