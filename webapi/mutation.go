@@ -191,12 +191,15 @@ func GetElementById(n *Node, id string) *Node {
 		return nil
 	}
 	var found *Node
-	walkRaw(n.raw, func(c *Node) WalkAction {
+	// Value-walk avoids a per-visit *Node heap alloc; only the single match
+	// escapes (m := c; &m), so non-matching nodes cost zero allocations.
+	walkRawValue(n.raw, func(c Node) WalkAction {
 		if c.raw.Type != html.ElementNode {
 			return WalkContinue
 		}
 		if v, ok := c.Attr("id"); ok && v == id {
-			found = c
+			m := c
+			found = &m
 			return WalkStop
 		}
 		return WalkContinue
@@ -213,10 +216,13 @@ func GetElementsByTagName(n *Node, tag string) []*Node {
 	var out []*Node
 	all := tag == "*"
 	want := strings.ToLower(tag)
-	walkRaw(n.raw, func(c *Node) WalkAction {
+	// Value-walk: only matched elements escape to the heap (m := c; &m),
+	// so non-matching nodes (text, comments, other tags) cost no alloc.
+	walkRawValue(n.raw, func(c Node) WalkAction {
 		if c.raw.Type == html.ElementNode {
 			if all || c.raw.Data == want {
-				out = append(out, c)
+				m := c
+				out = append(out, &m)
 			}
 		}
 		return WalkContinue
@@ -231,7 +237,9 @@ func GetElementsByClassName(n *Node, class string) []*Node {
 		return nil
 	}
 	var out []*Node
-	walkRaw(n.raw, func(c *Node) WalkAction {
+	// Value-walk: only matched elements escape to the heap (m := c; &m),
+	// so non-matching nodes cost no per-visit alloc.
+	walkRawValue(n.raw, func(c Node) WalkAction {
 		if c.raw.Type != html.ElementNode {
 			return WalkContinue
 		}
@@ -241,7 +249,8 @@ func GetElementsByClassName(n *Node, class string) []*Node {
 		}
 		for _, cls := range strings.Fields(v) {
 			if cls == class {
-				out = append(out, c)
+				m := c
+				out = append(out, &m)
 				return WalkContinue
 			}
 		}

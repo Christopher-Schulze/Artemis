@@ -46,7 +46,7 @@ func collectLinks(d *webapi.Document, filter bool) []Link {
 		return nil
 	}
 	var out []Link
-	webapi.Walk(root, func(n *webapi.Node) webapi.WalkAction {
+	webapi.WalkValue(root, func(n webapi.Node) webapi.WalkAction {
 		if n.Type() != webapi.NodeElement || n.Tag() != "a" {
 			return webapi.WalkContinue
 		}
