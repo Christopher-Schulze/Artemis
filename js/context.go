@@ -423,18 +423,26 @@ func (c *Context) Close() {
 // Eval evaluates expr and returns the result. V8's default microtask
 // policy (kAuto) drains promise continuations at script end. After that
 // the timer queue is drained so setTimeout-scheduled callbacks fire too.
+// Eval serialises V8 execution on the shared isolate. A Runtime's pooled Contexts
+// all share r.iso and v8::Isolate is single-threaded; without this, two goroutines
+// evaluating on different Contexts of the same Runtime race inside V8 and crash
+// (SIGSEGV in cgo, e.g. mid-callback in Value.String).
 func (c *Context) Eval(_ context.Context, expr string) (*Value, error) {
 	if c.closed {
 		return nil, errors.New("eval on closed context")
 	}
-	// Serialise V8 execution on the shared isolate. A Runtime's pooled Contexts all
-	// share r.iso and v8::Isolate is single-threaded; without this, two goroutines
-	// evaluating on different Contexts of the same Runtime race inside V8 and crash
-	// (SIGSEGV in cgo, e.g. mid-callback in Value.String). The drains, timer/mutation
-	// firing and any iframe sub-Context creation triggered by the script all run on
-	// this thread under the lock (iframe creation via newContextLocked, no re-lock).
 	c.rt.ctxMu.Lock()
 	defer c.rt.ctxMu.Unlock()
+	return c.evalLocked(expr)
+}
+
+// evalLocked runs the script plus its post-script drains/timer/mutation firing,
+// assuming the caller already holds c.rt.ctxMu. It is called by Eval (which takes
+// the lock) and by runIframeScriptsInCtx, which runs from a __iframe_load callback
+// during the parent's Eval (already holding the lock), so it must NOT re-acquire
+// ctxMu. iframe sub-Context creation triggered here goes through newContextLocked,
+// also without re-locking.
+func (c *Context) evalLocked(expr string) (*Value, error) {
 	val, err := c.v8ctx.RunScript(expr, "<eval>")
 	if c.async != nil {
 		c.async.drain(c)

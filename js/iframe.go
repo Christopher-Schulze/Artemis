@@ -1,7 +1,6 @@
 package js
 
 import (
-	"context"
 	"strings"
 	"sync"
 
@@ -128,7 +127,10 @@ func runIframeScriptsInCtx(subCtx *Context, doc *webapi.Document) {
 		if strings.TrimSpace(code) == "" {
 			return webapi.WalkContinue
 		}
-		_, _ = subCtx.Eval(context.Background(), code)
+		// Runs from a __iframe_load callback during the parent's Eval, which holds
+		// r.ctxMu (shared across the Runtime's Contexts); use the locked variant so
+		// we do not re-acquire the non-reentrant lock and deadlock.
+		_, _ = subCtx.evalLocked(code)
 		return webapi.WalkContinue
 	})
 }
