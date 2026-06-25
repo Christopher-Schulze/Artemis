@@ -228,7 +228,7 @@ func TestMatchPatternCaseInsensitiveFallback(t *testing.T) {
 	// Regex compilation succeeds, so this tests regex path. Add a pattern
 	// with invalid regex to exercise the substring fallback.
 	r.AddPattern(ErrorPattern{Name: "bad-regex", Match: "[", Action: RecoverySkip, MaxRetries: 1})
-	p := r.MatchPattern("hit bad-regex here")
+	p := r.MatchPattern("array[0] bad-regex here")
 	if p == nil {
 		t.Fatal("substring fallback should match")
 	}

@@ -142,32 +142,22 @@ func (d *ChromeDiscovery) tryJSONList(host string, port int) (DiscoveryResult, e
 
 func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (DiscoveryResult, error) {
 	wsURL := FormatWebSocketURL(host, port, "/devtools/browser")
-	// Probe the HTTP metadata endpoint that Chrome serves alongside the
-	// WebSocket. A 200 means the browser endpoint is live.
-	probeURL := fmt.Sprintf("http://%s/json/version", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-	body, err := d.fetch(probeURL)
+	probeURL := fmt.Sprintf("http://%s/devtools/browser", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	// Chrome responds to a plain HTTP GET on the browser WS endpoint with a
+	// 400/426 upgrade-required status when the endpoint is live. A 404 or
+	// connection error means the browser endpoint is not exposed.
+	resp, err := d.client.Get(probeURL)
 	if err != nil {
-		// Fall back to a direct TCP dial to confirm the browser port is open.
-		if dialErr := dialHost(host, port, 2*time.Second); dialErr != nil {
-			return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, dialErr
-		}
+		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, err
+	}
+	defer resp.Body.Close()
+	// Drain the body so the underlying connection can be reused; the read
+	// result is irrelevant since we only inspect the status code.
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUpgradeRequired || resp.StatusCode == http.StatusSwitchingProtocols {
 		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, WebSocketURL: wsURL, Found: true}, nil
 	}
-	var v jsonVersionResponse
-	ver := ""
-	if json.Unmarshal(body, &v) == nil {
-		ver = v.Browser
-		if v.WebSocketDebuggerURL != "" {
-			wsURL = v.WebSocketDebuggerURL
-		}
-	}
-	return DiscoveryResult{
-		URL:            wsURL,
-		Method:         DiscoveryDevToolsBrowser,
-		BrowserVersion: ver,
-		WebSocketURL:   wsURL,
-		Found:          true,
-	}, nil
+	return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, fmt.Errorf("devtools/browser endpoint returned status %d", resp.StatusCode)
 }
 
 func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
@@ -186,15 +176,6 @@ func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
 		return nil, fmt.Errorf("status %d for %s", resp.StatusCode, url)
 	}
 	return io.ReadAll(resp.Body)
-}
-
-func dialHost(host string, port int, timeout time.Duration) error {
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)), timeout)
-	if err != nil {
-		return err
-	}
-	conn.Close()
-	return nil
 }
 
 // FormatWebSocketURL builds a ws:// URL with correct IPv6 bracketing.

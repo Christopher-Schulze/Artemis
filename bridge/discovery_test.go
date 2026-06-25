@@ -100,6 +100,11 @@ func TestDiscoverJSONListFallback(t *testing.T) {
 
 func TestDiscoverDevToolsBrowserFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/devtools/browser" {
+			// Chrome responds to a plain HTTP GET on the WS endpoint with 400.
+			http.Error(w, "WebSocket Protocol Error", http.StatusBadRequest)
+			return
+		}
 		http.NotFound(w, r)
 	}))
 	defer srv.Close()
@@ -110,19 +115,17 @@ func TestDiscoverDevToolsBrowserFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// All three methods attempted; none found because httptest doesn't speak
-	// the devtools browser WS protocol but the TCP dial should succeed.
-	foundAny := false
+	found := false
 	for _, r := range results {
-		if r.Found {
-			foundAny = true
+		if r.Method == DiscoveryDevToolsBrowser && r.Found {
+			found = true
+			if r.WebSocketURL == "" {
+				t.Fatal("found result should carry WebSocketURL")
+			}
 		}
 	}
-	if !foundAny {
-		// TCP fallback may still mark it found; either way we should have results.
-		if len(results) == 0 {
-			t.Fatal("expected at least one result")
-		}
+	if !found {
+		t.Fatalf("devtools/browser fallback not found: %+v", results)
 	}
 }
 
@@ -220,20 +223,19 @@ func TestNewChromeDiscoveryDefault(t *testing.T) {
 
 func TestDiscoverMalformedJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/devtools/browser" {
+			http.NotFound(w, r)
+			return
+		}
 		_, _ = w.Write([]byte("not json"))
 	}))
 	defer srv.Close()
 
 	host, port := splitHostPort(t, srv.URL)
 	d := NewChromeDiscoveryWithClient(srv.Client())
-	results, err := d.Discover(host, port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range results {
-		if r.Found {
-			t.Fatalf("malformed json should not yield found: %+v", r)
-		}
+	_, err := d.Discover(host, port)
+	if err == nil {
+		t.Fatal("expected error when all endpoints return malformed JSON")
 	}
 }
 
