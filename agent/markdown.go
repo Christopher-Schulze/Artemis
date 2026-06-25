@@ -346,22 +346,57 @@ func tableRows(n *html.Node) [][]string {
 	return out
 }
 
+// isCollapsibleWS reports whether c is one of the ASCII whitespace bytes that
+// collapseInline / collapseWhitespace fold into a single space.
+func isCollapsibleWS(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+// collapseInline folds every run of ASCII whitespace into a single space,
+// preserving a leading/trailing single space. It scans BYTES, not runes: the
+// folded set is ASCII and every byte of a multi-byte UTF-8 sequence is >= 0x80,
+// so it never matches and is copied verbatim — identical output to a rune scan
+// for the valid UTF-8 the parser produces, without the per-char decode and
+// WriteRune re-encode. An already-collapsed string is returned as-is, allocation
+// free.
 func collapseInline(s string) string {
+	if !needsInlineCollapse(s) {
+		return s
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	prevSpace := false
-	for _, r := range s {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isCollapsibleWS(c) {
 			if !prevSpace {
 				b.WriteByte(' ')
 				prevSpace = true
 			}
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteByte(c)
 		prevSpace = false
 	}
 	return b.String()
+}
+
+// needsInlineCollapse reports whether collapseInline would change s: any tab/CR/LF,
+// or any run of two or more whitespace bytes.
+func needsInlineCollapse(s string) bool {
+	prevSpace := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !isCollapsibleWS(c) {
+			prevSpace = false
+			continue
+		}
+		if c != ' ' || prevSpace {
+			return true
+		}
+		prevSpace = true
+	}
+	return false
 }
 
 func attrOf(n *html.Node, name string) string {

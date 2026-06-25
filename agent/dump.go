@@ -76,20 +76,53 @@ func collectVisibleText(n *html.Node, b *strings.Builder) {
 	}
 }
 
+// collapseWhitespace folds runs of ASCII whitespace into a single space and
+// trims the ends. Like collapseInline it scans bytes (multi-byte UTF-8 bytes are
+// >= 0x80 and copied verbatim); a string that needs no change is returned as-is,
+// allocation free.
 func collapseWhitespace(s string) string {
+	if !needsWhitespaceCollapse(s) {
+		return s
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	prevSpace := true
-	for _, r := range s {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isCollapsibleWS(c) {
 			if !prevSpace {
 				b.WriteByte(' ')
 				prevSpace = true
 			}
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteByte(c)
 		prevSpace = false
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// needsWhitespaceCollapse reports whether collapseWhitespace would change s:
+// leading/trailing whitespace, any tab/CR/LF, or any run of two or more
+// whitespace bytes.
+func needsWhitespaceCollapse(s string) bool {
+	if s == "" {
+		return false
+	}
+	if isCollapsibleWS(s[0]) || isCollapsibleWS(s[len(s)-1]) {
+		return true
+	}
+	prevSpace := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !isCollapsibleWS(c) {
+			prevSpace = false
+			continue
+		}
+		if c != ' ' || prevSpace {
+			return true
+		}
+		prevSpace = true
+	}
+	return false
 }
