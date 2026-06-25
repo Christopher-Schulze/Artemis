@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // ErrorType classifies an error for agent consumption (spec L4265).
@@ -213,10 +212,6 @@ func NewAIError(code ErrorType, ctx ErrorContext, recoverable bool) AIErrorMessa
 		Recoverable:     recoverable,
 	}
 }
-
-// _ ensures time stays referenced for future timestamp enrichment without
-// forcing callers to import it.
-var _ = time.Second
 
 // AsAIError unwraps err chains to find an AIErrorMessage, returning ok=true
 // when one is present.

@@ -43,11 +43,11 @@ type AnnotationOverlay struct {
 	ViewportHeight int          `json:"viewport_height"`
 }
 
-// AnnotatableNode is a DOM node candidate for annotation
+// AnnotatableUnit is a DOM element candidate for annotation
 // (spec L4264). ElementType is the lowercased tag name (e.g.
 // "button", "a", "input"). Text is a short label derived from the
-// node's visible text or aria-label.
-type AnnotatableNode struct {
+// element's visible text or aria-label.
+type AnnotatableUnit struct {
 	ElementType string     `json:"element_type"`
 	Text        string     `json:"text"`
 	BoundingBox BoundingBox `json:"bounding_box"`
@@ -164,7 +164,7 @@ func (a *Annotator) hasValidBox(box BoundingBox) bool {
 // Annotate assigns sequential numbered IDs (starting at 1) to the
 // interactive, in-viewport nodes among the supplied candidates
 // (spec L4264). Non-interactive or off-screen nodes are skipped.
-func (a *Annotator) Annotate(nodes []AnnotatableNode) AnnotationOverlay {
+func (a *Annotator) Annotate(nodes []AnnotatableUnit) AnnotationOverlay {
 	a.mu.RLock()
 	vw, vh := a.viewportWidth, a.viewportHeight
 	a.mu.RUnlock()

@@ -61,7 +61,7 @@ func TestAnnotator_Annotate_Empty(t *testing.T) {
 
 func TestAnnotator_Annotate_NumberingSequential(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: "Submit", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 80, Height: 30}},
 		{ElementType: "a", Text: "Home", BoundingBox: BoundingBox{X: 100, Y: 10, Width: 50, Height: 20}},
 		{ElementType: "input", Text: "Email", BoundingBox: BoundingBox{X: 10, Y: 50, Width: 200, Height: 25}},
@@ -79,7 +79,7 @@ func TestAnnotator_Annotate_NumberingSequential(t *testing.T) {
 
 func TestAnnotator_Annotate_FiltersNonInteractive(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "div", Text: "container", BoundingBox: BoundingBox{X: 0, Y: 0, Width: 100, Height: 100}},
 		{ElementType: "span", Text: "label", BoundingBox: BoundingBox{X: 0, Y: 0, Width: 100, Height: 100}},
 		{ElementType: "button", Text: "OK", BoundingBox: BoundingBox{X: 0, Y: 0, Width: 50, Height: 30}},
@@ -95,7 +95,7 @@ func TestAnnotator_Annotate_FiltersNonInteractive(t *testing.T) {
 
 func TestAnnotator_Annotate_FiltersOffscreen(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: "On", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 		{ElementType: "button", Text: "OffRight", BoundingBox: BoundingBox{X: 2000, Y: 10, Width: 50, Height: 30}},
 		{ElementType: "button", Text: "OffBottom", BoundingBox: BoundingBox{X: 10, Y: 2000, Width: 50, Height: 30}},
@@ -112,7 +112,7 @@ func TestAnnotator_Annotate_FiltersOffscreen(t *testing.T) {
 
 func TestAnnotator_Annotate_ARIARoles(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "role=button", Text: "Custom", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 		{ElementType: "role=tab", Text: "Tab1", BoundingBox: BoundingBox{X: 10, Y: 50, Width: 50, Height: 30}},
 		{ElementType: "role=unknown", Text: "Skip", BoundingBox: BoundingBox{X: 10, Y: 90, Width: 50, Height: 30}},
@@ -126,7 +126,7 @@ func TestAnnotator_Annotate_ARIARoles(t *testing.T) {
 func TestAnnotator_Annotate_PreservesBox(t *testing.T) {
 	a := NewAnnotator(1280, 720)
 	box := BoundingBox{X: 100, Y: 200, Width: 80, Height: 30}
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: "Submit", BoundingBox: box},
 	}
 	overlay := a.Annotate(nodes)
@@ -137,7 +137,7 @@ func TestAnnotator_Annotate_PreservesBox(t *testing.T) {
 
 func TestAnnotator_Annotate_NormalizesText(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: "  Hello    World  ", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 	}
 	overlay := a.Annotate(nodes)
@@ -149,7 +149,7 @@ func TestAnnotator_Annotate_NormalizesText(t *testing.T) {
 func TestAnnotator_Annotate_TextTruncation(t *testing.T) {
 	a := NewAnnotator(1280, 720)
 	long := strings.Repeat("a", 200)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: long, BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 	}
 	overlay := a.Annotate(nodes)
@@ -163,7 +163,7 @@ func TestAnnotator_Annotate_TextTruncation(t *testing.T) {
 
 func TestAnnotator_Annotate_LowercasesElementType(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "BUTTON", Text: "X", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 	}
 	overlay := a.Annotate(nodes)
@@ -290,7 +290,7 @@ func TestIsInteractive(t *testing.T) {
 
 func TestAnnotator_ConcurrentAnnotate(t *testing.T) {
 	a := NewAnnotator(1280, 720)
-	nodes := []AnnotatableNode{
+	nodes := []AnnotatableUnit{
 		{ElementType: "button", Text: "A", BoundingBox: BoundingBox{X: 10, Y: 10, Width: 50, Height: 30}},
 		{ElementType: "a", Text: "B", BoundingBox: BoundingBox{X: 100, Y: 10, Width: 50, Height: 30}},
 	}
