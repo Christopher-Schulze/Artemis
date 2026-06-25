@@ -21,8 +21,14 @@ type ctxRef struct {
 	refCount int
 }
 
-var ctxMutex sync.RWMutex
-var ctxRegistry = make(map[int]*ctxRef)
+// ctxRegistry maps a context ref to its *ctxRef and is read on every JS->Go
+// callback via getContext. It is a sync.Map so those reads are lock-free and
+// do not contend across isolates/engines running on parallel goroutines. The
+// global RWMutex it replaced was a process-wide reader-count cache line every
+// callback touched. ctxRegMu guards only the rare lifecycle transitions (ref
+// allocation + refCount register/deregister), never the getContext read path.
+var ctxRegMu sync.Mutex
+var ctxRegistry sync.Map // map[int]*ctxRef
 var ctxSeq = 0
 
 // Context is a global root execution environment that allows separate,
@@ -61,10 +67,10 @@ func NewContext(opt ...ContextOption) *Context {
 		opts.gTmpl = &ObjectTemplate{&template{}}
 	}
 
-	ctxMutex.Lock()
+	ctxRegMu.Lock()
 	ctxSeq++
 	ref := ctxSeq
-	ctxMutex.Unlock()
+	ctxRegMu.Unlock()
 
 	ctx := &Context{
 		ref: ref,
@@ -82,8 +88,8 @@ func (c *Context) Isolate() *Isolate {
 }
 
 func (c *Context) RetainedValueCount() int {
-	ctxMutex.Lock()
-	defer ctxMutex.Unlock()
+	ctxRegMu.Lock()
+	defer ctxRegMu.Unlock()
 	return int(C.ContextRetainedValueCount(c.ptr))
 }
 
@@ -128,37 +134,39 @@ func (c *Context) Close() {
 }
 
 func (c *Context) register() {
-	ctxMutex.Lock()
-	r := ctxRegistry[c.ref]
-	if r == nil {
-		r = &ctxRef{ctx: c}
-		ctxRegistry[c.ref] = r
+	ctxRegMu.Lock()
+	if v, ok := ctxRegistry.Load(c.ref); ok {
+		v.(*ctxRef).refCount++
+	} else {
+		ctxRegistry.Store(c.ref, &ctxRef{ctx: c, refCount: 1})
 	}
-	r.refCount++
-	ctxMutex.Unlock()
+	ctxRegMu.Unlock()
 }
 
 func (c *Context) deregister() {
-	ctxMutex.Lock()
-	defer ctxMutex.Unlock()
-	r := ctxRegistry[c.ref]
-	if r == nil {
+	ctxRegMu.Lock()
+	defer ctxRegMu.Unlock()
+	v, ok := ctxRegistry.Load(c.ref)
+	if !ok {
 		return
 	}
+	r := v.(*ctxRef)
 	r.refCount--
 	if r.refCount <= 0 {
-		delete(ctxRegistry, c.ref)
+		ctxRegistry.Delete(c.ref)
 	}
 }
 
+// getContext runs on every JS->Go callback (goFunctionCallback, goContext). It
+// is intentionally lock-free: ctxRef.ctx is write-once before the sync.Map
+// Store that publishes it, so a concurrent Load never observes a partial value
+// and refCount (mutated only under ctxRegMu) is never read here.
 func getContext(ref int) *Context {
-	ctxMutex.RLock()
-	defer ctxMutex.RUnlock()
-	r := ctxRegistry[ref]
-	if r == nil {
+	v, ok := ctxRegistry.Load(ref)
+	if !ok {
 		return nil
 	}
-	return r.ctx
+	return v.(*ctxRef).ctx
 }
 
 //export goContext
