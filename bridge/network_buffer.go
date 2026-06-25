@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -103,4 +104,101 @@ func (b *NetworkRequestBuffer) Count(pageID string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.requests[pageID])
+}
+
+// FindByURL returns requests whose URL matches the given pattern (spec L4324:
+// URL-based matching backfill). The pattern supports substring matching and
+// wildcard '*' globs. Returns matches in insertion order.
+func (b *NetworkRequestBuffer) FindByURL(pageID, pattern string) []NetworkRequest {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []NetworkRequest
+	for _, req := range b.requests[pageID] {
+		if urlMatchesPattern(req.URL, pattern) {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// FindByMethod returns requests matching the given HTTP method (case-insensitive).
+func (b *NetworkRequestBuffer) FindByMethod(pageID, method string) []NetworkRequest {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []NetworkRequest
+	upper := strings.ToUpper(method)
+	for _, req := range b.requests[pageID] {
+		if strings.ToUpper(req.Method) == upper {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// FindByStatusRange returns requests with status code in [min, max] inclusive.
+func (b *NetworkRequestBuffer) FindByStatusRange(pageID string, min, max int) []NetworkRequest {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []NetworkRequest
+	for _, req := range b.requests[pageID] {
+		if req.Status >= min && req.Status <= max {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// FindByResourceType returns requests matching the given resource type.
+func (b *NetworkRequestBuffer) FindByResourceType(pageID, resourceType string) []NetworkRequest {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []NetworkRequest
+	for _, req := range b.requests[pageID] {
+		if req.ResourceType == resourceType {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// FindFailed returns requests that have a non-OK status or failure text.
+func (b *NetworkRequestBuffer) FindFailed(pageID string) []NetworkRequest {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []NetworkRequest
+	for _, req := range b.requests[pageID] {
+		if !req.OK || req.FailureText != "" || (req.Status >= 400 && req.Status != 0) {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// urlMatchesPattern checks if a URL matches a pattern with '*' wildcards.
+// Empty pattern matches nothing. "*" matches everything. Otherwise, the
+// pattern is split on '*' and each segment must appear in order in the URL.
+func urlMatchesPattern(url, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	if pattern == "*" {
+		return true
+	}
+	// Simple substring match if no wildcards
+	if !strings.Contains(pattern, "*") {
+		return strings.Contains(url, pattern)
+	}
+	// Wildcard match: split on '*', each segment must appear in order
+	idx := 0
+	for _, seg := range strings.Split(pattern, "*") {
+		if seg == "" {
+			continue
+		}
+		pos := strings.Index(url[idx:], seg)
+		if pos < 0 {
+			return false
+		}
+		idx += pos + len(seg)
+	}
+	return true
 }
