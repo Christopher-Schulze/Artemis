@@ -26,10 +26,14 @@ type BoxModel struct {
 // Quad represents a quadrilateral (4 points)
 // (spec L4019: element queries + box model).
 type Quad struct {
-	X1, Y1 float64 `json:"x1,y1"`
-	X2, Y2 float64 `json:"x2,y2"`
-	X3, Y3 float64 `json:"x3,y3"`
-	X4, Y4 float64 `json:"x4,y4"`
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+	X3 float64 `json:"x3"`
+	Y3 float64 `json:"y3"`
+	X4 float64 `json:"x4"`
+	Y4 float64 `json:"y4"`
 }
 
 // ElementInfo represents a queried DOM element
