@@ -197,3 +197,209 @@ func (f TLSFingerprint) String() string {
 		f.Browser, f.Version, f.JA3Hash, f.HTTP2Fingerprint, f.HTTP3Fingerprint,
 		strings.Join(f.ALPN, ","))
 }
+
+// H2SettingID enumerates the HTTP/2 SETTINGS frame identifiers
+// (spec L4099: HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
+// INITIAL_WINDOW, MAX_FRAME, MAX_HEADER).
+type H2SettingID uint16
+
+const (
+	// H2SettingHeaderTableSize is SETTINGS_HEADER_TABLE_SIZE (ID=1).
+	H2SettingHeaderTableSize H2SettingID = 1
+	// H2SettingEnablePush is SETTINGS_ENABLE_PUSH (ID=2).
+	H2SettingEnablePush H2SettingID = 2
+	// H2SettingMaxConcurrentStreams is SETTINGS_MAX_CONCURRENT_STREAMS (ID=3).
+	H2SettingMaxConcurrentStreams H2SettingID = 3
+	// H2SettingInitialWindowSize is SETTINGS_INITIAL_WINDOW_SIZE (ID=4).
+	H2SettingInitialWindowSize H2SettingID = 4
+	// H2SettingMaxFrameSize is SETTINGS_MAX_FRAME_SIZE (ID=5).
+	H2SettingMaxFrameSize H2SettingID = 5
+	// H2SettingMaxHeaderListSize is SETTINGS_MAX_HEADER_LIST_SIZE (ID=6).
+	H2SettingMaxHeaderListSize H2SettingID = 6
+)
+
+// String returns the setting name for logging.
+func (id H2SettingID) String() string {
+	switch id {
+	case H2SettingHeaderTableSize:
+		return "HEADER_TABLE_SIZE"
+	case H2SettingEnablePush:
+		return "ENABLE_PUSH"
+	case H2SettingMaxConcurrentStreams:
+		return "MAX_CONCURRENT_STREAMS"
+	case H2SettingInitialWindowSize:
+		return "INITIAL_WINDOW_SIZE"
+	case H2SettingMaxFrameSize:
+		return "MAX_FRAME_SIZE"
+	case H2SettingMaxHeaderListSize:
+		return "MAX_HEADER_LIST_SIZE"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", uint16(id))
+	}
+}
+
+// H2Setting is one setting in an HTTP/2 SETTINGS frame
+// (spec L4099: ordered settings matching real Chromium build).
+type H2Setting struct {
+	ID    H2SettingID
+	Value uint32
+}
+
+// H2SettingsFrame is the ordered HTTP/2 SETTINGS frame
+// (spec L4099: H2 settings frame order matches real Chromium build).
+// Cloudflare + Akamai use the H2 SETTINGS frame order for detection,
+// so the order of Settings MUST match real Chromium exactly.
+type H2SettingsFrame struct {
+	Settings []H2Setting
+}
+
+// ChromiumH2Settings returns the H2 SETTINGS frame matching real
+// Chromium builds (spec L4099). The order is:
+// HEADER_TABLE_SIZE=65536, ENABLE_PUSH=0, MAX_CONCURRENT_STREAMS=1000,
+// INITIAL_WINDOW_SIZE=6291456, MAX_FRAME_SIZE=16384,
+// MAX_HEADER_LIST_SIZE=262144.
+func ChromiumH2Settings() H2SettingsFrame {
+	return H2SettingsFrame{
+		Settings: []H2Setting{
+			{H2SettingHeaderTableSize, 65536},
+			{H2SettingEnablePush, 0},
+			{H2SettingMaxConcurrentStreams, 1000},
+			{H2SettingInitialWindowSize, 6291456},
+			{H2SettingMaxFrameSize, 16384},
+			{H2SettingMaxHeaderListSize, 262144},
+		},
+	}
+}
+
+// Serialize returns the Akamai fingerprint string format
+// "ID:VALUE;ID:VALUE;..." (spec L4099). The order of settings in the
+// frame is preserved in the serialized string, which is what
+// Cloudflare/Akamai use for detection.
+func (f H2SettingsFrame) Serialize() string {
+	if len(f.Settings) == 0 {
+		return ""
+	}
+	parts := make([]string, len(f.Settings))
+	for i, s := range f.Settings {
+		parts[i] = fmt.Sprintf("%d:%d", uint16(s.ID), s.Value)
+	}
+	return strings.Join(parts, ";")
+}
+
+// ParseH2SettingsFrame parses an Akamai fingerprint string
+// "ID:VALUE;ID:VALUE;..." into an H2SettingsFrame (spec L4099).
+// Returns an error if the string is malformed.
+func ParseH2SettingsFrame(s string) (H2SettingsFrame, error) {
+	if s == "" {
+		return H2SettingsFrame{}, fmt.Errorf("h2 fingerprint: empty string")
+	}
+	parts := strings.Split(s, ";")
+	settings := make([]H2Setting, 0, len(parts))
+	for _, part := range parts {
+		kv := strings.SplitN(part, ":", 2)
+		if len(kv) != 2 {
+			return H2SettingsFrame{}, fmt.Errorf("h2 fingerprint: malformed pair %q", part)
+		}
+		var id uint16
+		var val uint32
+		_, err1 := fmt.Sscanf(kv[0], "%d", &id)
+		_, err2 := fmt.Sscanf(kv[1], "%d", &val)
+		if err1 != nil || err2 != nil {
+			return H2SettingsFrame{}, fmt.Errorf("h2 fingerprint: invalid number in %q", part)
+		}
+		settings = append(settings, H2Setting{H2SettingID(id), val})
+	}
+	return H2SettingsFrame{Settings: settings}, nil
+}
+
+// MatchesChromium reports whether this frame's settings order and
+// values match real Chromium builds (spec L4099: MUST match).
+func (f H2SettingsFrame) MatchesChromium() bool {
+	expected := ChromiumH2Settings()
+	if len(f.Settings) != len(expected.Settings) {
+		return false
+	}
+	for i, s := range f.Settings {
+		if s.ID != expected.Settings[i].ID || s.Value != expected.Settings[i].Value {
+			return false
+		}
+	}
+	return true
+}
+
+// Validate checks that the frame has valid setting IDs and values
+// (spec L4099). Returns an error if any setting is invalid.
+func (f H2SettingsFrame) Validate() error {
+	if len(f.Settings) == 0 {
+		return fmt.Errorf("h2 settings: empty frame")
+	}
+	seen := make(map[H2SettingID]bool)
+	for i, s := range f.Settings {
+		// Check for valid ID.
+		if s.ID < H2SettingHeaderTableSize || s.ID > H2SettingMaxHeaderListSize {
+			return fmt.Errorf("h2 settings[%d]: invalid ID %d", i, uint16(s.ID))
+		}
+		// Check for duplicates.
+		if seen[s.ID] {
+			return fmt.Errorf("h2 settings[%d]: duplicate ID %s", i, s.ID)
+		}
+		seen[s.ID] = true
+		// Validate ENABLE_PUSH: must be 0 or 1.
+		if s.ID == H2SettingEnablePush && s.Value > 1 {
+			return fmt.Errorf("h2 settings[%d]: ENABLE_PUSH must be 0 or 1, got %d", i, s.Value)
+		}
+		// Validate MAX_FRAME_SIZE: must be >= 16384 (2^14) and <= 16777215 (2^24-1).
+		if s.ID == H2SettingMaxFrameSize && (s.Value < 16384 || s.Value > 16777215) {
+			return fmt.Errorf("h2 settings[%d]: MAX_FRAME_SIZE must be 16384-16777215, got %d", i, s.Value)
+		}
+		// Validate INITIAL_WINDOW_SIZE: must be <= 2147483647 (2^31-1).
+		if s.ID == H2SettingInitialWindowSize && s.Value > 2147483647 {
+			return fmt.Errorf("h2 settings[%d]: INITIAL_WINDOW_SIZE must be <= 2147483647, got %d", i, s.Value)
+		}
+	}
+	return nil
+}
+
+// Get returns the value for a setting ID, or 0 if not found.
+func (f H2SettingsFrame) Get(id H2SettingID) (uint32, bool) {
+	for _, s := range f.Settings {
+		if s.ID == id {
+			return s.Value, true
+		}
+	}
+	return 0, false
+}
+
+// HasAllChromiumSettings reports whether the frame contains all 6
+// Chromium-mandated setting IDs (spec L4099).
+func (f H2SettingsFrame) HasAllChromiumSettings() bool {
+	required := []H2SettingID{
+		H2SettingHeaderTableSize,
+		H2SettingEnablePush,
+		H2SettingMaxConcurrentStreams,
+		H2SettingInitialWindowSize,
+		H2SettingMaxFrameSize,
+		H2SettingMaxHeaderListSize,
+	}
+	for _, id := range required {
+		if _, ok := f.Get(id); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// OrderMatchesChromium reports whether the setting IDs are in the
+// same order as real Chromium builds (spec L4099: frame order matches).
+func (f H2SettingsFrame) OrderMatchesChromium() bool {
+	expected := ChromiumH2Settings()
+	if len(f.Settings) != len(expected.Settings) {
+		return false
+	}
+	for i, s := range f.Settings {
+		if s.ID != expected.Settings[i].ID {
+			return false
+		}
+	}
+	return true
+}
