@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -233,7 +234,11 @@ func TestAIFinderStage2_VisionMode(t *testing.T) {
 }
 
 func TestAIFinderStage2_CacheHit(t *testing.T) {
-	cache := &AdaptiveSelectorCache{l1: make(map[string]AdaptiveEntry), maxL1: 100}
+	cache, err := OpenAdaptiveCache(filepath.Join(t.TempDir(), "adaptive.db"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
 	_ = cache.Put(AdaptiveEntry{
 		Domain:     "cached.com",
 		URLPattern: "/cached",
@@ -261,7 +266,11 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 }
 
 func TestAIFinderStage2_CachesHighConfidence(t *testing.T) {
-	cache := &AdaptiveSelectorCache{l1: make(map[string]AdaptiveEntry), maxL1: 100}
+	cache, err := OpenAdaptiveCache(filepath.Join(t.TempDir(), "adaptive.db"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
 	hub := &mockInferenceHubLLM{
 		responses: []InferenceHubLLMResponse{
 			{Selector: ".high-conf", Confidence: 0.95},
@@ -270,7 +279,7 @@ func TestAIFinderStage2_CachesHighConfidence(t *testing.T) {
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
 
-	_, err := f.FindStage2(context.Background(), "conf.com", "/page", "https://conf.com/page", "target", "<div>...</div>")
+	_, err = f.FindStage2(context.Background(), "conf.com", "/page", "https://conf.com/page", "target", "<div>...</div>")
 	if err != nil {
 		t.Fatalf("FindStage2 error: %v", err)
 	}
@@ -284,7 +293,11 @@ func TestAIFinderStage2_CachesHighConfidence(t *testing.T) {
 }
 
 func TestAIFinderStage2_DoesNotCacheLowConfidence(t *testing.T) {
-	cache := &AdaptiveSelectorCache{l1: make(map[string]AdaptiveEntry), maxL1: 100}
+	cache, err := OpenAdaptiveCache(filepath.Join(t.TempDir(), "adaptive.db"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
 	hub := &mockInferenceHubLLM{
 		responses: []InferenceHubLLMResponse{
 			{Selector: ".low-conf", Confidence: 0.40},
@@ -293,7 +306,7 @@ func TestAIFinderStage2_DoesNotCacheLowConfidence(t *testing.T) {
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
 
-	_, err := f.FindStage2(context.Background(), "low.com", "/page", "https://low.com/page", "target", "<div>...</div>")
+	_, err = f.FindStage2(context.Background(), "low.com", "/page", "https://low.com/page", "target", "<div>...</div>")
 	if err != nil {
 		t.Fatalf("FindStage2 error: %v", err)
 	}

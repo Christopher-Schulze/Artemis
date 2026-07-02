@@ -8,7 +8,8 @@
 // json.Encoder that writes directly to the underlying file.
 //
 // The HAR format follows the HTTP Archive 1.2 spec:
-//   { "log": { "version": "1.2", "creator": {...}, "entries": [ ... ] } }
+//
+//	{ "log": { "version": "1.2", "creator": {...}, "entries": [ ... ] } }
 //
 // The writer opens the file on construction, emits the header
 // (`{"log":{"version":"1.2","creator":{...},"entries":[`), appends each entry
@@ -108,9 +109,9 @@ type HARResponse struct {
 
 // HAREntry is a single HAR log entry (HAR 1.2).
 type HAREntry struct {
-	StartedDateTime string     `json:"startedDateTime"`
-	Time            int64      `json:"time"`
-	Request         HARRequest `json:"request"`
+	StartedDateTime string      `json:"startedDateTime"`
+	Time            int64       `json:"time"`
+	Request         HARRequest  `json:"request"`
 	Response        HARResponse `json:"response"`
 	Timings         HARTimings  `json:"timings"`
 }

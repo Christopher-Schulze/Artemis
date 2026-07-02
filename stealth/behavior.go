@@ -25,6 +25,5 @@ func ReferrerForDomain(rawURL string, mem *DomainMemory) (string, error) {
 }
 
 func googleReferrer(host string) string {
-	q := url.QueryEscape(host)
-	return fmt.Sprintf("https://www.google.com/search?q=%s", q)
+	return "https://www.google.com/search?q=" + url.QueryEscape(host)
 }

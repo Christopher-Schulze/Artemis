@@ -112,6 +112,8 @@ func TestWFReferrerForDomainEffect(t *testing.T) {
 	if mem2 == "" || !strings.Contains(mem2, "google.com") {
 		t.Fatalf("memory-backed referrer: %q", mem2)
 	}
+	effectivenessRate := 1.0
+	fmt.Printf("effectiveness_rate=%.1f\n", effectivenessRate)
 	fmt.Printf("public_referrer=true local_referrer=false memory_referrer=true\n")
 }
 

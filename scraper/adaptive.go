@@ -12,19 +12,25 @@ import (
 
 // AdaptiveEntry is a cached selector for a URL pattern on a domain.
 type AdaptiveEntry struct {
-	Domain      string
-	URLPattern  string
-	Selector    string
-	Confidence  float64
-	UpdatedAt   time.Time
+	Domain     string
+	URLPattern string
+	Selector   string
+	Confidence float64
+	UpdatedAt  time.Time
 }
 
 // AdaptiveSelectorCache is L1 memory + L2 SQLite (spec ss28.12b.2).
 type AdaptiveSelectorCache struct {
 	mu    sync.RWMutex
-	l1    map[string]AdaptiveEntry
+	l1    map[l1Key]AdaptiveEntry
 	db    *sql.DB
 	maxL1 int
+}
+
+// l1Key keys the in-memory tier without concatenating a string per lookup.
+type l1Key struct {
+	domain  string
+	pattern string
 }
 
 // OpenAdaptiveCache opens SQLite backing store at path.
@@ -51,7 +57,7 @@ CREATE TABLE IF NOT EXISTS adaptive (
 		_ = db.Close()
 		return nil, fmt.Errorf("adaptive cache: schema: %w", err)
 	}
-	return &AdaptiveSelectorCache{l1: make(map[string]AdaptiveEntry), db: db, maxL1: maxL1}, nil
+	return &AdaptiveSelectorCache{l1: make(map[l1Key]AdaptiveEntry), db: db, maxL1: maxL1}, nil
 }
 
 func cacheKey(domain, pattern string) string {
@@ -60,9 +66,9 @@ func cacheKey(domain, pattern string) string {
 
 // Get returns a cached selector.
 func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, bool) {
-	key := cacheKey(domain, urlPattern)
+	k := l1Key{domain: strings.ToLower(domain), pattern: urlPattern}
 	c.mu.RLock()
-	if e, ok := c.l1[key]; ok {
+	if e, ok := c.l1[k]; ok {
 		c.mu.RUnlock()
 		return e, true
 	}
@@ -71,7 +77,7 @@ func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, b
 		return AdaptiveEntry{}, false
 	}
 	row := c.db.QueryRow(
-		`SELECT selector, confidence, updated_at FROM adaptive WHERE url_pattern=?`, key,
+		`SELECT selector, confidence, updated_at FROM adaptive WHERE url_pattern=?`, cacheKey(domain, urlPattern),
 	)
 	var sel string
 	var conf float64
@@ -85,7 +91,7 @@ func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, b
 		Confidence: conf, UpdatedAt: t,
 	}
 	c.mu.Lock()
-	c.putL1(key, e)
+	c.putL1(k, e)
 	c.mu.Unlock()
 	return e, true
 }
@@ -97,7 +103,7 @@ func (c *AdaptiveSelectorCache) Put(e AdaptiveEntry) error {
 		e.UpdatedAt = time.Now().UTC()
 	}
 	c.mu.Lock()
-	c.putL1(key, e)
+	c.putL1(l1Key{domain: strings.ToLower(e.Domain), pattern: e.URLPattern}, e)
 	c.mu.Unlock()
 	if c.db == nil {
 		return nil
@@ -112,7 +118,7 @@ func (c *AdaptiveSelectorCache) Put(e AdaptiveEntry) error {
 	return nil
 }
 
-func (c *AdaptiveSelectorCache) putL1(key string, e AdaptiveEntry) {
+func (c *AdaptiveSelectorCache) putL1(key l1Key, e AdaptiveEntry) {
 	if len(c.l1) >= c.maxL1 {
 		for k := range c.l1 {
 			delete(c.l1, k)

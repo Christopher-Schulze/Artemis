@@ -76,10 +76,10 @@ func TestWFChallengeDetectorPerfCorrectness(t *testing.T) {
 func TestWFChallengeDetectorEffect(t *testing.T) {
 	d := NewChallengeDetector()
 	cases := []struct {
-		name    string
-		sig     PageSignals
+		name     string
+		sig      PageSignals
 		wantType ChallengeType
-		minConf float64
+		minConf  float64
 	}{
 		{
 			name: "cloudflare",
@@ -139,6 +139,7 @@ func TestWFChallengeDetectorEffect(t *testing.T) {
 		hits++
 	}
 	hitRate := float64(hits) / float64(len(cases))
+	fmt.Printf("effectiveness_rate=%.1f\n", hitRate)
 	fmt.Printf("detection_hit_rate=%.2f classified=%d\n", hitRate, hits)
 }
 

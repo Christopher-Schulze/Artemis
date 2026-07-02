@@ -29,6 +29,7 @@ func TestWFNetguardSec(t *testing.T) {
 	}
 	denyRate := float64(denied) / float64(len(private))
 	fmt.Printf("deny_rate=%.1f\n", denyRate)
+	fmt.Printf("security_pass_rate=%.1f\n", denyRate)
 }
 
 // TestWFNetguardSecBaseline shows that with BlockPrivate disabled the

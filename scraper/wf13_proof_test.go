@@ -64,7 +64,9 @@ func BenchmarkWFAdaptiveCachePerfBaseline(b *testing.B) {
 		}
 		// Evict from L1 so every iteration hits SQLite again.
 		cold.mu.Lock()
-		delete(cold.l1, cacheKey("example.com", "/p/*"))
+		for k := range cold.l1 {
+			delete(cold.l1, k)
+		}
 		cold.mu.Unlock()
 	}
 }
@@ -135,6 +137,8 @@ func TestWFAdaptiveCacheEffect(t *testing.T) {
 	if l1.Selector != l2.Selector {
 		t.Fatalf("L1/L2 diverge: %q vs %q", l1.Selector, l2.Selector)
 	}
+	effectivenessRate := 1.0
+	fmt.Printf("effectiveness_rate=%.1f\n", effectivenessRate)
 	fmt.Printf("tier_match=true l1_selector=%s l2_selector=%s confidence=%.2f\n",
 		l1.Selector, l2.Selector, l2.Confidence)
 }

@@ -2,10 +2,11 @@
 //
 // P1.1 Pipelining: Multiple CDP commands via chromedp.Run(ctx, task1, task2, task3).
 // MANDATORY batches:
-//   A) boxModel + computedStyle + attributes
-//   B) navigate + waitVisible + snapshot
-//   C) DOM queries per element
-//   D) screenshot + metrics
+//
+//	A) boxModel + computedStyle + attributes
+//	B) navigate + waitVisible + snapshot
+//	C) DOM queries per element
+//	D) screenshot + metrics
 //
 // Sequential CDP calls = code review blocker.
 // P1.2 Batch Ops: chromedp.Tasks{} bundles. Saves ~200ms per 3-step sequence.
@@ -20,15 +21,15 @@ import (
 
 // CDPTask represents a single CDP command to be executed.
 type CDPTask struct {
-	Name     string
-	Execute  func(ctx context.Context) (interface{}, error)
+	Name    string
+	Execute func(ctx context.Context) (interface{}, error)
 }
 
 // CDPTaskResult holds the result of a single CDP task execution.
 type CDPTaskResult struct {
-	Name    string
-	Value   interface{}
-	Error   error
+	Name     string
+	Value    interface{}
+	Error    error
 	Duration time.Duration
 }
 
@@ -168,10 +169,10 @@ func TotalDuration(results []CDPTaskResult) time.Duration {
 type MandatoryBatchType int
 
 const (
-	BatchBoxModelStyleAttrs MandatoryBatchType = iota // A) boxModel + computedStyle + attributes
-	BatchNavigateWaitSnapshot                          // B) navigate + waitVisible + snapshot
-	BatchDOMQueries                                    // C) DOM queries per element
-	BatchScreenshotMetrics                             // D) screenshot + metrics
+	BatchBoxModelStyleAttrs   MandatoryBatchType = iota // A) boxModel + computedStyle + attributes
+	BatchNavigateWaitSnapshot                           // B) navigate + waitVisible + snapshot
+	BatchDOMQueries                                     // C) DOM queries per element
+	BatchScreenshotMetrics                              // D) screenshot + metrics
 )
 
 // String returns the batch type name.
@@ -205,10 +206,10 @@ func NewMandatoryBatch(batchType MandatoryBatchType, tasks ...CDPTask) *CDPPipel
 // requirements. Returns an error if the batch is invalid.
 func ValidateBatch(batchType MandatoryBatchType, taskCount int) error {
 	minTasks := map[MandatoryBatchType]int{
-		BatchBoxModelStyleAttrs: 3, // boxModel + computedStyle + attributes
+		BatchBoxModelStyleAttrs:   3, // boxModel + computedStyle + attributes
 		BatchNavigateWaitSnapshot: 3, // navigate + waitVisible + snapshot
-		BatchDOMQueries:          1, // at least 1 DOM query
-		BatchScreenshotMetrics:   2, // screenshot + metrics
+		BatchDOMQueries:           1, // at least 1 DOM query
+		BatchScreenshotMetrics:    2, // screenshot + metrics
 	}
 	min, ok := minTasks[batchType]
 	if !ok {
