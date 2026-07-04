@@ -247,14 +247,33 @@ func GetElementsByClassName(n *Node, class string) []*Node {
 		if !ok {
 			return WalkContinue
 		}
-		for _, cls := range strings.Fields(v) {
-			if cls == class {
-				m := c
-				out = append(out, &m)
-				return WalkContinue
-			}
+		if classTokenContains(v, class) {
+			m := c
+			out = append(out, &m)
 		}
 		return WalkContinue
 	})
 	return out
+}
+
+// classTokenContains reports whether the whitespace-separated class
+// attribute value v contains token as an exact match. It avoids the
+// strings.Fields allocation by scanning in-place.
+func classTokenContains(v, token string) bool {
+	i := 0
+	for i < len(v) {
+		// skip leading whitespace
+		for i < len(v) && (v[i] == ' ' || v[i] == '\t' || v[i] == '\n' || v[i] == '\r') {
+			i++
+		}
+		start := i
+		// scan token end
+		for i < len(v) && v[i] != ' ' && v[i] != '\t' && v[i] != '\n' && v[i] != '\r' {
+			i++
+		}
+		if i > start && v[start:i] == token {
+			return true
+		}
+	}
+	return false
 }
