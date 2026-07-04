@@ -14,6 +14,7 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -168,13 +169,13 @@ func (m *IdentityManager) GetOrCreateIdentity(profileName string) ProfileIdentit
 
 	if m.persist != nil {
 		// Persist best-effort; the in-memory cache is already authoritative
-		// for this process. A save failure is surfaced via panic-free
-		// logging-free path: we return the identity but record nothing.
-		// Callers needing strict durability should check Persist via a
-		// dedicated method. Here we ignore the error to keep
-		// GetOrCreateIdentity signature stable and non-failing, matching
-		// the spec's "get or create" semantics.
-		_ = m.persist.Save(id)
+		// for this process. A save failure is logged but does not fail the
+		// call, matching the spec's "get or create" semantics. Callers
+		// needing strict durability should check Persist via a dedicated
+		// method.
+		if err := m.persist.Save(id); err != nil {
+			slog.Warn("identity: failed to persist identity", "profile", profileName, "err", err)
+		}
 	}
 	return id
 }

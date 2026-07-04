@@ -40,12 +40,12 @@ type GeolocationConfig struct {
 // ~/.omnimus/browser/proxy-profiles.json (spec L4028, research
 // proxy-profiles.ts ProxyProfileConfig).
 type ProxyProfileConfig struct {
-	Server      string              `json:"server"`
-	Username    string              `json:"username,omitempty"`
-	Password    string              `json:"password,omitempty"`
-	Locale      string              `json:"locale,omitempty"`
-	TimezoneID  string              `json:"timezoneId,omitempty"`
-	Geolocation *GeolocationConfig  `json:"geolocation,omitempty"`
+	Server      string             `json:"server"`
+	Username    string             `json:"username,omitempty"`
+	Password    string             `json:"password,omitempty"`
+	Locale      string             `json:"locale,omitempty"`
+	TimezoneID  string             `json:"timezoneId,omitempty"`
+	Geolocation *GeolocationConfig `json:"geolocation,omitempty"`
 }
 
 // ProxySource enumerates how the proxy was resolved
@@ -75,12 +75,12 @@ type ResolvedProxyConfig struct {
 // SessionProfileInput is the per-session proxy specification
 // (spec L4028, research proxy-profiles.ts SessionProfileInput).
 type SessionProfileInput struct {
-	ProxyProfile   string             `json:"proxyProfile,omitempty"`
-	RawProxy       *RawProxyOverride  `json:"proxy,omitempty"`
-	GeoMode        GeoMode            `json:"geoMode,omitempty"`
-	Locale         string             `json:"locale,omitempty"`
-	TimezoneID     string             `json:"timezoneId,omitempty"`
-	Geolocation    *GeolocationConfig `json:"geolocation,omitempty"`
+	ProxyProfile string             `json:"proxyProfile,omitempty"`
+	RawProxy     *RawProxyOverride  `json:"proxy,omitempty"`
+	GeoMode      GeoMode            `json:"geoMode,omitempty"`
+	Locale       string             `json:"locale,omitempty"`
+	TimezoneID   string             `json:"timezoneId,omitempty"`
+	Geolocation  *GeolocationConfig `json:"geolocation,omitempty"`
 }
 
 // RawProxyOverride is inline proxy credentials (spec L4028, research
@@ -307,7 +307,12 @@ func ContextHash(proxy *ResolvedProxyConfig, geoMode GeoMode) string {
 		Proxy:   proxy,
 		GeoMode: geoMode,
 	}
-	data, _ := json.Marshal(canonical)
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		// json.Marshal of a well-typed struct should never fail;
+		// fall back to a stable hash of the error to avoid collisions.
+		data = []byte(err.Error())
+	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])[:8]
 }
