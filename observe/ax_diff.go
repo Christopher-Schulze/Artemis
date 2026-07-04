@@ -1,5 +1,10 @@
 package observe
 
+import (
+	"fmt"
+	"strings"
+)
+
 // AXNode is a simplified accessibility tree node for diffing.
 // Extended per spec L4180: compact A11yNode with ref IDs (e5, e6...)
 // + backend DOM node IDs, interactive roles, pierce support.
@@ -114,7 +119,21 @@ func DedupKey(n AXNode) string {
 }
 
 // MyersDiff returns edit script length between two node slices (Myers-like LCS distance).
+// Fast-path short-circuit: when before and after are identical (same length and
+// pairwise equal), returns 0 without allocating the DP table (spec L4258).
 func MyersDiff(before, after []AXNode) int {
+	if len(before) == len(after) {
+		identical := true
+		for i := range before {
+			if before[i].ID != after[i].ID || before[i].Role != after[i].Role {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			return 0
+		}
+	}
 	n := len(before)
 	m := len(after)
 	dp := make([][]int, n+1)
@@ -134,6 +153,193 @@ func MyersDiff(before, after []AXNode) int {
 	}
 	lcs := dp[n][m]
 	return n + m - 2*lcs
+}
+
+// DiffOpType labels a single edit-script operation (spec L4258).
+type DiffOpType string
+
+const (
+	DiffOpEqual  DiffOpType = "equal"
+	DiffOpAdd    DiffOpType = "add"
+	DiffOpRemove DiffOpType = "remove"
+	DiffOpChange DiffOpType = "change"
+)
+
+// DiffOp is a single operation in the unified edit script
+// (spec L4258: additions/removals/unchanged/changed).
+type DiffOp struct {
+	Type   DiffOpType `json:"type"`
+	Before *AXNode    `json:"before,omitempty"` // for remove/change
+	After  *AXNode    `json:"after,omitempty"`  // for add/change
+}
+
+// MyersEditScript returns the full edit script (sequence of equal/add/remove/
+// change ops) between before and after, plus a summary of additions, removals,
+// unchanged, and changed counts (spec L4258).
+//
+// The edit script is derived from the LCS backtrace of the DP table. Nodes
+// present in both sequences with the same (ID, Role) but differing Value/
+// Focused/Disabled are emitted as DiffOpChange; nodes only in `before` are
+// DiffOpRemove; nodes only in `after` are DiffOpAdd; matched LCS nodes are
+// DiffOpEqual.
+func MyersEditScript(before, after []AXNode) ([]DiffOp, MyersDiffSummary) {
+	n := len(before)
+	m := len(after)
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, m+1)
+	}
+	for i := 1; i <= n; i++ {
+		for j := 1; j <= m; j++ {
+			if before[i-1].ID == after[j-1].ID && before[i-1].Role == after[j-1].Role {
+				dp[i][j] = dp[i-1][j-1] + 1
+			} else if dp[i-1][j] >= dp[i][j-1] {
+				dp[i][j] = dp[i-1][j]
+			} else {
+				dp[i][j] = dp[i][j-1]
+			}
+		}
+	}
+
+	// Backtrace from (n, m) to (0, 0), collecting ops in reverse.
+	var ops []DiffOp
+	i, j := n, m
+	for i > 0 || j > 0 {
+		switch {
+		case i > 0 && j > 0 && before[i-1].ID == after[j-1].ID && before[i-1].Role == after[j-1].Role:
+			// LCS match: equal or changed.
+			bn := before[i-1]
+			an := after[j-1]
+			if bn.Value != an.Value || bn.Focused != an.Focused || bn.Disabled != an.Disabled {
+				bc := bn
+				ac := an
+				ops = append(ops, DiffOp{Type: DiffOpChange, Before: &bc, After: &ac})
+			} else {
+				ops = append(ops, DiffOp{Type: DiffOpEqual, Before: &bn, After: &an})
+			}
+			i--
+			j--
+		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
+			ac := after[j-1]
+			ops = append(ops, DiffOp{Type: DiffOpAdd, After: &ac})
+			j--
+		default:
+			bc := before[i-1]
+			ops = append(ops, DiffOp{Type: DiffOpRemove, Before: &bc})
+			i--
+		}
+	}
+
+	// Reverse ops to get forward order.
+	for l, r := 0, len(ops)-1; l < r; l, r = l+1, r-1 {
+		ops[l], ops[r] = ops[r], ops[l]
+	}
+
+	summary := MyersDiffSummary{}
+	for _, op := range ops {
+		switch op.Type {
+		case DiffOpEqual:
+			summary.Unchanged++
+		case DiffOpAdd:
+			summary.Additions++
+		case DiffOpRemove:
+			summary.Removals++
+		case DiffOpChange:
+			summary.Changed++
+		}
+	}
+	return ops, summary
+}
+
+// MyersDiffSummary counts the four operation kinds in an edit script
+// (spec L4258: additions/removals/unchanged/changed).
+type MyersDiffSummary struct {
+	Additions int `json:"additions"`
+	Removals  int `json:"removals"`
+	Unchanged int `json:"unchanged"`
+	Changed   int `json:"changed"`
+}
+
+// FormatNode returns a compact single-line representation of an AXNode for
+// unified diff output (spec L4258: unified diff with 3-line context).
+func FormatNode(n AXNode) string {
+	if n.Name != "" {
+		return n.Role + ":" + n.Name + " [" + n.ID + "]"
+	}
+	return n.Role + " [" + n.ID + "]"
+}
+
+// UnifiedDiff produces a unified-diff-style string with the given context
+// line count around each change hunk (spec L4258: unified diff with 3-line
+// context). Lines are prefixed with ' ' (equal), '+' (add), '-' (remove),
+// '~' (change before), '|' (change after). Hunk headers "@@ -a,b +c,d @@"
+// separate non-adjacent change regions.
+func UnifiedDiff(before, after []AXNode, contextLines int) string {
+	if contextLines < 0 {
+		contextLines = 3
+	}
+	ops, _ := MyersEditScript(before, after)
+	if len(ops) == 0 {
+		return ""
+	}
+
+	// Identify indices of non-equal ops.
+	changeIdx := make([]int, 0)
+	for i, op := range ops {
+		if op.Type != DiffOpEqual {
+			changeIdx = append(changeIdx, i)
+		}
+	}
+	if len(changeIdx) == 0 {
+		return ""
+	}
+
+	// Build hunk ranges: group consecutive change indices that are within
+	// 2*contextLines of each other.
+	type hunkRange struct{ start, end int }
+	var hunks []hunkRange
+	cur := hunkRange{start: changeIdx[0], end: changeIdx[0]}
+	for _, idx := range changeIdx[1:] {
+		if idx-cur.end <= 2*contextLines {
+			cur.end = idx
+		} else {
+			hunks = append(hunks, cur)
+			cur = hunkRange{start: idx, end: idx}
+		}
+	}
+	hunks = append(hunks, cur)
+
+	var b strings.Builder
+	for h, hunk := range hunks {
+		// Expand hunk by contextLines on each side, clamped to [0, len(ops)).
+		hStart := hunk.start - contextLines
+		if hStart < 0 {
+			hStart = 0
+		}
+		hEnd := hunk.end + contextLines
+		if hEnd >= len(ops) {
+			hEnd = len(ops) - 1
+		}
+		if h > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hStart+1, hEnd-hStart+1, hStart+1, hEnd-hStart+1))
+		for i := hStart; i <= hEnd; i++ {
+			op := ops[i]
+			switch op.Type {
+			case DiffOpEqual:
+				b.WriteString(" " + FormatNode(*op.After) + "\n")
+			case DiffOpAdd:
+				b.WriteString("+" + FormatNode(*op.After) + "\n")
+			case DiffOpRemove:
+				b.WriteString("-" + FormatNode(*op.Before) + "\n")
+			case DiffOpChange:
+				b.WriteString("~" + FormatNode(*op.Before) + "\n")
+				b.WriteString("|" + FormatNode(*op.After) + "\n")
+			}
+		}
+	}
+	return b.String()
 }
 
 // DedupRoleSnapshot removes duplicate role/name pairs preserving order.
