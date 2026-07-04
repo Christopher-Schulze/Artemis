@@ -15,29 +15,47 @@ import (
 // (spec L4028: one SourceSnapshot -> ExtractedPage facade for
 // static_fetch, renderless_js, chromium_cdp, stealth, scrape).
 type ExtractedPage struct {
-	URL             string                 `json:"url"`
-	Title           string                 `json:"title"`
-	Text            string                 `json:"text"`
-	Markdown        string                 `json:"markdown"`
-	SemanticTree    string                 `json:"semanticTree,omitempty"`
-	StructuredData  []StructuredRecord     `json:"structuredData,omitempty"`
-	Links           []ExtractedLink        `json:"links,omitempty"`
-	Forms           []ExtractedForm        `json:"forms,omitempty"`
-	Tables          []ExtractedTable       `json:"tables,omitempty"`
-	Images          []ExtractedImage       `json:"images,omitempty"`
-	Metadata        map[string]string      `json:"metadata,omitempty"`
-	OpenGraph       map[string]string      `json:"openGraph,omitempty"`
-	ExtractedAt     time.Time              `json:"extractedAt"`
-	ExtractionMode  string                 `json:"extractionMode"` // static_fetch, renderless_js, chromium_cdp, stealth, scrape
+	URL            string             `json:"url"`
+	Title          string             `json:"title"`
+	Text           string             `json:"text"`
+	Markdown       string             `json:"markdown"`
+	SemanticTree   string             `json:"semanticTree,omitempty"`
+	StructuredData []StructuredRecord `json:"structuredData,omitempty"`
+	Links          []ExtractedLink    `json:"links,omitempty"`
+	Forms          []ExtractedForm    `json:"forms,omitempty"`
+	Tables         []ExtractedTable   `json:"tables,omitempty"`
+	Images         []ExtractedImage   `json:"images,omitempty"`
+	Metadata       map[string]string  `json:"metadata,omitempty"`
+	OpenGraph      map[string]string  `json:"openGraph,omitempty"`
+	ExtractedAt    time.Time          `json:"extractedAt"`
+	ExtractionMode string             `json:"extractionMode"` // static_fetch, renderless_js, chromium_cdp, stealth, scrape
 }
 
 // SourceSnapshot is the input to the scraping pipeline
 // (spec L4028: one SourceSnapshot -> ExtractedPage facade).
+// Output contract per ss28.3a: render_mode, fallback_reason?,
+// unsupported_features[], renderless_webapi_hits[], script_timeout?,
+// request_intercepts[].
 type SourceSnapshot struct {
-	URL       string `json:"url"`
-	HTML      string `json:"html"`
-	Screenshot []byte `json:"screenshot,omitempty"`
-	Mode      string `json:"mode"` // static_fetch, renderless_js, chromium_cdp, stealth, scrape
+	URL                  string             `json:"url"`
+	HTML                 string             `json:"html"`
+	Screenshot           []byte             `json:"screenshot,omitempty"`
+	Mode                 string             `json:"mode"` // static_fetch, renderless_js, chromium_cdp, stealth, scrape
+	RenderMode           string             `json:"renderMode,omitempty"`
+	FallbackReason       string             `json:"fallbackReason,omitempty"`
+	UnsupportedFeatures  []string           `json:"unsupportedFeatures,omitempty"`
+	RenderlessWebAPIHits []string           `json:"renderlessWebApiHits,omitempty"`
+	ScriptTimeout        *int               `json:"scriptTimeout,omitempty"`
+	RequestIntercepts    []RequestIntercept `json:"requestIntercepts,omitempty"`
+}
+
+// RequestIntercept records a network request that was intercepted
+// during renderless execution (spec L3990: request_intercepts[]).
+type RequestIntercept struct {
+	URL    string `json:"url"`
+	Method string `json:"method"`
+	Action string `json:"action"` // continue, fulfill, fail, mock
+	Status int    `json:"status,omitempty"`
 }
 
 // ExtractedLink is a hyperlink extracted from a page
@@ -50,9 +68,9 @@ type ExtractedLink struct {
 // ExtractedForm is a form extracted from a page
 // (spec L4028: result types - forms).
 type ExtractedForm struct {
-	Action  string            `json:"action"`
-	Method  string            `json:"method"`
-	Fields  []ExtractedField  `json:"fields"`
+	Action string           `json:"action"`
+	Method string           `json:"method"`
+	Fields []ExtractedField `json:"fields"`
 }
 
 // ExtractedField is a form field
