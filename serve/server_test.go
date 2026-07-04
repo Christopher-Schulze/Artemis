@@ -148,3 +148,183 @@ func TestServerLifecycleListenAndShutdown(t *testing.T) {
 		t.Errorf("serve err: %v", err)
 	}
 }
+
+// helper: open a session + page against an httptest server and return
+// sessionId, pageId, and the connected websocket.
+func openSessionPage(t *testing.T, addr string, pageURL string) (sid, pid string, c *websocket.Conn) {
+	t.Helper()
+	c = dial(t, addr)
+	resp := roundTrip(t, c, Request{ID: "s", Cmd: "session.new"})
+	if !resp.OK {
+		t.Fatalf("session.new: %+v", resp)
+	}
+	sid = resp.Value.(map[string]any)["sessionId"].(string)
+	open := []byte(fmt.Sprintf(`{"sessionId":%q,"url":%q}`, sid, pageURL))
+	resp = roundTrip(t, c, Request{ID: "p", Cmd: "page.open", Params: open})
+	if !resp.OK {
+		t.Fatalf("page.open: %+v", resp)
+	}
+	pid = resp.Value.(map[string]any)["pageId"].(string)
+	return sid, pid, c
+}
+
+func TestPageType(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><body><input id="q" type="text" value=""></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	typeP := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"selector":"#q","text":"hello"}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "t", Cmd: "page.type", Params: typeP})
+	if !resp.OK {
+		t.Fatalf("page.type: %+v", resp)
+	}
+
+	// Verify the value was set via page.eval.
+	evalP := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"expr":"document.getElementById('q').value"}`, sid, pid))
+	resp = roundTrip(t, c, Request{ID: "v", Cmd: "page.eval", Params: evalP})
+	if !resp.OK {
+		t.Fatalf("page.eval: %+v", resp)
+	}
+	got := resp.Value.(map[string]any)["value"].(string)
+	if got != "hello" {
+		t.Errorf("input value = %q, want hello", got)
+	}
+}
+
+func TestPageTypeMissingSelectorErrors(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	typeP := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"selector":"#missing","text":"x"}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "t", Cmd: "page.type", Params: typeP})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "type_failed" {
+		t.Errorf("got %+v, want type_failed", resp)
+	}
+}
+
+func TestPageAssertSelectorExists(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><body><h1 id="hi">Hi</h1></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	// Positive: selector exists.
+	p1 := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"selector_exists","selector":"#hi"}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "a1", Cmd: "page.assert", Params: p1})
+	if !resp.OK {
+		t.Fatalf("page.assert: %+v", resp)
+	}
+	v := resp.Value.(map[string]any)
+	if v["pass"] != true {
+		t.Errorf("pass = %v, want true", v["pass"])
+	}
+
+	// Negative: selector missing, want=false.
+	p2 := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"selector_exists","selector":"#nope","want":false}`, sid, pid))
+	resp = roundTrip(t, c, Request{ID: "a2", Cmd: "page.assert", Params: p2})
+	if !resp.OK {
+		t.Fatalf("page.assert: %+v", resp)
+	}
+	v = resp.Value.(map[string]any)
+	if v["pass"] != true {
+		t.Errorf("pass = %v, want true (selector missing, want=false)", v["pass"])
+	}
+
+	// Negative assertion that should fail: selector missing, want=true (default).
+	p3 := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"selector_exists","selector":"#nope"}`, sid, pid))
+	resp = roundTrip(t, c, Request{ID: "a3", Cmd: "page.assert", Params: p3})
+	if !resp.OK {
+		t.Fatalf("page.assert: %+v", resp)
+	}
+	v = resp.Value.(map[string]any)
+	if v["pass"] != false {
+		t.Errorf("pass = %v, want false (selector missing, want=true default)", v["pass"])
+	}
+}
+
+func TestPageAssertTitleContains(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><head><title>Hello World</title></head><body></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"title_contains","substring":"Hello"}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "a", Cmd: "page.assert", Params: p})
+	if !resp.OK {
+		t.Fatalf("page.assert: %+v", resp)
+	}
+	v := resp.Value.(map[string]any)
+	if v["pass"] != true {
+		t.Errorf("pass = %v, want true", v["pass"])
+	}
+
+	p2 := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"title_contains","substring":"Nope"}`, sid, pid))
+	resp = roundTrip(t, c, Request{ID: "a2", Cmd: "page.assert", Params: p2})
+	if !resp.OK {
+		t.Fatalf("page.assert: %+v", resp)
+	}
+	v = resp.Value.(map[string]any)
+	if v["pass"] != false {
+		t.Errorf("pass = %v, want false", v["pass"])
+	}
+}
+
+func TestPageAssertBadMode(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"bogus"}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "a", Cmd: "page.assert", Params: p})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "bad_mode" {
+		t.Errorf("got %+v, want bad_mode", resp)
+	}
+}
+
+func TestPageWaitIdle(t *testing.T) {
+	// A page with no JS context (runScripts=false) WaitIdle returns nil.
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<!doctype html><html><body><h1>Static</h1></body></html>`)
+	}))
+	defer page.Close()
+
+	addr, cleanup := startServer(t)
+	defer cleanup()
+	sid, pid, c := openSessionPage(t, addr, page.URL)
+	defer c.CloseNow()
+
+	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q}`, sid, pid))
+	resp := roundTrip(t, c, Request{ID: "w", Cmd: "page.wait_idle", Params: p})
+	if !resp.OK {
+		t.Fatalf("page.wait_idle: %+v", resp)
+	}
+}

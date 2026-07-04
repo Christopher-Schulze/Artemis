@@ -46,9 +46,9 @@ type StreamSubscriber interface {
 
 // StreamingConfig controls the streaming WebSocket server port selection.
 type StreamingConfig struct {
-	BasePort  int
+	BasePort   int
 	MaxRetries int
-	Enabled   bool
+	Enabled    bool
 }
 
 // DefaultStreamingConfig is the canonical streaming configuration.

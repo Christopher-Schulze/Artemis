@@ -3,6 +3,7 @@
 
 # Go build output
 /artemis
+/artemis-smoke
 /bin/
 /dist/
 *.test

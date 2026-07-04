@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,6 +89,12 @@ func (s *Server) Close() error {
 	return s.srv.Close()
 }
 
+// HandleWSForTest exposes the WebSocket handler for in-process tests
+// that want to drive the server without spawning a subprocess.
+func (s *Server) HandleWSForTest(w http.ResponseWriter, r *http.Request) {
+	s.handleWS(w, r)
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, s.opts.AcceptOptions)
 	if err != nil {
@@ -95,6 +102,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
+	// Page dumps (especially HTML) can easily exceed the default 32KB
+	// read limit. Allow up to 8MB per message.
+	c.SetReadLimit(8 << 20)
 
 	ctx := r.Context()
 	for {
@@ -142,6 +152,12 @@ func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 		return s.cmdPageDump(req)
 	case "page.click_by_text":
 		return s.cmdPageClickByText(ctx, req)
+	case "page.type":
+		return s.cmdPageType(req)
+	case "page.wait_idle":
+		return s.cmdPageWaitIdle(ctx, req)
+	case "page.assert":
+		return s.cmdPageAssert(ctx, req)
 	default:
 		return errResp(req.ID, "unknown_cmd", fmt.Sprintf("unknown cmd %q", req.Cmd))
 	}
@@ -322,6 +338,123 @@ func (s *Server) cmdPageClickByText(ctx context.Context, req *Request) *Response
 		return errResp(req.ID, "click_failed", err.Error())
 	}
 	return okResp(req.ID, map[string]any{})
+}
+
+func (s *Server) cmdPageType(req *Request) *Response {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		PageID    string `json:"pageId"`
+		Selector  string `json:"selector"`
+		Text      string `json:"text"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return errResp(req.ID, "bad_params", err.Error())
+	}
+	page := s.lookupPage(p.SessionID, p.PageID)
+	if page == nil {
+		return errResp(req.ID, "no_page", "")
+	}
+	if err := agent.Type(page.Document(), p.Selector, p.Text); err != nil {
+		return errResp(req.ID, "type_failed", err.Error())
+	}
+	return okResp(req.ID, map[string]any{})
+}
+
+func (s *Server) cmdPageWaitIdle(ctx context.Context, req *Request) *Response {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		PageID    string `json:"pageId"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return errResp(req.ID, "bad_params", err.Error())
+	}
+	page := s.lookupPage(p.SessionID, p.PageID)
+	if page == nil {
+		return errResp(req.ID, "no_page", "")
+	}
+	if err := page.WaitIdle(ctx); err != nil {
+		return errResp(req.ID, "wait_failed", err.Error())
+	}
+	return okResp(req.ID, map[string]any{})
+}
+
+// cmdPageAssert evaluates an assertion against the current page state.
+// Supported modes:
+//   - mode=selector_exists   params: selector, want (true|false, default true)
+//   - mode=title_contains    params: substring
+//   - mode=text_contains     params: substring
+//   - mode=url_contains      params: substring
+//   - mode=status_eq         params: status (int)
+//   - mode=eval_truthy       params: expr (JS)
+func (s *Server) cmdPageAssert(ctx context.Context, req *Request) *Response {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		PageID    string `json:"pageId"`
+		Mode      string `json:"mode"`
+		Selector  string `json:"selector"`
+		Want      *bool  `json:"want"`
+		Substring string `json:"substring"`
+		Status    int    `json:"status"`
+		Expr      string `json:"expr"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return errResp(req.ID, "bad_params", err.Error())
+	}
+	page := s.lookupPage(p.SessionID, p.PageID)
+	if page == nil {
+		return errResp(req.ID, "no_page", "")
+	}
+	want := true
+	if p.Want != nil {
+		want = *p.Want
+	}
+	type assertionResult struct {
+		Pass bool   `json:"pass"`
+		Got  string `json:"got"`
+	}
+	switch p.Mode {
+	case "selector_exists":
+		n, err := page.Document().QuerySelector(p.Selector)
+		if err != nil {
+			return errResp(req.ID, "assert_failed", "query: "+err.Error())
+		}
+		got := n != nil
+		return okResp(req.ID, assertionResult{Pass: got == want, Got: fmt.Sprintf("exists=%v", got)})
+	case "title_contains":
+		t := page.Title()
+		got := strings.Contains(t, p.Substring)
+		return okResp(req.ID, assertionResult{Pass: got == want, Got: t})
+	case "text_contains":
+		t := page.Text()
+		got := strings.Contains(t, p.Substring)
+		return okResp(req.ID, assertionResult{Pass: got == want, Got: truncate(t, 200)})
+	case "url_contains":
+		u := page.URL()
+		got := strings.Contains(u, p.Substring)
+		return okResp(req.ID, assertionResult{Pass: got == want, Got: u})
+	case "status_eq":
+		got := page.StatusCode()
+		return okResp(req.ID, assertionResult{Pass: got == p.Status, Got: strconv.Itoa(got)})
+	case "eval_truthy":
+		if p.Expr == "" {
+			return errResp(req.ID, "bad_params", "eval_truthy requires expr")
+		}
+		v, err := page.Eval(ctx, p.Expr)
+		if err != nil {
+			return errResp(req.ID, "assert_failed", "eval: "+err.Error())
+		}
+		got := v != nil && v.Bool()
+		return okResp(req.ID, assertionResult{Pass: got == want, Got: v.String()})
+	default:
+		return errResp(req.ID, "bad_mode", "unknown assert mode "+p.Mode)
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func okResp(id string, value any) *Response {
