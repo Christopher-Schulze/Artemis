@@ -43,7 +43,7 @@ After extraction the agent's next move is interaction: click a button, fill a fo
 
 `Type(doc, selector, text)` does NOT dispatch input/change events in this TASK. Many agent flows are happy with just the value mutation; React-style controlled inputs that listen for input events need event dispatch which lands when MutationObserver / synthetic events arrive in TASK 004e.
 
-Reference: research/lightpanda/src/browser/forms.zig, research/lightpanda/src/browser/actions.zig, research/lightpanda/src/browser/interactive.zig.
+Reference: internal design notes.
 
 ## Deviations
 

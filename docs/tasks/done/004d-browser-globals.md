@@ -31,7 +31,7 @@ The bindings that matter most for SPA compatibility, after DOM mutation + events
 
 Storage is per Context (per page load). Real browsers persist localStorage across page loads; an embedder that wants persistence can implement `js.Storage` interface and pass via `ContextOpts.LocalStorage` / `SessionStorage`.
 
-Reference: research/lightpanda/src/browser/webapi/Location.zig, research/lightpanda/src/browser/webapi/Navigator.zig, research/lightpanda/src/browser/webapi/History.zig.
+Reference: internal design notes.
 
 `Storage.length` is exposed as a snapshot integer at install time rather than as a live getter. v8go does not expose accessor properties on `Object` instances, only on `ObjectTemplate`, and our storage objects are built via NewInstance to close over Go-side pointers. The snapshot goes stale after `setItem`/`removeItem`/`clear`. Workaround: a `Storage.lengthOf()` method always returns the live length. Documented in documentation.md so SPA code that relies on `localStorage.length` is told the right name. A future TASK can move storage to template-based accessor properties when v8go grows the API or when we ship a JS-side facade similar to the DOM bootstrap.
 

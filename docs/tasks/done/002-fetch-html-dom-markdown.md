@@ -40,13 +40,13 @@ Foundation for everything that follows. Before V8, WebAPI, or any agent layer ca
 
 ## Notes
 
-DOM design: types in `webapi/` wrap `*html.Node` from `golang.org/x/net/html` by reference. No copies, walking goes through the parser-owned tree. Strings are returned by-value at the API boundary (Go strings are immutable so this is cheap copy of header). This matches the Lightpanda zero-copy intent within Go's constraints.
+DOM design: types in `webapi/` wrap `*html.Node` from `golang.org/x/net/html` by reference. No copies, walking goes through the parser-owned tree. Strings are returned by-value at the API boundary (Go strings are immutable so this is cheap copy of header). This follows a zero-copy intent within Go's constraints.
 
 Selector engine: `golang.org/x/net/html/atom` plus simple manual matcher for tag/id/class/attribute/descendant suffices for Phase 1. Avoid pulling in cascadia explicitly until the WebAPI Phase 3 forces it.
 
 Cookies + JS-aware features (Click, Eval, Form) are explicitly out of TASK 002 scope. They land in their respective TASKs.
 
-Reference: research/lightpanda/src/browser/Browser.zig, research/lightpanda/src/browser/Page.zig, research/lightpanda/src/browser/HttpClient.zig, research/lightpanda/src/browser/markdown.zig, research/lightpanda/src/browser/dump.zig, research/lightpanda/src/browser/parser/Parser.zig.
+Reference: internal design notes.
 
 Visible-text extraction adds a soft space at the start and end of every block-level element (p, div, h1-h6, li, td, ...). Without this, neighbouring blocks merge their text content (`HelloWorld`). The space is collapsed by the standard whitespace pass.
 

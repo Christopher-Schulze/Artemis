@@ -53,7 +53,7 @@ The DOM bridge pattern: every property/method on the JS side calls back into Go 
 
 Mutation propagation from JS to Go DOM is intentionally absent. Until TASK 004 lands a proper MutationObserver-backed shadow DOM, only reads round-trip. `document.body.innerHTML = "..."` is not implemented; an attempted assignment is a noop today, will become a real setter in TASK 004.
 
-Reference: research/lightpanda/src/browser/js/Isolate.zig, research/lightpanda/src/browser/js/Context.zig, research/lightpanda/src/browser/js/Caller.zig, research/lightpanda/src/browser/js/bridge.zig, research/lightpanda/src/browser/ScriptManager.zig.
+Reference: internal design notes.
 
 DOM bridge installs property values as snapshots at context-creation time. For `body.innerHTML`, `body.outerHTML`, `documentElement.outerHTML`, `body.textContent`, those are computed once when the context is built. Since this TASK's DOM is read-only from JS, snapshots are correct. When TASK 004 introduces mutation, we will move these to v8 accessor properties (`SetAccessorProperty` with getter+setter Function templates) so reads always reflect current state.
 

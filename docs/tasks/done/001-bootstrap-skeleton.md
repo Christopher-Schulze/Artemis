@@ -2,15 +2,15 @@
 
 ## Why
 
-Greenfield repository. Need the Repo Structure (per CLAUDE.md): `LICENSE`, `README.md`, `docs/documentation.md`, `docs/spec.md`, `docs/tasks.md`, `docs/tasks/`, `docs/tasks/done/`, `Makefile`, `go.mod`, `cmd/artemis/`, `scripts/`. Lightpanda source must be preserved as a research reference, not at repo root. Build must compile so future TASKs start from a green baseline.
+Greenfield repository. Need the Repo Structure (per CLAUDE.md): `LICENSE`, `README.md`, `docs/documentation.md`, `docs/spec.md`, `docs/tasks.md`, `docs/tasks/`, `docs/tasks/done/`, `Makefile`, `go.mod`, `cmd/artemis/`, `scripts/`. Reference source must be preserved as a research reference, not at repo root. Build must compile so future TASKs start from a green baseline.
 
 ## Acceptance
 
-- `research/lightpanda/` contains the original Lightpanda source unmodified.
+- `research/` contains the original reference source unmodified.
 - `LICENSE` is AGPL-3.0 at repo root.
-- `README.md` documents project, license, lineage to Lightpanda, status, build instructions.
+- `README.md` documents project, license, status, build instructions.
 - `docs/documentation.md` exists with TOC and skeleton sections matching CLAUDE.md.
-- `docs/spec.md` documents target architecture, module map (Lightpanda Zig -> Artemis Go), public Go API surface, CLI surface, steering protocol, memory model, telemetry channels, build targets. CDP and MCP excluded.
+- `docs/spec.md` documents target architecture, module map, public Go API surface, CLI surface, steering protocol, memory model, telemetry channels, build targets.
 - `docs/tasks.md` lists Active / Queue / Blocked / Done with TASK 001 active and TASKs 002-009 queued matching the spec roadmap.
 - `go.mod` declares `module artemis` on Go 1.26.
 - `Makefile` provides `build run test test-race vet fmt tidy clean`.
@@ -20,7 +20,7 @@ Greenfield repository. Need the Repo Structure (per CLAUDE.md): `LICENSE`, `READ
 
 ## Sub-Tasks
 
-- [x] move `browser-main/` to `research/lightpanda/`
+- [x] move reference source to `research/`
 - [x] copy AGPL-3.0 `LICENSE` to repo root
 - [x] write `README.md`
 - [x] write `.gitignore`
@@ -40,9 +40,9 @@ Stack decisions locked (see spec.md): V8 via `rogchap.com/v8go`, HTML via `golan
 
 CDP and MCP explicitly excluded. WebSocket included as both browser-side client (Phase 3, JS WebSocket API) and server-side custom JSON steering protocol (Phase 7). Telemetry includes both local OTel tracing and opt-out anonymous phone-home (no URLs, no content).
 
-Lightpanda source under `research/lightpanda/` is read-only reference. Any reference in code or docs uses path form `research/lightpanda/src/...` per CLAUDE.md spec.md research-ref rule.
+Reference source under `research/` is read-only. Any reference in code or docs uses a `research/...` path form per the research-ref rule.
 
-Lightpanda ships one stray Go file (`research/lightpanda/src/data/public_suffix_list_gen.go`) that fails `go vet` with a redundant-newline diagnostic. To keep `research/` unmodified, the Makefile filters `./...` through `go list | grep -v /research/` and feeds the result to `vet` and `test`. This is the canonical pattern; future TASKs add packages and they are picked up automatically.
+The reference source ships one stray Go file under `research/` that fails `go vet` with a redundant-newline diagnostic. To keep `research/` unmodified, the Makefile filters `./...` through `go list | grep -v /research/` and feeds the result to `vet` and `test`. This is the canonical pattern; future TASKs add packages and they are picked up automatically.
 
 ## Deviations
 

@@ -39,7 +39,7 @@ Handle table is per-context so closing the context releases everything. There is
 
 `childNodes` returns a fresh array each call - "live" at the call site, not a NodeList object that auto-updates. Spec-strict NodeList auto-update lands when MutationObserver lands.
 
-Reference: research/lightpanda/src/browser/webapi/Node.zig, research/lightpanda/src/browser/webapi/Element.zig, research/lightpanda/src/browser/webapi/Document.zig, research/lightpanda/src/browser/js/bridge.zig.
+Reference: internal design notes.
 
 `nodeType` returns the standard whatwg DOM values (Element=1, Text=3, Comment=8, Document=9, DocumentType=10) rather than the internal `webapi.NodeType` enum, so JS code using `n.nodeType === 1` works as on real browsers.
 

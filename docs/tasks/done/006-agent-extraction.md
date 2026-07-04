@@ -38,7 +38,7 @@ SemanticTree intentionally drops nav/footer/aside chrome. Configurable filter li
 
 Forms and Actions live in a sibling TASK 006b - they need different plumbing (mutation, event firing, optional follow-up fetch) and would crowd this scope.
 
-Reference: research/lightpanda/src/browser/links.zig, research/lightpanda/src/browser/structured_data.zig, research/lightpanda/src/SemanticTree.zig.
+Reference: internal design notes.
 
 ## Deviations
 

@@ -32,7 +32,7 @@ robots.txt parser supports User-agent / Disallow / Allow / Sitemap. Most-specifi
 
 Network interception is invoked from `network.HTTPClient.Do`. The hook signature uses an exported RequestInfo/ResponseInfo to keep the JS package free of `net/http` types.
 
-Reference: research/lightpanda/src/network/Robots.zig, research/lightpanda/src/network/IpFilter.zig, research/lightpanda/src/network/Network.zig.
+Reference: internal design notes.
 
 ## Deviations
 

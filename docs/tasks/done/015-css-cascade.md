@@ -2,7 +2,7 @@
 
 ## Why
 
-Last meaningful gap to Lightpanda WebAPI. CSS-in-JS frameworks read computed styles to make layout decisions; without a real cascade `getComputedStyle(el).backgroundColor` returns nothing for a class declared in `<style>`. Minimum-viable here: parse `<style>` text, selector matching via cascadia, specificity-aware cascade, merged with inline style. External `<link rel=stylesheet>` and full computed-length resolution arrive in a later TASK.
+Last meaningful WebAPI gap. CSS-in-JS frameworks read computed styles to make layout decisions; without a real cascade `getComputedStyle(el).backgroundColor` returns nothing for a class declared in `<style>`. Minimum-viable here: parse `<style>` text, selector matching via cascadia, specificity-aware cascade, merged with inline style. External `<link rel=stylesheet>` and full computed-length resolution arrive in a later TASK.
 
 ## Acceptance
 

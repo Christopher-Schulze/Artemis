@@ -2,15 +2,15 @@
 
 ## Why
 
-After TASK 042 baked the V8 startup snapshot, profiling and reality-check uncovered (1) per-Context allocations + cgo-callback registrations that grew unboundedly across pages, (2) WebAPI fidelity gaps vs Lightpanda's living-standard surface, and (3) an unaddressable wall-time floor (~1 ms/page) dominated by V8's internal `Context::New`. This TASK consolidates four iteration rounds that drove FetchRunScripts memory down by 55%, eliminated the v8go callback-registry leak, expanded the WebAPI surface to spec parity, and finally introduced a v8.Context pool that beat Lightpanda's published 0.5 ms/page wall time.
+After TASK 042 baked the V8 startup snapshot, profiling and reality-check uncovered (1) per-Context allocations + cgo-callback registrations that grew unboundedly across pages, (2) WebAPI fidelity gaps vs the living-standard surface, and (3) an unaddressable wall-time floor (~1 ms/page) dominated by V8's internal `Context::New`. This TASK consolidates four iteration rounds that drove FetchRunScripts memory down by 55%, eliminated the v8go callback-registry leak, expanded the WebAPI surface to spec parity, and finally introduced a v8.Context pool that beat the ~0.5 ms/page published range.
 
 ## Acceptance
 
 - `BenchmarkFetchRunScripts` (single-page fetch + script run): 22.6 KB/op, 513 allocs/op (down from 50.8 KB / 741 — -55% / -31%).
 - `BenchmarkEndToEnd100Pages` no-pool: ~97 ms / 7.4 MB / 153k allocs.
-- `BenchmarkEndToEnd100PagesPooled` (pool=8): ~22 ms / 6.9 MB / 115k allocs (-77% wall time, ~0.22 ms/page, ahead of Lightpanda's published 0.5 ms/page).
+- `BenchmarkEndToEnd100PagesPooled` (pool=8): ~22 ms / 6.9 MB / 115k allocs (-77% wall time, ~0.22 ms/page, ahead of the ~0.5 ms/page published range).
 - `Isolate.cbs` callback registry no longer grows per-Context — every `FunctionTemplate`/`ObjectTemplate` is registered once per Runtime; the per-Context dispatch goes through `Runtime.contextFor(info.Context())` (a `sync.Map[*v8.Context]*Context`) or `info.This().GetInternalField(0)`.
-- WebAPI surface matches Lightpanda's living-standard coverage for the surfaces real sites use: 67 HTMLElement subclasses + HTMLUnknownElement, functional Streams, spec-correct Range/Selection, XMLSerializer, NodeList/HTMLCollection/FileList/DOMTokenList/NamedNodeMap markers, navigator.plugins/mimeTypes/webdriver/etc.
+- WebAPI surface matches living-standard coverage for the surfaces real sites use: 67 HTMLElement subclasses + HTMLUnknownElement, functional Streams, spec-correct Range/Selection, XMLSerializer, NodeList/HTMLCollection/FileList/DOMTokenList/NamedNodeMap markers, navigator.plugins/mimeTypes/webdriver/etc.
 - `Context.Close` deterministically tears down all background work (WebSocket reader goroutines, async fetch goroutines, iframe sub-Contexts) so `runtime.NumGoroutine()` returns to baseline within 50 ms — covered by `TestContextCloseShutsDownWSGoroutines` and `TestContextCloseCancelsAsyncFetch`.
 - Concurrent `NewContext` from multiple goroutines no longer crashes V8: serialised via `Runtime.ctxMu`. Covered by `TestPooledContextConcurrent` and `TestNonPooledContextConcurrent` under `-race`.
 
@@ -18,7 +18,7 @@ After TASK 042 baked the V8 startup snapshot, profiling and reality-check uncove
 
 ### Phase 0 — Reality check after snapshot (fidelity + correctness)
 
-- [x] Audit Lightpanda's `src/browser/webapi/element/html` directory; expand HTMLElement subclasses 47 -> 67. Multi-tag classes (`HTMLHeadingElement` over H1..H6, `HTMLQuoteElement` over Q+BLOCKQUOTE, `HTMLModElement` over INS+DEL, `HTMLTableSectionElement` over THEAD/TBODY/TFOOT, `HTMLTableColElement` over COL+COLGROUP) use array-form `_tagInstance`. `HTMLUnknownElement` matches any tag name not in the known set.
+- [x] Audit the reference `webapi/element/html` layout; expand HTMLElement subclasses 47 -> 67. Multi-tag classes (`HTMLHeadingElement` over H1..H6, `HTMLQuoteElement` over Q+BLOCKQUOTE, `HTMLModElement` over INS+DEL, `HTMLTableSectionElement` over THEAD/TBODY/TFOOT, `HTMLTableColElement` over COL+COLGROUP) use array-form `_tagInstance`. `HTMLUnknownElement` matches any tag name not in the known set.
 - [x] `Streams`: replace `pipeTo`/`pipeThrough`/`tee` stubs with functional in-memory implementations. `pipeTo` reads + writes serially, `pipeThrough` wires reader -> transform.writable, `tee` consumes once and broadcasts to both branches.
 - [x] `Range` / `Selection`: spec-correct offsets (`setStartBefore` -> child index, `selectNodeContents` -> child count or text length), `toString()` text-substring for same-text-node ranges, `Selection.collapse(node, off)` installs a fresh collapsed Range so subsequent `extend()` works, `containsNode` walks ancestors of node + range endpoints for partial overlap detection.
 - [x] CharacterData accessors on text/comment/cdata nodes: `.data`, `.nodeValue`, `.length`. Added to ELEM_PROTO with nodeType branching so element nodes still return `null`/`undefined`.

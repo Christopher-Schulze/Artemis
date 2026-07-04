@@ -27,7 +27,7 @@ Listener storage holds `*v8.Function` references. v8go's GC tracks these since a
 
 For phase 3b we do not implement event capture phase, target retargeting, or the full DOM event listener options object (`{capture, once, passive, signal}`); only the basic `(type, callback)` form. The `once` and `signal` options arrive when MutationObserver lands in TASK 004d.
 
-Reference: research/lightpanda/src/browser/webapi/Event.zig, research/lightpanda/src/browser/webapi/EventTarget.zig, research/lightpanda/src/browser/webapi/event/.
+Reference: internal design notes.
 
 Initial implementation stored listeners as `*v8.Function` pointers on the Go side. Test failure in `TestRemoveEventListener` exposed that v8go's `args[N].AsFunction()` returns a fresh wrapper struct each call, so two pointer values referring to the same JS function are not equal. Workaround would have required tracking by underlying handle which v8go does not expose.
 

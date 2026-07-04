@@ -22,7 +22,7 @@ A minority of agents care about layout, but a meaningful fraction read inline `e
 
 ## Notes
 
-Style attribute serialisation rebuilds the string from the map every set so order is not preserved; that matches Lightpanda's documented behaviour and is fine for agent reads.
+Style attribute serialisation rebuilds the string from the map every set so order is not preserved; that matches the reference behaviour and is fine for agent reads.
 
 camelCase <-> kebab-case mapping uses the standard rule (insert hyphen before each uppercase letter, lowercase it). `webkit`/`moz` vendor prefixes are not treated specially.
 

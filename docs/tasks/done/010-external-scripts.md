@@ -2,7 +2,7 @@
 
 ## Why
 
-Without external `<script src=...>` execution, no modern SPA can boot. React/Vue/Angular/Solid/Svelte/etc. all ship as external scripts. This is the single highest-impact gap to Lightpanda.
+Without external `<script src=...>` execution, no modern SPA can boot. React/Vue/Angular/Solid/Svelte/etc. all ship as external scripts. This is the single highest-impact capability gap.
 
 ## Acceptance
 

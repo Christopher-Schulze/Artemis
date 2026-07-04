@@ -31,7 +31,7 @@ The Fetch callback blocks the V8 thread for the duration of the HTTP request. V8
 
 `v8go.Isolate.PerformMicrotaskCheckpoint()` flushes the microtask queue. Called by `Context.Eval` after `RunScript` and by `engine.runInlineScripts` after each script. Without this, `await` in a Promise chain leaves continuations queued and the caller does not see their effects.
 
-Reference: research/lightpanda/src/browser/webapi/net/, research/lightpanda/src/browser/HttpClient.zig, research/lightpanda/src/browser/ScriptManager.zig.
+Reference: internal design notes.
 
 `js.NewContext` signature changed from `(doc, console)` to `(doc, ContextOpts)` to make room for the optional Fetch field without future churn. All in-tree call sites updated in this TASK; embedders should pass `js.ContextOpts{Console: ..., Fetch: ...}` going forward.
 

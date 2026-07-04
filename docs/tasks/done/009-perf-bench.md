@@ -2,7 +2,7 @@
 
 ## Why
 
-Benchmarks lock in current performance and surface regressions when later TASKs touch hot paths. Real Lightpanda comparison requires a wall-clock harness running their binary side-by-side, deferred; this TASK lands the Go-side benchmarks and a Makefile target.
+Benchmarks lock in current performance and surface regressions when later TASKs touch hot paths. A real competitor comparison requires a wall-clock harness running the competitor binary side-by-side, deferred; this TASK lands the Go-side benchmarks and a Makefile target.
 
 ## Acceptance
 
@@ -29,7 +29,7 @@ Sample numbers (darwin/arm64, M-series, 2026-05-08):
 
 ## Notes
 
-Lightpanda comparison is intentionally deferred. Their benchmark harness lives in their `demo` repo; running it cross-process is a project of its own. Once the v1 surface is stable we can rerun their numbers locally.
+The competitor comparison is intentionally deferred. Running a competitor binary cross-process is a project of its own. Once the v1 surface is stable we can rerun the numbers locally.
 
 ## Deviations
 

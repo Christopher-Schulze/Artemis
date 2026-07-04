@@ -35,7 +35,7 @@ Phone-home contract documented, transmission deferred:
 - only: artemis version, GOOS/GOARCH, anonymous UUID generated on first run and stored at `~/.artemis/instance-id`, total fetch count, total eval count, error class counts
 - opt-out via `ARTEMIS_DISABLE_TELEMETRY=true`
 
-Reference: research/lightpanda/src/Server.zig, research/lightpanda/src/telemetry/.
+Reference: internal design notes.
 
 ## Deviations
 
