@@ -1,14 +1,53 @@
 package agent
 
 import (
-	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 
 	"artemis/webapi"
 )
+
+// mdConverterPool reuses mdConverter instances across nested link/list/
+// blockquote processing to avoid per-element allocations. Each Acquire
+// resets the builder and clears list state; Release returns the converter
+// to the pool.
+var mdConverterPool = sync.Pool{
+	New: func() interface{} { return &mdConverter{} },
+}
+
+func acquireMDConverter(base string) *mdConverter {
+	mc := mdConverterPool.Get().(*mdConverter)
+	mc.base = base
+	mc.b.Reset()
+	mc.listKind = mc.listKind[:0]
+	mc.olIndex = mc.olIndex[:0]
+	mc.inPre = false
+	return mc
+}
+
+func releaseMDConverter(mc *mdConverter) {
+	mdConverterPool.Put(mc)
+}
+
+// builderPool reuses strings.Builder instances for short-lived text
+// accumulation (table cells, code blocks, raw text collection).
+var builderPool = sync.Pool{
+	New: func() interface{} { return &strings.Builder{} },
+}
+
+func acquireBuilder() *strings.Builder {
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	return b
+}
+
+func releaseBuilder(b *strings.Builder) {
+	builderPool.Put(b)
+}
 
 // Markdown renders the document body as CommonMark-flavored Markdown.
 // Script, style, template, head, and noscript subtrees are skipped.
@@ -19,9 +58,11 @@ func Markdown(d *webapi.Document) string {
 		return ""
 	}
 	body := bodyOrRoot(d.RawRoot())
-	mc := &mdConverter{base: d.URL()}
+	mc := acquireMDConverter(d.URL())
 	mc.walk(body)
-	return strings.TrimSpace(mc.b.String())
+	result := strings.TrimSpace(mc.b.String())
+	releaseMDConverter(mc)
+	return result
 }
 
 func bodyOrRoot(n *html.Node) *html.Node {
@@ -178,14 +219,18 @@ func (m *mdConverter) link(n *html.Node) {
 		return
 	}
 	href = m.resolveURL(href)
-	var inner mdConverter
-	inner.base = m.base
+	inner := acquireMDConverter(m.base)
 	inner.walkChildren(n)
 	text := strings.TrimSpace(inner.b.String())
+	releaseMDConverter(inner)
 	if text == "" {
 		text = href
 	}
-	m.b.WriteString(fmt.Sprintf("[%s](%s)", text, href))
+	m.b.WriteByte('[')
+	m.b.WriteString(text)
+	m.b.WriteString("](")
+	m.b.WriteString(href)
+	m.b.WriteByte(')')
 }
 
 func (m *mdConverter) image(n *html.Node) {
@@ -195,7 +240,11 @@ func (m *mdConverter) image(n *html.Node) {
 		return
 	}
 	src = m.resolveURL(src)
-	m.b.WriteString(fmt.Sprintf("![%s](%s)", alt, src))
+	m.b.WriteString("![")
+	m.b.WriteString(alt)
+	m.b.WriteString("](")
+	m.b.WriteString(src)
+	m.b.WriteByte(')')
 }
 
 func (m *mdConverter) resolveURL(href string) string {
@@ -216,9 +265,10 @@ func (m *mdConverter) resolveURL(href string) string {
 func (m *mdConverter) codeBlock(n *html.Node) {
 	m.ensureBlankLine()
 	m.b.WriteString("```\n")
-	var buf strings.Builder
-	collectRawText(n, &buf)
+	buf := acquireBuilder()
+	collectRawText(n, buf)
 	body := strings.TrimRight(buf.String(), "\n")
+	releaseBuilder(buf)
 	m.b.WriteString(body)
 	m.b.WriteString("\n```\n\n")
 }
@@ -251,14 +301,15 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 			m.b.WriteString("- ")
 		} else {
 			m.olIndex[depth]++
-			m.b.WriteString(fmt.Sprintf("%d. ", m.olIndex[depth]))
+			m.b.WriteString(strconv.Itoa(m.olIndex[depth]))
+			m.b.WriteString(". ")
 		}
-		var inner mdConverter
-		inner.base = m.base
-		inner.listKind = append([]byte(nil), m.listKind...)
-		inner.olIndex = append([]int(nil), m.olIndex...)
+		inner := acquireMDConverter(m.base)
+		inner.listKind = append(inner.listKind, m.listKind...)
+		inner.olIndex = append(inner.olIndex, m.olIndex...)
 		inner.walkChildren(c)
 		text := strings.TrimSpace(inner.b.String())
+		releaseMDConverter(inner)
 		text = strings.ReplaceAll(text, "\n", "\n"+indent+"  ")
 		m.b.WriteString(text)
 		m.b.WriteByte('\n')
@@ -270,10 +321,10 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 
 func (m *mdConverter) blockquote(n *html.Node) {
 	m.ensureBlankLine()
-	var inner mdConverter
-	inner.base = m.base
+	inner := acquireMDConverter(m.base)
 	inner.walkChildren(n)
 	text := strings.TrimRight(inner.b.String(), "\n")
+	releaseMDConverter(inner)
 	if text == "" {
 		return
 	}
@@ -328,9 +379,10 @@ func tableRows(n *html.Node) [][]string {
 			var cells []string
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
-					var b strings.Builder
-					collectRawText(c, &b)
+					b := acquireBuilder()
+					collectRawText(c, b)
 					cells = append(cells, strings.TrimSpace(collapseInline(b.String())))
+					releaseBuilder(b)
 				}
 			}
 			if len(cells) > 0 {
@@ -363,7 +415,7 @@ func collapseInline(s string) string {
 	if !needsInlineCollapse(s) {
 		return s
 	}
-	var b strings.Builder
+	b := acquireBuilder()
 	b.Grow(len(s))
 	prevSpace := false
 	for i := 0; i < len(s); i++ {
@@ -378,7 +430,9 @@ func collapseInline(s string) string {
 		b.WriteByte(c)
 		prevSpace = false
 	}
-	return b.String()
+	result := b.String()
+	releaseBuilder(b)
+	return result
 }
 
 // needsInlineCollapse reports whether collapseInline would change s: any tab/CR/LF,
