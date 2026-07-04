@@ -18,6 +18,23 @@ Single source of truth for project-level documentation. Code-level details live 
 - [Forms and Actions](#forms-and-actions)
 - [Network Stack](#network-stack)
 - [Additional Web Globals](#additional-web-globals)
+- [Hybrid Execution Router](#hybrid-execution-router)
+- [Browser Provider Switch](#browser-provider-switch)
+- [CDP Bridge](#cdp-bridge)
+- [Bridge Actions](#bridge-actions)
+- [CDP Operations](#cdp-operations)
+- [Tab Management](#tab-management)
+- [Renderless Engine](#renderless-engine)
+- [Stealth Layer](#stealth-layer)
+- [Observation Layer](#observation-layer)
+- [Solver / CAPTCHA Pipeline](#solver--captcha-pipeline)
+- [Human-like Input](#human-like-input)
+- [Security Layer](#security-layer)
+- [Profile / Session Management](#profile--session-management)
+- [Scraper Subsystem](#scraper-subsystem)
+- [Prompts System](#prompts-system)
+- [Actions / Auto-Login](#actions--auto-login)
+- [Platform Capabilities](#platform-capabilities)
 - [Steering Server](#steering-server)
 - [Telemetry](#telemetry)
 
@@ -36,6 +53,7 @@ artemis/
   cmd/
     artemis/           CLI entry point
     artemis-snapshot/  V8 startup snapshot baker (run via `make snapshot`)
+    artemis-smoke/     standalone smoke harness (TASK-2325)
   engine/              top-level Engine handle: Fetch, Submit, Page, Config
   js/                  V8 isolate + Context lifecycle, native bindings, JS bootstraps
     snapshot.bin       embedded V8 startup snapshot (regenerated on demand)
@@ -45,15 +63,42 @@ artemis/
                        SemanticTree, Forms, ClickByText, Type
   network/             HTTP client, robots.txt, IP filter, cookie jar
   css/                 CSS parser + inline cascade engine
+  bridge/              CDP Bridge: Chrome control, context hierarchy, state machine,
+                       provider registry, execution router, code mode, batcher
+    actions/           high-level actions: click, type, form, scroll, selector resolution
+    cdpops/            low-level CDP ops: element queries, box model, navigation, pointer
+    tabs/              multi-tab management: registry, executor, dialog handler, locking
+  renderless/          in-process no-render JS browser path: engine, runtime, context pool,
+                       webapi registry, script router, intercept handler, CSS parser,
+                       capability profile
+  stealth/             anti-detection: launch flags, emulation, UA, worker parity,
+                       fingerprint, geo-presets, 3-level stealth (default/stealth/paranoid)
+  observe/             page observation: AX tree, network ring buffer, console capture,
+                       metrics, output formatters (HAR, NDJSON)
+  solver/              challenge/CAPTCHA pipeline: detector, vision solver, metrics store
+  input/               human-like input: Bezier mouse, keystroke timing, touch events
+  security/            browser security: SSRF, IDPI, ad blocking, navigation policy,
+                       secret redaction, consent management
+  profile/             enterprise session/profile mgmt: encrypted credentials, cookies,
+                       sessions, storage, identity, proxy profiles
+  scraper/             Scrapling-inspired scraping: adaptive selectors, AI finder,
+                       structured extract, concurrent engine, diff re-scrape, HAR streaming
+    parsers/           parse-phase worker pool with LockOSThread pinning
+  prompts/             9 AgentScope browser agent prompt templates + template executor
+  actions/             auto-login: form detection, login flow, post-login verification
+  platform/            platform capability detection (GPU, CPU, memory, fonts)
   serve/               WS steering server (JSON over WebSocket)
-  telemetry/           OpenTelemetry hooks
-  internal/            non-exported helpers
+  telemetry/           OpenTelemetry hooks + anonymous counters
+  internal/            non-exported helpers (pool, provenance guard)
+    provenance/        provenance guard: forbids derivation-attributing references
+    docs/              doc-coverage guard: documentation.md drift checker
   third_party/v8go/    vendored fork of rogchap.com/v8go with SnapshotCreator,
                        NewIsolateFromSnapshot, Object.SetMany bindings
   docs/                this directory
     documentation.md   you are here
     tasks.md           TASK overview
     tasks/done/        archived TASK detail files
+  testdata/            test fixtures (smoke scenarios, etc.)
   scripts/             tooling scripts (added on demand)
   LICENSE              MIT
   Makefile             build / test / fmt / vet / snapshot / bench
@@ -273,6 +318,8 @@ Pure-Go extractors that turn a `*webapi.Document` into agent-shaped output. Work
 | `page.SemanticTree()` | `*agent.SemanticNode` | hierarchical view; headings nest; paragraphs/lists/quotes/code/images/links inline; nav/footer/aside/script/style/template skipped |
 | `agent.SemanticString(node)` | `string` | indented Markdown-ish render of the tree |
 
+The extraction layer is backed by `parser.ParseHTML` (HTML parser shim around `golang.org/x/net/html`) and `css.Cascade` (CSS parser + inline cascade engine). `agent.SemanticTree` returns the hierarchical semantic tree; `agent.Markdown`, `agent.Text`, `agent.Links`, `agent.StructuredData`, `agent.Forms` are the other direct converters from a `*webapi.Document`.
+
 CLI: `artemis fetch --dump {links|structured|semantic}` prints TSV / JSON / Markdown-ish.
 
 ## Forms and Actions
@@ -322,6 +369,383 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 | `NodeList` / `HTMLCollection` / `FileList` / `DOMTokenList` / `NamedNodeMap` | array-like `instanceof` markers backed by `Symbol.hasInstance` |
 | `navigator.plugins` / `navigator.mimeTypes` | empty array-likes with `item`/`namedItem`/`refresh` |
 | `navigator.cookieEnabled` / `navigator.onLine` / `navigator.webdriver` | static defaults (true/true/false) |
+
+## Hybrid Execution Router
+
+The `bridge.ExecutionRouter` deterministically escalates scrape routes on failure. It is a simple state machine: `RouteStatic` → `RouteRendered`. The renderless V8 path handles `RouteStatic` (no-JS pages, APIs, RSS) and `RouteRendered` (JS-generated DOM without layout). When the renderless path encounters an unsupported feature (layout, canvas, WebAuthn, CAPTCHA), the router escalates to `RouteRendered` which triggers the CDP/Chromium fallback.
+
+```go
+router := bridge.NewExecutionRouter()
+next, err := router.Escalate(bridge.RouteStatic, err)
+// RouteStatic -> RouteRendered on failure
+// RouteRendered -> error (no further route)
+```
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `bridge.RouteStatic` | `RouteKind` | no-JS / API / RSS pages |
+| `bridge.RouteRendered` | `RouteKind` | JS-generated DOM, Chromium fallback |
+| `bridge.NewExecutionRouter()` | func | create router |
+| `router.Escalate(current, err)` | method | compute next route on failure |
+
+## Browser Provider Switch
+
+The `bridge.ProviderRegistry` holds available browser providers and selects one based on configuration. The `BrowserProvider` interface abstracts multi-backend browser control: local headless Chromium (default), Camofox REST backend, or cloud providers (Browserbase, Firecrawl — deferred P7).
+
+```go
+registry := bridge.NewProviderRegistry()
+registry.Register("chrome", &bridge.LocalChromeProvider{})
+provider, config, err := registry.SelectFromConfig()
+```
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `bridge.BrowserProvider` | interface | `Name()`, `Launch(ctx, config)`, `Close()`, `Healthy()` |
+| `bridge.ProviderRegistry` | struct | provider registry with `Register`, `Get`, `Default`, `SelectFromConfig` |
+| `bridge.LocalChromeProvider` | struct | local headless Chromium provider |
+| `bridge.CamofoxProvider` | struct | Camofox REST backend provider |
+| `bridge.ProviderConfig` | struct | provider launch configuration |
+| `bridge.BrowserSession` | struct | active browser session handle |
+| `bridge.SelectBrowserProvider(candidates, preferred)` | func | select provider from candidates |
+
+## CDP Bridge
+
+The `bridge` package implements Chrome control via CDP (`chromedp` + `cdproto`). It manages the context hierarchy (`AllocCtx → BrowserCtx → TabCtx`), the bridge state machine, code mode execution, CDP pipelining/batching, and the event filter.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `bridge.BridgeState` | type | bridge state machine states |
+| `bridge.BridgeStateMachine` | struct | state machine with `IsActiveState`, `IsTerminalState` |
+| `bridge.ContextKind` | type | context hierarchy kinds (Alloc, Browser, Tab) |
+| `bridge.CDPContextNode` / `bridge.CDPContextTree` | struct | context hierarchy nodes |
+| `bridge.Batcher` | struct | CDP command batcher for pipelining |
+| `bridge.CDPPipeline` | struct | CDP command pipeline |
+| `bridge.CDPTask` / `bridge.CDPTaskResult` | struct | batched task + result |
+| `bridge.MandatoryBatchType` | type | mandatory batch types (boxModel+style, navigate+wait+snapshot, etc.) |
+| `bridge.EventFilter` | struct | CDP domain enable/disable manager |
+| `bridge.CodeModeExecutor` | struct | Code Mode: LLM-generated JS async arrow functions |
+| `bridge.BridgeInitializer` | struct | bridge initialization with `BridgeInitConfig` |
+| `bridge.ChromeDiscovery` | struct | system Chromium auto-detection |
+| `bridge.TabRegistry` | struct | tab registry (bridge-level) |
+| `bridge.NetworkRequestBuffer` | struct | network ring buffer (max 50 entries/tab) |
+| `bridge.RefRegistry` / `bridge.RefHandle` | struct | ARIA ref-ID registry for snapshots |
+| `bridge.CircuitBreaker` | struct | per-domain circuit breaker (5 failures → 60s pause) |
+| `bridge.IdleWatchdog` | struct | idle tab watchdog with `IdleWatchdogConfig` |
+| `bridge.InactivityMonitor` | struct | inactivity monitor with `InactivityConfig` |
+| `bridge.ConfigHasher` / `bridge.ConfigHash` | struct | config-hash for session isolation |
+| `bridge.PolicyHook` / `bridge.PolicyEngine` | interface | navigation policy hooks |
+| `bridge.PrivacyRoutingHook` | struct | privacy routing hook |
+| `bridge.AuditHook` | struct | OCSF audit hook |
+| `bridge.RecoveryAction` | interface | recovery action interface |
+| `bridge.PageLoadStrategy` | struct | page load strategy (auto-wait) |
+| `bridge.ScreenshotFormat` | type | screenshot format (PNG, JPEG) |
+| `bridge.JPEGPipeline` | struct | JPEG screenshot pipeline |
+| `bridge.CDPConnectMode` | type | CDP connection mode |
+
+## Bridge Actions
+
+The `bridge/actions` package implements high-level browser actions: click with human-like movement, text input with keystroke timing, form fill/select/check/submit, scroll with easeInOut, and unified selector resolution.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `actions.NewClickAction(ref)` | func | create click action for ARIA ref |
+| `actions.ClickWithMovement(ctx, ref, start, target)` | func | click with Bezier mouse path |
+| `actions.NewTypeAction(ref, text)` | func | create type action |
+| `actions.NewFormFill(ref, value)` | func | form fill action |
+| `actions.NewFormSelect(ref, value)` | func | form select action |
+| `actions.NewFormCheck(ref)` | func | form check action |
+| `actions.NewFormSubmit(ref)` | func | form submit action |
+| `actions.FormBatch(ctx, actions)` | func | batch form actions |
+| `actions.NewScrollAction(direction, amount)` | func | scroll action |
+| `actions.ResolveSelector(selector)` | func | resolve ARIA ref / CSS / XPath |
+| `actions.ResolveAndValidate(ctx, selector)` | func | resolve + validate selector |
+| `actions.GenerateClickPath(start, end)` | func | Bezier click path |
+| `actions.ComputeScrollSteps(total, steps)` | func | scroll step distribution |
+| `actions.EaseInOut(t)` | func | easeInOut interpolation |
+
+## CDP Operations
+
+The `bridge/cdpops` package implements low-level CDP operations: element queries, box model, coordinate transforms, page navigation + wait, and mouse/touch events.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `cdpops.GetBoxModel(ref)` | func | element box model |
+| `cdpops.GetElementCenter(box)` | func | element center coordinates |
+| `cdpops.IsElementVisible(box)` | func | visibility check |
+| `cdpops.IsElementClickable(info)` | func | clickability check |
+| `cdpops.FilterVisible(elements)` | func | filter visible elements |
+| `cdpops.FindByRef(elements, ref)` | func | find element by ARIA ref |
+| `cdpops.GenerateBezierPath(start, end, steps)` | func | Bezier curve path |
+| `cdpops.AddJitter(p, maxJitter)` | func | add jitter to point |
+| `cdpops.CSSToDevicePixels(p, scale)` | func | CSS → device pixel transform |
+| `cdpops.DeviceToCSSPixels(p, scale)` | func | device → CSS pixel transform |
+| `cdpops.NewNavigator()` | func | page navigation manager |
+| `cdpops.NewPointerDispatcher()` | func | pointer event dispatcher |
+| `cdpops.Point` / `cdpops.Rect` / `cdpops.Quad` / `cdpops.BoxModel` | struct | geometry types |
+| `cdpops.ElementInfo` | struct | element metadata |
+| `cdpops.MouseEvent` / `cdpops.MouseButton` | type | mouse event types |
+
+## Tab Management
+
+The `bridge/tabs` package implements multi-tab management: tab registry + lifecycle, concurrent tab execution, alert/confirm/prompt dialog handling, and per-tab locking.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `tabs.NewTabRegistry()` | func | create tab registry |
+| `tabs.NewTabExecutor(registry, maxConcurrent)` | func | concurrent tab executor |
+| `tabs.NewTabLock()` | func | per-tab lock |
+| `tabs.NewDialogHandler()` | func | dialog handler |
+| `tabs.NewAlertDialog(message, url)` | func | alert dialog |
+| `tabs.NewConfirmDialog(message, url)` | func | confirm dialog |
+| `tabs.NewPromptDialog(message, url, defaultPrompt)` | func | prompt dialog |
+| `tabs.Tab` | struct | tab handle |
+| `tabs.TabState` | type | tab state (Open, Closed, Loading) |
+| `tabs.DialogAction` / `tabs.DialogType` | type | dialog action/type enums |
+
+## Renderless Engine
+
+The `renderless` package is the in-process no-render JS browser path. It provides a standalone engine that runs V8 with DOM/WebAPI globals, inline + external script execution, fetch/XHR bridge, cookie jar, OnRequest mock/intercept, robots/private-IP guard, CSS parse/cascade/computed style, and a generated `RenderlessCapabilityProfile`. It never owns layout/paint/CDP/profile/server semantics and escalates to `bridge/` via the execution router.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `renderless.NewEngine(cfg)` | func | create renderless engine |
+| `renderless.Engine` | struct | renderless engine handle |
+| `renderless.EngineConfig` | struct | engine configuration |
+| `renderless.Page` | struct | renderless page |
+| `renderless.NewPage(url, status, body)` | func | create page from raw HTML |
+| `renderless.ContextPool` | struct | V8 context pool |
+| `renderless.NewContextPool(maxSize)` | func | create context pool |
+| `renderless.IsolatePool` | struct | V8 isolate pool |
+| `renderless.NewIsolatePool(maxSize)` | func | create isolate pool |
+| `renderless.RuntimeContext` | struct | runtime context |
+| `renderless.ScriptRouter` | struct | script execution router |
+| `renderless.NewScriptRouter()` | func | create script router |
+| `renderless.InterceptHandler` | struct | request intercept handler |
+| `renderless.NewInterceptHandler()` | func | create intercept handler |
+| `renderless.NewMockResponse(status, body)` | func | mock response for intercept |
+| `renderless.CSSParser` / `renderless.CSSRule` | struct | CSS parser + rule |
+| `renderless.ComputedStyle` | struct | computed style engine |
+| `renderless.RenderlessCapabilityProfile` | struct | generated capability profile |
+| `renderless.GenerateCapabilityProfile(cfg, registry)` | func | generate capability profile |
+| `renderless.WebAPIRegistry` / `renderless.WebAPIGlobal` | struct | WebAPI registry + global |
+| `renderless.BuilderPool` | struct | HTML builder pool |
+| `renderless.InterceptAction` | type | intercept action (continue, mock, fail) |
+| `renderless.ScriptType` | type | script type (inline, external) |
+
+## Stealth Layer
+
+The `stealth` package provides anti-detection with 3 levels (Default, Stealth, Paranoid), 27 zero-cost patches bundled into one script via `go:embed`, 60 launch flags, geo-presets, worker thread parity, fingerprint spoofing, and HTTP/2 fingerprint validation.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `stealth.StealthDefault` | `StealthLevel` | local/LAN: zero stealth |
+| `stealth.StealthStealth` | `StealthLevel` | public sites: 27 patches + 60 flags |
+| `stealth.StealthParanoid` | `StealthLevel` | hardened sites: 29 patches + 60 flags |
+| `stealth.DetermineStealthLevel(targetURL, policy, lookup)` | func | determine level from URL + policy |
+| `stealth.SuggestEscalation(current, signals)` | func | suggest escalation from bot signals |
+| `stealth.Profile` | struct | stealth profile (viewport, UA, vendor, platform, languages, timezone, etc.) |
+| `stealth.Script(p)` | func | generate stealth script for profile |
+| `stealth.BundledScript()` | func | bundled 27-patch script (~25KB) |
+| `stealth.ParanoidScript()` | func | paranoid-mode +2 on-demand patches |
+| `stealth.Quick()` | func | quick stealth script |
+| `stealth.ContextHash(opts)` | func | session-isolation hash |
+| `stealth.BuiltinGeoPresets()` | func | 8 built-in geo presets |
+| `stealth.ValidatePreset(p)` | func | validate geo preset |
+| `stealth.ValidateManifest(dir)` | func | validate stealth manifest |
+| `stealth.LaunchFlagCount()` / `stealth.LaunchFlagCountFor(level)` | func | launch flag counts |
+| `stealth.PatchCount()` / `stealth.PatchCountFor(level)` | func | patch counts |
+| `stealth.ReferrerForDomain(rawURL, mem)` | func | referrer from domain memory |
+| `stealth.IsSwiftShader(renderer)` | func | detect SwiftShader |
+| `stealth.IsChromiumFingerprint(config)` | func | validate H2 fingerprint |
+| `stealth.ValidateH2Settings(frame)` | func | validate H2 settings frame |
+| `stealth.DeriveEffectiveType(rtt, downlink)` | func | derive network effective type |
+| `stealth.ParseChromeVersion(ua)` | func | parse Chrome version from UA |
+| `stealth.STEALTH_ARGS` | var | stealth launch arguments |
+| `stealth.BasePatchCount` / `stealth.ParanoidPatchCount` | const | patch count constants |
+
+## Observation Layer
+
+The `observe` package implements page observation: accessibility tree extraction + diff, network ring buffer + subscriber pattern, console log capture (ring buffer 1000), performance metrics, and output formatters (HAR, NDJSON).
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `observe.NewAnnotator(viewportWidth, viewportHeight)` | func | create annotator |
+| `observe.AXNode` / `observe.AXTreeNode` | struct | accessibility tree node |
+| `observe.DiffAXTrees(before, after)` | func | diff AX trees (edit distance) |
+| `observe.MyersDiff(before, after)` | func | Myers diff algorithm |
+| `observe.SnapshotInteractive(tree)` | func | snapshot interactive elements |
+| `observe.SnapshotByRole(tree, role)` | func | snapshot by ARIA role |
+| `observe.DedupRoleSnapshot(nodes)` | func | deduplicate role snapshot |
+| `observe.FormatHAR(entries)` | func | format HAR output |
+| `observe.FormatNDJSON(events)` | func | format NDJSON output |
+| `observe.FormatConsoleNDJSON(entries)` | func | format console NDJSON |
+| `observe.FormatOutput(format, events)` | func | format output |
+| `observe.TruncateContent(content, maxLen)` | func | truncate content |
+| `observe.ContentRoles` / `observe.InteractiveRoles` / `observe.StructuralRoles` | var | role classification maps |
+| `observe.DefaultConsoleBufferSize` | const | 1000 entries |
+| `observe.DefaultViewportWidth` / `observe.DefaultViewportHeight` | const | 1280×720 |
+
+## Solver / CAPTCHA Pipeline
+
+The `solver` package implements a 2-stage challenge/CAPTCHA pipeline: vision solve (screenshot → LLM vision → instruction → execute) → user fallback. Challenge types are classified by `ChallengeType`.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `solver.NewChallengeDetector()` | func | create challenge detector |
+| `solver.ChallengeDetector` | struct | challenge detector |
+| `solver.ChallengeType` | type | challenge type enum |
+| `solver.TypeNone` | `ChallengeType` | no challenge |
+| `solver.TypeCloudflare` | `ChallengeType` | Cloudflare challenge |
+| `solver.TypeRecaptcha` | `ChallengeType` | reCAPTCHA |
+| `solver.TypeHCaptcha` | `ChallengeType` | hCaptcha |
+| `solver.TypeGeneric` | `ChallengeType` | generic challenge |
+| `solver.InferenceHub` | interface | LLM inference hub interface |
+| `solver.NewInferenceHubHook(hub)` | func | create inference hub hook |
+| `solver.InferenceHubRequest` / `solver.InferenceHubResponse` | struct | inference request/response |
+| `solver.PipelineResult` | struct | pipeline result |
+| `solver.PipelineStage` | type | pipeline stage (vision, fallback) |
+| `solver.PipelineStats` | struct | pipeline statistics |
+| `solver.MetricsStore` | struct | SQLite metrics store |
+| `solver.OpenMetricsStore(path)` | func | open metrics store |
+| `solver.FormatChallengePrompt(challengeType, context)` | func | format challenge prompt |
+| `solver.PageSignals` | struct | page signals for detection |
+| `solver.ChallengeInfo` | struct | detected challenge info |
+| `solver.DefaultVisionModel` | const | `qwen3.6-vision` |
+
+## Human-like Input
+
+The `input` package implements human-like input: Bezier curve mouse movement with jitter, keystroke timing with Gaussian distribution, and touch events for mobile emulation.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `input.GenerateMousePath(start, end, cfg, rng)` | func | Bezier mouse path |
+| `input.MoveMouse(start, end)` | func | simple mouse move |
+| `input.BezierCurve(p0, p1, p2, t)` | func | Bezier curve point |
+| `input.BezierPath(start, end, steps, rng)` | func | Bezier path with jitter |
+| `input.ClickGaussianOffset(sigma, rng)` | func | Gaussian click offset |
+| `input.TypingDelays(text, cfg, rng)` | func | keystroke delays |
+| `input.TypingRhythm(text, cfg, rng)` | func | keystroke rhythm + keys |
+| `input.GaussianJitter(baseMs, sigmaPct, rng)` | func | Gaussian jitter |
+| `input.EaseInOutScroll(totalDistance, steps)` | func | easeInOut scroll steps |
+| `input.Scroll(distance, steps, hasIO, hasSL)` | func | scroll with infinite-scroll detection |
+| `input.DetectInfiniteScroll(hasIO, hasSL)` | func | detect infinite scroll |
+| `input.NewMouseClick(point, button)` | func | mouse click event |
+| `input.DefaultMouseMoveConfig()` | func | default mouse move config |
+| `input.MousePath` / `input.MousePoint` / `input.MouseClick` | struct | mouse types |
+| `input.TypingConfig` | struct | typing configuration |
+| `input.ScrollResult` / `input.ScrollStrategy` | type | scroll result/strategy |
+| `input.TouchEvent` / `input.TouchEventType` | type | touch event types |
+
+## Security Layer
+
+The `security` package implements browser security: SSRF prevention (private IP blocking), indirect prompt injection (IDPI) defense, ad/tracker blocking (40+ patterns), navigation policy (domain allowlist), secret redaction (3-point pipeline), and consent management.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `security.IsPrivateIP(ip)` | func | private IP check (RFC1918, loopback, link-local) |
+| `security.NewAdBlocker()` | func | create ad blocker |
+| `security.AdBlocker` | struct | ad/tracker blocker |
+| `security.AdBlockResult` / `security.AdBlockCategory` | type | ad block result/category |
+| `security.NewRedactor()` | func | create secret redactor |
+| `security.Redactor` | struct | secret redaction pipeline |
+| `security.CheckResult` | struct | redaction check result |
+| `security.ContainsInvisibleChars(s)` | func | detect invisible characters (IDPI) |
+| `security.DetectLoginFlow(text)` | func | detect login flow |
+| `security.NewNavigationPolicy()` | func | create navigation policy |
+| `security.NavigationPolicy` | struct | domain allowlist policy |
+| `security.ConsentPage` / `security.ConsentProfile` | struct | consent management types |
+| `security.ConsentMode` / `security.ConsentAction` | type | consent mode/action enums |
+| `security.AutoConfirm(ctx, page, profile)` | func | auto-confirm consent dialog |
+| `security.ResolveConsentMode(raw)` | func | resolve consent mode |
+| `security.DefaultConsentAction()` | func | default consent action |
+
+## Profile / Session Management
+
+The `profile` package implements the enterprise browser profile system: encrypted credential store (AES-256-GCM), multi-profile manager, auto-login, session health check, cookie + storage management, per-profile fingerprint identity, and session-level proxy with hybrid geo-modes.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `profile.BrowserProfile` | struct | browser profile |
+| `profile.ProfileManager` | struct | multi-profile manager |
+| `profile.CredentialStore` | struct | encrypted credential store (AES-256-GCM) |
+| `profile.SessionManager` | struct | session health + auto-relogin |
+| `profile.CookieJar` | struct | cookie persistence + expiry |
+| `profile.StorageManager` | struct | localStorage/sessionStorage/IndexedDB |
+| `profile.IdentityManager` | struct | per-profile fingerprint identity |
+| `profile.GenerateUUID5(namespace, name)` | func | deterministic UUID5 generation |
+| `profile.ProxyProfileConfig` | struct | session-level proxy config |
+| `profile.ResolvedProxyConfig` | struct | resolved proxy with geo-mode |
+| `profile.GeoMode` | type | geo-mode enum (explicit_wins, proxy_locked) |
+| `profile.KeychainProvider` | struct | in-memory keychain (test) |
+| `profile.SecretProvider` | interface | pluggable keychain abstraction |
+
+## Scraper Subsystem
+
+The `scraper` package implements the Scrapling-inspired scraping engine: adaptive selectors (SQLite, survives redesigns), AI element finding via Inference Hub, structured data extraction (JSON-LD, OpenGraph, Twitter Cards, Microdata), concurrent scraping engine (static + renderless + browser pools), differential re-scrape with conditional GET + region hashing, HAR streaming, pagination/infinite-scroll detection, anti-scraping recovery (backoff + escalation), and server impact detection.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `scraper.NewFinder()` | func | create adaptive element finder |
+| `scraper.Finder` | struct | adaptive element locator (CSS → XPath → Text → Attribute → Structural) |
+| `scraper.Result` | struct | find result with strategy + confidence |
+| `scraper.ExtractedPage` | struct | extracted page result |
+| `scraper.StructuredRecord` | struct | structured data record |
+| `scraper.ExtractJSONLD(doc)` | func | extract JSON-LD |
+| `scraper.ExtractOpenGraph(doc)` | func | extract Open Graph |
+| `scraper.AdaptiveSelectorCache` | struct | SQLite adaptive selector cache |
+| `scraper.DomainRateLimiter` | struct | per-domain rate limiter (token bucket) |
+| `scraper.ConcurrentEngine` | struct | concurrent scraping engine |
+| `scraper.HARStreamer` | struct | HAR streaming writer |
+| `scraper.DiffEngine` | struct | differential re-scrape engine |
+| `scraper.PaginationDetector` | struct | pagination + infinite scroll detector |
+| `scraper.RecoveryChain` | struct | anti-scraping recovery chain |
+| `scraper.ImpactDetector` | struct | server impact detector |
+| `scraper.BloomFilter` | struct | URL dedup bloom filter |
+
+## Prompts System
+
+The `prompts` package provides the 9 AgentScope browser agent prompt templates as Go string constants, plus a `TemplateExecutor` that integrates template selection with browser skill execution.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `prompts.SystemPrompt()` | func | base behavior prompt |
+| `prompts.DecomposePrompt()` | func | task decomposition prompt |
+| `prompts.DecomposeReflectionPrompt()` | func | decomposition reflection |
+| `prompts.ObservePrompt()` | func | chunked observation prompt |
+| `prompts.PureReasoningPrompt()` | func | pure reasoning prompt |
+| `prompts.FormFillingPrompt()` | func | form filling prompt |
+| `prompts.FileDownloadPrompt()` | func | file download prompt |
+| `prompts.SummarizePrompt()` | func | task summarization prompt |
+| `prompts.GetPrompt(pt)` | func | get prompt by type |
+| `prompts.AllTemplates()` | func | list all templates |
+| `prompts.RenderTemplate(template, variables)` | func | render template with variables |
+| `prompts.EstimateTokens(text)` | func | estimate token count |
+| `prompts.ShouldUsePureReasoning(situation, tokens)` | func | pure reasoning decision |
+| `prompts.PromptType` | type | prompt type enum |
+| `prompts.PromptTemplate` | struct | prompt template descriptor |
+
+## Actions / Auto-Login
+
+The `actions` package implements auto-login: form detection, login flow identification, and post-login verification.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `actions.DetectLoginForm(ctx, page)` | func | detect login form |
+| `actions.LoginDetection` | struct | login detection result |
+| `actions.LoginForm` / `actions.LoginField` | struct | login form + field |
+| `actions.FormIntent` | struct | form intent for batch fill |
+| `actions.FormField` | struct | form field spec |
+| `actions.VerifyPostLogin(page)` | func | verify post-login state |
+| `actions.LoginPage` / `actions.PostLoginPage` | struct | login page interfaces |
+
+## Platform Capabilities
+
+The `platform` package detects platform capabilities (GPU, CPU, memory, fonts) for stealth fingerprint consistency.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `platform.Detect()` | func | detect platform capabilities |
+| `platform.PlatformCapabilities` | struct | detected capabilities (GPU, CPU, memory, fonts) |
 
 ### Performance Notes
 
