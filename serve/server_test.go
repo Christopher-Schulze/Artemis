@@ -44,6 +44,9 @@ func dial(t *testing.T, addr string) *websocket.Conn {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	// Match the server's 8MB read limit so large page dumps don't
+	// hit the default 32KB client-side limit.
+	c.SetReadLimit(8 << 20)
 	return c
 }
 
