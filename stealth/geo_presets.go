@@ -1,6 +1,9 @@
 package stealth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -24,9 +27,9 @@ import (
 // GeoPresetConfig is a geo-preset configuration
 // (spec L4023: geo_presets.go - Geo-Presets-System).
 type GeoPresetConfig struct {
-	Locale      string   `json:"locale"`      // BCP47 locale (e.g. "en-US")
-	TimezoneID  string   `json:"timezoneId"`  // IANA timezone (e.g. "America/New_York")
-	Geolocation GeoCoord `json:"geolocation"` // lat/long
+	Locale      string    `json:"locale"`             // BCP47 locale (e.g. "en-US")
+	TimezoneID  string    `json:"timezoneId"`         // IANA timezone (e.g. "America/New_York")
+	Geolocation GeoCoord  `json:"geolocation"`        // lat/long
 	Viewport    *Viewport `json:"viewport,omitempty"` // optional viewport override
 }
 
@@ -52,43 +55,43 @@ type Viewport struct {
 func BuiltinGeoPresets() map[string]GeoPresetConfig {
 	return map[string]GeoPresetConfig{
 		"us-east": {
-			Locale:     "en-US",
-			TimezoneID: "America/New_York",
+			Locale:      "en-US",
+			TimezoneID:  "America/New_York",
 			Geolocation: GeoCoord{Latitude: 40.7128, Longitude: -74.006},
 		},
 		"us-west": {
-			Locale:     "en-US",
-			TimezoneID: "America/Los_Angeles",
+			Locale:      "en-US",
+			TimezoneID:  "America/Los_Angeles",
 			Geolocation: GeoCoord{Latitude: 34.0522, Longitude: -118.2437},
 		},
 		"japan": {
-			Locale:     "ja-JP",
-			TimezoneID: "Asia/Tokyo",
+			Locale:      "ja-JP",
+			TimezoneID:  "Asia/Tokyo",
 			Geolocation: GeoCoord{Latitude: 35.6895, Longitude: 139.6917},
 		},
 		"uk": {
-			Locale:     "en-GB",
-			TimezoneID: "Europe/London",
+			Locale:      "en-GB",
+			TimezoneID:  "Europe/London",
 			Geolocation: GeoCoord{Latitude: 51.5074, Longitude: -0.1278},
 		},
 		"germany": {
-			Locale:     "de-DE",
-			TimezoneID: "Europe/Berlin",
+			Locale:      "de-DE",
+			TimezoneID:  "Europe/Berlin",
 			Geolocation: GeoCoord{Latitude: 52.52, Longitude: 13.405},
 		},
 		"vietnam": {
-			Locale:     "vi-VN",
-			TimezoneID: "Asia/Ho_Chi_Minh",
+			Locale:      "vi-VN",
+			TimezoneID:  "Asia/Ho_Chi_Minh",
 			Geolocation: GeoCoord{Latitude: 10.8231, Longitude: 106.6297},
 		},
 		"singapore": {
-			Locale:     "en-SG",
-			TimezoneID: "Asia/Singapore",
+			Locale:      "en-SG",
+			TimezoneID:  "Asia/Singapore",
 			Geolocation: GeoCoord{Latitude: 1.3521, Longitude: 103.8198},
 		},
 		"australia": {
-			Locale:     "en-AU",
-			TimezoneID: "Australia/Sydney",
+			Locale:      "en-AU",
+			TimezoneID:  "Australia/Sydney",
 			Geolocation: GeoCoord{Latitude: -33.8688, Longitude: 151.2093},
 		},
 	}
@@ -98,9 +101,9 @@ func BuiltinGeoPresets() map[string]GeoPresetConfig {
 // (spec L4023: Operator-overridable custom overrides built-in
 // same-name, case-insensitive lookup).
 type GeoPresetManager struct {
-	mu       sync.RWMutex
-	builtin  map[string]GeoPresetConfig
-	custom   map[string]GeoPresetConfig
+	mu      sync.RWMutex
+	builtin map[string]GeoPresetConfig
+	custom  map[string]GeoPresetConfig
 }
 
 // NewGeoPresetManager creates a new GeoPresetManager with built-in
@@ -259,54 +262,24 @@ func (m *GeoPresetManager) ResolveContextOptions(opts ContextOptions) (GeoPreset
 
 // ContextHash computes a session-isolation hash for ContextOptions
 // (spec L4023: contextHash(opts)=sha256(canonical_json){:8}).
-// This is a simplified version using string concatenation instead of
-// SHA-256 for testing purposes; the real implementation would use
-// crypto/sha256.
+// Uses SHA-256 over canonical JSON with sorted keys for deterministic
+// session-isolation across different presets per-user.
 func ContextHash(opts ContextOptions) string {
-	// Canonical representation (sorted keys, deterministic order).
-	canonical := fmt.Sprintf("preset=%s|locale=%s|tz=%s|geo=%.4f,%.4f|vp=%dx%d",
-		opts.Preset, opts.Locale, opts.TimezoneID,
-		coordLat(opts), coordLong(opts),
-		viewportW(opts), viewportH(opts))
-	// Simple hash: take first 8 chars of a deterministic transformation.
-	hash := simpleHash(canonical)
-	return hash[:8]
-}
-
-func coordLat(opts ContextOptions) float64 {
-	if opts.Geolocation != nil {
-		return opts.Geolocation.Latitude
+	// Canonical JSON with sorted keys (deterministic).
+	canonical := struct {
+		Geolocation *GeoCoord `json:"geolocation,omitempty"`
+		Locale      string    `json:"locale,omitempty"`
+		Preset      string    `json:"preset,omitempty"`
+		TimezoneID  string    `json:"timezoneId,omitempty"`
+		Viewport    *Viewport `json:"viewport,omitempty"`
+	}{
+		Geolocation: opts.Geolocation,
+		Locale:      opts.Locale,
+		Preset:      opts.Preset,
+		TimezoneID:  opts.TimezoneID,
+		Viewport:    opts.Viewport,
 	}
-	return 0
-}
-
-func coordLong(opts ContextOptions) float64 {
-	if opts.Geolocation != nil {
-		return opts.Geolocation.Longitude
-	}
-	return 0
-}
-
-func viewportW(opts ContextOptions) int {
-	if opts.Viewport != nil {
-		return opts.Viewport.Width
-	}
-	return 0
-}
-
-func viewportH(opts ContextOptions) int {
-	if opts.Viewport != nil {
-		return opts.Viewport.Height
-	}
-	return 0
-}
-
-// simpleHash produces a deterministic 16-char hex-like hash.
-func simpleHash(s string) string {
-	var h uint64 = 1469598103934665603 // FNV offset
-	for _, c := range s {
-		h ^= uint64(c)
-		h *= 1099511628211 // FNV prime
-	}
-	return fmt.Sprintf("%016x", h)
+	data, _ := json.Marshal(canonical)
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])[:8]
 }
