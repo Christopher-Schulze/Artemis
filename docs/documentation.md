@@ -1,11 +1,11 @@
 # Artemis Documentation
 
-Single source of truth for project-level documentation. Code-level details live inline; TASK history lives in `docs/tasks/done/`; target architecture lives in `docs/spec.md`.
+Single source of truth for project-level documentation. Code-level details live inline; TASK history lives in `docs/tasks/done/`.
 
 ## Table of Contents
 
 - [Project Overview](#project-overview)
-- [License and Lineage](#license-and-lineage)
+- [License](#license)
 - [Repository Layout](#repository-layout)
 - [Build and Run](#build-and-run)
 - [Configuration](#configuration)
@@ -23,13 +23,11 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a headless browser engine written in Go, designed for AI agents and web automation. It loads HTML, runs JavaScript via V8, exposes a DOM and WebAPI surface, executes user scripts, and produces structured output (DOM dump, Markdown, extracted data) for an embedding agent. It does not render: no layout engine, no compositor, no paint pipeline. It does not ship Chromium DevTools Protocol (CDP) or Model Context Protocol (MCP) endpoints; instead it offers a Go library API, a CLI, and a custom JSON-over-WebSocket steering protocol.
+Artemis is a hybrid headless browser engine written in Go, designed for AI agents and web automation. It runs a fast renderless V8 path (loads HTML, runs JavaScript via V8, exposes a DOM and WebAPI surface, CSS cascade and computed style, and produces structured output: DOM dump, Markdown, extracted data) for pages that do not need real rendering, and escalates via a deterministic execution router to a real Chromium browser controlled over CDP (`chromedp`/`cdproto`) for layout, screenshots, canvas/media, CAPTCHA and hardened sites. It offers a Go library API, a CLI, and a custom JSON-over-WebSocket steering protocol; it does not ship a Model Context Protocol (MCP) endpoint.
 
-## License and Lineage
+## License
 
-License: [MIT](../LICENSE).
-
-Artemis is an independent re-implementation in Go inspired by the architecture of [Lightpanda Browser](https://github.com/lightpanda-io/browser) (Zig, AGPL-3.0). Lightpanda is used only as a read-only reference; no Lightpanda source is copied into or distributed with Artemis. Artemis code is original; module structure, WebAPI coverage, and Page/Session/Frame design follow Lightpanda where useful. Artemis is released under the MIT License.
+License: [MIT](../LICENSE). Artemis is original Go code.
 
 ## Repository Layout
 
@@ -54,10 +52,8 @@ artemis/
                        NewIsolateFromSnapshot, Object.SetMany bindings
   docs/                this directory
     documentation.md   you are here
-    spec.md            target architecture, module map
     tasks.md           TASK overview
     tasks/done/        archived TASK detail files
-  research/lightpanda/ reference source (read-only mirror, do not edit)
   scripts/             tooling scripts (added on demand)
   LICENSE              MIT
   Makefile             build / test / fmt / vet / snapshot / bench
@@ -359,7 +355,7 @@ This works because every native callback installed on globalThis goes through Ru
 |---|---|---|---|---|
 | 100 pages with scripts | ~97 ms / 7.4 MB / 153k allocs | **~22 ms / 6.9 MB / 115k allocs** | **~22 ms / 6.9 MB / 115k allocs** | **4.4x** |
 
-That brings wall time to ~0.22 ms / page (excluding network), beating Lightpanda's published 0.5 ms / page on AWS m5.large despite running through cgo to V8 instead of compile-time-linked Zig+V8.
+That brings wall time to ~0.22 ms / page (excluding network), well under the ~0.5 ms / page range published for comparable renderless engines, despite running through cgo to V8.
 
 `JSContextPoolWarm: true` pre-builds all N v8.Contexts at engine.New time. The 100-page bench doesn't show a difference (first-page cold cost amortises across 100 pages) but it eliminates the first-page latency spike for single-request agent flows.
 
