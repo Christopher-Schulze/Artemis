@@ -49,7 +49,8 @@ func (n *NetGuard) Block(host string) {
 // IsPrivateIP reports whether an IP address is in a private/reserved
 // range (spec L4027: private IP blocking).
 // Blocks: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8,
-// 169.254.0.0/16 (link-local), 0.0.0.0/8, ::1, fc00::/7, fe80::/10.
+// 169.254.0.0/16 (link-local), 0.0.0.0/8, 100.64.0.0/10 (CGNAT),
+// 198.18.0.0/15 (benchmark testing), ::1, fc00::/7, fe80::/10.
 func IsPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false
@@ -70,6 +71,8 @@ func IsPrivateIP(ip net.IP) bool {
 		case ip4[0] == 0: // 0.0.0.0/8
 			return true
 		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127: // 100.64.0.0/10 (CGNAT)
+			return true
+		case ip4[0] == 198 && ip4[1] >= 18 && ip4[1] <= 19: // 198.18.0.0/15 (benchmark)
 			return true
 		}
 		return false

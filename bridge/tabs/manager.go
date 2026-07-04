@@ -18,25 +18,35 @@ import (
 type TabState string
 
 const (
-	TabStateOpen     TabState = "open"
-	TabStateLoading  TabState = "loading"
-	TabStateActive   TabState = "active"
-	TabStateIdle     TabState = "idle"
-	TabStateClosed   TabState = "closed"
-	TabStateCrashed  TabState = "crashed"
+	TabStateOpen    TabState = "open"
+	TabStateLoading TabState = "loading"
+	TabStateActive  TabState = "active"
+	TabStateIdle    TabState = "idle"
+	TabStateClosed  TabState = "closed"
+	TabStateCrashed TabState = "crashed"
 )
 
 // Tab represents a browser tab in the registry
 // (spec L4021: tab registry + lifecycle).
+// TabEntry is the spec-mandated tab entry with full lifecycle fields
+// (spec L4224: TabEntry: context + cancelFunc + CDPID + timestamps +
+// policy state + process_id + owner_ref=turn|subagent|connector|ui).
 type Tab struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"userId"`
-	URL       string     `json:"url"`
-	Title     string     `json:"title"`
-	State     TabState   `json:"state"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID         string    `json:"id"`
+	UserID     string    `json:"userId"`
+	URL        string    `json:"url"`
+	Title      string    `json:"title"`
+	State      TabState  `json:"state"`
+	CreatedAt  time.Time `json:"createdAt"`
 	LastActive time.Time `json:"lastActive"`
-	Index     int        `json:"index"`
+	Index      int       `json:"index"`
+	// ProcessSpec lifecycle fields (spec L4224-L4226)
+	CDPID        string `json:"cdpId,omitempty"`        // CDP target ID
+	ProcessID    string `json:"processId,omitempty"`    // ProcessSpec ID
+	OwnerRef     string `json:"ownerRef,omitempty"`     // turn|subagent|connector|ui
+	PriorityLane string `json:"priorityLane,omitempty"` // scheduling priority
+	PolicyState  string `json:"policyState,omitempty"`  // policy engine state
+	MailboxCap   int    `json:"mailboxCap,omitempty"`   // default 32
 }
 
 // TabRegistry is the tab registry that tracks all open tabs
@@ -62,13 +72,13 @@ func (r *TabRegistry) CreateTab(userID, url string) *Tab {
 	defer r.mu.Unlock()
 	id := fmt.Sprintf("tab-%d", r.nextID.Add(1))
 	tab := &Tab{
-		ID:        id,
-		UserID:    userID,
-		URL:       url,
-		State:     TabStateOpen,
-		CreatedAt: time.Now(),
+		ID:         id,
+		UserID:     userID,
+		URL:        url,
+		State:      TabStateOpen,
+		CreatedAt:  time.Now(),
 		LastActive: time.Now(),
-		Index:     len(r.tabs),
+		Index:      len(r.tabs),
 	}
 	r.tabs[id] = tab
 	return tab

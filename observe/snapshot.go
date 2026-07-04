@@ -21,6 +21,13 @@ func DiffAXTrees(before, after []AXTreeNode) int {
 	return MyersDiff(before, after)
 }
 
+// DiffAXSnapshotTrees computes the full diff between two AX snapshots
+// and returns added/changed/removed nodes
+// (spec L4181: DiffSnapshot with added/changed/removed).
+func DiffAXSnapshotTrees(prev, curr []AXTreeNode) AXDiffSnapshot {
+	return DiffAXSnapshots(prev, curr)
+}
+
 // DedupAXSnapshot removes duplicate nodes from an AX snapshot
 // (spec L4024: snapshot.go - AX tree extraction + diff).
 func DedupAXSnapshot(nodes []AXTreeNode) []AXTreeNode {
