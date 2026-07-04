@@ -23,6 +23,8 @@ func main() {
 		printUsage(os.Stdout)
 	case "fetch":
 		os.Exit(cmdFetch(os.Args[2:]))
+	case "run":
+		os.Exit(cmdRun(os.Args[2:]))
 	case "serve":
 		os.Exit(cmdServe(os.Args[2:]))
 	default:
@@ -40,6 +42,7 @@ Usage:
 
 Commands:
   fetch     fetch a URL and dump html / markdown / text / title / links / structured / semantic
+  run       load a JavaScript file and execute it in the page context (--script FILE <url>)
   serve     run the JSON-over-WebSocket steering server
   version   print version
   help      print this help
