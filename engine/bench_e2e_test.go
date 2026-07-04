@@ -53,9 +53,9 @@ func realisticHTML(idx int) string {
 	return b.String()
 }
 
-// BenchmarkEndToEnd100Pages mirrors Lightpanda's published demo: fetch
-// 100 pages and dump markdown each. Lightpanda reports 5s wall-clock
-// (50ms/page) on AWS m5.large. We use a local httptest server so
+// BenchmarkEndToEnd100Pages mirrors a published headless-browser demo: fetch
+// 100 pages and dump markdown each. A comparable headless browser reports 5s
+// wall-clock (50ms/page) on AWS m5.large. We use a local httptest server so
 // network latency is near zero, isolating engine cost.
 func BenchmarkEndToEnd100Pages(b *testing.B) {
 	mux := http.NewServeMux()

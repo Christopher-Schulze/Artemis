@@ -30,7 +30,7 @@ func installParityGaps(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 const parityGapsBootstrap = `
 (() => {
   // ---------------- Screen ----------------
-  // Lightpanda exposes window.screen with all the common DPI/orientation
+  // Real browsers expose window.screen with all the common DPI/orientation
   // fields. Sites read these for feature detection (mobile vs desktop,
   // dark mode, viewport calculations).
   const _screen = {
