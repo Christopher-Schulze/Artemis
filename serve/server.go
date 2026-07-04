@@ -138,6 +138,11 @@ func (s *Server) writeResp(ctx context.Context, c *websocket.Conn, r *Response) 
 
 func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 	switch req.Cmd {
+	case "version":
+		return okResp(req.ID, VersionResponse{
+			Protocol: ProtocolVersion,
+			Server:   "artemis-serve",
+		})
 	case "session.new":
 		return s.cmdSessionNew(req)
 	case "session.close":
