@@ -27,9 +27,9 @@ Artemis is a headless browser engine written in Go, designed for AI agents and w
 
 ## License and Lineage
 
-License: [AGPL-3.0-only](../LICENSE).
+License: [MIT](../LICENSE).
 
-Artemis is an independent re-implementation in Go inspired by the architecture of [Lightpanda Browser](https://github.com/lightpanda-io/browser) (Zig, AGPL-3.0). The original Lightpanda source is preserved under `research/lightpanda/` as a reference. Artemis code is original; module structure, WebAPI coverage, and Page/Session/Frame design follow Lightpanda where useful.
+Artemis is an independent re-implementation in Go inspired by the architecture of [Lightpanda Browser](https://github.com/lightpanda-io/browser) (Zig, AGPL-3.0). Lightpanda is used only as a read-only reference; no Lightpanda source is copied into or distributed with Artemis. Artemis code is original; module structure, WebAPI coverage, and Page/Session/Frame design follow Lightpanda where useful. Artemis is released under the MIT License.
 
 ## Repository Layout
 
@@ -59,7 +59,7 @@ artemis/
     tasks/done/        archived TASK detail files
   research/lightpanda/ reference source (read-only mirror, do not edit)
   scripts/             tooling scripts (added on demand)
-  LICENSE              AGPL-3.0
+  LICENSE              MIT
   Makefile             build / test / fmt / vet / snapshot / bench
   go.mod               Go module (with `replace rogchap.com/v8go => ./third_party/v8go`)
   README.md            landing page

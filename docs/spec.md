@@ -22,7 +22,7 @@ Out-of-scope: rendering (layout, paint, compositor), Chromium DevTools Protocol 
 | OpenTelemetry | `go.opentelemetry.io/otel` | Apache-2.0 | pure Go |
 | Structured logging | `log/slog` (stdlib) | BSD-3 | pure Go |
 
-All licenses AGPL-3.0 compatible.
+All licenses MIT-compatible.
 
 ## Top-Level Layout
 
