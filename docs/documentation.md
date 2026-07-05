@@ -777,9 +777,9 @@ This works because every native callback installed on globalThis goes through Ru
 
 | Bench | No pool | Pool=8 | Pool=8 warm | Speedup |
 |---|---|---|---|---|
-| 100 pages with scripts | ~97 ms / 7.4 MB / 153k allocs | **~22 ms / 6.9 MB / 115k allocs** | **~22 ms / 6.9 MB / 115k allocs** | **4.4x** |
+| 100 pages with scripts | ~97 ms / 7.4 MB / 153k allocs | **~18.4 ms / 6.5 MB / 100k allocs** | **~18.9 ms / 6.5 MB / 100k allocs** | **5.3x** |
 
-That brings wall time to ~0.22 ms / page (excluding network), well under the ~0.5 ms / page range published for comparable renderless engines, despite running through cgo to V8.
+That brings wall time to ~0.184 ms / page (excluding network), 2.7x faster than the ~0.5 ms / page published for comparable renderless engines, despite running through cgo to V8.
 
 `JSContextPoolWarm: true` pre-builds all N v8.Contexts at engine.New time. The 100-page bench doesn't show a difference (first-page cold cost amortises across 100 pages) but it eliminates the first-page latency spike for single-request agent flows.
 
@@ -831,3 +831,27 @@ Two channels. Both can be wired up by embedders or used directly:
 
 - `telemetry.Tracer` - slog-backed span helper. `Span(ctx, name, attrs...)` returns a Span; call `End()` to emit a single structured log line with duration. Errors via `Span.Error(err)` switch the log level to ERROR. The API mirrors OpenTelemetry shape so a real OTel exporter can replace the slog backend without changing call sites.
 - `telemetry.PhoneHome` - opt-out anonymous counters. Atomic counters for fetches/evals/errors. `Snapshot()` returns the current `PhoneHomeContract` (version, GOOS/GOARCH, counts). `Flush()` emits a single structured log entry. **No URLs, no headers, no page content** ever appear in the contract. Disable via `ARTEMIS_DISABLE_TELEMETRY=true`. Real network transmission is intentionally deferred; the slog stub captures the contract today.
+
+## TASK-2344 Performance Optimizations
+
+The excellence reality-gate (TASK-2344) profiled every hot path, committed per-hot-path benchmarks, and eliminated redundancy/allocation/contention across 4 rounds. Key optimizations:
+
+### network/easylist.go — IsAdTrackerDomain label-walk
+
+Replaced linear scan over 48 patterns (with per-call `strings.ToLower` on each pattern) with a pre-built `map[string]struct{}` pattern set + label-walk (check domain, drop leftmost label, repeat). The miss case (production hot path — most domains are NOT ad/tracker) went from 1809ns to 57ns (31x faster). `FilterAdTrackerDomains` on a 100-domain batch went from 94969ns to 5861ns (16x faster).
+
+### js/context_pool.go + js/helpers.go — buffer pre-allocation
+
+`jsonStringLiteral` and `jsStringLit` now pre-allocate their output buffers to `len(s)+2` (the minimum output: 2 quotes + input unchanged), eliminating reallocation growth. `jsonStringLiteral`: 282ns→232ns (-18%), 3→2 allocs. `jsStringLit`: 228ns→167ns (-27%), 4→1 allocs.
+
+### serve/streaming.go — Broadcast fast paths
+
+The `Broadcast` method now fast-paths the common cases: 0 subscribers (skip slice alloc + timestamp, still count broadcast) and 1 subscriber (direct call, no goroutine, no WaitGroup). 0-subscriber: 114ns→43ns (-62%). 1-subscriber: 714ns→118ns (-83%). 2+ subscribers keep the goroutine fan-out.
+
+### webapi/node.go + mutation.go — Attr/Tag fast paths
+
+`Tag()` now checks `DataAtom != 0` (known tag) and returns `Data` directly (already lowercase from atom string), skipping `strings.ToLower` for the common case. `Attr()` fast-paths exact key match (`a.Key == name`) on the first loop (parser lowercases keys), with `EqualFold` fallback on a second loop for user-injected attributes. `GetElementById` and `GetElementsByClassName` inline the attribute lookup to avoid the method call overhead. `GetElementById`: 7003ns→6279ns (-10%). `GetElementsByClassName`: 15255ns→14296ns (-6%).
+
+### Benchmark suite
+
+72 benchmarks across 14 packages (was 51, +21 new). The benchmark harness scorecard (`benchmark/results/scorecard.md`) shows avg 0.87ms per scenario (was 2.42ms, 2.8x improvement). Artemis beats the published Lightpanda number (0.184ms/page vs 0.5ms/page, 2.7x faster).
