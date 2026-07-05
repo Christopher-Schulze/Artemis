@@ -265,3 +265,75 @@ func TestTASK2238_FullSpecParity(t *testing.T) {
 		t.Error("filter must remove ad domains")
 	}
 }
+
+// ==================== TASK-2344 label-walk matcher tests ====================
+
+// TestTASK2344_IsAdTrackerDomainDeepSubdomain verifies the label-walk
+// matcher correctly matches a deep subdomain of a builtin pattern
+// (e.g. "a.b.c.doubleclick.net" matches "doubleclick.net").
+func TestTASK2344_IsAdTrackerDomainDeepSubdomain(t *testing.T) {
+	deep := []string{
+		"a.b.c.doubleclick.net",
+		"x.y.z.googlesyndication.com",
+		"sub1.sub2.criteo.com",
+		"deep.connect.facebook.net",
+	}
+	for _, d := range deep {
+		if !IsAdTrackerDomain(d) {
+			t.Errorf("deep subdomain %s should match", d)
+		}
+	}
+}
+
+// TestTASK2344_IsAdTrackerDomainLabelWalkNotPrefix verifies the
+// label-walk matcher does NOT match a domain that merely has the
+// pattern as a prefix without a dot separator (e.g.
+// "doubleclick.net.evil.com" must NOT match "doubleclick.net").
+func TestTASK2344_IsAdTrackerDomainLabelWalkNotPrefix(t *testing.T) {
+	// "doubleclick.net.evil.com" — the label walk checks
+	// "doubleclick.net.evil.com", "net.evil.com", "evil.com", "com"
+	// — none of which are in the pattern set, so no match.
+	if IsAdTrackerDomain("doubleclick.net.evil.com") {
+		t.Error("doubleclick.net.evil.com must NOT match (it is a subdomain of evil.com, not doubleclick.net)")
+	}
+}
+
+// TestTASK2344_IsAdTrackerDomainSingleLabel verifies a single-label
+// domain (no dots) does not crash and does not match any pattern.
+func TestTASK2344_IsAdTrackerDomainSingleLabel(t *testing.T) {
+	if IsAdTrackerDomain("localhost") {
+		t.Error("localhost should not match")
+	}
+	if IsAdTrackerDomain("com") {
+		t.Error("com should not match (not in pattern set)")
+	}
+}
+
+// TestTASK2344_IsAdTrackerDomainTrailingDot verifies a domain with a
+// trailing dot does not crash and is handled correctly.
+func TestTASK2344_IsAdTrackerDomainTrailingDot(t *testing.T) {
+	// Trailing dot: "doubleclick.net." — after ToLower/TrimSpace,
+	// the label walk checks "doubleclick.net." (not in set),
+	// then "net." (not in set), then "" — no match. This is
+	// correct behavior: a trailing dot is a DNS root label and
+	// should not match the pattern.
+	if IsAdTrackerDomain("doubleclick.net.") {
+		t.Error("trailing-dot domain should not match (pattern has no trailing dot)")
+	}
+}
+
+// TestTASK2344_IsAdTrackerDomainWhitespace verifies whitespace is
+// trimmed before matching.
+func TestTASK2344_IsAdTrackerDomainWhitespace(t *testing.T) {
+	if !IsAdTrackerDomain("  doubleclick.net  ") {
+		t.Error("whitespace-padded domain should match after trim")
+	}
+}
+
+// TestTASK2344_IsAdTrackerDomainMixedCaseDeepSubdomain verifies
+// case-insensitive matching works for deep subdomains.
+func TestTASK2344_IsAdTrackerDomainMixedCaseDeepSubdomain(t *testing.T) {
+	if !IsAdTrackerDomain("Ads.FLS.DoubleClick.Net") {
+		t.Error("mixed-case deep subdomain should match")
+	}
+}
