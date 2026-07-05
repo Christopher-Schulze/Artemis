@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"artemis/network"
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 // StaticFetcher performs policy-safe HTTP fetches without a browser.
@@ -31,10 +31,10 @@ type StaticFetchOpts struct {
 
 // StaticResult is the outcome of a static fetch.
 type StaticResult struct {
-	StatusCode int
-	Headers    http.Header
-	Body       []byte
-	FinalURL   string
+	StatusCode  int
+	Headers     http.Header
+	Body        []byte
+	FinalURL    string
 	ContentType string
 	Charset     string
 }
@@ -120,12 +120,12 @@ func ShouldRetry(status int) bool {
 type ContentTypeCategory string
 
 const (
-	CategoryHTML     ContentTypeCategory = "html"
-	CategoryJSON     ContentTypeCategory = "json"
-	CategoryXML      ContentTypeCategory = "xml"
-	CategoryText     ContentTypeCategory = "text"
-	CategoryBinary   ContentTypeCategory = "binary"
-	CategoryUnknown  ContentTypeCategory = "unknown"
+	CategoryHTML    ContentTypeCategory = "html"
+	CategoryJSON    ContentTypeCategory = "json"
+	CategoryXML     ContentTypeCategory = "xml"
+	CategoryText    ContentTypeCategory = "text"
+	CategoryBinary  ContentTypeCategory = "binary"
+	CategoryUnknown ContentTypeCategory = "unknown"
 )
 
 // ClassifyContentType categorizes a Content-Type header.

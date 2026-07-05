@@ -22,10 +22,10 @@ func (f *fakeDetector) DetectLoginFormForDomain(ctx context.Context, domain stri
 
 // fakeExecutor implements LoginExecutor.
 type fakeExecutor struct {
-	fillOK    bool
-	fillErr   error
+	fillOK     bool
+	fillErr    error
 	mfaVisible bool
-	mfaErr    error
+	mfaErr     error
 }
 
 func (f *fakeExecutor) FillAndSubmit(ctx context.Context, cred *StoredCredential, password string) (bool, error) {
@@ -196,7 +196,7 @@ func TestCheckSessionHealth_Healthy(t *testing.T) {
 	defer srv.Close()
 	s, _ := newTestSessionManager(t)
 	url := srv.URL
-	
+
 	res, err := s.CheckSessionHealth(context.Background(), url, nil)
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -330,7 +330,7 @@ func TestDomainAllowed(t *testing.T) {
 
 func TestIsLoginRedirect(t *testing.T) {
 	cases := []struct {
-		loc string
+		loc  string
 		want bool
 	}{
 		{"/login", true},

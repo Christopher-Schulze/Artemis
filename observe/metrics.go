@@ -13,25 +13,25 @@ import (
 // PerformanceMetrics captures browser performance metrics
 // (spec L4024: metrics.go - performance metrics).
 type PerformanceMetrics struct {
-	DOMContentLoaded time.Duration `json:"domContentLoaded"` // DOMContentLoaded event time
-	LoadEvent        time.Duration `json:"loadEvent"`         // load event time
-	FirstPaint       time.Duration `json:"firstPaint"`        // first paint time
-	FirstContentfulPaint time.Duration `json:"firstContentfulPaint"` // FCP
+	DOMContentLoaded       time.Duration `json:"domContentLoaded"`       // DOMContentLoaded event time
+	LoadEvent              time.Duration `json:"loadEvent"`              // load event time
+	FirstPaint             time.Duration `json:"firstPaint"`             // first paint time
+	FirstContentfulPaint   time.Duration `json:"firstContentfulPaint"`   // FCP
 	LargestContentfulPaint time.Duration `json:"largestContentfulPaint"` // LCP
-	TimeToInteractive time.Duration `json:"timeToInteractive"` // TTI
-	TotalBlockingTime time.Duration `json:"totalBlockingTime"` // TBT
-	CumulativeLayoutShift float64 `json:"cumulativeLayoutShift"` // CLS
-	TransferSize     int64         `json:"transferSize"`       // total bytes transferred
-	EncodedSize      int64         `json:"encodedSize"`        // encoded body size
-	DecodedSize      int64         `json:"decodedSize"`        // decoded body size
-	RequestCount     int           `json:"requestCount"`       // number of requests
+	TimeToInteractive      time.Duration `json:"timeToInteractive"`      // TTI
+	TotalBlockingTime      time.Duration `json:"totalBlockingTime"`      // TBT
+	CumulativeLayoutShift  float64       `json:"cumulativeLayoutShift"`  // CLS
+	TransferSize           int64         `json:"transferSize"`           // total bytes transferred
+	EncodedSize            int64         `json:"encodedSize"`            // encoded body size
+	DecodedSize            int64         `json:"decodedSize"`            // decoded body size
+	RequestCount           int           `json:"requestCount"`           // number of requests
 }
 
 // MetricsCollector collects performance metrics
 // (spec L4024: metrics.go - performance metrics).
 type MetricsCollector struct {
-	mu      sync.RWMutex
-	current PerformanceMetrics
+	mu        sync.RWMutex
+	current   PerformanceMetrics
 	updatedAt time.Time
 }
 

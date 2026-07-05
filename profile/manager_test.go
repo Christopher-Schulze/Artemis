@@ -75,7 +75,7 @@ func TestBrowserProfileAccessGate_NilAndEmpty(t *testing.T) {
 func TestProfileManager_CreateAndGetDataDirCreated(t *testing.T) {
 	m, _, base := newTestManager(t)
 	p := &BrowserProfile{
-		Name:        "prof1",
+		Name:         "prof1",
 		OwnerUserRef: "alice",
 		ShareScope:   SharePrivate,
 	}

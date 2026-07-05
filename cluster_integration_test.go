@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"artemis/actions"
-	"artemis/bridge"
-	"artemis/input"
-	"artemis/network"
-	"artemis/observe"
-	"artemis/scraper"
-	"artemis/security"
-	"artemis/stealth"
+	"github.com/Christopher-Schulze/Artemis/actions"
+	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/input"
+	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/scraper"
+	"github.com/Christopher-Schulze/Artemis/security"
+	"github.com/Christopher-Schulze/Artemis/stealth"
 )
 
 func TestArtemisPackageLayout(t *testing.T) {

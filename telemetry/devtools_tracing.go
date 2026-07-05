@@ -11,7 +11,7 @@ import (
 type TracingTransferMode string
 
 const (
-	TransferModeReportEvents  TracingTransferMode = "ReportEvents"
+	TransferModeReportEvents   TracingTransferMode = "ReportEvents"
 	TransferModeReturnAsStream TracingTransferMode = "ReturnAsStream"
 )
 
@@ -50,24 +50,24 @@ var DefaultTracingConfig = TracingConfig{
 
 // TraceEvent is a single Chrome trace event in the DevTools trace format.
 type TraceEvent struct {
-	Cat       string            `json:"cat"`
-	Name      string            `json:"name"`
-	Phase     string            `json:"ph"`
-	Timestamp int64             `json:"ts"`
-	PID       int64             `json:"pid"`
-	TID       int64             `json:"tid"`
-	Args      map[string]any    `json:"args,omitempty"`
+	Cat       string         `json:"cat"`
+	Name      string         `json:"name"`
+	Phase     string         `json:"ph"`
+	Timestamp int64          `json:"ts"`
+	PID       int64          `json:"pid"`
+	TID       int64          `json:"tid"`
+	Args      map[string]any `json:"args,omitempty"`
 }
 
 // TracingSession represents an active or completed DevTools tracing session.
 type TracingSession struct {
-	mu          sync.RWMutex
-	config      TracingConfig
-	events      []TraceEvent
-	started     bool
-	startedAt   time.Time
-	stoppedAt   time.Time
-	dropped     int
+	mu        sync.RWMutex
+	config    TracingConfig
+	events    []TraceEvent
+	started   bool
+	startedAt time.Time
+	stoppedAt time.Time
+	dropped   int
 }
 
 // NewTracingSession builds an idle TracingSession.

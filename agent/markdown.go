@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // mdConverterPool reuses mdConverter instances across nested link/list/

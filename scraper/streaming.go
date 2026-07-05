@@ -4,9 +4,9 @@
 // P4.5 Streaming Parse: io.Pipe -> goquery reads while download runs.
 // Parser starts at first bytes. 3-consumer io.TeeReader fan-out chain on
 // the same byte-stream:
-//   1. parser (goquery tokenize)
-//   2. xxhash-fingerprint (region-hash for differential-rescrape)
-//   3. mmap-persist (EvidenceGraph artifact)
+//  1. parser (goquery tokenize)
+//  2. xxhash-fingerprint (region-hash for differential-rescrape)
+//  3. mmap-persist (EvidenceGraph artifact)
 //
 // All single-pass parallel without triple-buffering. Backpressure handled
 // via bounded-buffer per consumer (slowest gates upstream).
@@ -34,7 +34,7 @@ type StreamParseResult struct {
 // StreamParser enables single-pass parallel processing of a byte stream
 // via io.TeeReader fan-out to multiple consumers.
 type StreamParser struct {
-	consumers map[string]StreamConsumer
+	consumers  map[string]StreamConsumer
 	bufferSize int
 }
 

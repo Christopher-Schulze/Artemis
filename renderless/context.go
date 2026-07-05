@@ -17,7 +17,7 @@ import (
 // ContextPool manages a pool of warm runtime contexts
 // (spec L4022: context pool/warm pool).
 type ContextPool struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	available []*RuntimeContext
 	inUse     map[string]*RuntimeContext
 	maxSize   int

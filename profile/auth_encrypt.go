@@ -47,9 +47,9 @@ type AuthEncryptConfig struct {
 // Callers must set Enabled=true and supply a KeyProvider before use.
 func DefaultAuthEncryptConfig() AuthEncryptConfig {
 	return AuthEncryptConfig{
-		Enabled:      false,
-		KeyProvider:  nil,
-		Salt:         nil,
+		Enabled:     false,
+		KeyProvider: nil,
+		Salt:        nil,
 	}
 }
 

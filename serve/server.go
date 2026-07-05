@@ -15,8 +15,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"artemis/agent"
-	"artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 // Opts configures a Server.

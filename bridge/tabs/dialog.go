@@ -17,9 +17,9 @@ import (
 type DialogType string
 
 const (
-	DialogTypeAlert  DialogType = "alert"
-	DialogTypeConfirm DialogType = "confirm"
-	DialogTypePrompt DialogType = "prompt"
+	DialogTypeAlert        DialogType = "alert"
+	DialogTypeConfirm      DialogType = "confirm"
+	DialogTypePrompt       DialogType = "prompt"
 	DialogTypeBeforeUnload DialogType = "beforeunload"
 )
 
@@ -35,12 +35,12 @@ const (
 // PendingDialog represents a pending JavaScript dialog on a tab
 // (spec L4021: alert/confirm/prompt handling).
 type PendingDialog struct {
-	Type    DialogType   `json:"type"`
-	Message string       `json:"message"`
-	URL     string       `json:"url"`
-	DefaultPrompt string `json:"defaultPrompt,omitempty"`
-	Action  DialogAction `json:"action"`
-	PromptText string    `json:"promptText,omitempty"`
+	Type          DialogType   `json:"type"`
+	Message       string       `json:"message"`
+	URL           string       `json:"url"`
+	DefaultPrompt string       `json:"defaultPrompt,omitempty"`
+	Action        DialogAction `json:"action"`
+	PromptText    string       `json:"promptText,omitempty"`
 }
 
 // DialogHandler manages dialogs per tab
@@ -185,11 +185,11 @@ func NewConfirmDialog(message, url string) *PendingDialog {
 // (spec L4021: alert/confirm/prompt handling).
 func NewPromptDialog(message, url, defaultPrompt string) *PendingDialog {
 	return &PendingDialog{
-		Type:         DialogTypePrompt,
-		Message:      message,
-		URL:          url,
+		Type:          DialogTypePrompt,
+		Message:       message,
+		URL:           url,
 		DefaultPrompt: defaultPrompt,
-		Action:       DialogActionAccept,
+		Action:        DialogActionAccept,
 	}
 }
 

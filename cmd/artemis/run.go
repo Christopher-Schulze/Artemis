@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"artemis/engine"
-	"artemis/js"
+	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 // run.go (TASK-2343: `run --script FILE <url>` CLI subcommand).

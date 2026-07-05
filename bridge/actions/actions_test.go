@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"artemis/input"
+	"github.com/Christopher-Schulze/Artemis/input"
 )
 
 // ==================== click.go tests ====================

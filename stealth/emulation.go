@@ -14,13 +14,13 @@ import (
 // DeviceEmulation describes device/screen emulation settings
 // (spec L4023: emulation.go - device/screen emulation).
 type DeviceEmulation struct {
-	Width             int     `json:"width"`              // layout viewport width
-	Height            int     `json:"height"`             // layout viewport height
-	DeviceScaleFactor float64 `json:"deviceScaleFactor"`  // CSS pixel ratio
-	Mobile            bool    `json:"mobile"`             // mobile vs desktop
-	TouchEnabled      bool    `json:"touchEnabled"`       // touch input simulation
-	ScreenWidth       int     `json:"screenWidth"`        // screen width (>= viewport)
-	ScreenHeight      int     `json:"screenHeight"`       // screen height (>= viewport)
+	Width             int     `json:"width"`             // layout viewport width
+	Height            int     `json:"height"`            // layout viewport height
+	DeviceScaleFactor float64 `json:"deviceScaleFactor"` // CSS pixel ratio
+	Mobile            bool    `json:"mobile"`            // mobile vs desktop
+	TouchEnabled      bool    `json:"touchEnabled"`      // touch input simulation
+	ScreenWidth       int     `json:"screenWidth"`       // screen width (>= viewport)
+	ScreenHeight      int     `json:"screenHeight"`      // screen height (>= viewport)
 }
 
 // DefaultDesktopEmulation returns the default desktop emulation
@@ -56,9 +56,9 @@ func DefaultMobileEmulation() DeviceEmulation {
 // EmulationManager manages device/screen emulation profiles
 // (spec L4023: emulation.go).
 type EmulationManager struct {
-	mu       sync.RWMutex
-	current  DeviceEmulation
-	preset   string
+	mu      sync.RWMutex
+	current DeviceEmulation
+	preset  string
 }
 
 // NewEmulationManager creates a new EmulationManager with desktop

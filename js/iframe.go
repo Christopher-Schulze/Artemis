@@ -6,8 +6,8 @@ import (
 
 	v8 "rogchap.com/v8go"
 
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // iframeRegistry holds the parsed sub-document AND its dedicated

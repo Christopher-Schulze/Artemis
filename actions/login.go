@@ -10,15 +10,15 @@ import (
 // Real callers adapt their DOM/AX tree into this shape; the heuristic is
 // driver-agnostic so it is unit-testable without a live browser.
 type LoginField struct {
-	Tag         string
-	Type        string // input type attribute
-	Name        string
-	ID          string
+	Tag          string
+	Type         string // input type attribute
+	Name         string
+	ID           string
 	Autocomplete string
-	Placeholder string
-	AriaLabel   string
-	Text        string // for button elements
-	Role        string // ARIA role
+	Placeholder  string
+	AriaLabel    string
+	Text         string // for button elements
+	Role         string // ARIA role
 }
 
 // LoginForm is a form projection consumed by DetectLoginForm.
@@ -30,18 +30,18 @@ type LoginForm struct {
 
 // LoginPage is the page projection.
 type LoginPage struct {
-	URL    string
-	Forms  []LoginForm
+	URL   string
+	Forms []LoginForm
 }
 
 // LoginDetection is the outcome of DetectLoginForm.
 type LoginDetection struct {
-	Found           bool
-	FormIdx         int   // index into page.Forms, -1 if not found
-	UsernameFieldIdx int  // index into form.Fields
-	PasswordFieldIdx int  // index into form.Fields
-	SubmitFieldIdx   int  // index into form.Fields (or -1 if submit is in Buttons)
-	SubmitButtonIdx  int  // index into form.Buttons when SubmitFieldIdx == -1
+	Found            bool
+	FormIdx          int // index into page.Forms, -1 if not found
+	UsernameFieldIdx int // index into form.Fields
+	PasswordFieldIdx int // index into form.Fields
+	SubmitFieldIdx   int // index into form.Fields (or -1 if submit is in Buttons)
+	SubmitButtonIdx  int // index into form.Buttons when SubmitFieldIdx == -1
 	Reason           string
 }
 

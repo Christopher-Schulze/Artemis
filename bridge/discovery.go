@@ -23,8 +23,8 @@ const (
 
 // DiscoveryResult is a single discovered Chrome debuggable surface.
 type DiscoveryResult struct {
-	URL           string
-	Method        DiscoveryMethod
+	URL            string
+	Method         DiscoveryMethod
 	BrowserVersion string
 	WebSocketURL   string
 	Found          bool
@@ -32,17 +32,17 @@ type DiscoveryResult struct {
 
 // jsonVersionResponse mirrors the /json/version payload.
 type jsonVersionResponse struct {
-	Browser         string `json:"Browser"`
+	Browser              string `json:"Browser"`
 	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 }
 
 // jsonListTarget mirrors a single entry of /json/list.
 type jsonListTarget struct {
-	ID                     string `json:"id"`
-	Type                   string `json:"type"`
-	Title                  string `json:"title"`
-	URL                    string `json:"url"`
-	WebSocketDebuggerURL   string `json:"webSocketDebuggerUrl"`
+	ID                   string `json:"id"`
+	Type                 string `json:"type"`
+	Title                string `json:"title"`
+	URL                  string `json:"url"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 }
 
 // ChromeDiscovery locates Chrome DevTools endpoints by trying three

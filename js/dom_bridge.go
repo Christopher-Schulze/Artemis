@@ -6,8 +6,8 @@ import (
 	"golang.org/x/net/html"
 	v8 "rogchap.com/v8go"
 
-	"artemis/css"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/css"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // installDocument installs the native trampolines on the global object

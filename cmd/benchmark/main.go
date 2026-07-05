@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"artemis/benchmark"
+	"github.com/Christopher-Schulze/Artemis/benchmark"
 )
 
 func main() {

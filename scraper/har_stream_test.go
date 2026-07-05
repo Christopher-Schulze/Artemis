@@ -612,5 +612,3 @@ func TestCustomMaxBodyBytes(t *testing.T) {
 		t.Fatalf("expected size 60 recorded, got %d", hf.Log.Entries[1].Response.Content.Size)
 	}
 }
-
-

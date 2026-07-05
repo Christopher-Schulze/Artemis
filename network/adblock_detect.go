@@ -46,7 +46,7 @@ type AdBlockDetectionConfig struct {
 // patterns and JS-error patterns covering the common adblocker walls.
 func DefaultAdBlockDetectionConfig() AdBlockDetectionConfig {
 	return AdBlockDetectionConfig{
-		Enabled:   true,
+		Enabled:     true,
 		AutoDisable: true,
 		DetectionPatterns: []string{
 			"adblock detected",
@@ -85,13 +85,13 @@ func DefaultAdBlockDetectionConfig() AdBlockDetectionConfig {
 
 // DetectionResult is the outcome of a single detection pass.
 type DetectionResult struct {
-	Detected       bool
-	DetectionType  DetectionType
-	Pattern        string
-	ShouldDisable  bool
-	Reason         string
+	Detected        bool
+	DetectionType   DetectionType
+	Pattern         string
+	ShouldDisable   bool
+	Reason          string
 	BlockedRequests int
-	JSErrorMatch   string
+	JSErrorMatch    string
 }
 
 // AdBlockDetectorStats are atomic counters for detector activity.
@@ -355,10 +355,10 @@ func (d *AdBlockDetector) ResetStats() {
 
 // AdBlockPerformanceConfig controls Layer 3 performance measurement.
 type AdBlockPerformanceConfig struct {
-	Enabled       bool
-	MeasureAXTree bool
+	Enabled        bool
+	MeasureAXTree  bool
 	MeasureNetwork bool
-	DefaultOn     bool
+	DefaultOn      bool
 }
 
 // DefaultAdBlockPerformanceConfig returns the production default: enabled
@@ -375,12 +375,12 @@ func DefaultAdBlockPerformanceConfig() AdBlockPerformanceConfig {
 // PerformanceMetrics captures before/after counts and the computed
 // improvement percentage for the AX tree and network request surface.
 type PerformanceMetrics struct {
-	BlockedRequests      int
-	AXTreeNodesBefore    int
-	AXTreeNodesAfter     int
+	BlockedRequests       int
+	AXTreeNodesBefore     int
+	AXTreeNodesAfter      int
 	NetworkRequestsBefore int
 	NetworkRequestsAfter  int
-	ImprovementPercent   float64
+	ImprovementPercent    float64
 }
 
 // AdBlockPerformanceStats are atomic counters for performance passes.

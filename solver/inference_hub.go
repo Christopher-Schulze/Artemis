@@ -25,11 +25,11 @@ type InferenceHubRequest struct {
 
 // InferenceHubResponse is the Inference Hub's response.
 type InferenceHubResponse struct {
-	Solved   bool   `json:"solved"`
-	Answer   string `json:"answer"`
-	Model    string `json:"model"`
-	Local    bool   `json:"local"`
-	Error    string `json:"error,omitempty"`
+	Solved bool   `json:"solved"`
+	Answer string `json:"answer"`
+	Model  string `json:"model"`
+	Local  bool   `json:"local"`
+	Error  string `json:"error,omitempty"`
 }
 
 // InferenceHub is the interface for the Omnimus Inference Hub (ss7).
@@ -48,11 +48,11 @@ type InferenceHubHook struct {
 
 // InferenceHubStats tracks inference hub decisions.
 type InferenceHubStats struct {
-	Total       int `json:"total"`
-	Solved      int `json:"solved"`
-	Failed      int `json:"failed"`
-	LocalUsed   int `json:"local_used"`
-	RemoteUsed  int `json:"remote_used"`
+	Total      int `json:"total"`
+	Solved     int `json:"solved"`
+	Failed     int `json:"failed"`
+	LocalUsed  int `json:"local_used"`
+	RemoteUsed int `json:"remote_used"`
 }
 
 // NewInferenceHubHook creates a new inference hub hook.

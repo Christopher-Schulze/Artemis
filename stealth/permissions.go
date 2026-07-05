@@ -30,11 +30,11 @@ const (
 type PermissionName string
 
 const (
-	PermissionGeolocation   PermissionName = "geolocation"
-	PermissionNotifications PermissionName = "notifications"
-	PermissionCamera        PermissionName = "camera"
-	PermissionMicrophone    PermissionName = "microphone"
-	PermissionClipboardRead PermissionName = "clipboard-read"
+	PermissionGeolocation    PermissionName = "geolocation"
+	PermissionNotifications  PermissionName = "notifications"
+	PermissionCamera         PermissionName = "camera"
+	PermissionMicrophone     PermissionName = "microphone"
+	PermissionClipboardRead  PermissionName = "clipboard-read"
 	PermissionClipboardWrite PermissionName = "clipboard-write"
 )
 

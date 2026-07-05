@@ -10,11 +10,11 @@ import (
 // ConnectionInfo is the navigator.connection API response
 // (spec L4093: navigator.connection LIVE MEASUREMENT).
 type ConnectionInfo struct {
-	RTT           time.Duration `json:"rtt"`            // round-trip time
-	Downlink      float64       `json:"downlink"`       // Mbps estimated from HTTP responses
-	EffectiveType string        `json:"effectiveType"`  // "4g", "3g", "2g", "slow-2g"
-	MeasuredAt    time.Time     `json:"measured_at"`    // when the measurement was taken
-	Source        string        `json:"source"`         // "live" or "fallback"
+	RTT           time.Duration `json:"rtt"`           // round-trip time
+	Downlink      float64       `json:"downlink"`      // Mbps estimated from HTTP responses
+	EffectiveType string        `json:"effectiveType"` // "4g", "3g", "2g", "slow-2g"
+	MeasuredAt    time.Time     `json:"measured_at"`   // when the measurement was taken
+	Source        string        `json:"source"`        // "live" or "fallback"
 }
 
 // ConnectionMonitor implements the navigator.connection LIVE MEASUREMENT
@@ -23,12 +23,12 @@ type ConnectionInfo struct {
 // derived: rtt<100ms && downlink>5 -> "4g". Values refreshed every 60s.
 // Activation: StealthStealth (Patch 16)).
 type ConnectionMonitor struct {
-	mu           sync.RWMutex
-	current      ConnectionInfo
-	active       bool
+	mu              sync.RWMutex
+	current         ConnectionInfo
+	active          bool
 	refreshInterval time.Duration
-	stopCh       chan struct{}
-	measureTarget string // host:port for RTT measurement
+	stopCh          chan struct{}
+	measureTarget   string // host:port for RTT measurement
 }
 
 // DefaultMeasureTarget is the default target for RTT measurement

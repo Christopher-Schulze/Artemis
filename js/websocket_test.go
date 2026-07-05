@@ -11,7 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func startEchoWS(t *testing.T) (string, func()) {

@@ -72,7 +72,7 @@ var globalKeyCounter atomic.Uint64
 // at Runtime level. Callbacks are stateless from a per-Context point of
 // view (they go through globalKeyStore + info.Context()).
 type cryptoSubtleTemplates struct {
-	subtleObjTmpl *v8.ObjectTemplate
+	subtleObjTmpl                                           *v8.ObjectTemplate
 	digest, importKey, generateKey, sign, verify, exportKey *v8.FunctionTemplate
 }
 

@@ -51,8 +51,8 @@ func TestDoStatusHeadersBody(t *testing.T) {
 
 func TestDoSendsUserAgentAndCustomHeaders(t *testing.T) {
 	var (
-		gotUA  string
-		gotXk  string
+		gotUA string
+		gotXk string
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")

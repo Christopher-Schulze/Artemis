@@ -20,18 +20,18 @@ import (
 
 // ParseJob is a unit of parsing work submitted to the worker pool.
 type ParseJob struct {
-	ID      string
-	URL     string
-	HTML    string
-	Parse   func(ctx context.Context, html string) (interface{}, error)
+	ID    string
+	URL   string
+	HTML  string
+	Parse func(ctx context.Context, html string) (interface{}, error)
 }
 
 // ParseResult is the outcome of a parse job.
 type ParseResult struct {
-	JobID   string
-	Value   interface{}
-	Error   error
-	Worker  int
+	JobID  string
+	Value  interface{}
+	Error  error
+	Worker int
 }
 
 // WorkerPool is a bounded pool of parse workers with LockOSThread pinning.

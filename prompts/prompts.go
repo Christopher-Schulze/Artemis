@@ -234,28 +234,28 @@ If the task is incomplete, output "NO_ANSWER" without hallucination. Do not fabr
 
 // templates maps PromptType to its template string.
 var templates = map[PromptType]string{
-	PromptSystem:             systemPrompt,
-	PromptTaskDecomposition:  taskDecompositionPrompt,
+	PromptSystem:              systemPrompt,
+	PromptTaskDecomposition:   taskDecompositionPrompt,
 	PromptDecomposeReflection: decomposeReflectionPrompt,
-	PromptPureReasoning:      pureReasoningPrompt,
-	PromptObserveReasoning:   observeReasoningPrompt,
-	PromptSubtaskRevision:    subtaskRevisionPrompt,
-	PromptFormFilling:        formFillingPrompt,
-	PromptFileDownload:       fileDownloadPrompt,
-	PromptSummarizeTask:      summarizeTaskPrompt,
+	PromptPureReasoning:       pureReasoningPrompt,
+	PromptObserveReasoning:    observeReasoningPrompt,
+	PromptSubtaskRevision:     subtaskRevisionPrompt,
+	PromptFormFilling:         formFillingPrompt,
+	PromptFileDownload:        fileDownloadPrompt,
+	PromptSummarizeTask:       summarizeTaskPrompt,
 }
 
 // names maps PromptType to its display name.
 var names = map[PromptType]string{
-	PromptSystem:             "System Prompt",
-	PromptTaskDecomposition:  "Task Decomposition",
+	PromptSystem:              "System Prompt",
+	PromptTaskDecomposition:   "Task Decomposition",
 	PromptDecomposeReflection: "Decompose Reflection",
-	PromptPureReasoning:      "Pure Reasoning",
-	PromptObserveReasoning:   "Observe Reasoning",
-	PromptSubtaskRevision:    "Subtask Revision",
-	PromptFormFilling:        "Form Filling",
-	PromptFileDownload:       "File Download",
-	PromptSummarizeTask:      "Summarize Task",
+	PromptPureReasoning:       "Pure Reasoning",
+	PromptObserveReasoning:    "Observe Reasoning",
+	PromptSubtaskRevision:     "Subtask Revision",
+	PromptFormFilling:         "Form Filling",
+	PromptFileDownload:        "File Download",
+	PromptSummarizeTask:       "Summarize Task",
 }
 
 // GetPrompt returns the template string for the given prompt type.

@@ -6,8 +6,8 @@ import (
 	"golang.org/x/net/html"
 	v8 "rogchap.com/v8go"
 
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // installExtrasV2 runs after the v1 extras and adds AbortController,

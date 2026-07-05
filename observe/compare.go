@@ -9,10 +9,10 @@ import (
 // ChangeDetector performs AX-tree-only diff with threshold and semantic
 // filtering (spec L4559). NO pixel diff.
 type ChangeDetector struct {
-	Threshold     int           // >N changed nodes -> notify
-	SemanticFilter []string     // role/name substrings to ignore (ads, timestamps)
-	Interval      time.Duration // periodic snapshot interval
-	baseline      []AXNode
+	Threshold      int           // >N changed nodes -> notify
+	SemanticFilter []string      // role/name substrings to ignore (ads, timestamps)
+	Interval       time.Duration // periodic snapshot interval
+	baseline       []AXNode
 }
 
 // NewChangeDetector creates a detector with threshold and semantic filter.
@@ -40,12 +40,12 @@ func (d *ChangeDetector) SetBaseline(nodes []AXNode) {
 
 // DiffResult is the outcome of a Compare call.
 type DiffResult struct {
-	Changed       bool
-	ChangedNodes  int
-	AddedNodes    []AXNode
-	RemovedNodes  []AXNode
-	Notify        bool
-	Reason        string
+	Changed      bool
+	ChangedNodes int
+	AddedNodes   []AXNode
+	RemovedNodes []AXNode
+	Notify       bool
+	Reason       string
 }
 
 // Compare diffs the new snapshot against the baseline, applies semantic

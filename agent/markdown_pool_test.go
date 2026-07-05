@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // TestMarkdownPoolConcurrent verifies the mdConverterPool and builderPool

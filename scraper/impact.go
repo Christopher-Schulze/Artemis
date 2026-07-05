@@ -47,32 +47,32 @@ func (a ImpactAction) String() string {
 
 // ImpactEvent records a single response for impact analysis.
 type ImpactEvent struct {
-	Host           string
-	StatusCode     int
-	ResponseTime   time.Duration
-	TimedOut       bool
-	ConnectionErr  bool
-	RetryAfter     time.Duration // from Retry-After header, 0 if absent
-	Timestamp      time.Time
+	Host          string
+	StatusCode    int
+	ResponseTime  time.Duration
+	TimedOut      bool
+	ConnectionErr bool
+	RetryAfter    time.Duration // from Retry-After header, 0 if absent
+	Timestamp     time.Time
 }
 
 // ImpactDecision is the result of analyzing an impact event.
 type ImpactDecision struct {
-	Action      ImpactAction
-	PauseUntil  time.Time
-	RateFactor  float64 // 1.0 = normal, 0.5 = halved, 0.25 = quartered
-	Reason      string
+	Action     ImpactAction
+	PauseUntil time.Time
+	RateFactor float64 // 1.0 = normal, 0.5 = halved, 0.25 = quartered
+	Reason     string
 }
 
 // ImpactDetector tracks per-host response patterns and recommends
 // rate adjustments based on server impact signals.
 type ImpactDetector struct {
-	mu          sync.Mutex
-	baselines   map[string]time.Duration // host -> baseline response time
-	pauseUntil  map[string]time.Time     // host -> pause deadline
-	rateFactor  map[string]float64       // host -> current rate factor
-	timeoutCount map[string]int          // host -> consecutive timeout count
-	totalCount   map[string]int          // host -> total request count
+	mu           sync.Mutex
+	baselines    map[string]time.Duration // host -> baseline response time
+	pauseUntil   map[string]time.Time     // host -> pause deadline
+	rateFactor   map[string]float64       // host -> current rate factor
+	timeoutCount map[string]int           // host -> consecutive timeout count
+	totalCount   map[string]int           // host -> total request count
 }
 
 // NewImpactDetector creates an empty impact detector.

@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // BenchmarkTASK2344_NodeTableHandleNew measures the Handle hot path

@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"artemis/agent"
-	"artemis/engine"
-	"artemis/js"
+	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 func cmdFetch(args []string) int {

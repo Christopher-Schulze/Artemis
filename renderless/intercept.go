@@ -46,18 +46,18 @@ type InterceptedResponse struct {
 // InterceptRule defines a rule for intercepting requests
 // (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptRule struct {
-	Pattern string          `json:"pattern"` // URL pattern to match
-	Action  InterceptAction `json:"action"`
+	Pattern  string               `json:"pattern"` // URL pattern to match
+	Action   InterceptAction      `json:"action"`
 	Response *InterceptedResponse `json:"response,omitempty"` // for mock
-	MaxAge  time.Duration   `json:"maxAge,omitempty"` // for cache
+	MaxAge   time.Duration        `json:"maxAge,omitempty"`   // for cache
 }
 
 // InterceptHandler manages request interception
 // (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptHandler struct {
-	mu     sync.RWMutex
-	rules  []InterceptRule
-	cache  map[string]*cacheEntry
+	mu            sync.RWMutex
+	rules         []InterceptRule
+	cache         map[string]*cacheEntry
 	mockResponses map[string]*InterceptedResponse
 }
 

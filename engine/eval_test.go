@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/js"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 func TestPageEval(t *testing.T) {

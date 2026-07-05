@@ -9,11 +9,11 @@ import (
 	"net/url"
 	"strings"
 
-	"artemis/agent"
-	"artemis/js"
-	"artemis/network"
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // FetchOpts customizes a single Fetch call. The zero value is valid.

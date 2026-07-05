@@ -191,11 +191,11 @@ func (a *AttributesHandler) Names() []string {
 // data required by the webapi layer: tag, direct text, all-descendant
 // text, attributes and outer HTML.
 type Selector struct {
-	tag        string
-	text       string
-	allText    string
-	attrs      map[string]string
-	outerHTML  string
+	tag       string
+	text      string
+	allText   string
+	attrs     map[string]string
+	outerHTML string
 }
 
 // NewSelector returns a Selector populated with the given tag, direct

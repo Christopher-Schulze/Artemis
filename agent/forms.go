@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // FormField is one input/select/textarea inside a form.

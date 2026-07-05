@@ -50,16 +50,16 @@ var JoinKinds = map[SchemaKind]bool{
 // The Fields field is kept for backward compatibility with the
 // original thin schema; new code should use Kind+Selector+FieldsMap.
 type StructuredSchema struct {
-	Kind        SchemaKind                  `json:"kind"`
-	Selector    string                      `json:"selector,omitempty"`
-	IsRequired  bool                        `json:"required,omitempty"`
-	Trim        bool                        `json:"trim,omitempty"`
-	Join        string                      `json:"join,omitempty"`
-	Coerce      string                      `json:"coerce,omitempty"`
-	Attr        string                      `json:"attr,omitempty"`
-	Fields      []string                    `json:"-"`            // backward compat
-	FieldsMap   map[string]*StructuredSchema `json:"fields,omitempty"` // for object kind
-	Item        *StructuredSchema           `json:"item,omitempty"`   // for list kind
+	Kind       SchemaKind                   `json:"kind"`
+	Selector   string                       `json:"selector,omitempty"`
+	IsRequired bool                         `json:"required,omitempty"`
+	Trim       bool                         `json:"trim,omitempty"`
+	Join       string                       `json:"join,omitempty"`
+	Coerce     string                       `json:"coerce,omitempty"`
+	Attr       string                       `json:"attr,omitempty"`
+	Fields     []string                     `json:"-"`                // backward compat
+	FieldsMap  map[string]*StructuredSchema `json:"fields,omitempty"` // for object kind
+	Item       *StructuredSchema            `json:"item,omitempty"`   // for list kind
 }
 
 // Required returns the list of required field names (backward compat
@@ -200,22 +200,22 @@ func (s *StructuredSchema) Hash() string {
 // (spec L4029: StructuredExtractResult{matched_count, extracted_value,
 // errors[], schema_hash, extracted_at, evidence_refs[]}).
 type StructuredExtractResult struct {
-	MatchedCount  int           `json:"matched_count"`
-	ExtractedValue interface{}   `json:"extracted_value"`
-	Errors        []string      `json:"errors,omitempty"`
-	SchemaHash    string        `json:"schema_hash"`
-	ExtractedAt   time.Time     `json:"extracted_at"`
-	EvidenceRefs  []string      `json:"evidence_refs,omitempty"`
+	MatchedCount   int         `json:"matched_count"`
+	ExtractedValue interface{} `json:"extracted_value"`
+	Errors         []string    `json:"errors,omitempty"`
+	SchemaHash     string      `json:"schema_hash"`
+	ExtractedAt    time.Time   `json:"extracted_at"`
+	EvidenceRefs   []string    `json:"evidence_refs,omitempty"`
 }
 
 // NewStructuredExtractResult creates a new result with the given
 // schema hash and extracted value.
 func NewStructuredExtractResult(schema *StructuredSchema, value interface{}, matched int) *StructuredExtractResult {
 	return &StructuredExtractResult{
-		MatchedCount:  matched,
+		MatchedCount:   matched,
 		ExtractedValue: value,
-		SchemaHash:    schema.Hash(),
-		ExtractedAt:   time.Now(),
+		SchemaHash:     schema.Hash(),
+		ExtractedAt:    time.Now(),
 	}
 }
 
@@ -322,19 +322,19 @@ var SimplePseudoClassNames = map[string]bool{
 // names allowed in CSS selectors (spec L4029, research
 // structured-extractor.ts functionalPseudoClassNames).
 var FunctionalPseudoClassNames = map[string]bool{
-	"current":       true,
-	"dir":           true,
-	"has":           true,
-	"heading":       true,
-	"host":          true,
-	"host-context":  true,
-	"is":            true,
-	"lang":          true,
-	"not":           true,
-	"nth-col":       true,
-	"nth-last-col":  true,
-	"state":         true,
-	"where":         true,
+	"current":      true,
+	"dir":          true,
+	"has":          true,
+	"heading":      true,
+	"host":         true,
+	"host-context": true,
+	"is":           true,
+	"lang":         true,
+	"not":          true,
+	"nth-col":      true,
+	"nth-last-col": true,
+	"state":        true,
+	"where":        true,
 }
 
 // IsSupportedPseudoClass checks if a pseudo-class name is supported

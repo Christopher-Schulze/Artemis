@@ -21,23 +21,23 @@ const (
 
 // BrowserProfile is one enterprise browser profile (spec L4583).
 type BrowserProfile struct {
-	Name             string     `json:"name"`
-	DisplayName      string     `json:"display_name"`
-	Color            string     `json:"color"` // hex for UI
-	OwnerUserRef     string     `json:"owner_user_ref"`
-	ShareScope       ShareScope `json:"share_scope"`
-	SharedWithUserRefs []string `json:"shared_with_user_refs"`
-	DataDir          string     `json:"data_dir"`
-	Domains          []string   `json:"domains"`
-	Credentials      []string   `json:"credentials"` // credential IDs
-	StealthLevel     string     `json:"stealth_level"` // default/stealth/paranoid
-	ConsentMode      string     `json:"consent_mode"`  // manual/auto_accept/reject_nonessential
-	DefaultPurpose   string     `json:"default_purpose"`
-	AllowedDomains   []string   `json:"allowed_domains"`
-	StealthAckExpiresAt time.Time `json:"stealth_ack_expires_at"`
-	IsActive         bool       `json:"is_active"`
-	LastUsedAt       time.Time  `json:"last_used_at"`
-	CreatedAt        time.Time  `json:"created_at"`
+	Name                string     `json:"name"`
+	DisplayName         string     `json:"display_name"`
+	Color               string     `json:"color"` // hex for UI
+	OwnerUserRef        string     `json:"owner_user_ref"`
+	ShareScope          ShareScope `json:"share_scope"`
+	SharedWithUserRefs  []string   `json:"shared_with_user_refs"`
+	DataDir             string     `json:"data_dir"`
+	Domains             []string   `json:"domains"`
+	Credentials         []string   `json:"credentials"`   // credential IDs
+	StealthLevel        string     `json:"stealth_level"` // default/stealth/paranoid
+	ConsentMode         string     `json:"consent_mode"`  // manual/auto_accept/reject_nonessential
+	DefaultPurpose      string     `json:"default_purpose"`
+	AllowedDomains      []string   `json:"allowed_domains"`
+	StealthAckExpiresAt time.Time  `json:"stealth_ack_expires_at"`
+	IsActive            bool       `json:"is_active"`
+	LastUsedAt          time.Time  `json:"last_used_at"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 // AccessDecision is the outcome of BrowserProfileAccessGate (spec L4583).

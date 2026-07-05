@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"artemis/agent"
-	"artemis/engine"
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // ArtemisRunner runs the Artemis engine against benchmark scenarios.

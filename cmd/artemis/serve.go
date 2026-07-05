@@ -7,8 +7,8 @@ import (
 	"net"
 	"os"
 
-	"artemis/engine"
-	"artemis/serve"
+	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
 func cmdServe(args []string) int {

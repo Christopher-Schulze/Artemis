@@ -26,12 +26,12 @@ const (
 // MouseEvent represents a mouse event
 // (spec L4019: mouse/touch events).
 type MouseEvent struct {
-	Type      MouseButton `json:"type"`
-	X         float64     `json:"x"`
-	Y         float64     `json:"y"`
-	Button    MouseButton `json:"button"`
-	ClickCount int        `json:"clickCount"`
-	Timestamp time.Time   `json:"timestamp"`
+	Type       MouseButton `json:"type"`
+	X          float64     `json:"x"`
+	Y          float64     `json:"y"`
+	Button     MouseButton `json:"button"`
+	ClickCount int         `json:"clickCount"`
+	Timestamp  time.Time   `json:"timestamp"`
 }
 
 // TouchEvent represents a touch event
@@ -89,10 +89,10 @@ func (d *PointerDispatcher) DispatchTouch(event TouchEvent) error {
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) Click(x, y float64, button MouseButton) error {
 	return d.DispatchMouse(MouseEvent{
-		Type:   button,
-		X:      x,
-		Y:      y,
-		Button: button,
+		Type:       button,
+		X:          x,
+		Y:          y,
+		Button:     button,
 		ClickCount: 1,
 	})
 }

@@ -12,20 +12,20 @@ import (
 // (spec L4089: MEASURE-FIRST pattern. Real GPU via system_profiler
 // (macOS) / lspci (Linux)).
 type GPUInfo struct {
-	Vendor    string
-	Renderer  string
-	Source    string // "system_profiler", "lspci", "fallback"
-	Detected  bool
+	Vendor   string
+	Renderer string
+	Source   string // "system_profiler", "lspci", "fallback"
+	Detected bool
 }
 
 // WebGLOverride is the WebGL renderer override configuration
 // (spec L4089: Override headless "SwiftShader" with REAL GPU name).
 type WebGLOverride struct {
-	mu       sync.RWMutex
-	gpu      GPUInfo
-	enabled  bool
+	mu                 sync.RWMutex
+	gpu                GPUInfo
+	enabled            bool
 	consistencyChecked bool
-	consistencyOK     bool
+	consistencyOK      bool
 }
 
 // NewWebGLOverride creates a new WebGL override instance

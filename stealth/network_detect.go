@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"artemis/network"
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 // HostLookup resolves a hostname to IP addresses (injectable for tests).

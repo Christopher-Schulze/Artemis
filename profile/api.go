@@ -22,11 +22,11 @@ import (
 // BrowserAPI is the REST API handler for browser profile/session/cookie/storage
 // operations (spec L4601).
 type BrowserAPI struct {
-	Manager     *ProfileManager
-	Sessions    *SessionManager
-	Cookies     *CookieStore
-	Storage     *StorageManager
-	Settings    *BrowserSettings
+	Manager  *ProfileManager
+	Sessions *SessionManager
+	Cookies  *CookieStore
+	Storage  *StorageManager
+	Settings *BrowserSettings
 }
 
 // BrowserSettings holds browser-level settings (spec L4601: GET/PUT /api/browser/settings).

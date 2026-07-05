@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"artemis/engine"
-	"artemis/serve"
+	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
 // startServeServer starts an in-process artemis serve.Server on a free

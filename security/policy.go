@@ -17,18 +17,18 @@ import (
 // NavigationPolicy manages the domain allowlist for navigation
 // (spec L4027: navigation policy domain allowlist).
 type NavigationPolicy struct {
-	mu          sync.RWMutex
-	allowList   map[string]bool // explicitly allowed domains
-	blockList   map[string]bool // explicitly blocked domains
-	defaultAllow bool           // default policy when domain not in either list
+	mu           sync.RWMutex
+	allowList    map[string]bool // explicitly allowed domains
+	blockList    map[string]bool // explicitly blocked domains
+	defaultAllow bool            // default policy when domain not in either list
 }
 
 // NewNavigationPolicy creates a new NavigationPolicy with default-deny
 // (spec L4027: navigation policy domain allowlist).
 func NewNavigationPolicy() *NavigationPolicy {
 	return &NavigationPolicy{
-		allowList:   make(map[string]bool),
-		blockList:   make(map[string]bool),
+		allowList:    make(map[string]bool),
+		blockList:    make(map[string]bool),
 		defaultAllow: false, // default-deny
 	}
 }
@@ -37,8 +37,8 @@ func NewNavigationPolicy() *NavigationPolicy {
 // default-allow (spec L4027).
 func NewNavigationPolicyDefaultAllow() *NavigationPolicy {
 	return &NavigationPolicy{
-		allowList:   make(map[string]bool),
-		blockList:   make(map[string]bool),
+		allowList:    make(map[string]bool),
+		blockList:    make(map[string]bool),
 		defaultAllow: true, // default-allow
 	}
 }

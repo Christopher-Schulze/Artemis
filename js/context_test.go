@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func newCtxFromHTML(t *testing.T, src string, console Console) *Context {

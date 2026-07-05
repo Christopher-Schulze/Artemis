@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func parseForms(t *testing.T, src, base string) []*Form {

@@ -111,7 +111,7 @@ func defaultPatterns() []RedactionPattern {
 			Pattern: regexp.MustCompile(`\b(?:\d[ -]*?){13,19}\b`),
 		},
 		{
-			Name: "email",
+			Name:    "email",
 			Pattern: regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`),
 		},
 		{
@@ -125,9 +125,9 @@ func defaultPatterns() []RedactionPattern {
 // Redactor applies the configured secret patterns at the three pipeline
 // points (spec L4279). It is safe for concurrent use.
 type Redactor struct {
-	mu     sync.RWMutex
-	cfg    RedactionConfig
-	stat   RedactionStats
+	mu   sync.RWMutex
+	cfg  RedactionConfig
+	stat RedactionStats
 	// compiled caches the compiled patterns from cfg so repeated Redact
 	// calls don't recompile. Built once at construction.
 	compiled []RedactionPattern

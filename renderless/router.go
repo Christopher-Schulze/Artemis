@@ -28,11 +28,11 @@ const (
 // ScriptRequest represents a script execution request
 // (spec L4022: inline+external script execution).
 type ScriptRequest struct {
-	Type     ScriptType `json:"type"`
-	Source   string     `json:"source"`   // inline code or external URL
-	Async    bool       `json:"async"`
-	Defer    bool       `json:"defer"`
-	Timeout  int        `json:"timeout,omitempty"` // milliseconds
+	Type    ScriptType `json:"type"`
+	Source  string     `json:"source"` // inline code or external URL
+	Async   bool       `json:"async"`
+	Defer   bool       `json:"defer"`
+	Timeout int        `json:"timeout,omitempty"` // milliseconds
 }
 
 // ScriptResult is the result of script execution

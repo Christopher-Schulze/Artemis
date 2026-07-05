@@ -159,10 +159,10 @@ func TestWorkerStealthScript_Defaults(t *testing.T) {
 
 func TestWorkerStealthScript_CustomProfile(t *testing.T) {
 	p := Profile{
-		UserAgent:  "Mozilla/5.0 (X11; Linux x86_64) Chrome/125.0.0.0",
-		Platform:   "Linux x86_64",
-		Languages:  "en-US,en",
-		Vendor:     "Google Inc.",
+		UserAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/125.0.0.0",
+		Platform:  "Linux x86_64",
+		Languages: "en-US,en",
+		Vendor:    "Google Inc.",
 	}
 	script := WorkerStealthScript(p)
 	if !strings.Contains(script, "Mozilla/5.0 (X11; Linux x86_64) Chrome/125.0.0.0") {
@@ -203,10 +203,10 @@ func TestWorkerStealthScript_PatchesWebdriverFalse(t *testing.T) {
 
 func TestWorkerStealthScript_LanguagesArray(t *testing.T) {
 	p := Profile{
-		UserAgent:  "test-ua",
-		Platform:   "test-platform",
-		Languages:  "de-DE,de,en-US,en",
-		Vendor:     "test-vendor",
+		UserAgent: "test-ua",
+		Platform:  "test-platform",
+		Languages: "de-DE,de,en-US,en",
+		Vendor:    "test-vendor",
 	}
 	script := WorkerStealthScript(p)
 	if !strings.Contains(script, `de-DE`) || !strings.Contains(script, `en-US`) {

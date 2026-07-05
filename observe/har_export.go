@@ -29,9 +29,9 @@ const HARCreatorVersion = "1.0.0"
 
 // HARLog is the top-level HAR log object (spec L4263).
 type HARLog struct {
-	Version string      `json:"version"`
-	Creator HARCreator  `json:"creator"`
-	Entries []HAREntry  `json:"entries"`
+	Version string        `json:"version"`
+	Creator HARCreator    `json:"creator"`
+	Entries []HAREntry    `json:"entries"`
 	Pages   []interface{} `json:"pages,omitempty"`
 }
 
@@ -45,24 +45,24 @@ type HARCreator struct {
 // HAREntry is a single request/response pair in the HAR log
 // (spec L4263).
 type HAREntry struct {
-	StartedDateTime string     `json:"startedDateTime"`
-	Time            float64    `json:"time"`
-	Request         HARRequest `json:"request"`
+	StartedDateTime string      `json:"startedDateTime"`
+	Time            float64     `json:"time"`
+	Request         HARRequest  `json:"request"`
 	Response        HARResponse `json:"response"`
-	Timings         HARTimings `json:"timings"`
-	Cache           struct{}   `json:"cache"`
+	Timings         HARTimings  `json:"timings"`
+	Cache           struct{}    `json:"cache"`
 }
 
 // HARRequest is the request side of a HAR entry (spec L4263).
 type HARRequest struct {
-	Method      string            `json:"method"`
-	URL         string            `json:"url"`
-	HTTPVersion string            `json:"httpVersion"`
-	Headers     []HARNameValue    `json:"headers"`
-	Cookies     []HARCookie       `json:"cookies"`
-	QueryString []HARNameValue    `json:"queryString"`
-	HeadersSize int               `json:"headersSize"`
-	BodySize    int               `json:"bodySize"`
+	Method      string         `json:"method"`
+	URL         string         `json:"url"`
+	HTTPVersion string         `json:"httpVersion"`
+	Headers     []HARNameValue `json:"headers"`
+	Cookies     []HARCookie    `json:"cookies"`
+	QueryString []HARNameValue `json:"queryString"`
+	HeadersSize int            `json:"headersSize"`
+	BodySize    int            `json:"bodySize"`
 }
 
 // HARResponse is the response side of a HAR entry (spec L4263).

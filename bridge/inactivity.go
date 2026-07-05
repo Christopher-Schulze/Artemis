@@ -7,9 +7,9 @@ import (
 
 // InactivityConfig controls session inactivity cleanup (spec L4281).
 type InactivityConfig struct {
-	IdleTimeout    time.Duration
-	CheckInterval  time.Duration
-	Enabled        bool
+	IdleTimeout   time.Duration
+	CheckInterval time.Duration
+	Enabled       bool
 }
 
 // DefaultInactivityConfig is the canonical inactivity configuration.

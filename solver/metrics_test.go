@@ -16,7 +16,7 @@ func TestChallengeMetricsPersist(t *testing.T) {
 	if err := store.Record(MetricRow{
 		Domain: "cf.example.com", ChallengeType: string(TypeCloudflare),
 		StageSolved: sql.NullInt64{Int64: 1, Valid: true},
-		DurationMS: 1200,
+		DurationMS:  1200,
 	}); err != nil {
 		t.Fatal(err)
 	}

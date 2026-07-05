@@ -27,19 +27,19 @@ const (
 // (spec L4020: scroll w/ easeInOut).
 type ScrollAction struct {
 	Direction ScrollDirection `json:"direction"`
-	Amount    int             `json:"amount"`    // pixels to scroll
-	Duration  time.Duration   `json:"duration"`  // total scroll duration
-	Steps     int             `json:"steps"`     // interpolation steps
+	Amount    int             `json:"amount"`   // pixels to scroll
+	Duration  time.Duration   `json:"duration"` // total scroll duration
+	Steps     int             `json:"steps"`    // interpolation steps
 }
 
 // ScrollResult is the result of a scroll action
 // (spec L4020: scroll w/ easeInOut).
 type ScrollResult struct {
-	Success  bool            `json:"success"`
+	Success   bool            `json:"success"`
 	Direction ScrollDirection `json:"direction"`
-	Amount   int             `json:"amount"`
-	Duration time.Duration   `json:"duration"`
-	Error    string          `json:"error,omitempty"`
+	Amount    int             `json:"amount"`
+	Duration  time.Duration   `json:"duration"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // NewScrollAction creates a new ScrollAction with default easeInOut
@@ -59,16 +59,16 @@ func (a ScrollAction) Execute(ctx context.Context) ScrollResult {
 	start := time.Now()
 	if a.Amount <= 0 {
 		return ScrollResult{
-			Success:  false,
+			Success:   false,
 			Direction: a.Direction,
-			Error:    "scroll: amount must be positive",
+			Error:     "scroll: amount must be positive",
 		}
 	}
 	if !IsValidScrollDirection(a.Direction) {
 		return ScrollResult{
-			Success:  false,
+			Success:   false,
 			Direction: a.Direction,
-			Error:    fmt.Sprintf("scroll: invalid direction %q", a.Direction),
+			Error:     fmt.Sprintf("scroll: invalid direction %q", a.Direction),
 		}
 	}
 	// In a real implementation, this would use CDP to scroll
@@ -88,7 +88,7 @@ func EaseInOut(t float64) float64 {
 	if t < 0.5 {
 		return 4 * t * t * t
 	}
-	return 1 - ((-2*t + 2) * (-2*t + 2) * (-2*t + 2)) / 2
+	return 1 - ((-2*t+2)*(-2*t+2)*(-2*t+2))/2
 }
 
 // ComputeScrollSteps computes the per-step scroll amounts using

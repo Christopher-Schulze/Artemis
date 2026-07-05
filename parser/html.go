@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // ParseHTML parses an HTML document from r. The url is stored on the

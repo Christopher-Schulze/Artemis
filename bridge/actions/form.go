@@ -35,11 +35,11 @@ const (
 // FormResult is the result of a form action
 // (spec L4020: form fill/select/check/submit).
 type FormResult struct {
-	Success  bool          `json:"success"`
+	Success  bool           `json:"success"`
 	Type     FormActionType `json:"type"`
-	Ref      string        `json:"ref"`
-	Duration time.Duration `json:"duration"`
-	Error    string        `json:"error,omitempty"`
+	Ref      string         `json:"ref"`
+	Duration time.Duration  `json:"duration"`
+	Error    string         `json:"error,omitempty"`
 }
 
 // NewFormFill creates a form fill action

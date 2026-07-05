@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 // TestWSReadLimitLargePageDump is a deterministic regression test for

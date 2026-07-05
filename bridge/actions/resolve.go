@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"artemis/scraper"
+	"github.com/Christopher-Schulze/Artemis/scraper"
 )
 
 // resolve.go (spec L4020: bridge/actions/resolve.go - unified

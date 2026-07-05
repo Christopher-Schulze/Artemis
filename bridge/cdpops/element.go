@@ -15,12 +15,12 @@ import (
 // BoxModel represents an element's box model
 // (spec L4019: element queries + box model).
 type BoxModel struct {
-	Content  Quad `json:"content"`
-	Padding  Quad `json:"padding"`
-	Border   Quad `json:"border"`
-	Margin   Quad `json:"margin"`
-	Width    int  `json:"width"`
-	Height   int  `json:"height"`
+	Content Quad `json:"content"`
+	Padding Quad `json:"padding"`
+	Border  Quad `json:"border"`
+	Margin  Quad `json:"margin"`
+	Width   int  `json:"width"`
+	Height  int  `json:"height"`
 }
 
 // Quad represents a quadrilateral (4 points)
@@ -39,17 +39,17 @@ type Quad struct {
 // ElementInfo represents a queried DOM element
 // (spec L4019: element queries + box model).
 type ElementInfo struct {
-	Ref       string   `json:"ref"`
-	TagName   string   `json:"tagName"`
-	Type      string   `json:"type,omitempty"`
-	Text      string   `json:"text,omitempty"`
-	Role      string   `json:"role,omitempty"`
-	Classes   []string `json:"classes,omitempty"`
-	ID        string   `json:"id,omitempty"`
-	Name      string   `json:"name,omitempty"`
-	Value     string   `json:"value,omitempty"`
-	Visible   bool     `json:"visible"`
-	Clickable bool     `json:"clickable"`
+	Ref       string    `json:"ref"`
+	TagName   string    `json:"tagName"`
+	Type      string    `json:"type,omitempty"`
+	Text      string    `json:"text,omitempty"`
+	Role      string    `json:"role,omitempty"`
+	Classes   []string  `json:"classes,omitempty"`
+	ID        string    `json:"id,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	Value     string    `json:"value,omitempty"`
+	Visible   bool      `json:"visible"`
+	Clickable bool      `json:"clickable"`
 	Box       *BoxModel `json:"box,omitempty"`
 }
 

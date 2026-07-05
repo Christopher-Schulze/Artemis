@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func mdOf(t *testing.T, src, base string) string {

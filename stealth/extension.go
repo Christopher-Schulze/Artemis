@@ -57,18 +57,18 @@ func NewStealthExtension(p Profile) *StealthExtension {
 
 // manifestV3 describes a Chrome Manifest V3 extension.
 type manifestV3 struct {
-	ManifestVersion int                 `json:"manifest_version"`
-	Name            string              `json:"name"`
-	Version         string              `json:"version"`
-	Description     string              `json:"description"`
+	ManifestVersion int                  `json:"manifest_version"`
+	Name            string               `json:"name"`
+	Version         string               `json:"version"`
+	Description     string               `json:"description"`
 	ContentScripts  []contentScriptEntry `json:"content_scripts"`
 }
 
 type contentScriptEntry struct {
-	Matches []string `json:"matches"`
-	JS      []string `json:"js"`
-	RunAt   string   `json:"run_at"`
-	AllFrames bool   `json:"all_frames"`
+	Matches   []string `json:"matches"`
+	JS        []string `json:"js"`
+	RunAt     string   `json:"run_at"`
+	AllFrames bool     `json:"all_frames"`
 }
 
 // GenerateStealthExtension writes the Chrome Extension files (manifest.json

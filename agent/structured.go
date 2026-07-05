@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // StructuredData aggregates structured information found in a document.

@@ -7,17 +7,17 @@ import (
 	"strconv"
 	"strings"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // PaginationInfo describes detected pagination on a page.
 type PaginationInfo struct {
-	HasNext      bool
-	NextURL      string
-	HasPrev      bool
-	PrevURL      string
-	TotalPages   int
-	CurrentPage  int
+	HasNext          bool
+	NextURL          string
+	HasPrev          bool
+	PrevURL          string
+	TotalPages       int
+	CurrentPage      int
 	IsInfiniteScroll bool
 }
 

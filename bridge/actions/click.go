@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"artemis/input"
+	"github.com/Christopher-Schulze/Artemis/input"
 )
 
 // click.go (spec L4020: bridge/actions/click.go - click w/ human-like
@@ -17,19 +17,19 @@ import (
 // ClickAction represents a click action with human-like movement
 // (spec L4020: click w/ human-like movement).
 type ClickAction struct {
-	Ref      string        // element reference (eN) or CSS selector
-	Button   string        // "left", "right", "middle"
-	Wait     time.Duration // wait before clicking
+	Ref      string          // element reference (eN) or CSS selector
+	Button   string          // "left", "right", "middle"
+	Wait     time.Duration   // wait before clicking
 	MovePath input.MousePath // pre-computed mouse path (optional)
 }
 
 // ClickResult is the result of a click action
 // (spec L4020: click w/ human-like movement).
 type ClickResult struct {
-	Success   bool          `json:"success"`
-	Ref       string        `json:"ref"`
-	Duration  time.Duration `json:"duration"`
-	Error     string        `json:"error,omitempty"`
+	Success  bool          `json:"success"`
+	Ref      string        `json:"ref"`
+	Duration time.Duration `json:"duration"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // NewClickAction creates a new ClickAction

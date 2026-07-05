@@ -10,7 +10,7 @@ import (
 	"github.com/andybalholm/cascadia"
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // Finder is an adaptive element locator that tries cheap deterministic
@@ -27,7 +27,7 @@ func NewFinder() *Finder {
 // Result describes what was found and how.
 type Result struct {
 	Node       *webapi.Node
-	Strategy   string // css, xpath, text, attr, heuristic
+	Strategy   string  // css, xpath, text, attr, heuristic
 	Confidence float64 // 0..1
 }
 

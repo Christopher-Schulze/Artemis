@@ -200,7 +200,7 @@ func TestIDPIChecker_Config(t *testing.T) {
 func TestIDPIChecker_SetConfig(t *testing.T) {
 	c := NewIDPIChecker(DefaultIDPIConfig())
 	newConfig := IDPIConfig{
-		Enabled:         true,
+		Enabled:          true,
 		BlocklistDomains: []string{"new.block"},
 	}
 	c.SetConfig(newConfig)

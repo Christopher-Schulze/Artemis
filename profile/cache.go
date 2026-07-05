@@ -25,24 +25,24 @@ const (
 // (spec L4028: cache.go - browser cache control). Each profile gets
 // isolated cache control: max-age, clear, disable, clear-on-exit.
 type BrowserCacheControl struct {
-	ProfileName  string              `json:"profile_name"`
-	Policy       CacheControlPolicy  `json:"policy"`
+	ProfileName   string             `json:"profile_name"`
+	Policy        CacheControlPolicy `json:"policy"`
 	MaxAgeSeconds int64              `json:"max_age_seconds,omitempty"`
-	MaxSizeBytes int64               `json:"max_size_bytes,omitempty"`
-	Enabled      bool                `json:"enabled"`
-	mu           sync.RWMutex
-	stats        CacheStats
+	MaxSizeBytes  int64              `json:"max_size_bytes,omitempty"`
+	Enabled       bool               `json:"enabled"`
+	mu            sync.RWMutex
+	stats         CacheStats
 }
 
 // CacheStats tracks cache usage metrics per profile
 // (spec L4028: metric omnimus_browser_cache_{...}).
 type CacheStats struct {
-	HitCount       int64     `json:"hit_count"`
-	MissCount      int64     `json:"miss_count"`
-	EvictionCount  int64     `json:"eviction_count"`
-	ClearCount     int64     `json:"clear_count"`
-	CurrentBytes   int64     `json:"current_bytes"`
-	LastClearedAt  time.Time `json:"last_cleared_at,omitempty"`
+	HitCount      int64     `json:"hit_count"`
+	MissCount     int64     `json:"miss_count"`
+	EvictionCount int64     `json:"eviction_count"`
+	ClearCount    int64     `json:"clear_count"`
+	CurrentBytes  int64     `json:"current_bytes"`
+	LastClearedAt time.Time `json:"last_cleared_at,omitempty"`
 }
 
 // NewBrowserCacheControl creates a new cache control for a profile

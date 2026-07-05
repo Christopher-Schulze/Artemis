@@ -3,8 +3,8 @@ package artemis
 import (
 	"testing"
 
-	"artemis/observe"
-	"artemis/scraper"
+	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/scraper"
 )
 
 func TestAXSnapshotDiff(t *testing.T) {

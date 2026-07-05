@@ -23,7 +23,7 @@ const (
 	RoleListItem   RoleName = "listitem"
 	RoleParagraph  RoleName = "paragraph"
 	RoleNavigation RoleName = "navigation"
-	RoleMain        RoleName = "main"
+	RoleMain       RoleName = "main"
 	RoleArticle    RoleName = "article"
 	RoleSection    RoleName = "section"
 	RoleForm       RoleName = "form"
@@ -49,7 +49,7 @@ var InteractiveRoles = map[RoleName]bool{
 var StructuralRoles = map[RoleName]bool{
 	RoleList:       true,
 	RoleNavigation: true,
-	RoleMain:        true,
+	RoleMain:       true,
 	RoleArticle:    true,
 	RoleSection:    true,
 	RoleForm:       true,

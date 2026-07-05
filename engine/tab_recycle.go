@@ -19,10 +19,10 @@ import (
 type TabState int
 
 const (
-	TabStateActive    TabState = iota // tab is in use
-	TabStateIdle                      // tab is idle, available for recycling
-	TabStateRecycled                  // tab has been recycled to about:blank
-	TabStateClosed                    // tab is permanently closed
+	TabStateActive   TabState = iota // tab is in use
+	TabStateIdle                     // tab is idle, available for recycling
+	TabStateRecycled                 // tab has been recycled to about:blank
+	TabStateClosed                   // tab is permanently closed
 )
 
 // String returns the tab state name.

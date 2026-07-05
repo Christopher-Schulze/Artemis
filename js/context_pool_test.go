@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 // TestPooledContextReusesV8Ctx verifies that with a non-zero pool size,

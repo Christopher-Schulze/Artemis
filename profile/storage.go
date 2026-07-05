@@ -15,11 +15,11 @@ import (
 type StorageKind string
 
 const (
-	StorageCookies      StorageKind = "cookies"
-	StorageLocalStorage StorageKind = "local_storage"
+	StorageCookies        StorageKind = "cookies"
+	StorageLocalStorage   StorageKind = "local_storage"
 	StorageSessionStorage StorageKind = "session_storage"
-	StorageIndexedDB    StorageKind = "indexeddb"
-	StorageCache        StorageKind = "cache"
+	StorageIndexedDB      StorageKind = "indexeddb"
+	StorageCache          StorageKind = "cache"
 )
 
 // LocalStorageEntry is one localStorage key/value (spec L4577).
@@ -32,18 +32,18 @@ type LocalStorageEntry struct {
 // DataLocation is one enumerated storage location for
 // RightsProcessor.FindAllData (spec L4577).
 type DataLocation struct {
-	Kind     StorageKind `json:"kind"`
-	Path     string      `json:"path"`
-	Domain   string      `json:"domain,omitempty"`
-	SizeBytes int64      `json:"size_bytes"`
+	Kind      StorageKind `json:"kind"`
+	Path      string      `json:"path"`
+	Domain    string      `json:"domain,omitempty"`
+	SizeBytes int64       `json:"size_bytes"`
 }
 
 // StorageManager handles localStorage listing, storage size and data
 // location enumeration (spec L4577).
 type StorageManager struct {
-	mu          sync.Mutex
-	ls          map[string]*LocalStorageEntry // keyed by domain|key
-	profileDir  string                         // ~/.omnimus/browser/profiles/{owner}/{name}/
+	mu         sync.Mutex
+	ls         map[string]*LocalStorageEntry // keyed by domain|key
+	profileDir string                        // ~/.omnimus/browser/profiles/{owner}/{name}/
 }
 
 // NewStorageManager creates a manager. profileDir is the per-profile

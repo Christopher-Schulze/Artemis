@@ -16,10 +16,10 @@ import (
 // TabExecutor manages concurrent execution across multiple tabs
 // (spec L4021: concurrent tab execution).
 type TabExecutor struct {
-	registry *TabRegistry
+	registry      *TabRegistry
 	maxConcurrent int
-	sem      chan struct{}
-	wg       sync.WaitGroup
+	sem           chan struct{}
+	wg            sync.WaitGroup
 }
 
 // TabTask is a task to execute on a specific tab
@@ -46,9 +46,9 @@ func NewTabExecutor(registry *TabRegistry, maxConcurrent int) *TabExecutor {
 		maxConcurrent = 4
 	}
 	return &TabExecutor{
-		registry:     registry,
+		registry:      registry,
 		maxConcurrent: maxConcurrent,
-		sem:          make(chan struct{}, maxConcurrent),
+		sem:           make(chan struct{}, maxConcurrent),
 	}
 }
 

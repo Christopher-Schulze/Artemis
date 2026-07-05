@@ -41,7 +41,7 @@ const (
 // (spec L4026: touch.go - touch events for mobile emulation).
 type TouchEvent struct {
 	Type      TouchEventType `json:"type"`
-	Points    []TouchPoint   `json:"points"`     // active touch points
+	Points    []TouchPoint   `json:"points"` // active touch points
 	Timestamp time.Time      `json:"timestamp"`
 	Target    string         `json:"target,omitempty"` // element ref
 }

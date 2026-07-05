@@ -17,13 +17,13 @@ import (
 // OCSFEvent represents an OCSF-formatted audit event for a browser
 // action (spec L4249, ss6.1).
 type OCSFEvent struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Action      string    `json:"action"`
-	TargetURL   string    `json:"target_url,omitempty"`
-	Actor       string    `json:"actor"`
-	Result      string    `json:"result"`
-	Duration    int64     `json:"duration_ms"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+	Action    string            `json:"action"`
+	TargetURL string            `json:"target_url,omitempty"`
+	Actor     string            `json:"actor"`
+	Result    string            `json:"result"`
+	Duration  int64             `json:"duration_ms"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // OCSFAuditLogger is the interface for the Omnimus OCSF audit system
@@ -34,17 +34,17 @@ type OCSFAuditLogger interface {
 
 // AuditHook logs browser actions as OCSF events (ss6.1) (spec L4249).
 type AuditHook struct {
-	mu     sync.RWMutex
-	logger OCSFAuditLogger
+	mu      sync.RWMutex
+	logger  OCSFAuditLogger
 	enabled bool
-	stats  AuditHookStats
+	stats   AuditHookStats
 }
 
 // AuditHookStats tracks audit hook activity.
 type AuditHookStats struct {
-	Total    int `json:"total"`
-	Logged   int `json:"logged"`
-	Failed   int `json:"failed"`
+	Total  int `json:"total"`
+	Logged int `json:"logged"`
+	Failed int `json:"failed"`
 }
 
 // NewAuditHook creates a new audit hook with the given logger.

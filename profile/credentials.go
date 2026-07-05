@@ -31,16 +31,16 @@ type LoginSelectors struct {
 
 // StoredCredential is one encrypted credential entry (spec L4553).
 type StoredCredential struct {
-	ID          string        `json:"id"`
-	ProfileName string        `json:"profile_name"`
-	Domain      string        `json:"domain"`
-	Username    string        `json:"username"`
-	Password    []byte        `json:"password"` // AES-256-GCM ciphertext
-	Nonce       []byte        `json:"nonce"`
+	ID          string         `json:"id"`
+	ProfileName string         `json:"profile_name"`
+	Domain      string         `json:"domain"`
+	Username    string         `json:"username"`
+	Password    []byte         `json:"password"` // AES-256-GCM ciphertext
+	Nonce       []byte         `json:"nonce"`
 	Selectors   LoginSelectors `json:"selectors"`
-	CreatedAt   time.Time     `json:"created_at"`
-	LastUsedAt  time.Time     `json:"last_used_at"`
-	LastLoginOK bool          `json:"last_login_ok"`
+	CreatedAt   time.Time      `json:"created_at"`
+	LastUsedAt  time.Time      `json:"last_used_at"`
+	LastLoginOK bool           `json:"last_login_ok"`
 }
 
 // CredentialSummary is the password-less projection for ListCredentials.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"artemis/scraper"
+	"github.com/Christopher-Schulze/Artemis/scraper"
 )
 
 // ExecutionRouterMode enumerates the 5 execution modes from spec ss28.3a.

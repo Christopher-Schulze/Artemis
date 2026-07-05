@@ -18,25 +18,25 @@ import (
 type PolicyDecision string
 
 const (
-	PolicyDecisionAllow   PolicyDecision = "allow"
-	PolicyDecisionDeny    PolicyDecision = "deny"
+	PolicyDecisionAllow     PolicyDecision = "allow"
+	PolicyDecisionDeny      PolicyDecision = "deny"
 	PolicyDecisionChallenge PolicyDecision = "challenge"
 )
 
 // PolicyRequest represents a browser request to be evaluated by the
 // Policy Engine (spec L4247).
 type PolicyRequest struct {
-	URL    string            `json:"url"`
-	Method string            `json:"method"`
-	Action string            `json:"action"`
+	URL     string            `json:"url"`
+	Method  string            `json:"method"`
+	Action  string            `json:"action"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // PolicyResponse is the Policy Engine's response to a browser request.
 type PolicyResponse struct {
-	Decision  PolicyDecision `json:"decision"`
-	Reason    string         `json:"reason"`
-	RewrittenURL string      `json:"rewritten_url,omitempty"`
+	Decision     PolicyDecision `json:"decision"`
+	Reason       string         `json:"reason"`
+	RewrittenURL string         `json:"rewritten_url,omitempty"`
 }
 
 // PolicyEngine is the interface for the Omnimus Policy Engine (ss6).
@@ -49,17 +49,17 @@ type PolicyEngine interface {
 // PolicyHook routes browser requests through the Policy Engine (ss6)
 // before execution (spec L4247).
 type PolicyHook struct {
-	mu     sync.RWMutex
-	engine PolicyEngine
+	mu      sync.RWMutex
+	engine  PolicyEngine
 	enabled bool
-	stats  PolicyHookStats
+	stats   PolicyHookStats
 }
 
 // PolicyHookStats tracks policy hook decisions.
 type PolicyHookStats struct {
-	Total     int `json:"total"`
-	Allowed   int `json:"allowed"`
-	Denied    int `json:"denied"`
+	Total      int `json:"total"`
+	Allowed    int `json:"allowed"`
+	Denied     int `json:"denied"`
 	Challenged int `json:"challenged"`
 }
 

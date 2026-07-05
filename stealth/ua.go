@@ -16,10 +16,10 @@ import (
 // UAInfo describes a User-Agent with version coherence metadata
 // (spec L4023: ua.go - UA mgmt + version coherence).
 type UAInfo struct {
-	UserAgent string `json:"userAgent"`   // full UA string
-	Browser   string `json:"browser"`     // browser family (e.g. "chrome")
-	Version   string `json:"version"`     // major version (e.g. "126")
-	Platform  string `json:"platform"`    // platform (e.g. "macOS")
+	UserAgent string `json:"userAgent"` // full UA string
+	Browser   string `json:"browser"`   // browser family (e.g. "chrome")
+	Version   string `json:"version"`   // major version (e.g. "126")
+	Platform  string `json:"platform"`  // platform (e.g. "macOS")
 	Mobile    bool   `json:"mobile"`
 }
 

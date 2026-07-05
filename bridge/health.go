@@ -110,10 +110,10 @@ const (
 
 // StepResult is the outcome of one probe step.
 type StepResult struct {
-	Step    HealthStep
-	OK      bool
-	Reason  string
-	TookMs  int64
+	Step   HealthStep
+	OK     bool
+	Reason string
+	TookMs int64
 }
 
 // CheckHealthResult is the aggregate outcome of the 4-step flow.
@@ -223,7 +223,7 @@ type RecoveryAction interface {
 // RecoveryResult is the outcome of the recovery path.
 type RecoveryResult struct {
 	Success    bool
-	Step       string  // step where recovery succeeded or failed
+	Step       string // step where recovery succeeded or failed
 	DurationMs int64
 	ReProbedOK bool
 	Error      string
@@ -289,10 +289,10 @@ const PiggybackBudget = 500 * time.Millisecond
 
 // PiggybackResult is the outcome of a piggyback micro-probe.
 type PiggybackResult struct {
-	OK      bool
-	Reason  string
-	TookMs  int64
-	Tool    string // which browser tool triggered the piggyback
+	OK     bool
+	Reason string
+	TookMs int64
+	Tool   string // which browser tool triggered the piggyback
 }
 
 // PiggybackProbe runs a Target.getTargets micro-check with a 500ms budget,
@@ -315,16 +315,16 @@ func PiggybackProbe(ctx context.Context, probes HealthProbes, tool string) Piggy
 
 // HealthMetrics tracks the spec-required counters/histograms.
 type HealthMetrics struct {
-	ChecksTotal             atomic.Int64
-	FailuresTotal           atomic.Int64
-	RecoveryDurationMs      atomic.Int64
-	PiggybackChecksTotal    atomic.Int64
-	PiggybackFailuresTotal  atomic.Int64
-	DetectionDelayMs        atomic.Int64
-	TabLostTotal            atomic.Int64
-	CleanupFailedTotal      atomic.Int64
-	RecoveredSessionTotal   atomic.Int64
-	StepFailures            sync.Map // HealthStep -> *atomic.Int64
+	ChecksTotal            atomic.Int64
+	FailuresTotal          atomic.Int64
+	RecoveryDurationMs     atomic.Int64
+	PiggybackChecksTotal   atomic.Int64
+	PiggybackFailuresTotal atomic.Int64
+	DetectionDelayMs       atomic.Int64
+	TabLostTotal           atomic.Int64
+	CleanupFailedTotal     atomic.Int64
+	RecoveredSessionTotal  atomic.Int64
+	StepFailures           sync.Map // HealthStep -> *atomic.Int64
 }
 
 // NewHealthMetrics creates a zeroed metrics struct.
@@ -394,12 +394,12 @@ func (m *HealthMetrics) RecordRecovery(result RecoveryResult) {
 
 // CircuitBreaker implements the 60s open window after recovery failure.
 type CircuitBreaker struct {
-	mu          sync.Mutex
-	open        bool
-	openedAt    time.Time
-	openWindow  time.Duration
+	mu           sync.Mutex
+	open         bool
+	openedAt     time.Time
+	openWindow   time.Duration
 	failureCount int
-	threshold   int
+	threshold    int
 }
 
 // NewCircuitBreaker creates a breaker that opens for openWindow after

@@ -41,12 +41,12 @@ type FetchFunc func(ctx context.Context, req FetchRequest) (*FetchResponse, erro
 // field 0 holds the slab handle so the cached text/json callbacks can
 // retrieve the right body.
 type fetchTemplates struct {
-	thrower      *v8.FunctionTemplate
-	fetchFn      *v8.FunctionTemplate
-	respObjTmpl  *v8.ObjectTemplate
-	respText     *v8.FunctionTemplate
-	respJSON     *v8.FunctionTemplate
-	headersTmpl  *v8.ObjectTemplate
+	thrower     *v8.FunctionTemplate
+	fetchFn     *v8.FunctionTemplate
+	respObjTmpl *v8.ObjectTemplate
+	respText    *v8.FunctionTemplate
+	respJSON    *v8.FunctionTemplate
+	headersTmpl *v8.ObjectTemplate
 }
 
 // fetchBodyHandles is a per-Runtime slab of fetch response bodies keyed

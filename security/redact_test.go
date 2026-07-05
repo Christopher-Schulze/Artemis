@@ -178,9 +178,9 @@ func TestRedactCustomReplacement(t *testing.T) {
 
 func TestRedactStats(t *testing.T) {
 	r := mustRedactor(t, DefaultRedactionConfig())
-	r.Redact("email a@b.co", RedactionPointSnapshotText)        // redacted
-	r.Redact("nothing here", RedactionPointSnapshotText)        // not redacted
-	r.Redact("ssn 111-22-3333", RedactionPointSnapshotText)     // redacted
+	r.Redact("email a@b.co", RedactionPointSnapshotText)    // redacted
+	r.Redact("nothing here", RedactionPointSnapshotText)    // not redacted
+	r.Redact("ssn 111-22-3333", RedactionPointSnapshotText) // redacted
 	s := r.Stats()
 	if s.Total != 3 {
 		t.Fatalf("Total = %d, want 3", s.Total)

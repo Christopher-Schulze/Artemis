@@ -19,7 +19,7 @@ func TestGetComputedStyleFromStylesheet(t *testing.T) {
 		expr string
 		want string
 	}{
-		{`getComputedStyle(document.getElementById('x')).color`, "red"},      // !important wins
+		{`getComputedStyle(document.getElementById('x')).color`, "red"},       // !important wins
 		{`getComputedStyle(document.getElementById('x')).background`, "blue"}, // class
 		{`getComputedStyle(document.getElementById('x')).padding`, "8px"},     // class
 		{`getComputedStyle(document.getElementById('x')).margin`, "4px"},      // inline

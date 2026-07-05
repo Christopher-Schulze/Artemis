@@ -1,6 +1,6 @@
 package agent
 
-import "artemis/webapi"
+import "github.com/Christopher-Schulze/Artemis/webapi"
 
 // Title returns the document <title>, trimmed.
 func Title(d *webapi.Document) string {

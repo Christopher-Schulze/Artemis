@@ -11,16 +11,16 @@ import (
 
 	v8 "rogchap.com/v8go"
 
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // Runtime owns a V8 Isolate. Multiple Contexts may share a Runtime.
 // A Runtime is safe for concurrent context creation; each individual
 // Context must be used from a single goroutine at a time.
 type Runtime struct {
-	iso              *v8.Isolate
-	mu               sync.Mutex
+	iso *v8.Isolate
+	mu  sync.Mutex
 	// ctxMu serialises NewContext + Close cgo paths into V8. v8::Isolate
 	// is single-threaded; without serialisation, two goroutines calling
 	// NewContext concurrently can crash V8 in GlobalHandles::Destroy.
@@ -39,28 +39,28 @@ type Runtime struct {
 	// clears its JS state). Skips install*/flushBootstraps entirely on
 	// reuse since all template bindings are Runtime-cached and resolve
 	// per-call via contextRegistry. Sized at NewRuntimeWithPool time.
-	ctxPool     chan *v8.Context
-	poolSize    int
-	poolEnabled bool
-	storageTemplates  *storageTemplates // cached templates for buildStorageCached
-	storageHandles    *storageHandles   // handle table backing internal field 0
-	locationTemplate  *v8.ObjectTemplate
-	navigatorTemplate *v8.ObjectTemplate
-	timerTemplates     *timerTemplates // cached setTimeout/clearTimeout/setInterval/clearInterval
-	consoleTemplates   *consoleTemplates
-	domBridgeTemplates *domBridgeTemplates
-	observerTemplates  *observerTemplates
-	cryptoAES       *cryptoAESTemplates
-	cryptoSubtle    *cryptoSubtleTemplates
-	cryptoComplete   *cryptoCompleteTemplates
-	cryptoAsymmetric *cryptoAsymmetricTemplates
-	cryptoExtra      *cryptoExtraTemplates
-	cryptoPKCS8      *cryptoPKCS8Templates
-	iframeTemplates  *iframeTemplates
-	fetchTemplates   *fetchTemplates
-	fetchBodies      *fetchBodyHandles
-	urlHelperTemplate *v8.FunctionTemplate
-	wsTemplates      *wsTemplates
+	ctxPool              chan *v8.Context
+	poolSize             int
+	poolEnabled          bool
+	storageTemplates     *storageTemplates // cached templates for buildStorageCached
+	storageHandles       *storageHandles   // handle table backing internal field 0
+	locationTemplate     *v8.ObjectTemplate
+	navigatorTemplate    *v8.ObjectTemplate
+	timerTemplates       *timerTemplates // cached setTimeout/clearTimeout/setInterval/clearInterval
+	consoleTemplates     *consoleTemplates
+	domBridgeTemplates   *domBridgeTemplates
+	observerTemplates    *observerTemplates
+	cryptoAES            *cryptoAESTemplates
+	cryptoSubtle         *cryptoSubtleTemplates
+	cryptoComplete       *cryptoCompleteTemplates
+	cryptoAsymmetric     *cryptoAsymmetricTemplates
+	cryptoExtra          *cryptoExtraTemplates
+	cryptoPKCS8          *cryptoPKCS8Templates
+	iframeTemplates      *iframeTemplates
+	fetchTemplates       *fetchTemplates
+	fetchBodies          *fetchBodyHandles
+	urlHelperTemplate    *v8.FunctionTemplate
+	wsTemplates          *wsTemplates
 	extrasV2             *extrasV2Templates
 	cascadeStyleTemplate *v8.FunctionTemplate
 	contextRegistry      sync.Map // *v8.Context -> *Context, populated by NewContext, drained by Close

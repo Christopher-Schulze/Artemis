@@ -13,7 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 func startServer(t *testing.T) (string, func()) {

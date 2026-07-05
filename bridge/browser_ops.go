@@ -11,8 +11,8 @@ import (
 type CDPConnectMode string
 
 const (
-	CDPAttach  CDPConnectMode = "attach"
-	CDPLaunch  CDPConnectMode = "launch"
+	CDPAttach CDPConnectMode = "attach"
+	CDPLaunch CDPConnectMode = "launch"
 )
 
 type RouteKind string

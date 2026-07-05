@@ -8,29 +8,29 @@ import (
 
 	v8 "rogchap.com/v8go"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // Context binds a JS execution context to a webapi.Document. Each Context
 // must be Closed when no longer needed.
 type Context struct {
-	rt             *Runtime
-	v8ctx          *v8.Context
-	doc            *webapi.Document
-	console        Console
-	fetcher        FetchFunc
-	getCookie      func() string
-	setCookie      func(string)
-	async          *asyncChan
-	asyncFetch     bool
-	nodes          *nodeTable
-	localStorage   *memStorage
-	sessionStorage *memStorage
-	timers         *timerQueue
-	observers      *observerRegistry
-	ws             *wsRegistry
-	styleMgr       *styleManager
-	iframes        *iframeRegistry
+	rt                *Runtime
+	v8ctx             *v8.Context
+	doc               *webapi.Document
+	console           Console
+	fetcher           FetchFunc
+	getCookie         func() string
+	setCookie         func(string)
+	async             *asyncChan
+	asyncFetch        bool
+	nodes             *nodeTable
+	localStorage      *memStorage
+	sessionStorage    *memStorage
+	timers            *timerQueue
+	observers         *observerRegistry
+	ws                *wsRegistry
+	styleMgr          *styleManager
+	iframes           *iframeRegistry
 	bootstraps        []bootstrapEntry
 	bootstrapsSkipped bool
 	storageHandleIDs  []uint32 // handles into Runtime.storageHandles to free on Close

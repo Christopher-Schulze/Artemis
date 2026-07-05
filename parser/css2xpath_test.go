@@ -222,13 +222,13 @@ func TestCSSToXPathEmptyInput(t *testing.T) {
 
 func TestCSSToXPathInvalidSelector(t *testing.T) {
 	cases := []string{
-		"::text",            // pseudo without selector
-		"div::unknown",      // unsupported pseudo
-		"div::attr()",       // empty attr name
-		"div >",             // trailing child combinator
-		"div..foo",          // empty class name
-		"div#",              // empty id
-		"div@",              // invalid char
+		"::text",       // pseudo without selector
+		"div::unknown", // unsupported pseudo
+		"div::attr()",  // empty attr name
+		"div >",        // trailing child combinator
+		"div..foo",     // empty class name
+		"div#",         // empty id
+		"div@",         // invalid char
 	}
 	for _, in := range cases {
 		if _, err := CSSToXPath(in); err == nil {

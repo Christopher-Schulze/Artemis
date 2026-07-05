@@ -23,12 +23,12 @@ type SQLiteResult struct {
 
 // SQLiteWorker runs SQLite on a dedicated goroutine (spec P7.1).
 type SQLiteWorker struct {
-	db       *sql.DB
-	queries  chan SQLiteQuery
-	results  chan SQLiteResult
-	done     chan struct{}
-	wg       sync.WaitGroup
-	once     sync.Once
+	db      *sql.DB
+	queries chan SQLiteQuery
+	results chan SQLiteResult
+	done    chan struct{}
+	wg      sync.WaitGroup
+	once    sync.Once
 }
 
 // StartSQLiteWorker opens path and starts the worker loop.

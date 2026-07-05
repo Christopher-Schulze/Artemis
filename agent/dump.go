@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/internal/pool"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/internal/pool"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // HTML serializes the document to HTML using golang.org/x/net/html's

@@ -24,10 +24,10 @@ import (
 type WorkerTargetType string
 
 const (
-	WorkerTypeServiceWorker WorkerTargetType = "service_worker"
-	WorkerTypeSharedWorker  WorkerTargetType = "shared_worker"
+	WorkerTypeServiceWorker   WorkerTargetType = "service_worker"
+	WorkerTypeSharedWorker    WorkerTargetType = "shared_worker"
 	WorkerTypeDedicatedWorker WorkerTargetType = "dedicated_worker"
-	WorkerTypeOther         WorkerTargetType = "worker"
+	WorkerTypeOther           WorkerTargetType = "worker"
 )
 
 // IsWorkerTarget checks if a CDP target type string indicates a worker

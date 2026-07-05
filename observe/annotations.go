@@ -27,10 +27,10 @@ type BoundingBox struct {
 // Annotation is a single numbered overlay box pointing at an
 // interactive element (spec L4264).
 type Annotation struct {
-	ID           int        `json:"id"`
-	Text         string     `json:"text"`
+	ID           int         `json:"id"`
+	Text         string      `json:"text"`
 	BoundingBox  BoundingBox `json:"bounding_box"`
-	ElementType  string     `json:"element_type"`
+	ElementType  string      `json:"element_type"`
 	ScrollOffset BoundingBox `json:"scroll_offset,omitempty"`
 }
 
@@ -48,8 +48,8 @@ type AnnotationOverlay struct {
 // "button", "a", "input"). Text is a short label derived from the
 // element's visible text or aria-label.
 type AnnotatableUnit struct {
-	ElementType string     `json:"element_type"`
-	Text        string     `json:"text"`
+	ElementType string      `json:"element_type"`
+	Text        string      `json:"text"`
 	BoundingBox BoundingBox `json:"bounding_box"`
 }
 
@@ -57,17 +57,17 @@ type AnnotatableUnit struct {
 // interactive and therefore eligible for numbered annotations
 // (spec L4264).
 var interactiveElementTypes = map[string]bool{
-	"button":   true,
-	"a":        true,
-	"input":    true,
-	"select":   true,
-	"textarea": true,
-	"summary":  true,
-	"role=button":     true,
-	"role=link":       true,
-	"role=checkbox":   true,
-	"role=tab":        true,
-	"role=menuitem":   true,
+	"button":        true,
+	"a":             true,
+	"input":         true,
+	"select":        true,
+	"textarea":      true,
+	"summary":       true,
+	"role=button":   true,
+	"role=link":     true,
+	"role=checkbox": true,
+	"role=tab":      true,
+	"role=menuitem": true,
 }
 
 // DefaultViewportWidth is the fallback viewport width when none is

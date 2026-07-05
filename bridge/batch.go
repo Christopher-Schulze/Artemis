@@ -34,12 +34,12 @@ func (e *Error) Error() string { return fmt.Sprintf("cdp error %d: %s", e.Code, 
 // It is safe for concurrent use by a single goroutine; callers should
 // hold the mutex while adding commands and while reading responses.
 type Batcher struct {
-	mu       sync.Mutex
-	pending  []Command
-	nextID   int64
-	flusher  Flusher
-	timeout  time.Duration
-	maxSize  int
+	mu      sync.Mutex
+	pending []Command
+	nextID  int64
+	flusher Flusher
+	timeout time.Duration
+	maxSize int
 }
 
 // Flusher is the transport-dependent function that actually sends the

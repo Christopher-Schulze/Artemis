@@ -19,19 +19,19 @@ import (
 type AdBlockCategory string
 
 const (
-	AdBlockCategoryAd      AdBlockCategory = "ad"
-	AdBlockCategoryTracker AdBlockCategory = "tracker"
+	AdBlockCategoryAd        AdBlockCategory = "ad"
+	AdBlockCategoryTracker   AdBlockCategory = "tracker"
 	AdBlockCategoryAnalytics AdBlockCategory = "analytics"
-	AdBlockCategorySocial   AdBlockCategory = "social"
+	AdBlockCategorySocial    AdBlockCategory = "social"
 )
 
 // AdBlockResult is the result of an ad/tracker check
 // (spec L4027: ad/tracker blocking).
 type AdBlockResult struct {
-	Blocked   bool           `json:"blocked"`
-	Category  AdBlockCategory `json:"category,omitempty"`
-	Pattern   string         `json:"pattern,omitempty"`
-	Reason    string         `json:"reason,omitempty"`
+	Blocked  bool            `json:"blocked"`
+	Category AdBlockCategory `json:"category,omitempty"`
+	Pattern  string          `json:"pattern,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
 }
 
 // AdBlocker provides ad/tracker blocking functionality

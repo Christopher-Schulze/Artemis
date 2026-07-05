@@ -30,19 +30,19 @@ type FormCommand struct {
 // RefHandle maps a semantic ARIA ref (e.g., "e5") to a CDP RemoteObject
 // handle and associated metadata (role, name) from the last snapshot.
 type RefHandle struct {
-	Ref       string
-	Handle    int
-	Role      string
-	Name      string
-	FrameID   string
+	Ref     string
+	Handle  int
+	Role    string
+	Name    string
+	FrameID string
 }
 
 // RefRegistry stores ref-to-handle mappings from the latest AX snapshot.
 // Thread-safe. FormActions consults this before dispatching commands.
 type RefRegistry struct {
-	mu     sync.RWMutex
-	refs   map[string]RefHandle
-	frame  string
+	mu    sync.RWMutex
+	refs  map[string]RefHandle
+	frame string
 }
 
 // NewRefRegistry creates an empty RefRegistry.

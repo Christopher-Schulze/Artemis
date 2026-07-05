@@ -96,8 +96,8 @@ func TestDefaultSelectorSpecificBeforeGeneric(t *testing.T) {
 func TestRenderTemplateVariableReplacement(t *testing.T) {
 	tmpl := "Hello {name}, subtask: {current_subtask}"
 	vars := map[string]string{
-		"name":             "Alice",
-		"current_subtask":  "click search",
+		"name":            "Alice",
+		"current_subtask": "click search",
 	}
 	got := RenderTemplate(tmpl, vars)
 	want := "Hello Alice, subtask: click search"
@@ -160,8 +160,8 @@ func TestRenderTemplateOverlappingKeys(t *testing.T) {
 	// prefix; since we use full "{key}" replacement, both should resolve.
 	tmpl := "{current} and {current_subtask}"
 	vars := map[string]string{
-		"current":          "A",
-		"current_subtask":  "B",
+		"current":         "A",
+		"current_subtask": "B",
 	}
 	got := RenderTemplate(tmpl, vars)
 	want := "A and B"

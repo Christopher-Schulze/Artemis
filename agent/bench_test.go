@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/parser"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 func benchDoc(tb testing.TB) *webapi.Document {

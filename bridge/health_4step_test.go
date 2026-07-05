@@ -12,14 +12,14 @@ import (
 
 // fakeProbes implements HealthProbes with configurable per-step results.
 type fakeProbes struct {
-	processOK, processFail    bool
-	cdpOK, cdpFail            bool
-	renderOK, renderFail      bool
-	domOK, domFail            bool
-	processDelay              time.Duration
-	processCalls, cdpCalls    atomic.Int64
-	renderCalls, domCalls     atomic.Int64
-	processReason             string
+	processOK, processFail bool
+	cdpOK, cdpFail         bool
+	renderOK, renderFail   bool
+	domOK, domFail         bool
+	processDelay           time.Duration
+	processCalls, cdpCalls atomic.Int64
+	renderCalls, domCalls  atomic.Int64
+	processReason          string
 }
 
 func (f *fakeProbes) ProcessProbe(ctx context.Context) (bool, string) {
@@ -116,7 +116,7 @@ func TestCheckHealth_ProcessFail_ShortCircuits(t *testing.T) {
 func TestCheckHealth_CDPFail_ShortCircuits(t *testing.T) {
 	p := &fakeProbes{
 		processOK: true,
-		cdpOK: false, cdpFail: true,
+		cdpOK:     false, cdpFail: true,
 		renderOK: true, domOK: true,
 	}
 	res := CheckHealth(context.Background(), p)
@@ -188,8 +188,8 @@ func TestCheckHealth_FailedStep_NilWhenAllPass(t *testing.T) {
 // --- Recovery tests ---
 
 type fakeRecoveryAction struct {
-	closeOK, terminateOK, deleteOK, relaunchOK, restoreOK bool
-	closeErr, terminateErr, deleteErr, relaunchErr, restoreErr error
+	closeOK, terminateOK, deleteOK, relaunchOK, restoreOK                bool
+	closeErr, terminateErr, deleteErr, relaunchErr, restoreErr           error
 	closeCalls, terminateCalls, deleteCalls, relaunchCalls, restoreCalls atomic.Int64
 }
 

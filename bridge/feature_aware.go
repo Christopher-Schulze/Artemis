@@ -11,12 +11,12 @@ import (
 type BrowserFeature string
 
 const (
-	FeatureWebSocket    BrowserFeature = "websocket"
-	FeatureTracing      BrowserFeature = "tracing"
-	FeatureHAR          BrowserFeature = "har"
-	FeatureAnnotations  BrowserFeature = "annotations"
-	FeatureStreaming    BrowserFeature = "streaming"
-	FeatureDevTools     BrowserFeature = "devtools"
+	FeatureWebSocket   BrowserFeature = "websocket"
+	FeatureTracing     BrowserFeature = "tracing"
+	FeatureHAR         BrowserFeature = "har"
+	FeatureAnnotations BrowserFeature = "annotations"
+	FeatureStreaming   BrowserFeature = "streaming"
+	FeatureDevTools    BrowserFeature = "devtools"
 )
 
 // FeatureStatus records the availability and version of a feature.

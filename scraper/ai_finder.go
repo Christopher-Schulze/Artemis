@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // SelectorProposer returns a CSS selector for a natural-language intent.

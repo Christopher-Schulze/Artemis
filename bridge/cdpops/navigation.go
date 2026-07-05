@@ -19,20 +19,20 @@ import (
 type NavigationState string
 
 const (
-	NavigationStateIdle       NavigationState = "idle"
-	NavigationStateLoading    NavigationState = "loading"
-	NavigationStateComplete   NavigationState = "complete"
-	NavigationStateError      NavigationState = "error"
-	NavigationStateAborted    NavigationState = "aborted"
+	NavigationStateIdle     NavigationState = "idle"
+	NavigationStateLoading  NavigationState = "loading"
+	NavigationStateComplete NavigationState = "complete"
+	NavigationStateError    NavigationState = "error"
+	NavigationStateAborted  NavigationState = "aborted"
 )
 
 // NavigationRequest represents a navigation request
 // (spec L4019: page navigation + wait).
 type NavigationRequest struct {
-	URL         string        `json:"url"`
-	WaitUntil   WaitCondition `json:"waitUntil"`
-	Timeout     time.Duration `json:"timeout"`
-	Referer     string        `json:"referer,omitempty"`
+	URL       string        `json:"url"`
+	WaitUntil WaitCondition `json:"waitUntil"`
+	Timeout   time.Duration `json:"timeout"`
+	Referer   string        `json:"referer,omitempty"`
 }
 
 // NavigationResult is the result of a navigation
@@ -51,19 +51,19 @@ type NavigationResult struct {
 type WaitCondition string
 
 const (
-	WaitLoad             WaitCondition = "load"
-	WaitDOMContentLoaded WaitCondition = "domcontentloaded"
-	WaitNetworkIdle      WaitCondition = "networkidle"
+	WaitLoad              WaitCondition = "load"
+	WaitDOMContentLoaded  WaitCondition = "domcontentloaded"
+	WaitNetworkIdle       WaitCondition = "networkidle"
 	WaitNetworkAlmostIdle WaitCondition = "networkalmostidle"
 )
 
 // Navigator manages page navigation
 // (spec L4019: page navigation + wait).
 type Navigator struct {
-	mu       sync.RWMutex
-	state    NavigationState
+	mu         sync.RWMutex
+	state      NavigationState
 	currentURL string
-	lastNav  time.Time
+	lastNav    time.Time
 }
 
 // NewNavigator creates a new Navigator

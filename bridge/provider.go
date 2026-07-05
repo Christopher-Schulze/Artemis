@@ -121,8 +121,8 @@ func (r *ProviderRegistry) Available() []string {
 // Priority: BROWSER_CDP_URL (forces local with CDP override) > BROWSER_PROVIDER env var > default.
 func (r *ProviderRegistry) SelectFromConfig() (BrowserProvider, ProviderConfig, error) {
 	config := ProviderConfig{
-		CDPURL:    os.Getenv("BROWSER_CDP_URL"),
-		Headless:  true,
+		CDPURL:      os.Getenv("BROWSER_CDP_URL"),
+		Headless:    true,
 		SessionName: "artemis-session",
 	}
 
@@ -156,7 +156,7 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 		SessionID:    config.SessionName,
 		CDPURL:       config.CDPURL,
 		Features: map[string]bool{
-			"headless":    config.Headless,
+			"headless":     config.Headless,
 			"cdp_override": config.CDPURL != "",
 		},
 	}

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 // TestProtocolVersionHandshake verifies that the version meta-command

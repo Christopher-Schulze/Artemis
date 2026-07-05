@@ -74,9 +74,9 @@ func DefaultIDPIConfig() IDPIConfig {
 			"</untrusted_web_content>",
 			"<untrusted_web_content>",
 		},
-		WrapContent:               true,
-		BlockOnInjection:          false,
-		PolicyDowngradeAllowlist:  true,
+		WrapContent:              true,
+		BlockOnInjection:         false,
+		PolicyDowngradeAllowlist: true,
 	}
 }
 
@@ -84,10 +84,10 @@ func DefaultIDPIConfig() IDPIConfig {
 type IDPIThreat string
 
 const (
-	IDPIThreatNone            IDPIThreat = "none"
+	IDPIThreatNone              IDPIThreat = "none"
 	IDPIThreatBlocklistedDomain IDPIThreat = "blocklisted_domain"
-	IDPIThreatInjectionPhrase IDPIThreat = "injection_phrase"
-	IDPIThreatUntrustedContent IDPIThreat = "untrusted_content"
+	IDPIThreatInjectionPhrase   IDPIThreat = "injection_phrase"
+	IDPIThreatUntrustedContent  IDPIThreat = "untrusted_content"
 )
 
 // CheckResult is the result of an IDPI check (spec L4202:
@@ -110,9 +110,9 @@ type CheckResult struct {
 // omnimus_browser_idpi_{scanned_total,tainted_total,blocked_total,
 // policy_downgraded_total}).
 type IDPIMetrics struct {
-	ScannedTotal         int `json:"scanned_total"`
-	TaintedTotal         int `json:"tainted_total"`
-	BlockedTotal         int `json:"blocked_total"`
+	ScannedTotal          int `json:"scanned_total"`
+	TaintedTotal          int `json:"tainted_total"`
+	BlockedTotal          int `json:"blocked_total"`
 	PolicyDowngradedTotal int `json:"policy_downgraded_total"`
 }
 
@@ -170,9 +170,9 @@ func (c *IDPIChecker) Check(domain, content string) CheckResult {
 
 	if !c.config.Enabled {
 		return CheckResult{
-			Threat:    IDPIThreatNone,
-			Blocked:   false,
-			Reason:    "IDPI disabled",
+			Threat:  IDPIThreatNone,
+			Blocked: false,
+			Reason:  "IDPI disabled",
 		}
 	}
 

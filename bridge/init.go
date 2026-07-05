@@ -16,12 +16,12 @@ import (
 // BridgeInitConfig configures bridge initialization
 // (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
 type BridgeInitConfig struct {
-	ProviderName    string `json:"providerName"`
-	Headless        bool   `json:"headless"`
-	StealthEnabled  bool   `json:"stealthEnabled"`
-	MaxTabs         int    `json:"maxTabs"`
-	UserDataDir     string `json:"userDataDir,omitempty"`
-	ChromePath      string `json:"chromePath,omitempty"`
+	ProviderName   string `json:"providerName"`
+	Headless       bool   `json:"headless"`
+	StealthEnabled bool   `json:"stealthEnabled"`
+	MaxTabs        int    `json:"maxTabs"`
+	UserDataDir    string `json:"userDataDir,omitempty"`
+	ChromePath     string `json:"chromePath,omitempty"`
 }
 
 // BridgeInitializer manages bridge initialization and lifecycle

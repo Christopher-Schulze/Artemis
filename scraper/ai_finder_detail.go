@@ -45,17 +45,17 @@ const (
 // InferenceHubLLMRequest is the request sent to the Inference Hub for
 // AI Finder LLM analysis (ss7 integration).
 type InferenceHubLLMRequest struct {
-	Mode       FinderMode `json:"mode"`
-	Content    string     `json:"content"`    // HTML snippet (text mode) or screenshot base64 (vision mode)
-	Intent     string     `json:"intent"`     // natural-language description of the target element
-	Attempt    int        `json:"attempt"`    // 1-based attempt number for varied formulations
-	LocalOnly  bool       `json:"local_only"` // privacy routing: force local inference
+	Mode      FinderMode `json:"mode"`
+	Content   string     `json:"content"`    // HTML snippet (text mode) or screenshot base64 (vision mode)
+	Intent    string     `json:"intent"`     // natural-language description of the target element
+	Attempt   int        `json:"attempt"`    // 1-based attempt number for varied formulations
+	LocalOnly bool       `json:"local_only"` // privacy routing: force local inference
 }
 
 // InferenceHubLLMResponse is the Inference Hub's response.
 type InferenceHubLLMResponse struct {
-	Selector    string  `json:"selector"`     // CSS/XPath selector (text mode)
-	Coordinates string  `json:"coordinates"`  // "x,y" coordinates (vision mode)
+	Selector    string  `json:"selector"`    // CSS/XPath selector (text mode)
+	Coordinates string  `json:"coordinates"` // "x,y" coordinates (vision mode)
 	Confidence  float64 `json:"confidence"`
 	Model       string  `json:"model"`
 	Local       bool    `json:"local"`
@@ -97,24 +97,24 @@ func DefaultAIFinderStage2Config() AIFinderStage2Config {
 // AIFinderStage2 is the full Stage 2 AI Finder with Inference Hub + Privacy
 // Routing integration (spec L4398).
 type AIFinderStage2 struct {
-	mu      sync.Mutex
-	hub     InferenceHubLLM
-	router  PrivacyRouter
-	cache   *AdaptiveSelectorCache
-	config  AIFinderStage2Config
-	stats   AIFinderStage2Stats
+	mu     sync.Mutex
+	hub    InferenceHubLLM
+	router PrivacyRouter
+	cache  *AdaptiveSelectorCache
+	config AIFinderStage2Config
+	stats  AIFinderStage2Stats
 }
 
 // AIFinderStage2Stats tracks Stage 2 AI Finder outcomes.
 type AIFinderStage2Stats struct {
-	TotalAttempts   int `json:"total_attempts"`
-	Successful      int `json:"successful"`
-	Failed          int `json:"failed"`
-	CacheHits       int `json:"cache_hits"`
-	LocalUsed       int `json:"local_used"`
-	ExternalUsed    int `json:"external_used"`
-	VisionModeUsed  int `json:"vision_mode_used"`
-	TextModeUsed    int `json:"text_mode_used"`
+	TotalAttempts  int `json:"total_attempts"`
+	Successful     int `json:"successful"`
+	Failed         int `json:"failed"`
+	CacheHits      int `json:"cache_hits"`
+	LocalUsed      int `json:"local_used"`
+	ExternalUsed   int `json:"external_used"`
+	VisionModeUsed int `json:"vision_mode_used"`
+	TextModeUsed   int `json:"text_mode_used"`
 }
 
 // NewAIFinderStage2 creates a Stage 2 AI Finder with the given Inference Hub
@@ -268,13 +268,13 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 // AIFinderStage2Result is the outcome of a Stage 2 AI Finder call.
 type AIFinderStage2Result struct {
-	Selector     string        `json:"selector"`
-	Confidence   float64       `json:"confidence"`
-	AttemptsUsed int           `json:"attempts_used"`
-	Mode         FinderMode    `json:"mode"`
-	Route        PrivacyRoute  `json:"route"`
-	FromCache    bool          `json:"from_cache"`
-	Model        string        `json:"model,omitempty"`
+	Selector     string       `json:"selector"`
+	Confidence   float64      `json:"confidence"`
+	AttemptsUsed int          `json:"attempts_used"`
+	Mode         FinderMode   `json:"mode"`
+	Route        PrivacyRoute `json:"route"`
+	FromCache    bool         `json:"from_cache"`
+	Model        string       `json:"model,omitempty"`
 }
 
 // Stats returns a copy of the current Stage 2 stats.

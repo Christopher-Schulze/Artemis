@@ -52,10 +52,10 @@ type TLSFingerprint struct {
 // as captured by utls's HelloChrome_Auto / HelloChrome_120 specs.
 func Chrome145Fingerprint() TLSFingerprint {
 	return TLSFingerprint{
-		Browser:  "chrome",
-		Version:  "145",
-		JA3:      "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
-		JA3Hash:  "b1568b04b3e5d00c62d68b9e0ef33f0d",
+		Browser:          "chrome",
+		Version:          "145",
+		JA3:              "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
+		JA3Hash:          "b1568b04b3e5d00c62d68b9e0ef33f0d",
 		HTTP2Fingerprint: "1:65536;2:0;3:1000;4:6291456;5:16384;6:262144",
 		HTTP3Fingerprint: "67108864:0:0:0:1:65536:262144:0:0:0:0:0:0",
 		ALPN:             []string{"h2", "http/1.1"},

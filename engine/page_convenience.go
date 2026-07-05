@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"artemis/bridge/actions"
+	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 )
 
 // page_convenience.go (TASK-2343: Page.Type / Page.Form convenience methods).

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"artemis/scraper"
+	"github.com/Christopher-Schulze/Artemis/scraper"
 )
 
 func TestFullExecutionRouterRouteRules(t *testing.T) {

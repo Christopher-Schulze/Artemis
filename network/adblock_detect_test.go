@@ -516,12 +516,12 @@ func TestAdBlockDetector_ConcurrentConfig(t *testing.T) {
 
 func TestAdBlockDetector_ConcurrentWhitelist(t *testing.T) {
 	d := NewAdBlockDetector(AdBlockDetectionConfig{
-		Enabled:                  true,
-		AutoDisable:              true,
-		DetectionPatterns:        DefaultAdBlockDetectionConfig().DetectionPatterns,
-		OverlayCSSPatterns:       DefaultAdBlockDetectionConfig().OverlayCSSPatterns,
-		JSErrorPatterns:          DefaultAdBlockDetectionConfig().JSErrorPatterns,
-		BlockedRequestThreshold:  5,
+		Enabled:                 true,
+		AutoDisable:             true,
+		DetectionPatterns:       DefaultAdBlockDetectionConfig().DetectionPatterns,
+		OverlayCSSPatterns:      DefaultAdBlockDetectionConfig().OverlayCSSPatterns,
+		JSErrorPatterns:         DefaultAdBlockDetectionConfig().JSErrorPatterns,
+		BlockedRequestThreshold: 5,
 	})
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {

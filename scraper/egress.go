@@ -148,10 +148,10 @@ func buildSOCKS5ResolveRequest(host string) []byte {
 		hostLen = 255
 	}
 	req := make([]byte, 0, 7+hostLen)
-	req = append(req, 0x05)       // VER
-	req = append(req, 0xF0)       // CMD = RESOLVE
-	req = append(req, 0x00)       // RSV
-	req = append(req, 0x03)       // ATYP = domain
+	req = append(req, 0x05) // VER
+	req = append(req, 0xF0) // CMD = RESOLVE
+	req = append(req, 0x00) // RSV
+	req = append(req, 0x03) // ATYP = domain
 	req = append(req, byte(hostLen))
 	req = append(req, host[:hostLen]...)
 	req = append(req, 0x00, 0x50) // PORT = 80

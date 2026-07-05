@@ -8,7 +8,7 @@ import (
 	"image/jpeg"
 	"runtime"
 
-	"artemis/platform"
+	"github.com/Christopher-Schulze/Artemis/platform"
 )
 
 // ScreenshotFormat is CDP capture format.

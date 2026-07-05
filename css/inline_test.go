@@ -23,11 +23,11 @@ func TestSerializeStable(t *testing.T) {
 
 func TestCamelKebab(t *testing.T) {
 	cases := map[string]string{
-		"fontSize":          "font-size",
-		"backgroundColor":   "background-color",
-		"color":             "color",
-		"webkitTransform":   "webkit-transform",
-		"":                  "",
+		"fontSize":        "font-size",
+		"backgroundColor": "background-color",
+		"color":           "color",
+		"webkitTransform": "webkit-transform",
+		"":                "",
 	}
 	for in, want := range cases {
 		if got := CamelToKebab(in); got != want {

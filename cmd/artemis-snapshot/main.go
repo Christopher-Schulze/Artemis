@@ -19,7 +19,7 @@ import (
 
 	v8 "rogchap.com/v8go"
 
-	"artemis/js"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 const snapshotPath = "js/snapshot.bin"

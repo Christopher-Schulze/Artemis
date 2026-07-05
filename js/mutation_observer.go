@@ -5,7 +5,7 @@ import (
 
 	v8 "rogchap.com/v8go"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // MutationRecordType is the kind of DOM mutation a record describes.
@@ -18,11 +18,11 @@ const (
 
 // mutationRecord is the Go-side captured event before it crosses to JS.
 type mutationRecord struct {
-	Type           MutationRecordType
-	TargetID       uint32
-	AddedIDs       []uint32
-	RemovedIDs     []uint32
-	AttributeName  string
+	Type          MutationRecordType
+	TargetID      uint32
+	AddedIDs      []uint32
+	RemovedIDs    []uint32
+	AttributeName string
 }
 
 // observer is one registered MutationObserver, holding its target +

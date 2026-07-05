@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/agent"
 )
 
 func TestPageSubmitPOSTRoundTrip(t *testing.T) {

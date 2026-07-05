@@ -21,9 +21,9 @@ import (
 // Each provider maps to a namespace (e.g., "browser", "state") and exposes
 // tool functions callable as namespace.toolName(args) in generated code.
 type CodeModeProvider struct {
-	Name          string                                   // namespace prefix (e.g., "browser")
-	Tools         map[string]CodeModeToolFunc              // tool name -> function
-	PositionalArgs bool                                     // true = positional args, false = single object arg
+	Name           string                      // namespace prefix (e.g., "browser")
+	Tools          map[string]CodeModeToolFunc // tool name -> function
+	PositionalArgs bool                        // true = positional args, false = single object arg
 }
 
 // CodeModeToolFunc is a tool function callable from generated code.
@@ -35,7 +35,7 @@ type CodeModeToolFunc func(ctx context.Context, args map[string]interface{}) (in
 // via CDP evaluate(), with provided tool functions exposed as namespaced
 // proxy methods.
 type CodeModeExecutor struct {
-	session  *BrowserSession
+	session   *BrowserSession
 	providers map[string]*CodeModeProvider
 	timeout   time.Duration
 }
@@ -222,7 +222,7 @@ func (e *CodeModeExecutor) GenerateTypeDeclarations() string {
 // click, type, getText, screenshot, navigate, and snapshot tools.
 func DefaultBrowserProvider() *CodeModeProvider {
 	return &CodeModeProvider{
-		Name:          "browser",
+		Name:           "browser",
 		PositionalArgs: false,
 		Tools: map[string]CodeModeToolFunc{
 			"click": func(ctx context.Context, args map[string]interface{}) (interface{}, error) {

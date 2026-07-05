@@ -10,13 +10,13 @@ import (
 
 // StructuredRecord is normalized schema.org-style data.
 type StructuredRecord struct {
-	Type     string
-	Name     string
-	Price    string
-	Rating   string
-	Address  string
-	RawJSON  string
-	Source   string
+	Type    string
+	Name    string
+	Price   string
+	Rating  string
+	Address string
+	RawJSON string
+	Source  string
 }
 
 // ExtractJSONLD parses application/ld+json blocks from HTML (spec ss28.12b.8).

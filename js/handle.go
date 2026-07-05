@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // nodeTable maps integer handles (used by JS) to Go *webapi.Node values.

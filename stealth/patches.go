@@ -9,16 +9,16 @@ import (
 // Profile carries per-session deterministic overrides so that the
 // same profile always generates the same canvas/audio fingerprint.
 type Profile struct {
-	ViewportWidth  int
-	ViewportHeight int
+	ViewportWidth    int
+	ViewportHeight   int
 	DevicePixelRatio float64
-	UserAgent      string
-	Vendor         string
-	Platform       string
-	Languages      string // e.g. "de-DE,de,en-US,en"
-	Timezone       string // e.g. "Europe/Berlin"
-	ColorScheme    string // "light" or "dark"
-	ReducedMotion  bool
+	UserAgent        string
+	Vendor           string
+	Platform         string
+	Languages        string // e.g. "de-DE,de,en-US,en"
+	Timezone         string // e.g. "Europe/Berlin"
+	ColorScheme      string // "light" or "dark"
+	ReducedMotion    bool
 	// Seed is hashed into canvas/audio randomness so the same profile
 	// is stable across restarts but different profiles differ.
 	Seed string
@@ -115,7 +115,7 @@ func Script(p Profile) string {
 	// 6. WebGL vendor/renderer
 	b.WriteString("  const _getParam = WebGLRenderingContext.prototype.getParameter;\n")
 	b.WriteString("  WebGLRenderingContext.prototype.getParameter = function(p) {\n")
-	b.WriteString("    if (p === 0x1F00) return 'Intel Inc.';\n") // VENDOR
+	b.WriteString("    if (p === 0x1F00) return 'Intel Inc.';\n")               // VENDOR
 	b.WriteString("    if (p === 0x1F01) return 'Intel Iris OpenGL Engine';\n") // RENDERER
 	b.WriteString("    return _getParam.call(this, p);\n")
 	b.WriteString("  };\n")
@@ -203,7 +203,7 @@ func Script(p Profile) string {
 	b.WriteString("  window.matchMedia = function(query) {\n")
 	b.WriteString("    const m = _origMatchMedia.call(window, query);\n")
 	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", p.ColorScheme))
-	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", map[string]string{"light":"dark","dark":"light"}[p.ColorScheme]))
+	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", map[string]string{"light": "dark", "dark": "light"}[p.ColorScheme]))
 	if p.ReducedMotion {
 		b.WriteString("    if (query === '(prefers-reduced-motion: reduce)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")
 		b.WriteString("    if (query === '(prefers-reduced-motion: no-preference)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")

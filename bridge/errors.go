@@ -45,17 +45,17 @@ func (m AIErrorMessage) Error() string {
 
 // sentinel error substrings used by MapToAIError to classify raw errors.
 const (
-	visErrNotVisible    = "not visible"
-	visErrInvisible     = "invisible"
-	visErrIntercept     = "intercept"
-	visErrTimeout       = "timeout"
-	visErrTimedOut      = "timed out"
-	visErrStrict        = "strict mode"
-	visErrStrictFail    = "strict mode violation"
-	visErrNotFound      = "not found"
-	visErrNoUnit        = "no node"
-	visErrStale         = "stale"
-	visErrDetached      = "detached"
+	visErrNotVisible = "not visible"
+	visErrInvisible  = "invisible"
+	visErrIntercept  = "intercept"
+	visErrTimeout    = "timeout"
+	visErrTimedOut   = "timed out"
+	visErrStrict     = "strict mode"
+	visErrStrictFail = "strict mode violation"
+	visErrNotFound   = "not found"
+	visErrNoUnit     = "no node"
+	visErrStale      = "stale"
+	visErrDetached   = "detached"
 )
 
 // MapToAIError maps a raw error to an agent-actionable AIErrorMessage using

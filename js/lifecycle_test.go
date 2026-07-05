@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 // TestContextCloseShutsDownWSGoroutines verifies that opening a

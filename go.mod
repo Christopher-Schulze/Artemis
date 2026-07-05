@@ -1,4 +1,4 @@
-module artemis
+module github.com/Christopher-Schulze/Artemis
 
 go 1.26
 

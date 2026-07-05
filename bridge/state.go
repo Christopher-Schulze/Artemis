@@ -29,11 +29,11 @@ const (
 // BridgeStateMachine manages bridge state transitions
 // (spec L4018: Bridge State Machine).
 type BridgeStateMachine struct {
-	mu          sync.RWMutex
-	state       BridgeState
+	mu            sync.RWMutex
+	state         BridgeState
 	previousState BridgeState
-	enteredAt   time.Time
-	transitions map[BridgeState][]BridgeState // valid transitions
+	enteredAt     time.Time
+	transitions   map[BridgeState][]BridgeState // valid transitions
 }
 
 // NewBridgeStateMachine creates a new BridgeStateMachine

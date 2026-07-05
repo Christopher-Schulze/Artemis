@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // ClickByText returns the first <button>, <a>, or input[type=button|submit]

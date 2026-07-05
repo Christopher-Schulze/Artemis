@@ -7,14 +7,14 @@ import (
 
 // BotSignals captures page-level bot-detection indicators (spec ss28.6.1.1).
 type BotSignals struct {
-	Blocked       bool
-	Challenge     bool
-	HTTPStatus    int
-	Title         string
-	BodyLen       int
-	Cloudflare    bool
+	Blocked        bool
+	Challenge      bool
+	HTTPStatus     int
+	Title          string
+	BodyLen        int
+	Cloudflare     bool
 	CAPTCHAPresent bool
-	Reasons       []string
+	Reasons        []string
 }
 
 // DetectBot evaluates title, body snippet, status, and URL for bot walls.

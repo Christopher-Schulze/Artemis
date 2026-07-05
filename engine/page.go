@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"artemis/agent"
-	"artemis/js"
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // Page is a fetched HTML document. All accessors are read-only.

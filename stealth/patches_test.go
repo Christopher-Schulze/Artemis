@@ -60,23 +60,23 @@ func TestProfileDifferentiation(t *testing.T) {
 func TestNewPatchesPresent(t *testing.T) {
 	s := Quick()
 	checks := []string{
-		"chrome.runtime",           // patch 3: chrome.runtime.connect/sendMessage
-		"connect",                  // patch 3: callable stubs
-		"sendMessage",              // patch 3: callable stubs
-		"__artemisRTT",             // patch 16: navigator.connection LIVE RTT
-		"setInterval",              // patch 16: 60s refresh
-		"effectiveType",            // patch 16: effectiveType
-		"downlinkMax",              // patch 17: downlinkMax = Infinity
-		"userAgentData",            // patch 18: userAgentData brands
-		"getHighEntropyValues",     // patch 18: getHighEntropyValues
-		"history",                  // patch 19: history.length = 1
-		"__webdriver",              // patch 20: CDP marker cleanup
-		"__selenium",               // patch 20: CDP marker cleanup
-		"$chrome_asyncScriptInfo",  // patch 20: CDP marker cleanup
-		"cdc_",                     // patch 20: CDP marker cleanup
-		"_expectedUA",              // patch 22: UA version coherence
-		"getBattery",               // patch 27: Battery API rejection
-		"TypeError",                // patch 27: Battery API rejects with TypeError
+		"chrome.runtime",          // patch 3: chrome.runtime.connect/sendMessage
+		"connect",                 // patch 3: callable stubs
+		"sendMessage",             // patch 3: callable stubs
+		"__artemisRTT",            // patch 16: navigator.connection LIVE RTT
+		"setInterval",             // patch 16: 60s refresh
+		"effectiveType",           // patch 16: effectiveType
+		"downlinkMax",             // patch 17: downlinkMax = Infinity
+		"userAgentData",           // patch 18: userAgentData brands
+		"getHighEntropyValues",    // patch 18: getHighEntropyValues
+		"history",                 // patch 19: history.length = 1
+		"__webdriver",             // patch 20: CDP marker cleanup
+		"__selenium",              // patch 20: CDP marker cleanup
+		"$chrome_asyncScriptInfo", // patch 20: CDP marker cleanup
+		"cdc_",                    // patch 20: CDP marker cleanup
+		"_expectedUA",             // patch 22: UA version coherence
+		"getBattery",              // patch 27: Battery API rejection
+		"TypeError",               // patch 27: Battery API rejects with TypeError
 	}
 	for _, c := range checks {
 		if !strings.Contains(s, c) {

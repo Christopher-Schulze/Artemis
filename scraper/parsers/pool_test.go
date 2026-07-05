@@ -87,7 +87,7 @@ func TestWorkerPoolResults(t *testing.T) {
 	pool := NewWorkerPool(2)
 	pool.Start()
 	pool.Submit(ParseJob{
-		ID:   "j1",
+		ID: "j1",
 		Parse: func(ctx context.Context, html string) (interface{}, error) {
 			return "ok", nil
 		},
@@ -108,7 +108,7 @@ func TestWorkerPoolWorkerID(t *testing.T) {
 	pool.Start()
 	for i := 0; i < 10; i++ {
 		pool.Submit(ParseJob{
-			ID:   "j",
+			ID: "j",
 			Parse: func(ctx context.Context, html string) (interface{}, error) {
 				return nil, nil
 			},
@@ -134,7 +134,7 @@ func TestWorkerPoolContextCancellation(t *testing.T) {
 
 	// Submit a slow job that checks context cancellation
 	pool.Submit(ParseJob{
-		ID:   "slow",
+		ID: "slow",
 		Parse: func(ctx context.Context, html string) (interface{}, error) {
 			select {
 			case <-ctx.Done():
@@ -157,7 +157,7 @@ func TestWorkerPoolConcurrentSubmit(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		go func() {
 			if pool.Submit(ParseJob{
-				ID:   "j",
+				ID: "j",
 				Parse: func(ctx context.Context, html string) (interface{}, error) {
 					return nil, nil
 				},

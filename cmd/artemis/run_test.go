@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 func TestRunScriptInPageSimple(t *testing.T) {

@@ -14,11 +14,11 @@ import (
 // TypeAction represents a text input action with keystroke timing
 // (spec L4020: text input w/ keystroke timing).
 type TypeAction struct {
-	Ref       string        // element reference (eN) or CSS selector
-	Text      string        // text to type
-	Delay     time.Duration // delay between keystrokes
-	Variance  time.Duration // random variance in delay
-	ClearFirst bool         // clear field before typing
+	Ref        string        // element reference (eN) or CSS selector
+	Text       string        // text to type
+	Delay      time.Duration // delay between keystrokes
+	Variance   time.Duration // random variance in delay
+	ClearFirst bool          // clear field before typing
 }
 
 // TypeResult is the result of a type action
@@ -37,8 +37,8 @@ func NewTypeAction(ref string, text string) TypeAction {
 	return TypeAction{
 		Ref:        ref,
 		Text:       text,
-		Delay:      50 * time.Millisecond,  // 50ms between keystrokes
-		Variance:   20 * time.Millisecond,  // +/- 20ms variance
+		Delay:      50 * time.Millisecond, // 50ms between keystrokes
+		Variance:   20 * time.Millisecond, // +/- 20ms variance
 		ClearFirst: true,
 	}
 }

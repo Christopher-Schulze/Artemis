@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"artemis/webapi"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // SemanticKind classifies a node in a SemanticTree.
@@ -51,9 +51,9 @@ func (k SemanticKind) String() string {
 // nest other nodes; leaves have empty Children.
 type SemanticNode struct {
 	Kind     SemanticKind
-	Level    int            // headings: 1-6; section: 0; otherwise unused
-	Text     string         // content text (collapsed whitespace)
-	URL      string         // for SemLink and SemImage
+	Level    int    // headings: 1-6; section: 0; otherwise unused
+	Text     string // content text (collapsed whitespace)
+	URL      string // for SemLink and SemImage
 	Children []*SemanticNode
 }
 

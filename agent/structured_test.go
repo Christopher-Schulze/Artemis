@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func TestStructuredJSONLDSingle(t *testing.T) {

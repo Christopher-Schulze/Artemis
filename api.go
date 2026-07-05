@@ -41,11 +41,11 @@ type AgentConfig struct {
 type AgentState string
 
 const (
-	AgentStateCreated    AgentState = "created"
-	AgentStateRunning    AgentState = "running"
-	AgentStateIdle       AgentState = "idle"
-	AgentStateStopped    AgentState = "stopped"
-	AgentStateError      AgentState = "error"
+	AgentStateCreated AgentState = "created"
+	AgentStateRunning AgentState = "running"
+	AgentStateIdle    AgentState = "idle"
+	AgentStateStopped AgentState = "stopped"
+	AgentStateError   AgentState = "error"
 )
 
 // Session represents an active browser automation session
@@ -62,21 +62,21 @@ type Session struct {
 // Task represents a browser automation task
 // (spec L4031: Public API for Omnimus agent).
 type Task struct {
-	ID          string        `json:"id"`
-	URL         string        `json:"url"`
-	Action      string        `json:"action"`
-	Params      map[string]interface{} `json:"params,omitempty"`
-	Timeout     time.Duration `json:"timeout"`
+	ID      string                 `json:"id"`
+	URL     string                 `json:"url"`
+	Action  string                 `json:"action"`
+	Params  map[string]interface{} `json:"params,omitempty"`
+	Timeout time.Duration          `json:"timeout"`
 }
 
 // TaskResult is the result of a task execution
 // (spec L4031: Public API for Omnimus agent).
 type TaskResult struct {
-	TaskID    string      `json:"taskId"`
-	Success   bool        `json:"success"`
-	Data      interface{} `json:"data,omitempty"`
-	Error     string      `json:"error,omitempty"`
-	Duration  time.Duration `json:"duration"`
+	TaskID   string        `json:"taskId"`
+	Success  bool          `json:"success"`
+	Data     interface{}   `json:"data,omitempty"`
+	Error    string        `json:"error,omitempty"`
+	Duration time.Duration `json:"duration"`
 }
 
 // NewAgent creates a new artemis agent

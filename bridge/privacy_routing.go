@@ -51,15 +51,15 @@ func DefaultPrivacyRoutingConfig() PrivacyRoutingConfig {
 type PrivacyDecision string
 
 const (
-	PrivacyDecisionNormal   PrivacyDecision = "normal"
+	PrivacyDecisionNormal    PrivacyDecision = "normal"
 	PrivacyDecisionLocalOnly PrivacyDecision = "local_only"
 )
 
 // PrivacyRoutingResult is the result of a privacy routing check.
 type PrivacyRoutingResult struct {
-	Decision       PrivacyDecision `json:"decision"`
-	HasCustomerData bool           `json:"has_customer_data"`
-	Reason          string         `json:"reason"`
+	Decision        PrivacyDecision `json:"decision"`
+	HasCustomerData bool            `json:"has_customer_data"`
+	Reason          string          `json:"reason"`
 }
 
 // PrivacyRoutingHook checks URLs for customer data and routes CAPTCHA
@@ -72,8 +72,8 @@ type PrivacyRoutingHook struct {
 
 // PrivacyRoutingStats tracks privacy routing decisions.
 type PrivacyRoutingStats struct {
-	Total          int `json:"total"`
-	NormalRouted   int `json:"normal_routed"`
+	Total           int `json:"total"`
+	NormalRouted    int `json:"normal_routed"`
 	LocalOnlyRouted int `json:"local_only_routed"`
 }
 

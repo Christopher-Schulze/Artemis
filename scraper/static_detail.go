@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"artemis/network"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"golang.org/x/net/html/charset"
 )
 

@@ -13,14 +13,14 @@ import (
 
 // Cookie is one Chromium cookie entry (spec L4577).
 type Cookie struct {
-	Domain   string    `json:"domain"`
-	Name     string    `json:"name"`
-	Value    string    `json:"value"`
-	Path     string    `json:"path"`
+	Domain    string    `json:"domain"`
+	Name      string    `json:"name"`
+	Value     string    `json:"value"`
+	Path      string    `json:"path"`
 	ExpiresAt time.Time `json:"expires_at"`
-	Secure   bool      `json:"secure"`
-	HTTPOnly bool      `json:"http_only"`
-	SameSite string    `json:"same_site"`
+	Secure    bool      `json:"secure"`
+	HTTPOnly  bool      `json:"http_only"`
+	SameSite  string    `json:"same_site"`
 }
 
 // CookieStore manages cookie export/import/cleanup (spec L4577).

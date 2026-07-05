@@ -17,36 +17,36 @@ const HotBrowserWindow = 5 * time.Minute
 // BrowserBridgeMetadata is the per-bridge metadata stored in the
 // BROWSER_BRIDGES registry (spec L4310).
 type BrowserBridgeMetadata struct {
-	ContainerName  string
-	ConfigHash     string
-	LastUsedAt     time.Time
-	Running        bool
-	AuthToken      string
-	AuthPassword   string
+	ContainerName string
+	ConfigHash    string
+	LastUsedAt    time.Time
+	Running       bool
+	AuthToken     string
+	AuthPassword  string
 }
 
 // ConfigHashInput is the set of fields that determine the sandbox browser
 // config hash. The hash is computed over the JSON-normalized form.
 type ConfigHashInput struct {
-	CdpPort          int
-	CdpSourceRange   string
-	VncPort          int
-	NoVncPort        int
-	Headless         bool
-	EnableNoVnc      bool
-	AutoStartTimeout int
-	SecurityEpoch    string
-	WorkspaceDir     string
-	AgentWorkspaceDir string
+	CdpPort            int
+	CdpSourceRange     string
+	VncPort            int
+	NoVncPort          int
+	Headless           bool
+	EnableNoVnc        bool
+	AutoStartTimeout   int
+	SecurityEpoch      string
+	WorkspaceDir       string
+	AgentWorkspaceDir  string
 	MountFormatVersion int
 }
 
 // ConfigHashRegistry manages sandbox browser config hashes and the
 // BROWSER_BRIDGES metadata store. It is thread-safe.
 type ConfigHashRegistry struct {
-	mu       sync.RWMutex
-	bridges  map[string]BrowserBridgeMetadata
-	hashes   map[string]string
+	mu      sync.RWMutex
+	bridges map[string]BrowserBridgeMetadata
+	hashes  map[string]string
 }
 
 // NewConfigHashRegistry builds an empty ConfigHashRegistry.

@@ -20,12 +20,12 @@ import (
 // EngineConfig configures the renderless engine
 // (spec L4022: V8/v8go isolate snapshot engine).
 type EngineConfig struct {
-	MaxIsolates     int           `json:"maxIsolates"`
-	ScriptTimeout   time.Duration `json:"scriptTimeout"`
-	FetchTimeout    time.Duration `json:"fetchTimeout"`
-	UserAgent       string        `json:"userAgent"`
-	EnableRobots    bool          `json:"enableRobots"`
-	PrivateIPBlock  bool          `json:"privateIPBlock"`
+	MaxIsolates    int           `json:"maxIsolates"`
+	ScriptTimeout  time.Duration `json:"scriptTimeout"`
+	FetchTimeout   time.Duration `json:"fetchTimeout"`
+	UserAgent      string        `json:"userAgent"`
+	EnableRobots   bool          `json:"enableRobots"`
+	PrivateIPBlock bool          `json:"privateIPBlock"`
 }
 
 // ApplyDefaults applies default values to the config

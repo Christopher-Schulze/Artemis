@@ -16,24 +16,24 @@ import (
 // FingerprintConfig describes browser fingerprint spoofing settings
 // (spec L4023: fingerprint.go - browser fingerprint spoofing).
 type FingerprintConfig struct {
-	CanvasNoise      bool   `json:"canvasNoise"`      // add noise to canvas rendering
-	WebGLOverride    bool   `json:"webglOverride"`    // override WebGL renderer
-	AudioNoise       bool   `json:"audioNoise"`       // add noise to AudioContext
-	PlatformOverride string `json:"platformOverride"` // override navigator.platform
-	HardwareConcurrency int `json:"hardwareConcurrency"` // override hardwareConcurrency
-	DeviceMemory      int  `json:"deviceMemory"`      // override deviceMemory
+	CanvasNoise         bool   `json:"canvasNoise"`         // add noise to canvas rendering
+	WebGLOverride       bool   `json:"webglOverride"`       // override WebGL renderer
+	AudioNoise          bool   `json:"audioNoise"`          // add noise to AudioContext
+	PlatformOverride    string `json:"platformOverride"`    // override navigator.platform
+	HardwareConcurrency int    `json:"hardwareConcurrency"` // override hardwareConcurrency
+	DeviceMemory        int    `json:"deviceMemory"`        // override deviceMemory
 }
 
 // DefaultFingerprintConfig returns the default fingerprint config
 // (spec L4023: fingerprint.go - browser fingerprint spoofing).
 func DefaultFingerprintConfig() FingerprintConfig {
 	return FingerprintConfig{
-		CanvasNoise:        true,
-		WebGLOverride:      true,
-		AudioNoise:         true,
-		PlatformOverride:   "MacIntel",
+		CanvasNoise:         true,
+		WebGLOverride:       true,
+		AudioNoise:          true,
+		PlatformOverride:    "MacIntel",
 		HardwareConcurrency: 8,
-		DeviceMemory:       8,
+		DeviceMemory:        8,
 	}
 }
 

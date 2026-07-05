@@ -332,7 +332,6 @@ var navigatorKeys = v8.PrepareKeys([]string{
 	"userAgent", "language", "platform", "languages", "onLine", "cookieEnabled", "doNotTrack",
 })
 
-
 func buildStorage(iso *v8.Isolate, v8ctx *v8.Context, s *memStorage) (*v8.Value, error) {
 	tmpl := v8.NewObjectTemplate(iso)
 	obj, err := tmpl.NewInstance(v8ctx)

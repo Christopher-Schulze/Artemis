@@ -8,15 +8,15 @@ import (
 
 // NetworkRequest is a single network request entry in the correlation buffer.
 type NetworkRequest struct {
-	ID            string
-	Timestamp     time.Time
-	Method        string
-	URL           string
-	ResourceType  string
-	Status        int
-	OK            bool
-	FailureText   string
-	ResponseTime  time.Duration
+	ID           string
+	Timestamp    time.Time
+	Method       string
+	URL          string
+	ResourceType string
+	Status       int
+	OK           bool
+	FailureText  string
+	ResponseTime time.Duration
 }
 
 // NetworkRequestBuffer stores network request-response correlations
