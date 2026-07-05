@@ -427,8 +427,8 @@ func TestTASK2245_GeoPresetManagerCustomOverride(t *testing.T) {
 	m := NewGeoPresetManager()
 	custom := map[string]GeoPresetConfig{
 		"germany": {
-			Locale:     "de-AT",
-			TimezoneID: "Europe/Vienna",
+			Locale:      "de-AT",
+			TimezoneID:  "Europe/Vienna",
 			Geolocation: GeoCoord{Latitude: 48.2082, Longitude: 16.3738},
 		},
 	}
@@ -455,8 +455,8 @@ func TestTASK2245_GeoPresetManagerListPresets(t *testing.T) {
 // (spec L4023: BCP47 + IANA + lat/long + viewport validation).
 func TestTASK2245_ValidatePresetValid(t *testing.T) {
 	p := GeoPresetConfig{
-		Locale:     "en-US",
-		TimezoneID: "America/New_York",
+		Locale:      "en-US",
+		TimezoneID:  "America/New_York",
 		Geolocation: GeoCoord{Latitude: 40.7128, Longitude: -74.006},
 	}
 	if err := ValidatePreset(p); err != nil {
@@ -468,8 +468,8 @@ func TestTASK2245_ValidatePresetValid(t *testing.T) {
 // (spec L4023: BCP47-locale-regex).
 func TestTASK2245_ValidatePresetInvalidLocale(t *testing.T) {
 	p := GeoPresetConfig{
-		Locale:     "invalid_locale!",
-		TimezoneID: "America/New_York",
+		Locale:      "invalid_locale!",
+		TimezoneID:  "America/New_York",
 		Geolocation: GeoCoord{Latitude: 40.7, Longitude: -74.0},
 	}
 	if err := ValidatePreset(p); err == nil {
@@ -481,8 +481,8 @@ func TestTASK2245_ValidatePresetInvalidLocale(t *testing.T) {
 // (spec L4023: lat∈[-90,90]).
 func TestTASK2245_ValidatePresetLatOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
-		Locale:     "en-US",
-		TimezoneID: "America/New_York",
+		Locale:      "en-US",
+		TimezoneID:  "America/New_York",
 		Geolocation: GeoCoord{Latitude: 91, Longitude: 0},
 	}
 	if err := ValidatePreset(p); err == nil {
@@ -494,8 +494,8 @@ func TestTASK2245_ValidatePresetLatOutOfRange(t *testing.T) {
 // (spec L4023: long∈[-180,180]).
 func TestTASK2245_ValidatePresetLongOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
-		Locale:     "en-US",
-		TimezoneID: "America/New_York",
+		Locale:      "en-US",
+		TimezoneID:  "America/New_York",
 		Geolocation: GeoCoord{Latitude: 0, Longitude: 181},
 	}
 	if err := ValidatePreset(p); err == nil {
@@ -507,8 +507,8 @@ func TestTASK2245_ValidatePresetLongOutOfRange(t *testing.T) {
 // out of range fails (spec L4023: width∈[320,3840], height∈[240,2160]).
 func TestTASK2245_ValidatePresetViewportOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
-		Locale:     "en-US",
-		TimezoneID: "America/New_York",
+		Locale:      "en-US",
+		TimezoneID:  "America/New_York",
 		Geolocation: GeoCoord{Latitude: 40.7, Longitude: -74.0},
 		Viewport:    &Viewport{Width: 100, Height: 100},
 	}

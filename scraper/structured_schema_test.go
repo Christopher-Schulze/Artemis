@@ -94,8 +94,8 @@ func TestTASK2240_BackwardCompatEmptyFields(t *testing.T) {
 // from FieldsMap when Fields is empty.
 func TestTASK2240_RequiredFromFieldsMap(t *testing.T) {
 	s := &StructuredSchema{
-		Kind:      KindObject,
-		Selector:  ".root",
+		Kind:     KindObject,
+		Selector: ".root",
 		FieldsMap: map[string]*StructuredSchema{
 			"title": {Kind: KindText, Selector: ".title", IsRequired: true},
 			"price": {Kind: KindText, Selector: ".price"},
@@ -113,8 +113,8 @@ func TestTASK2240_RequiredFromFieldsMap(t *testing.T) {
 // passes validation (spec L4029).
 func TestTASK2240_ValidateValidScalar(t *testing.T) {
 	s := &StructuredSchema{
-		Kind:      KindText,
-		Selector:  ".title",
+		Kind:       KindText,
+		Selector:   ".title",
 		IsRequired: true,
 	}
 	if err := s.Validate(); err != nil {
@@ -682,9 +682,9 @@ func TestTASK2240_FullSpecParity(t *testing.T) {
 		Kind:     KindObject,
 		Selector: ".product",
 		FieldsMap: map[string]*StructuredSchema{
-			"title":  {Kind: KindText, Selector: ".title"},
-			"link":   {Kind: KindURL, Selector: "a", Attr: "href"},
-			"price":  {Kind: KindNumber, Selector: ".price"},
+			"title": {Kind: KindText, Selector: ".title"},
+			"link":  {Kind: KindURL, Selector: "a", Attr: "href"},
+			"price": {Kind: KindNumber, Selector: ".price"},
 		},
 	}
 	if err := ValidateSchema(objSchema); err != nil {

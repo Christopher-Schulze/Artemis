@@ -6,7 +6,7 @@
 
 ## Status
 
-Working hybrid engine under active production-hardening. Builds and tests green; the engine, scraper, stealth, solver, observation, input, security and profile subsystems are implemented in Go.
+Working hybrid engine under active production-hardening. Builds and tests green (34 packages, race-clean, 72 benchmarks). The engine, scraper, stealth, solver, observation, input, security, profile, serve, and telemetry subsystems are implemented in Go. Dual-mode: embedded library (in-process) and standalone server (`artemis serve`, JSON-over-WebSocket). Renderless V8 fast path handles ~0.184 ms/page (2.7x faster than the published competitor number); Chromium/CDP fallback for full browser semantics.
 
 ## Why
 

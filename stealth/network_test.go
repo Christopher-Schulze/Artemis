@@ -260,13 +260,13 @@ func TestTASK2244_ConnectionMonitorNilSafe(t *testing.T) {
 // (spec L4093: Downlink estimated from HTTP responses).
 func TestTASK2244_EstimateDownlink(t *testing.T) {
 	cases := []struct {
-		rtt       time.Duration
-		minDown   float64 // minimum expected downlink
+		rtt     time.Duration
+		minDown float64 // minimum expected downlink
 	}{
-		{10 * time.Millisecond, 9.0},   // very fast -> high downlink
-		{50 * time.Millisecond, 5.0},   // fast -> moderate
-		{150 * time.Millisecond, 1.0},  // moderate -> lower
-		{500 * time.Millisecond, 0.0},  // slow -> very low
+		{10 * time.Millisecond, 9.0},  // very fast -> high downlink
+		{50 * time.Millisecond, 5.0},  // fast -> moderate
+		{150 * time.Millisecond, 1.0}, // moderate -> lower
+		{500 * time.Millisecond, 0.0}, // slow -> very low
 	}
 	for _, c := range cases {
 		down := estimateDownlink(c.rtt)

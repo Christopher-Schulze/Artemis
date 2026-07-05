@@ -86,9 +86,9 @@ func TestTASK2250_ContentTypeAlias(t *testing.T) {
 // (spec L4028: result types).
 func TestTASK2250_ExtractedPage(t *testing.T) {
 	page := ExtractedPage{
-		URL:           "https://example.com",
-		Title:         "Example",
-		Text:          "Hello World",
+		URL:            "https://example.com",
+		Title:          "Example",
+		Text:           "Hello World",
 		ExtractionMode: "static_fetch",
 	}
 	if page.URL != "https://example.com" {
