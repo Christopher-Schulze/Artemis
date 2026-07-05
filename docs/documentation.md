@@ -854,4 +854,4 @@ The `Broadcast` method now fast-paths the common cases: 0 subscribers (skip slic
 
 ### Benchmark suite
 
-72 benchmarks across 14 packages (was 51, +21 new). The benchmark harness scorecard (`benchmark/results/scorecard.md`) shows avg 0.87ms per scenario (was 2.42ms, 2.8x improvement). Artemis beats the published Lightpanda number (0.184ms/page vs 0.5ms/page, 2.7x faster).
+72 benchmarks across 14 packages (was 51, +21 new). The benchmark harness scorecard (`benchmark/results/scorecard.md`) shows avg 0.87ms per scenario (was 2.42ms, 2.8x improvement). Artemis beats the published competitor number (0.184ms/page vs 0.5ms/page, 2.7x faster).
