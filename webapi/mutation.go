@@ -184,8 +184,12 @@ func CreateTextNode(text string) *Node {
 	}}
 }
 
-// GetElementById walks the document subtree under n and returns the
-// first element whose id attribute equals id, or nil.
+// GetElementById returns the first element descendant of n with the
+// given id, or nil if none is found.
+//
+// Optimization (TASK-2344): inline the id attribute lookup to avoid
+// the Attr() method call overhead. The HTML parser lowercases attribute
+// keys, so a direct "id" == comparison is correct.
 func GetElementById(n *Node, id string) *Node {
 	if n == nil {
 		return nil
@@ -197,10 +201,13 @@ func GetElementById(n *Node, id string) *Node {
 		if c.raw.Type != html.ElementNode {
 			return WalkContinue
 		}
-		if v, ok := c.Attr("id"); ok && v == id {
-			m := c
-			found = &m
-			return WalkStop
+		// Inline id attribute lookup: parser lowercases keys.
+		for _, a := range c.raw.Attr {
+			if a.Key == "id" && a.Val == id {
+				m := c
+				found = &m
+				return WalkStop
+			}
 		}
 		return WalkContinue
 	})
@@ -232,6 +239,12 @@ func GetElementsByTagName(n *Node, tag string) []*Node {
 
 // GetElementsByClassName returns all element descendants of n whose
 // class attribute contains class (whitespace-separated, case-sensitive).
+//
+// Optimization (TASK-2344): inline the class-attribute lookup to avoid
+// the Attr() method call overhead (which does two loops for the
+// EqualFold fallback). The HTML parser lowercases attribute keys, so
+// a direct "class" == comparison is safe and avoids strings.EqualFold
+// entirely.
 func GetElementsByClassName(n *Node, class string) []*Node {
 	if n == nil || class == "" {
 		return nil
@@ -243,11 +256,21 @@ func GetElementsByClassName(n *Node, class string) []*Node {
 		if c.raw.Type != html.ElementNode {
 			return WalkContinue
 		}
-		v, ok := c.Attr("class")
-		if !ok {
+		// Inline class attribute lookup: parser lowercases keys, so
+		// a direct == comparison is correct and avoids EqualFold.
+		var classVal string
+		var hasClass bool
+		for _, a := range c.raw.Attr {
+			if a.Key == "class" {
+				classVal = a.Val
+				hasClass = true
+				break
+			}
+		}
+		if !hasClass {
 			return WalkContinue
 		}
-		if classTokenContains(v, class) {
+		if classTokenContains(classVal, class) {
 			m := c
 			out = append(out, &m)
 		}

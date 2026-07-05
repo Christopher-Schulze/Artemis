@@ -129,7 +129,20 @@ func (n *Node) Data() string { return n.raw.Data }
 // Attr returns the value of the named attribute and whether it was
 // present. Attribute names are matched case-insensitively per HTML
 // semantics.
+//
+// Optimization (TASK-2344): the HTML tokenizer (golang.org/x/net/html)
+// lowercases all attribute keys, so a fast-path exact match on the
+// lowercased name covers the common case. The EqualFold fallback
+// handles attributes injected by user code (mutation APIs) that may
+// not be lowercased.
 func (n *Node) Attr(name string) (string, bool) {
+	// Fast path: exact match on lowercased key (parser-normalized).
+	for _, a := range n.raw.Attr {
+		if a.Key == name {
+			return a.Val, true
+		}
+	}
+	// Slow path: case-insensitive match for non-parser-normalized keys.
 	for _, a := range n.raw.Attr {
 		if strings.EqualFold(a.Key, name) {
 			return a.Val, true
