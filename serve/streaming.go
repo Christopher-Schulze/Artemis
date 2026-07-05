@@ -113,17 +113,46 @@ func (s *StreamingServer) GetSubscriberCount() int {
 // Broadcast delivers an event to every subscriber. Subscribers are invoked
 // without holding the lock so a slow subscriber cannot block others; each
 // delivery happens in its own goroutine.
+//
+// Optimization (TASK-2344): fast-path the common cases of 0 and 1
+// subscriber to avoid goroutine spawn + WaitGroup overhead. The 0-
+// subscriber path still counts the broadcast attempt but skips the
+// timestamp computation and slice allocation.
 func (s *StreamingServer) Broadcast(event StreamEvent) {
-	if event.Timestamp == 0 {
-		event.Timestamp = time.Now().UnixMilli()
-	}
-	s.broadcastSeq.Add(1)
 	s.mu.RLock()
-	subs := make([]StreamSubscriber, 0, len(s.subscribers))
+	n := len(s.subscribers)
+	if n == 0 {
+		s.mu.RUnlock()
+		// Still count the broadcast attempt so GetBroadcastCount
+		// reflects all Broadcast calls, not just delivered ones.
+		s.broadcastSeq.Add(1)
+		return
+	}
+	// 1-subscriber fast path: call directly, no goroutine, no WaitGroup.
+	if n == 1 {
+		var single StreamSubscriber
+		for _, sub := range s.subscribers {
+			single = sub
+		}
+		s.mu.RUnlock()
+		if event.Timestamp == 0 {
+			event.Timestamp = time.Now().UnixMilli()
+		}
+		s.broadcastSeq.Add(1)
+		single.OnEvent(event)
+		return
+	}
+	// 2+ subscribers: snapshot under RLock, fan out in goroutines.
+	subs := make([]StreamSubscriber, 0, n)
 	for _, sub := range s.subscribers {
 		subs = append(subs, sub)
 	}
 	s.mu.RUnlock()
+
+	if event.Timestamp == 0 {
+		event.Timestamp = time.Now().UnixMilli()
+	}
+	s.broadcastSeq.Add(1)
 
 	var wg sync.WaitGroup
 	wg.Add(len(subs))
