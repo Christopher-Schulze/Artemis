@@ -115,9 +115,19 @@ func (n *Node) Children() []*Node {
 }
 
 // Tag returns the lowercase tag name. It is empty for non-element nodes.
+//
+// Optimization (TASK-2344): the HTML parser (golang.org/x/net/html)
+// stores DataAtom for known tags and sets Data to the atom's string
+// (already lowercase). For unknown tags, Data is the raw token text
+// which may not be lowercase. We fast-path the common case (known
+// atom) by checking DataAtom != 0 and returning Data directly; only
+// for unknown tags (DataAtom == 0) do we call strings.ToLower.
 func (n *Node) Tag() string {
 	if n.raw.Type != html.ElementNode {
 		return ""
+	}
+	if n.raw.DataAtom != 0 {
+		return n.raw.Data // already lowercase (atom string)
 	}
 	return strings.ToLower(n.raw.Data)
 }
