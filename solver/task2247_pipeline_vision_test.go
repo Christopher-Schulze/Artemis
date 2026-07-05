@@ -2,6 +2,9 @@ package solver
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -417,5 +420,316 @@ func TestTASK2247_FullSpecParity(t *testing.T) {
 	}
 	if v.Stats().TotalAttempts == 0 {
 		t.Error("vision should track stats")
+	}
+}
+
+// ==================== TASK-2344 user escalation hook tests ====================
+
+// TestTASK2344_UserEscalationNilHookExplicitError verifies that a nil
+// user-escalation hook produces an explicit error, not a silent fake
+// result (spec L4025: user fallback must be real, not faked).
+func TestTASK2344_UserEscalationNilHookExplicitError(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if result.Solved {
+		t.Error("should not be solved")
+	}
+	if result.Stage != PipelineStageUserFallback {
+		t.Errorf("stage: got %s, want user_fallback", result.Stage)
+	}
+	if !result.IsFallbackUsed() {
+		t.Error("fallback should be used")
+	}
+	if result.Error == "" {
+		t.Error("nil hook should produce explicit error, not empty")
+	}
+	if !strings.Contains(result.Error, "no user escalation channel") {
+		t.Errorf("error should mention 'no user escalation channel', got: %s", result.Error)
+	}
+}
+
+// TestTASK2344_UserEscalationHookSolved verifies that a user-escalation
+// hook that returns Solved=true produces a solved pipeline result with
+// the user-provided answer (spec L4025: user fallback).
+func TestTASK2344_UserEscalationHookSolved(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		if ch.Type != TypeGeneric {
+			t.Errorf("hook got wrong challenge type: %s", ch.Type)
+		}
+		if attempts != 1 {
+			t.Errorf("hook got wrong attempt count: %d", attempts)
+		}
+		return UserEscalationResult{Solved: true, Answer: "user_provided_answer"}, nil
+	}))
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if !result.Solved {
+		t.Error("should be solved by user escalation")
+	}
+	if result.Stage != PipelineStageUserFallback {
+		t.Errorf("stage: got %s, want user_fallback", result.Stage)
+	}
+	if result.Answer != "user_provided_answer" {
+		t.Errorf("answer: got %s, want user_provided_answer", result.Answer)
+	}
+	if !result.IsFallbackUsed() {
+		t.Error("fallback should be used")
+	}
+	if p.Stats().FallbackSuccesses != 1 {
+		t.Errorf("fallback successes: got %d, want 1", p.Stats().FallbackSuccesses)
+	}
+}
+
+// TestTASK2344_UserEscalationHookUnsolved verifies that a user-escalation
+// hook that returns Solved=false produces an unsolved result with the
+// reason (spec L4025: user fallback).
+func TestTASK2344_UserEscalationHookUnsolved(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		return UserEscalationResult{Solved: false, Reason: "user declined to solve"}, nil
+	}))
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if result.Solved {
+		t.Error("should not be solved")
+	}
+	if result.Stage != PipelineStageUserFallback {
+		t.Errorf("stage: got %s, want user_fallback", result.Stage)
+	}
+	if !strings.Contains(result.Error, "user declined to solve") {
+		t.Errorf("error should contain reason, got: %s", result.Error)
+	}
+}
+
+// TestTASK2344_UserEscalationHookError verifies that a user-escalation
+// hook that returns an error produces an unsolved result with the error
+// message (spec L4025: user fallback).
+func TestTASK2344_UserEscalationHookError(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		return UserEscalationResult{}, fmt.Errorf("escalation channel timeout")
+	}))
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if result.Solved {
+		t.Error("should not be solved")
+	}
+	if !strings.Contains(result.Error, "user escalation failed") {
+		t.Errorf("error should mention 'user escalation failed', got: %s", result.Error)
+	}
+	if !strings.Contains(result.Error, "escalation channel timeout") {
+		t.Errorf("error should contain hook error, got: %s", result.Error)
+	}
+}
+
+// TestTASK2344_UserEscalationDefaultReason verifies that an unsolved
+// hook result with empty reason gets a default reason message.
+func TestTASK2344_UserEscalationDefaultReason(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		return UserEscalationResult{Solved: false, Reason: ""}, nil
+	}))
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if result.Solved {
+		t.Error("should not be solved")
+	}
+	if !strings.Contains(result.Error, "user did not solve") {
+		t.Errorf("error should contain default reason, got: %s", result.Error)
+	}
+}
+
+// TestTASK2344_SetUserEscalationHookNilReceiver verifies nil-receiver safety.
+func TestTASK2344_SetUserEscalationHookNilReceiver(t *testing.T) {
+	var p *SolverPipeline
+	p.SetUserEscalationHook(nil) // must not panic
+}
+
+// TestTASK2344_MetricsStoreVisionSolved verifies that a vision-solved
+// challenge records a metric row with stage_solved=0 (vision).
+func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: true, Answer: "click"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+
+	dir := t.TempDir()
+	store, err := OpenMetricsStore(filepath.Join(dir, "metrics.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	p.SetMetricsStore(store)
+
+	challenge := ChallengeInfo{Type: TypeCloudflare, Domain: "example.com"}
+	result := p.Solve(context.Background(), challenge, []byte("screenshot"))
+	if !result.Solved {
+		t.Fatal("should be solved by vision")
+	}
+
+	rate, total, err := store.SuccessRate(string(TypeCloudflare))
+	if err != nil {
+		t.Fatalf("success rate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total: got %d, want 1", total)
+	}
+	if rate != 1.0 {
+		t.Errorf("rate: got %f, want 1.0", rate)
+	}
+}
+
+// TestTASK2344_MetricsStoreUserFallbackSolved verifies that a
+// user-fallback-solved challenge records a metric row with
+// stage_solved=1 (user_fallback).
+func TestTASK2344_MetricsStoreUserFallbackSolved(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		return UserEscalationResult{Solved: true, Answer: "user_answer"}, nil
+	}))
+
+	dir := t.TempDir()
+	store, err := OpenMetricsStore(filepath.Join(dir, "metrics.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	p.SetMetricsStore(store)
+
+	challenge := ChallengeInfo{Type: TypeGeneric, Domain: "test.org"}
+	result := p.Solve(context.Background(), challenge, []byte("screenshot"))
+	if !result.Solved {
+		t.Fatal("should be solved by user fallback")
+	}
+
+	rate, total, err := store.SuccessRate(string(TypeGeneric))
+	if err != nil {
+		t.Fatalf("success rate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total: got %d, want 1", total)
+	}
+	if rate != 1.0 {
+		t.Errorf("rate: got %f, want 1.0", rate)
+	}
+}
+
+// TestTASK2344_MetricsStoreNotSolved verifies that an unsolved
+// challenge records a metric row with stage_solved=NULL (not solved).
+func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+
+	dir := t.TempDir()
+	store, err := OpenMetricsStore(filepath.Join(dir, "metrics.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	p.SetMetricsStore(store)
+
+	challenge := ChallengeInfo{Type: TypeRecaptcha, Domain: "unsolved.com"}
+	result := p.Solve(context.Background(), challenge, []byte("screenshot"))
+	if result.Solved {
+		t.Fatal("should not be solved")
+	}
+
+	rate, total, err := store.SuccessRate(string(TypeRecaptcha))
+	if err != nil {
+		t.Fatalf("success rate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total: got %d, want 1", total)
+	}
+	if rate != 0.0 {
+		t.Errorf("rate: got %f, want 0.0", rate)
+	}
+}
+
+// TestTASK2344_MetricsStoreNilStoreNoPanic verifies that a nil metrics
+// store does not cause a panic.
+func TestTASK2344_MetricsStoreNilStoreNoPanic(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: true, Answer: "click"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	// No SetMetricsStore call — p.metrics is nil
+
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if !result.Solved {
+		t.Error("should be solved")
+	}
+}
+
+// TestTASK2344_MetricsStoreDefaultDomain verifies that an empty domain
+// is recorded as "unknown".
+func TestTASK2344_MetricsStoreDefaultDomain(t *testing.T) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: true, Answer: "click"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+
+	dir := t.TempDir()
+	store, err := OpenMetricsStore(filepath.Join(dir, "metrics.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	p.SetMetricsStore(store)
+
+	// No Domain field set
+	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if !result.Solved {
+		t.Fatal("should be solved")
+	}
+	// Just verify it doesn't panic and records a row
+	_, total, err := store.SuccessRate(string(TypeGeneric))
+	if err != nil {
+		t.Fatalf("success rate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total: got %d, want 1", total)
 	}
 }

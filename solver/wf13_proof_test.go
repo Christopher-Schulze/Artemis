@@ -220,3 +220,71 @@ func TestWFChallengeDetectorInnoBaseline(t *testing.T) {
 	}
 	fmt.Printf("innovation_score=0.0\n")
 }
+
+// ==================== TASK-2344 pipeline hot-path benchmarks ====================
+
+// BenchmarkTASK2344_PipelineVisionSolved measures the pipeline hot path
+// when vision solve succeeds on the first attempt (best case).
+func BenchmarkTASK2344_PipelineVisionSolved(b *testing.B) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: true, Answer: "click"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	ch := ChallengeInfo{Type: TypeCloudflare, Domain: "bench.com"}
+	sc := []byte("screenshot")
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r := p.Solve(ctx, ch, sc)
+		if !r.Solved {
+			b.Fatal("should be solved")
+		}
+	}
+}
+
+// BenchmarkTASK2344_PipelineUserFallback measures the pipeline hot path
+// when vision fails and user escalation hook solves (fallback case).
+func BenchmarkTASK2344_PipelineUserFallback(b *testing.B) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	p.SetUserEscalationHook(UserEscalationFunc(func(ctx context.Context, ch ChallengeInfo, sc []byte, attempts int) (UserEscalationResult, error) {
+		return UserEscalationResult{Solved: true, Answer: "user"}, nil
+	}))
+	ch := ChallengeInfo{Type: TypeGeneric, Domain: "bench.com"}
+	sc := []byte("screenshot")
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r := p.Solve(ctx, ch, sc)
+		if !r.Solved {
+			b.Fatal("should be solved by fallback")
+		}
+	}
+}
+
+// BenchmarkTASK2344_PipelineNilHook measures the pipeline hot path when
+// vision fails and no user escalation hook is configured (error path).
+func BenchmarkTASK2344_PipelineNilHook(b *testing.B) {
+	hub := &task2247MockHub{
+		response: InferenceHubResponse{Solved: false, Error: "fail"},
+	}
+	v := NewVisionSolver(hub)
+	p := NewSolverPipeline(v)
+	p.SetMaxAttempts(1)
+	ch := ChallengeInfo{Type: TypeGeneric, Domain: "bench.com"}
+	sc := []byte("screenshot")
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r := p.Solve(ctx, ch, sc)
+		if r.Solved {
+			b.Fatal("should not be solved")
+		}
+	}
+}

@@ -2,6 +2,7 @@ package solver
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
@@ -18,31 +19,31 @@ import (
 // VisionResult is the result of an LLM vision solve attempt
 // (spec L4025: LLM vision solve).
 type VisionResult struct {
-	Solved     bool          `json:"solved"`
-	Answer     string        `json:"answer,omitempty"`
-	Instruction string       `json:"instruction,omitempty"`
-	Model      string        `json:"model,omitempty"`
-	Duration   time.Duration `json:"duration"`
-	Error      string        `json:"error,omitempty"`
+	Solved      bool          `json:"solved"`
+	Answer      string        `json:"answer,omitempty"`
+	Instruction string        `json:"instruction,omitempty"`
+	Model       string        `json:"model,omitempty"`
+	Duration    time.Duration `json:"duration"`
+	Error       string        `json:"error,omitempty"`
 }
 
 // VisionSolver implements LLM vision-based challenge solving
 // (spec L4025: LLM vision solve screenshot -> Qwen3.6 -> instruction
 // -> execute).
 type VisionSolver struct {
-	mu       sync.RWMutex
-	hub      InferenceHub
-	model    string
-	stats    VisionStats
+	mu    sync.RWMutex
+	hub   InferenceHub
+	model string
+	stats VisionStats
 }
 
 // VisionStats tracks vision solver statistics
 // (spec L4025: challenge success tracking).
 type VisionStats struct {
-	TotalAttempts  int `json:"total_attempts"`
-	Successes      int `json:"successes"`
-	Failures       int `json:"failures"`
-	TotalDuration  time.Duration `json:"total_duration"`
+	TotalAttempts int           `json:"total_attempts"`
+	Successes     int           `json:"successes"`
+	Failures      int           `json:"failures"`
+	TotalDuration time.Duration `json:"total_duration"`
 }
 
 // DefaultVisionModel is the default LLM vision model
@@ -144,15 +145,13 @@ func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, scree
 	return result, nil
 }
 
-// encodeScreenshot encodes screenshot bytes to a base64 string for
-// the Inference Hub request (spec L4025: screenshot -> LLM).
+// encodeScreenshot encodes screenshot bytes to a standard base64 string
+// for the Inference Hub request (spec L4025: screenshot -> LLM).
 func encodeScreenshot(screenshot []byte) string {
-	// In a real implementation, this would base64-encode the screenshot.
-	// For testing purposes, we return a deterministic identifier.
 	if len(screenshot) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("screenshot:%d_bytes", len(screenshot))
+	return base64.StdEncoding.EncodeToString(screenshot)
 }
 
 // buildVisionPrompt builds the prompt for the LLM vision model
