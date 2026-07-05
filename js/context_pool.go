@@ -122,8 +122,14 @@ func rebindPooledStorage(c *Context, globalName string, s *memStorage) error {
 // jsonStringLiteral returns a quoted JSON string suitable for embedding
 // into a JS expression. Tiny manual encoder; only handles the chars
 // we actually emit (URLs).
+//
+// Optimization (TASK-2344): pre-allocate the buffer to len(s)+2 (the
+// minimum possible output: 2 quote chars + the input unchanged) to
+// avoid reallocations. Worst case (every char escaped) is 6x expansion,
+// but URLs rarely contain escaped chars, so the pre-allocation is
+// almost always exact or needs at most one growth.
 func jsonStringLiteral(s string) string {
-	var b []byte
+	b := make([]byte, 0, len(s)+2)
 	b = append(b, '"')
 	for i := 0; i < len(s); i++ {
 		c := s[i]
