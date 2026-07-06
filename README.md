@@ -117,4 +117,6 @@ make bench      # run the benchmark suite
 
 ## License
 
-[MIT](LICENSE) © Christopher Schulze.
+Artemis is released under the **MIT License**. You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies, in both open-source and commercial projects, provided the copyright notice and this permission notice are included in all copies or substantial portions of the software.
+
+Copyright © 2026 Christopher Schulze. See [LICENSE](LICENSE) for the full text.
