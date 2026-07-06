@@ -25,7 +25,7 @@ The result: near-browser fidelity at a fraction of the cost, in a single self-co
 ## Highlights
 
 - **Hybrid engine, automatic routing:** `static_fetch → renderless_js → chromium_cdp → stealth → scrape`, cheapest-viable-path first, fail-closed.
-- **~0.184 ms/page** on the renderless fast path (**2.7x faster** than the competitor's published number), backed by a warm V8 isolate-snapshot and context pool.
+- **~0.184 ms/page** on the renderless fast path (**2.7x faster** than the ~0.5 ms/page published baseline), backed by a warm V8 isolate-snapshot and context pool.
 - **Agent-native extraction:** clean Markdown, semantic tree, structured data (JSON-LD/microdata), links, forms, and actionable elements, ready to feed an LLM.
 - **Dual-mode:** embed the Go packages in-process, or run `artemis serve` and drive it from any language over JSON-over-WebSocket.
 - **Serious stealth:** three-level anti-detection, fingerprint patches, HTTP/2 parity, human-like Bezier input, CDP-evasion.
@@ -68,7 +68,7 @@ Measured on the renderless fast path with a warm context pool:
 | Metric | Result |
 |--------|--------|
 | Page fetch + JS + extract | **~0.184 ms/page** |
-| vs. competitor's published number | **2.7x faster** |
+| vs. published baseline (~0.5 ms/page) | **2.7x faster** |
 | Packages | 34 |
 | Benchmarks | 73 |
 | Concurrency | `-race` clean |
