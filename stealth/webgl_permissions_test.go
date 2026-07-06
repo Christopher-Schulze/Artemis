@@ -137,8 +137,13 @@ func TestTASK2243_ConsistencyChecked(t *testing.T) {
 		t.Error("should not be checked before MeasureAndOverride")
 	}
 	w.MeasureAndOverride()
-	if !w.ConsistencyChecked() {
-		t.Error("should be checked after MeasureAndOverride")
+	// MeasureAndOverride only runs the GPU-consistency check when a GPU is
+	// actually detected; on a headless / GPU-less host it bails out early
+	// (honest > fake, spec L4089) and leaves consistencyChecked false. Assert
+	// against the real GPU-detection outcome so the test is correct both on a
+	// GPU host and on a headless CI runner.
+	if got, want := w.ConsistencyChecked(), DetectGPU().Detected; got != want {
+		t.Errorf("ConsistencyChecked() = %v after MeasureAndOverride, want %v (must match GPU detection)", got, want)
 	}
 }
 
