@@ -1,4 +1,8 @@
-# Artemis
+<p align="center">
+  <img src="assets/logo.png" alt="Artemis" width="440">
+</p>
+
+<h1 align="center">Artemis</h1>
 
 > **The headless browser built for AI agents.** A from-scratch renderless V8 engine in Go that runs the real web at a fraction of Chromium's cost, and escalates to a full Chromium/CDP browser only when a page truly needs it. One package, one binary, automatic routing.
 
