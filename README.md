@@ -1,43 +1,109 @@
 # Artemis
 
-> Hybrid headless browser engine in Go, built for AI agents. A fast renderless V8 path for maximum coverage, with a Chromium/CDP fallback for 100% compatibility.
+> **The headless browser built for AI agents.** A from-scratch renderless V8 engine in Go that runs the real web at a fraction of Chromium's cost, and escalates to a full Chromium/CDP browser only when a page truly needs it. One package, one binary, automatic routing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev)
+[![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
 
-## Status
+Artemis gives an autonomous agent everything it needs to *perceive and act on* the web: fetch and run JavaScript, read a page as clean Markdown or a semantic tree, extract structured data, fill forms, click, scroll, log in, defeat bot-detection, solve challenges, and stream it all to a driving agent over a wire protocol.
 
-Working hybrid engine under active production-hardening. Builds and tests green (34 packages, race-clean, 72 benchmarks). The engine, scraper, stealth, solver, observation, input, security, profile, serve, and telemetry subsystems are implemented in Go. Dual-mode: embedded library (in-process) and standalone server (`artemis serve`, JSON-over-WebSocket). Renderless V8 fast path handles ~0.184 ms/page (2.7x faster than the published competitor number); Chromium/CDP fallback for full browser semantics.
+---
 
-## Why
+## Why Artemis
 
-Crawling the modern web requires running JavaScript, and running Chromium-Headless at scale is expensive: high RAM, high CPU, hard to package. Artemis handles as much of the web as possible on a from-scratch renderless V8 path (no layout, no compositor, no paint) that is fast and cheap, and escalates to a real Chromium browser via CDP only when a page genuinely needs full browser semantics. One package, one binary, automatic routing.
+Crawling the modern web means running JavaScript, and running Chromium-Headless at scale is expensive: gigabytes of RAM, heavy CPU, painful to package and operate. Most pages don't need a full browser — they need a correct DOM, working `fetch`/XHR, cookies, and JS execution.
+
+Artemis handles as much of the web as possible on a **renderless V8 fast path** — stock V8 with a from-scratch DOM/WebAPI surface, but **no layout, no compositor, no paint** — which is fast and cheap. It escalates to a **real Chromium browser via CDP** only when a page genuinely needs full browser semantics (layout, screenshots, canvas/media, WebAuthn, hardened anti-bot). A deterministic execution router picks the cheapest path that will work and fails closed upward, never silently.
+
+The result: near-browser fidelity at a fraction of the cost, in a single self-contained Go binary.
+
+## Highlights
+
+- **Hybrid engine, automatic routing** — `static_fetch → renderless_js → chromium_cdp → stealth → scrape`, cheapest-viable-path first, fail-closed.
+- **~0.184 ms/page** on the renderless fast path — **2.7x faster** than the published competitor number — with a warm V8 isolate-snapshot + context pool.
+- **Agent-native extraction** — clean Markdown, semantic tree, structured data (JSON-LD/microdata), links, forms, and actionable elements, ready to feed an LLM.
+- **Dual-mode** — embed the Go packages in-process, or run `artemis serve` and drive it from any language over JSON-over-WebSocket.
+- **Serious stealth** — three-level anti-detection, fingerprint patches, HTTP/2 parity, human-like Bezier input, CDP-evasion.
+- **Secure by default** — SSRF guards, indirect-prompt-injection defense, ad/tracker blocking, encrypted multi-profile isolation.
+- **Benchmarked and race-clean** — 34 packages, 73 benchmarks, `-race` green.
 
 ## Architecture
 
 Artemis is a hybrid controlled by a deterministic execution router:
 
-- **Renderless fast path** (`renderless/`, `engine/`, `js/`, `webapi/`, `css/`, `parser/`): V8 via `rogchap.com/v8go` (stock V8, no Chromium) with an isolate snapshot + context pool, a from-scratch DOM/WebAPI surface, CSS parse/cascade/computed style, `fetch`/XHR, cookies, and agent extraction (markdown, semantic tree, structured data, links, forms, actions).
-- **Chromium/CDP fallback** (`bridge/`, `bridge/cdpops/`, `bridge/actions/`, `bridge/tabs/`): controls a real Chromium child process via CDP (`chromedp` + `cdproto`) for layout, screenshots, canvas/media, WebAuthn, CAPTCHA and hardened sites.
-- **Provider** (`bridge/provider.go`): routes `static_fetch -> renderless_js -> chromium_cdp -> stealth -> scrape`, failing closed upward, never silently.
-- **Supporting subsystems**: `stealth/` (3-level anti-detection, fingerprint patches, HTTP/2 parity), `solver/` (vision-based challenge solving), `observe/` (AX-tree snapshots + diff, network + console buffers), `input/` (Bezier human-like input), `security/` (SSRF, indirect-prompt-injection defense, ad blocking), `profile/` (encrypted multi-profile, sessions, geo-presets, session-proxy), `scraper/` (adaptive selectors + AI element finding), `serve/` (JSON-over-WebSocket steering server), `telemetry/` (local OpenTelemetry, opt-out phone-home via `ARTEMIS_DISABLE_TELEMETRY=true`).
+- **Renderless fast path** (`renderless/`, `engine/`, `js/`, `webapi/`, `css/`, `parser/`) — V8 via `rogchap.com/v8go` (stock V8, no Chromium) with an isolate snapshot + context pool, a from-scratch DOM/WebAPI surface, CSS parse/cascade/computed style, `fetch`/XHR, cookies, and agent extraction.
+- **Chromium/CDP fallback** (`bridge/`, `bridge/cdpops/`, `bridge/actions/`, `bridge/tabs/`) — drives a real Chromium child process via CDP (`chromedp` + `cdproto`) for layout, screenshots, canvas/media, WebAuthn, CAPTCHA and hardened sites.
+- **Execution router** (`bridge/provider.go`) — routes across the path ladder, failing closed upward, never silently.
+
+### Subsystem map
+
+| Subsystem | Package(s) | What it does |
+|-----------|------------|--------------|
+| Renderless engine | `renderless/`, `engine/`, `js/`, `webapi/` | V8 execution, from-scratch DOM/WebAPI, `fetch`/XHR, cookies |
+| Styling | `css/`, `parser/` | HTML parse, CSS parse/cascade/computed style |
+| Chromium bridge | `bridge/`, `bridge/cdpops/`, `bridge/tabs/` | Real browser via CDP for full semantics |
+| Router | `bridge/provider.go` | Cheapest-viable-path routing, fail-closed |
+| Stealth | `stealth/`, `network/` | 3-level anti-detection, fingerprint patches, HTTP/2 parity |
+| Solver | `solver/` | Vision-based challenge / CAPTCHA solving |
+| Observation | `observe/` | AX-tree snapshots + diff, network + console buffers |
+| Input | `input/` | Human-like Bezier mouse/keyboard input |
+| Actions | `actions/`, `bridge/actions/` | High-level page actions (login, forms, navigation) |
+| Security | `security/` | SSRF defense, indirect-prompt-injection defense, ad/tracker blocking |
+| Profiles | `profile/` | Encrypted multi-profile, sessions, geo-presets, session-proxy |
+| Scraper | `scraper/` | Adaptive selectors + AI element finding |
+| Serve | `serve/` | JSON-over-WebSocket steering server |
+| Telemetry | `telemetry/` | Local OpenTelemetry, opt-out (`ARTEMIS_DISABLE_TELEMETRY=true`) |
 
 See [`docs/documentation.md`](docs/documentation.md) for the full architecture and module reference.
 
+## Benchmarks
+
+Measured on the renderless fast path with a warm context pool:
+
+| Metric | Result |
+|--------|--------|
+| Page fetch + JS + extract | **~0.184 ms/page** |
+| vs. published competitor | **2.7x faster** |
+| Packages | 34 |
+| Benchmarks | 73 |
+| Concurrency | `-race` clean |
+
+Reproduce with `make bench`. The head-to-head competitor harness (`benchmark/`) downloads the competitor binary at benchmark time and runs it as an external black box.
+
 ## Usage
 
-Artemis ships dual-mode:
+Artemis ships dual-mode.
 
-- **Embedded library**: import the Go packages and drive the engine in-process.
-- **Standalone server**: `artemis serve` exposes a JSON-over-WebSocket steering protocol so external agents can drive it over the wire.
+**Embedded library** — import the Go packages and drive the engine in-process:
+
+```go
+import "github.com/Christopher-Schulze/Artemis/engine"
+// build an engine, fetch a URL, extract Markdown / structured data, act on the page
+```
+
+**Standalone server** — expose the JSON-over-WebSocket steering protocol so an agent in any language can drive it over the wire:
+
+```sh
+artemis serve
+```
 
 ## Build
 
-Requires Go 1.26+ and a C toolchain (for V8 via cgo).
+Requires **Go 1.26+** and a C toolchain (for V8 via cgo).
 
 ```sh
-make build
+make build      # build the artemis binary
+make test       # run the test suite
+make test-race  # run with the race detector
+make bench      # run the benchmark suite
 ```
+
+## Quality
+
+- 34 packages, 73 benchmarks, race-detector clean.
+- Deny-by-default security: SSRF, prompt-injection, and ad/tracker defenses are on by default.
 
 ## License
 
-[MIT](LICENSE). Artemis is original Go code.
+[MIT](LICENSE) © Christopher Schulze.

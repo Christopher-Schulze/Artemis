@@ -36,3 +36,7 @@ coverage.*
 
 # Benchmark competitor binary (never committed; downloaded at benchmark time)
 benchmark/bin/
+
+# Private planning (kept in the Golem monorepo, stripped from the public repo)
+docs/tasks.md
+docs/tasks/
