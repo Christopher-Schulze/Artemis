@@ -8,7 +8,7 @@ import (
 
 // policy_hook.go (spec L4247: Policy Engine integration ss6).
 //
-// Browser requests go through the Omnimus Policy Engine (ss6) before
+// Browser requests go through the host policy engine before
 // execution. This hook intercepts browser navigation/action requests
 // and routes them through the Policy Engine for authorization.
 //
@@ -39,8 +39,8 @@ type PolicyResponse struct {
 	RewrittenURL string         `json:"rewritten_url,omitempty"`
 }
 
-// PolicyEngine is the interface for the Omnimus Policy Engine (ss6).
-// The real implementation lives in the Omnimus core; this interface
+// PolicyEngine is the interface for the host policy engine.
+// The real implementation is provided by the embedding host; this interface
 // allows artemis/ to depend on the abstraction.
 type PolicyEngine interface {
 	Evaluate(ctx context.Context, req PolicyRequest) (PolicyResponse, error)

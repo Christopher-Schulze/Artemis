@@ -9,7 +9,6 @@ import (
 // ==================== api.go tests ====================
 
 // TestTASK2258_NewAgent verifies agent creation
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_NewAgent(t *testing.T) {
 	a := NewAgent(AgentConfig{MaxTabs: 5})
 	if a == nil {
@@ -24,7 +23,6 @@ func TestTASK2258_NewAgent(t *testing.T) {
 }
 
 // TestTASK2258_AgentConfigDefaults verifies defaults
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentConfigDefaults(t *testing.T) {
 	cfg := AgentConfig{}
 	cfg.ApplyDefaults()
@@ -40,7 +38,6 @@ func TestTASK2258_AgentConfigDefaults(t *testing.T) {
 }
 
 // TestTASK2258_AgentStart verifies start
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentStart(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	err := a.Start(context.Background())
@@ -66,7 +63,6 @@ func TestTASK2258_AgentStartTwice(t *testing.T) {
 }
 
 // TestTASK2258_AgentStop verifies stop
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentStop(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	a.Start(context.Background())
@@ -92,7 +88,6 @@ func TestTASK2258_AgentStopNotStarted(t *testing.T) {
 }
 
 // TestTASK2258_AgentConfig verifies config retrieval
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentConfig(t *testing.T) {
 	a := NewAgent(AgentConfig{MaxTabs: 7, UserAgent: "test"})
 	cfg := a.Config()
@@ -105,7 +100,6 @@ func TestTASK2258_AgentConfig(t *testing.T) {
 }
 
 // TestTASK2258_AgentCreateSession verifies session creation
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentCreateSession(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	s := a.CreateSession("user1")
@@ -121,7 +115,6 @@ func TestTASK2258_AgentCreateSession(t *testing.T) {
 }
 
 // TestTASK2258_AgentExecuteTask verifies task execution
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_AgentExecuteTask(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	a.Start(context.Background())
@@ -167,7 +160,6 @@ func TestTASK2258_IsValidAgentState(t *testing.T) {
 }
 
 // TestTASK2258_SessionClose verifies session close
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_SessionClose(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	s := a.CreateSession("user1")
@@ -178,7 +170,6 @@ func TestTASK2258_SessionClose(t *testing.T) {
 }
 
 // TestTASK2258_SessionTabs verifies tab management
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_SessionTabs(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	s := a.CreateSession("user1")
@@ -244,7 +235,6 @@ func TestTASK2258_TaskResultString(t *testing.T) {
 }
 
 // TestTASK2258_FullSpecParity verifies the api.go public API
-// (spec L4031: Public API for Omnimus agent).
 func TestTASK2258_FullSpecParity(t *testing.T) {
 	// Create agent
 	a := NewAgent(AgentConfig{})

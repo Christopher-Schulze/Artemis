@@ -55,10 +55,10 @@ type CredentialSummary struct {
 }
 
 // CredentialStore is the AES-256-GCM encrypted credential store backed by
-// a JSON file at ~/.omnimus/browser/credentials.enc (spec L4553).
+// a JSON file in the browser data dir.
 //
 // The master key is 32 bytes (AES-256). In production it is resolved via
-// SecretLifecycleRegistry/Omnimus Secret Management (ss24.2); here it is
+// the host secret management; here it is
 // injected via NewCredentialStore so the store is testable without a
 // Keychain/TPM dependency.
 type CredentialStore struct {
@@ -85,7 +85,7 @@ func NewCredentialStore(path string, key []byte) (*CredentialStore, error) {
 	return s, nil
 }
 
-// DefaultCredentialPath returns ~/.omnimus/browser/credentials.enc.
+// DefaultCredentialPath returns the browser credentials file path.
 func DefaultCredentialPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {

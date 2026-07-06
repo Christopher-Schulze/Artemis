@@ -116,7 +116,7 @@ func NewGeoPresetManager() *GeoPresetManager {
 }
 
 // LoadCustomPresets loads custom presets from a map
-// (spec L4023: custom-presets-file ~/.omnimus/browser/presets.json).
+// (custom presets file under the browser data dir).
 func (m *GeoPresetManager) LoadCustomPresets(presets map[string]GeoPresetConfig) {
 	if m == nil {
 		return

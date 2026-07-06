@@ -64,7 +64,7 @@ const paranoidReferrerPatch = `
       configurable: true
     });
   } catch(e) {}
-  // Omnimus sets spoofedReferrer via CDP before navigation
+  // the host sets spoofedReferrer via CDP before navigation
 })();
 `
 

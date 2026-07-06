@@ -32,8 +32,8 @@ type InferenceHubResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// InferenceHub is the interface for the Omnimus Inference Hub (ss7).
-// The real implementation lives in the Omnimus core.
+// InferenceHub is the interface for the host inference hub.
+// The real implementation is provided by the embedding host.
 type InferenceHub interface {
 	SolveCAPTCHA(ctx context.Context, req InferenceHubRequest) (InferenceHubResponse, error)
 }

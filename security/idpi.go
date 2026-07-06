@@ -16,7 +16,7 @@ import (
 //
 // CheckResult {Threat, Blocked, TaintRefs, Reason} feeds
 // AttachmentTrust ss49.2a, ToolDispatchPlan, DecisionTrace and
-// omnimus_browser_idpi_{scanned_total,tainted_total,blocked_total,
+// browser idpi metrics {scanned_total,tainted_total,blocked_total,
 // policy_downgraded_total} metrics.
 //
 // Default action is taint+fence (not block) unless policy/tool
@@ -107,7 +107,7 @@ type CheckResult struct {
 }
 
 // IDPIMetrics tracks the 4 spec-mandated metrics (spec L4202:
-// omnimus_browser_idpi_{scanned_total,tainted_total,blocked_total,
+// browser idpi metrics {scanned_total,tainted_total,blocked_total,
 // policy_downgraded_total}).
 type IDPIMetrics struct {
 	ScannedTotal          int `json:"scanned_total"`

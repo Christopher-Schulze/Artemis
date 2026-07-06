@@ -18,14 +18,13 @@ import (
 // that captures AX snapshots, stable selectors, tool-call traces, and
 // fallback screenshots during a guided workflow capture session (RPA-light,
 // spec ss3.5a.1 L1024). The recording it produces is consumed by the
-// Omnimus learning.WorkflowCapturePipeline to draft a workflow skill.
+// the host workflow-capture pipeline to draft a workflow skill.
 //
 // The recorder is intentionally decoupled from the CDP layer: it accepts
 // pre-built ActionCapture records so it can be unit-tested without a live
 // browser. The bridge layer wires real CDP calls into these records.
 //
 // Reference: research/agents/openclaw-main/extensions/browser/src/browser/pw-tools-core.activity.ts
-//            codebase/backend/omnimus/internal/skills/learning/workflow_capture.go
 
 // WorkflowCaptureConfig controls the recorder (spec L4561).
 type WorkflowCaptureConfig struct {
@@ -345,7 +344,7 @@ func ContainsCredentialsOrPII(rec *WorkflowRecording) bool {
 
 // RenderSkillContent produces a draft SKILL.md content string from a
 // recording (spec L4561). This is a compact preview; the full skill draft
-// is produced by the Omnimus learning.WorkflowCapturePipeline.
+// is produced by the the host workflow-capture pipeline.
 func RenderSkillContent(rec *WorkflowRecording) string {
 	if rec == nil {
 		return ""

@@ -43,7 +43,7 @@ type DataLocation struct {
 type StorageManager struct {
 	mu         sync.Mutex
 	ls         map[string]*LocalStorageEntry // keyed by domain|key
-	profileDir string                        // ~/.omnimus/browser/profiles/{owner}/{name}/
+	profileDir string                        // browser profiles dir: {owner}/{name}/
 }
 
 // NewStorageManager creates a manager. profileDir is the per-profile

@@ -1,4 +1,4 @@
-// Omnimus Stealth Bundle - 27 patches in ONE script (spec ss28.15.1 P0.1)
+// Artemis Stealth Bundle - 27 patches in ONE script
 // This file is embedded via go:embed and injected as a single CDP call per page.
 // ~25KB minified. Reduces CDP round-trips from 27 to 1.
 (function() {

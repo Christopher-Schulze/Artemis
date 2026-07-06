@@ -37,7 +37,7 @@ type GeolocationConfig struct {
 }
 
 // ProxyProfileConfig is a named proxy profile loaded from
-// ~/.omnimus/browser/proxy-profiles.json (spec L4028, research
+// the browser proxy-profiles file (research
 // proxy-profiles.ts ProxyProfileConfig).
 type ProxyProfileConfig struct {
 	Server      string             `json:"server"`
@@ -97,7 +97,7 @@ type RawProxyOverride struct {
 var localeRegex = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 
 // ProxyProfileStore manages named proxy profiles loaded from a JSON
-// file (spec L4028: ~/.omnimus/browser/proxy-profiles.json).
+// file (the browser proxy-profiles file).
 type ProxyProfileStore struct {
 	mu       sync.RWMutex
 	profiles map[string]ProxyProfileConfig

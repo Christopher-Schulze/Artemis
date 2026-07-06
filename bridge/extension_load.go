@@ -10,10 +10,10 @@ import (
 
 // ExtensionLoader configures browser extension loading via Chromium flags
 // (spec L4563): --load-extension + --disable-extensions-except, sources
-// from ~/.omnimus/browser/extensions/ (per-profile configurable), explicit
+// from the browser extensions dir (per-profile configurable), explicit
 // allowlist only.
 type ExtensionLoader struct {
-	BaseDir    string   // root extensions dir, default ~/.omnimus/browser/extensions
+	BaseDir    string   // root extensions dir
 	Allowlist  []string // explicit allowlist of extension names/paths
 	ProfileDir string   // per-profile override
 }

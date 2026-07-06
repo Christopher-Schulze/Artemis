@@ -7,16 +7,14 @@ import (
 	"time"
 )
 
-// api.go (spec L4031: api.go - Public API for Omnimus agent).
+// api.go is the public API for the artemis package.
 //
-// This file is the spec-mandated public API for the artemis package.
 // It provides the top-level Agent, Session, and Task types plus
 // high-level functions that compose the bridge, scraper, solver,
 // stealth, observe, input, security, prompts, and profile packages
 // into a unified browser automation API.
 
 // Agent is the top-level artemis browser automation agent
-// (spec L4031: Public API for Omnimus agent).
 type Agent struct {
 	mu      sync.RWMutex
 	config  AgentConfig
@@ -26,7 +24,6 @@ type Agent struct {
 }
 
 // AgentConfig configures the artemis agent
-// (spec L4031: Public API for Omnimus agent).
 type AgentConfig struct {
 	Headless       bool          `json:"headless"`
 	StealthEnabled bool          `json:"stealthEnabled"`
@@ -37,7 +34,6 @@ type AgentConfig struct {
 }
 
 // AgentState enumerates agent lifecycle states
-// (spec L4031: Public API for Omnimus agent).
 type AgentState string
 
 const (
@@ -49,7 +45,6 @@ const (
 )
 
 // Session represents an active browser automation session
-// (spec L4031: Public API for Omnimus agent).
 type Session struct {
 	mu        sync.RWMutex
 	id        string
@@ -60,7 +55,6 @@ type Session struct {
 }
 
 // Task represents a browser automation task
-// (spec L4031: Public API for Omnimus agent).
 type Task struct {
 	ID      string                 `json:"id"`
 	URL     string                 `json:"url"`
@@ -70,7 +64,6 @@ type Task struct {
 }
 
 // TaskResult is the result of a task execution
-// (spec L4031: Public API for Omnimus agent).
 type TaskResult struct {
 	TaskID   string        `json:"taskId"`
 	Success  bool          `json:"success"`
@@ -80,7 +73,6 @@ type TaskResult struct {
 }
 
 // NewAgent creates a new artemis agent
-// (spec L4031: Public API for Omnimus agent).
 func NewAgent(config AgentConfig) *Agent {
 	config.ApplyDefaults()
 	return &Agent{
@@ -90,7 +82,6 @@ func NewAgent(config AgentConfig) *Agent {
 }
 
 // Start starts the agent
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) Start(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -103,7 +94,6 @@ func (a *Agent) Start(ctx context.Context) error {
 }
 
 // Stop stops the agent
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) Stop() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -116,7 +106,6 @@ func (a *Agent) Stop() error {
 }
 
 // IsStarted reports whether the agent is started
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) IsStarted() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -124,7 +113,6 @@ func (a *Agent) IsStarted() bool {
 }
 
 // State returns the agent state
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) State() AgentState {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -132,7 +120,6 @@ func (a *Agent) State() AgentState {
 }
 
 // Config returns the agent config
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) Config() AgentConfig {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -140,7 +127,6 @@ func (a *Agent) Config() AgentConfig {
 }
 
 // CreateSession creates a new browser session
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) CreateSession(userID string) *Session {
 	return &Session{
 		id:        fmt.Sprintf("session-%d", time.Now().UnixNano()),
@@ -151,7 +137,6 @@ func (a *Agent) CreateSession(userID string) *Session {
 }
 
 // ExecuteTask executes a browser automation task
-// (spec L4031: Public API for Omnimus agent).
 func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 	start := time.Now()
 	if !a.IsStarted() {
@@ -178,7 +163,6 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 }
 
 // ApplyDefaults applies default values to the agent config
-// (spec L4031: Public API for Omnimus agent).
 func (c *AgentConfig) ApplyDefaults() {
 	if c.MaxTabs <= 0 {
 		c.MaxTabs = 10
@@ -195,7 +179,6 @@ func (c *AgentConfig) ApplyDefaults() {
 }
 
 // IsValidAgentState reports whether an agent state is valid
-// (spec L4031: Public API for Omnimus agent).
 func IsValidAgentState(s AgentState) bool {
 	switch s {
 	case AgentStateCreated, AgentStateRunning, AgentStateIdle, AgentStateStopped, AgentStateError:
@@ -205,7 +188,6 @@ func IsValidAgentState(s AgentState) bool {
 }
 
 // SessionID returns the session ID
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) SessionID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -213,7 +195,6 @@ func (s *Session) SessionID() string {
 }
 
 // UserID returns the session user ID
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) UserID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -221,7 +202,6 @@ func (s *Session) UserID() string {
 }
 
 // IsActive reports whether the session is active
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) IsActive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -229,7 +209,6 @@ func (s *Session) IsActive() bool {
 }
 
 // Close closes the session
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -237,7 +216,6 @@ func (s *Session) Close() {
 }
 
 // TabCount returns the number of tabs in the session
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) TabCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -245,7 +223,6 @@ func (s *Session) TabCount() int {
 }
 
 // AddTab increments the tab count
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) AddTab() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -253,7 +230,6 @@ func (s *Session) AddTab() {
 }
 
 // RemoveTab decrements the tab count
-// (spec L4031: Public API for Omnimus agent).
 func (s *Session) RemoveTab() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

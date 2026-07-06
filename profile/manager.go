@@ -98,11 +98,11 @@ type ProfileManager struct {
 	mu       sync.Mutex
 	profiles map[string]*BrowserProfile // keyed by Name
 	gate     *BrowserProfileAccessGate
-	baseDir  string // ~/.omnimus/browser/profiles
+	baseDir  string // browser profiles dir
 }
 
 // NewProfileManager creates a manager. baseDir is the profiles root
-// (~/.omnimus/browser/profiles). If empty, DefaultProfileBaseDir is used.
+// (the browser profiles dir). If empty, DefaultProfileBaseDir is used.
 func NewProfileManager(baseDir string, gate *BrowserProfileAccessGate) *ProfileManager {
 	if baseDir == "" {
 		baseDir = DefaultProfileBaseDir()
@@ -114,7 +114,7 @@ func NewProfileManager(baseDir string, gate *BrowserProfileAccessGate) *ProfileM
 	}
 }
 
-// DefaultProfileBaseDir returns ~/.omnimus/browser/profiles.
+// DefaultProfileBaseDir returns the browser profiles dir.
 func DefaultProfileBaseDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -124,7 +124,7 @@ func DefaultProfileBaseDir() string {
 }
 
 // ProfileDataDir returns the per-profile data dir
-// ~/.omnimus/browser/profiles/{owner_user_ref}/{name}/ (spec L4583).
+// browser profiles dir layout: {owner_user_ref}/{name}/
 func (m *ProfileManager) ProfileDataDir(ownerUserRef, name string) string {
 	if m == nil || m.baseDir == "" {
 		return ""

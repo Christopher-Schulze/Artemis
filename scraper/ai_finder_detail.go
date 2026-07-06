@@ -13,7 +13,7 @@ import (
 // Stage 2 AI element finding sends a page snapshot (AX tree or HTML snippet)
 // to the LLM via the Inference Hub (ss7). Privacy Routing (ss7.7) determines
 // whether the request goes to LOCAL inference only (customer page with PII)
-// or to the Omnimus Hosted/external API (general page, policy/budget
+// or to an external hosted API (general page, policy/budget
 // permitting).
 //
 // Max 3 LLM attempts with varied formulations. Vision mode: screenshot ->
@@ -38,7 +38,7 @@ type PrivacyRoute string
 const (
 	// PrivacyRouteLocal forces LOCAL inference only (customer data, PII).
 	PrivacyRouteLocal PrivacyRoute = "local_only"
-	// PrivacyRouteExternal allows external/Omnimus Hosted inference.
+	// PrivacyRouteExternal allows external hosted inference.
 	PrivacyRouteExternal PrivacyRoute = "external_api"
 )
 
@@ -63,7 +63,7 @@ type InferenceHubLLMResponse struct {
 }
 
 // InferenceHubLLM is the interface for the Inference Hub LLM endpoint.
-// The real implementation lives in the Omnimus core (ss7).
+// The real implementation is provided by the embedding host.
 type InferenceHubLLM interface {
 	AnalyzePage(ctx context.Context, req InferenceHubLLMRequest) (InferenceHubLLMResponse, error)
 }

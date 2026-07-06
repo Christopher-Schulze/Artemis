@@ -44,7 +44,7 @@ type EasyListUpdateConfig struct {
 	// ChecksumSources are the SHA256 checksum URLs (separate source).
 	ChecksumSources []string
 	// StorageDir is where blocklists are stored
-	// (spec: ~/.omnimus/browser/blocklists/, max 3 versions).
+	// (blocklists under the browser data dir, max 3 versions).
 	StorageDir string
 	// MaxVersions is the max number of versions to keep (default 3).
 	MaxVersions int

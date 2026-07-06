@@ -35,7 +35,7 @@ type BrowserCacheControl struct {
 }
 
 // CacheStats tracks cache usage metrics per profile
-// (spec L4028: metric omnimus_browser_cache_{...}).
+// (browser cache metrics).
 type CacheStats struct {
 	HitCount      int64     `json:"hit_count"`
 	MissCount     int64     `json:"miss_count"`

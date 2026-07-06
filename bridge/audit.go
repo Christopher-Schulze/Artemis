@@ -26,8 +26,8 @@ type OCSFEvent struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
-// OCSFAuditLogger is the interface for the Omnimus OCSF audit system
-// (ss6.1). The real implementation lives in the Omnimus core.
+// OCSFAuditLogger is the interface for the host OCSF audit system
+// The real implementation is provided by the embedding host.
 type OCSFAuditLogger interface {
 	LogOCSFEvent(ctx context.Context, event OCSFEvent) error
 }

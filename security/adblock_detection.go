@@ -22,7 +22,7 @@ type AdBlockerDetection struct {
 
 // NewAdBlockerDetection creates a new detection layer with the
 // persistent whitelist at the given path
-// (spec L4215: ~/.omnimus/browser/adblock_whitelist.json).
+// (whitelist file under the browser data dir).
 func NewAdBlockerDetection(whitelistPath string) *AdBlockerDetection {
 	d := &AdBlockerDetection{
 		whitelist: make(map[string]bool),
