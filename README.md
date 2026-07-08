@@ -4,7 +4,7 @@
 
 <h1 align="center">Artemis</h1>
 
-> **The headless browser built for AI agents.** A from-scratch renderless V8 engine in Go that runs the real web at a fraction of Chromium's cost, and escalates to a full Chromium/CDP browser only when a page truly needs it. One package, one binary, automatic routing.
+> **The headless browser that let's your Agent step out of the frame and hunt the web** A from-scratch renderless V8 engine in Go that runs the real web at a fraction of Chromium's cost, and escalates to a full Chromium/CDP browser only when a page truly needs it. One package, one binary, automatic routing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev)
