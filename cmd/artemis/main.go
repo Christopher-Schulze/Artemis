@@ -5,11 +5,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+
+	artemis "github.com/Christopher-Schulze/Artemis"
 )
 
-const Version = "0.0.1-dev"
+const Version = artemis.Version
 
 func main() {
 	if len(os.Args) < 2 {
@@ -21,6 +25,11 @@ func main() {
 		fmt.Println(Version)
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
+	case "capabilities":
+		if err := printCapabilities(os.Stdout); err != nil {
+			errf("capabilities: %v", err)
+			os.Exit(1)
+		}
 	case "fetch":
 		os.Exit(cmdFetch(os.Args[2:]))
 	case "run":
@@ -34,7 +43,7 @@ func main() {
 	}
 }
 
-func printUsage(w *os.File) {
+func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `artemis %s - headless browser engine
 
 Usage:
@@ -45,8 +54,25 @@ Commands:
   run       load a JavaScript file and execute it in the page context (--script FILE <url>)
   serve     run the JSON-over-WebSocket steering server
   version   print version
+  capabilities  print the machine-readable capability contract
   help      print this help
 
 Run 'artemis <command> --help' for subcommand-specific flags.
 `, Version)
+	fmt.Fprintln(w, "Release capability states:")
+	for _, capability := range artemis.Capabilities() {
+		fmt.Fprintf(w, "  %-24s %-11s %s\n", capability.ID, capability.State, capability.Description)
+	}
+}
+
+func printCapabilities(w io.Writer) error {
+	if err := artemis.ValidateCapabilityRegistry(); err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(struct {
+		Version      string               `json:"version"`
+		Capabilities []artemis.Capability `json:"capabilities"`
+	}{Version: Version, Capabilities: artemis.Capabilities()})
 }

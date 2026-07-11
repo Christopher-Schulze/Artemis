@@ -5,6 +5,7 @@ Single source of truth for project-level documentation. Code-level details live 
 ## Table of Contents
 
 - [Project Overview](#project-overview)
+- [Release Capability Contract](#release-capability-contract)
 - [License](#license)
 - [Repository Layout](#repository-layout)
 - [Build and Run](#build-and-run)
@@ -40,7 +41,13 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a hybrid headless browser engine written in Go, designed for AI agents and web automation. It runs a fast renderless V8 path (loads HTML, runs JavaScript via V8, exposes a DOM and WebAPI surface, CSS cascade and computed style, and produces structured output: DOM dump, Markdown, extracted data) for pages that do not need real rendering, and escalates via a deterministic execution router to a real Chromium browser controlled over CDP (`chromedp`/`cdproto`) for layout, screenshots, canvas/media, CAPTCHA and hardened sites. It offers a Go library API, a CLI, and a custom JSON-over-WebSocket steering protocol; it does not ship a Model Context Protocol (MCP) endpoint.
+Artemis is a renderless browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, and a persistent JSON-over-WebSocket steering server. It has no supported Chromium/CDP, hybrid-router, pixel-screenshot, authenticated-profile, or verified browser anti-detection capability. It does not ship a Model Context Protocol (MCP) endpoint.
+
+## Release Capability Contract
+
+`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` API is unavailable and returns `capability_unavailable`; use `engine.Engine` or `serve.Server` for supported execution.
+
+Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require the reproducible TASK-2360 artifact.
 
 ## License
 
@@ -131,7 +138,7 @@ The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedde
 
 | Field | Default | Purpose |
 |---|---|---|
-| `UserAgent` | `Artemis/0.0.1 (...) AppleWebKit/537.36` | sent on every outbound request |
+| `UserAgent` | `Artemis/0.1.0-alpha.1 (...) AppleWebKit/537.36` | sent on every outbound request |
 | `ProxyURL` | empty (uses `HTTP_PROXY` / `HTTPS_PROXY`) | proxy URL |
 | `Timeout` | `30s` | per-request timeout |
 | `MaxBodyBytes` | `50 MiB` | response body cap; `network.ErrBodyTooLarge` on overflow |
@@ -163,6 +170,7 @@ artemis <command> [flags] [args]
 |---|---|
 | `version` | print version |
 | `help` | print top-level usage |
+| `capabilities` | print versioned support states as JSON |
 | `fetch <url>` | fetch URL, optionally run scripts, dump html / markdown / text / title / links / structured / semantic |
 | `serve` | start the JSON-over-WebSocket steering server |
 
@@ -301,7 +309,7 @@ CLI entry: `artemis fetch --eval "<expr>" <url>` prints the result; `--run-scrip
 | `window` | identical to `globalThis` |
 | `window.document` | inherited from JS Execution section |
 | `window.location` | `href`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, `hash`, `origin`. Built from the page's URL at Context creation. The `history` API mutates these in-process; setters / `assign` / `replace` / `reload` are no-op. |
-| `window.navigator` | `userAgent`, `language`, `languages` (array-like with `length`), `platform`, `onLine`, `cookieEnabled`, `webdriver` (false), `doNotTrack` (null), `plugins` / `mimeTypes` (empty array-likes), `userAgentData` (NavigatorUAData reduced-UA shape), `clipboard`, `geolocation` (rejects with permission-denied), `permissions.query` (always `denied`), `serviceWorker` (NotSupportedError on register), `hardwareConcurrency` (4), `deviceMemory` (4), `maxTouchPoints` (0). Configurable per Page via `engine.FetchOpts.Navigator`. Defaults: `Mozilla/5.0 (Artemis/0.0.1) AppleWebKit/537.36`, `en-US`, `Linux x86_64`. |
+| `window.navigator` | `userAgent`, `language`, `languages` (array-like with `length`), `platform`, `onLine`, `cookieEnabled`, `webdriver` (false), `doNotTrack` (null), `plugins` / `mimeTypes` (empty array-likes), `userAgentData` (NavigatorUAData reduced-UA shape), `clipboard`, `geolocation` (rejects with permission-denied), `permissions.query` (always `denied`), `serviceWorker` (NotSupportedError on register), `hardwareConcurrency` (4), `deviceMemory` (4), `maxTouchPoints` (0). Configurable per Page via `engine.FetchOpts.Navigator`. Defaults identify Artemis 0.1.0-alpha.1. |
 | `window.localStorage`, `window.sessionStorage` | in-memory per Context. `getItem`, `setItem`, `removeItem`, `clear`, `key(i)` work. `length` is a snapshot at install (use `lengthOf()` for live length - v8go limitation). Both stores are independent. |
 | `setTimeout(fn, ms)`, `clearTimeout(id)` | callbacks queue and fire at the end of every `Eval` and every inline `<script>`. Delays are not simulated: ordering follows queue order. Chained timers (a callback that schedules another) run too, up to 64 rounds. |
 | `setInterval`, `clearInterval` | aliased to `setTimeout` / `clearTimeout`; the interval callback fires once, not on a wall clock. Repeated firing on real time intervals is intentionally not modelled — agent flows do not benefit from real-time scheduling. |
@@ -372,7 +380,7 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 
 ## Hybrid Execution Router
 
-The `bridge.ExecutionRouter` deterministically escalates scrape routes on failure. It is a simple state machine: `RouteStatic` → `RouteRendered`. The renderless V8 path handles `RouteStatic` (no-JS pages, APIs, RSS) and `RouteRendered` (JS-generated DOM without layout). When the renderless path encounters an unsupported feature (layout, canvas, WebAuthn, CAPTCHA), the router escalates to `RouteRendered` which triggers the CDP/Chromium fallback.
+Support state: **unavailable**. `bridge.ExecutionRouter` models route transitions, but no behavior probe proves a real Chromium target or end-to-end escalation. Callers must not treat `RouteRendered` or provider symbols as evidence of Chromium execution.
 
 ```go
 router := bridge.NewExecutionRouter()
@@ -384,13 +392,13 @@ next, err := router.Escalate(bridge.RouteStatic, err)
 | Symbol | Kind | Purpose |
 |---|---|---|
 | `bridge.RouteStatic` | `RouteKind` | no-JS / API / RSS pages |
-| `bridge.RouteRendered` | `RouteKind` | JS-generated DOM, Chromium fallback |
+| `bridge.RouteRendered` | `RouteKind` | modeled rendered route; unavailable release target |
 | `bridge.NewExecutionRouter()` | func | create router |
 | `router.Escalate(current, err)` | method | compute next route on failure |
 
 ## Browser Provider Switch
 
-The `bridge.ProviderRegistry` holds available browser providers and selects one based on configuration. The `BrowserProvider` interface abstracts multi-backend browser control: local headless Chromium (default), Camofox REST backend, or cloud providers (Browserbase, Firecrawl — deferred P7).
+Support state: **unavailable**. `bridge.ProviderRegistry` and provider types are future-facing abstractions without a supported browser-process lifecycle.
 
 ```go
 registry := bridge.NewProviderRegistry()
@@ -410,7 +418,7 @@ provider, config, err := registry.SelectFromConfig()
 
 ## CDP Bridge
 
-The `bridge` package implements Chrome control via CDP (`chromedp` + `cdproto`). It manages the context hierarchy (`AllocCtx → BrowserCtx → TabCtx`), the bridge state machine, code mode execution, CDP pipelining/batching, and the event filter.
+Support state: **unavailable**. The `bridge` package contains CDP-shaped types and helpers, but Artemis does not yet prove launch, connection, target ownership, action execution, recovery, and shutdown against a real Chromium process.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -465,7 +473,7 @@ The `bridge/actions` package implements high-level browser actions: click with h
 
 ## CDP Operations
 
-The `bridge/cdpops` package implements low-level CDP operations: element queries, box model, coordinate transforms, page navigation + wait, and mouse/touch events.
+Support state: **unavailable**. `bridge/cdpops` exposes operation shapes; its tests do not prove those operations against a real Chromium lifecycle.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -534,7 +542,7 @@ The `renderless` package is the in-process no-render JS browser path. It provide
 
 ## Stealth Layer
 
-The `stealth` package provides anti-detection with 3 levels (Default, Stealth, Paranoid), 27 zero-cost patches bundled into one script via `go:embed`, 60 launch flags, geo-presets, worker thread parity, fingerprint spoofing, and HTTP/2 fingerprint validation.
+Support state: **unavailable as browser anti-detection**. The `stealth` package generates patches, flags, and profiles, but no real-browser behavior probe establishes anti-detection effectiveness.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -661,7 +669,7 @@ The `security` package implements browser security: SSRF prevention (private IP 
 
 ## Profile / Session Management
 
-The `profile` package implements the enterprise browser profile system: encrypted credential store (AES-256-GCM), multi-profile manager, auto-login, session health check, cookie + storage management, per-profile fingerprint identity, and session-level proxy with hybrid geo-modes.
+Support state: **unavailable as persistent authenticated browsing**. Profile data types and storage helpers exist, but a real browser-backed persistence, isolation, restart, and login lifecycle is not proven.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -779,7 +787,7 @@ This works because every native callback installed on globalThis goes through Ru
 |---|---|---|---|---|
 | 100 pages with scripts | ~97 ms / 7.4 MB / 153k allocs | **~18.4 ms / 6.5 MB / 100k allocs** | **~18.9 ms / 6.5 MB / 100k allocs** | **5.3x** |
 
-That brings wall time to ~0.184 ms / page (excluding network), 2.7x faster than the ~0.5 ms / page published for comparable renderless engines, despite running through cgo to V8.
+These historical microbenchmark observations are development evidence, not release performance claims. TASK-2360 owns the reproducible release artifact.
 
 `JSContextPoolWarm: true` pre-builds all N v8.Contexts at engine.New time. The 100-page bench doesn't show a difference (first-page cold cost amortises across 100 pages) but it eliminates the first-page latency spike for single-request agent flows.
 
@@ -854,4 +862,4 @@ The `Broadcast` method now fast-paths the common cases: 0 subscribers (skip slic
 
 ### Benchmark suite
 
-72 benchmarks across 14 packages (was 51, +21 new). The benchmark harness scorecard (`benchmark/results/scorecard.md`) shows avg 0.87ms per scenario (was 2.42ms, 2.8x improvement). Artemis beats the published competitor number (0.184ms/page vs 0.5ms/page, 2.7x faster).
+The benchmark harness remains development tooling. No number is a supported release claim until TASK-2360 publishes the reproducible artifact, environment, corpus, statistics, and regression thresholds.

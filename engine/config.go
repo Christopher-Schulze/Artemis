@@ -8,7 +8,7 @@ import "time"
 
 // Default values used when a Config field is left at its zero value.
 const (
-	DefaultUserAgent    = "Artemis/0.0.1 (+https://example.invalid/artemis) AppleWebKit/537.36"
+	DefaultUserAgent    = "Artemis/0.1.0-alpha.1 (+https://github.com/Christopher-Schulze/Artemis) AppleWebKit/537.36"
 	DefaultTimeout      = 30 * time.Second
 	DefaultMaxBodyBytes = int64(50 * 1024 * 1024)
 )

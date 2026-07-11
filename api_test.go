@@ -114,16 +114,20 @@ func TestTASK2258_AgentCreateSession(t *testing.T) {
 	}
 }
 
-// TestTASK2258_AgentExecuteTask verifies task execution
-func TestTASK2258_AgentExecuteTask(t *testing.T) {
+// TestAgentExecuteTaskReturnsUnavailable prevents lifecycle-only wiring from
+// being advertised as real browser task execution.
+func TestAgentExecuteTaskReturnsUnavailable(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	a.Start(context.Background())
 	result := a.ExecuteTask(context.Background(), Task{
 		ID:  "task-1",
 		URL: "https://example.com",
 	})
-	if !result.Success {
-		t.Error("task should succeed")
+	if result.Success {
+		t.Fatal("task must not succeed without a runtime executor")
+	}
+	if result.ErrorCode != TaskErrorCapabilityUnavailable {
+		t.Fatalf("ErrorCode = %q, want %q", result.ErrorCode, TaskErrorCapabilityUnavailable)
 	}
 }
 
@@ -134,7 +138,7 @@ func TestTASK2258_AgentExecuteTaskNotStarted(t *testing.T) {
 		ID:  "task-1",
 		URL: "https://example.com",
 	})
-	if result.Success {
+	if result.Success || result.ErrorCode != TaskErrorAgentNotStarted {
 		t.Error("task should fail when not started")
 	}
 }
@@ -144,7 +148,7 @@ func TestTASK2258_AgentExecuteTaskEmptyURL(t *testing.T) {
 	a := NewAgent(AgentConfig{})
 	a.Start(context.Background())
 	result := a.ExecuteTask(context.Background(), Task{ID: "task-1"})
-	if result.Success {
+	if result.Success || result.ErrorCode != TaskErrorInvalidInput {
 		t.Error("empty URL should fail")
 	}
 }
@@ -254,13 +258,13 @@ func TestTASK2258_FullSpecParity(t *testing.T) {
 		t.Error("session should be active")
 	}
 
-	// Execute task
+	// The lifecycle shell must fail closed until TASK-2349 wires execution.
 	result := a.ExecuteTask(context.Background(), Task{
 		ID:  "task-1",
 		URL: "https://example.com",
 	})
-	if !result.Success {
-		t.Error("task should succeed")
+	if result.Success || result.ErrorCode != TaskErrorCapabilityUnavailable {
+		t.Error("task should return typed capability_unavailable")
 	}
 
 	// Stop agent

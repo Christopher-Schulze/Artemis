@@ -65,12 +65,22 @@ type Task struct {
 
 // TaskResult is the result of a task execution
 type TaskResult struct {
-	TaskID   string        `json:"taskId"`
-	Success  bool          `json:"success"`
-	Data     interface{}   `json:"data,omitempty"`
-	Error    string        `json:"error,omitempty"`
-	Duration time.Duration `json:"duration"`
+	TaskID    string        `json:"taskId"`
+	Success   bool          `json:"success"`
+	Data      interface{}   `json:"data,omitempty"`
+	ErrorCode TaskErrorCode `json:"errorCode,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Duration  time.Duration `json:"duration"`
 }
+
+// TaskErrorCode is a stable machine-readable task failure category.
+type TaskErrorCode string
+
+const (
+	TaskErrorAgentNotStarted       TaskErrorCode = "agent_not_started"
+	TaskErrorInvalidInput          TaskErrorCode = "invalid_input"
+	TaskErrorCapabilityUnavailable TaskErrorCode = "capability_unavailable"
+)
 
 // NewAgent creates a new artemis agent
 func NewAgent(config AgentConfig) *Agent {
@@ -141,24 +151,28 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 	start := time.Now()
 	if !a.IsStarted() {
 		return TaskResult{
-			TaskID:   task.ID,
-			Success:  false,
-			Error:    "api: agent not started",
-			Duration: time.Since(start),
+			TaskID:    task.ID,
+			Success:   false,
+			ErrorCode: TaskErrorAgentNotStarted,
+			Error:     "api: agent not started",
+			Duration:  time.Since(start),
 		}
 	}
 	if task.URL == "" {
 		return TaskResult{
-			TaskID:   task.ID,
-			Success:  false,
-			Error:    "api: empty task URL",
-			Duration: time.Since(start),
+			TaskID:    task.ID,
+			Success:   false,
+			ErrorCode: TaskErrorInvalidInput,
+			Error:     "api: empty task URL",
+			Duration:  time.Since(start),
 		}
 	}
 	return TaskResult{
-		TaskID:   task.ID,
-		Success:  true,
-		Duration: time.Since(start),
+		TaskID:    task.ID,
+		Success:   false,
+		ErrorCode: TaskErrorCapabilityUnavailable,
+		Error:     "api: high-level Agent task execution is unavailable; use engine.Engine or the steering server",
+		Duration:  time.Since(start),
 	}
 }
 
@@ -174,7 +188,7 @@ func (c *AgentConfig) ApplyDefaults() {
 		c.FetchTimeout = 30 * time.Second
 	}
 	if c.UserAgent == "" {
-		c.UserAgent = "Omnimus/Artemis/1.0"
+		c.UserAgent = "Artemis/0.1.0-alpha.1"
 	}
 }
 
