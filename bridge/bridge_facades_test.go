@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -16,11 +17,11 @@ func TestTASK2257_NewBridgeContextTree(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeContextNode verifies context node
+// TestTASK2257_BridgeContextUnit verifies a context hierarchy unit
 // (spec L4018: Context Hierarchy).
-func TestTASK2257_BridgeContextNode(t *testing.T) {
-	node := BridgeContextNode{ID: "ctx-1", ParentID: "root", Kind: "tab"}
-	if node.ID != "ctx-1" {
+func TestTASK2257_BridgeContextUnit(t *testing.T) {
+	unit := BridgeContextUnit{ID: "ctx-1", ParentID: "root", Kind: "tab"}
+	if unit.ID != "ctx-1" {
 		t.Error("ID mismatch")
 	}
 }
@@ -93,7 +94,12 @@ func TestTASK2257_NewBridgeInitializer(t *testing.T) {
 // TestTASK2257_BridgeInitStart verifies start
 // (spec L4018: Chrome Launch + Stealth Injection).
 func TestTASK2257_BridgeInitStart(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{})
+	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	t.Cleanup(func() {
+		if bi.IsStarted() {
+			_ = bi.Stop()
+		}
+	})
 	err := bi.Start(context.Background())
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -105,8 +111,15 @@ func TestTASK2257_BridgeInitStart(t *testing.T) {
 
 // TestTASK2257_BridgeInitStartTwice verifies double start fails.
 func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{})
-	bi.Start(context.Background())
+	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	t.Cleanup(func() {
+		if bi.IsStarted() {
+			_ = bi.Stop()
+		}
+	})
+	if err := bi.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	err := bi.Start(context.Background())
 	if err == nil {
 		t.Error("double start should fail")
@@ -116,8 +129,10 @@ func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
 // TestTASK2257_BridgeInitStop verifies stop
 // (spec L4018: Lifecycle).
 func TestTASK2257_BridgeInitStop(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{})
-	bi.Start(context.Background())
+	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	if err := bi.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	err := bi.Stop()
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -129,12 +144,57 @@ func TestTASK2257_BridgeInitStop(t *testing.T) {
 
 // TestTASK2257_BridgeInitStopNotStarted verifies stop without start.
 func TestTASK2257_BridgeInitStopNotStarted(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{})
+	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
 	err := bi.Stop()
 	if err == nil {
 		t.Error("stop without start should fail")
 	}
 }
+
+func TestBridgeInitializerCanRestartAfterCloseFailure(t *testing.T) {
+	provider := &initializerTestProvider{closeErr: errors.New("close failed")}
+	bi := NewBridgeInitializer(BridgeInitConfig{ProviderName: provider.Name()})
+	bi.Registry().Register(provider.Name(), provider)
+	if err := bi.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := bi.Stop(); err == nil {
+		t.Fatal("close failure was hidden")
+	}
+	if !bi.IsStarted() || bi.Session() == nil || bi.State() != BridgeStateError {
+		t.Fatalf("failed close lost retry ownership: started=%v session=%v state=%s", bi.IsStarted(), bi.Session(), bi.State())
+	}
+	if err := bi.Stop(); err != nil {
+		t.Fatalf("close retry: %v", err)
+	}
+	if bi.IsStarted() || bi.Session() != nil || bi.State() != BridgeStateStopped {
+		t.Fatalf("successful close retry retained runtime: started=%v session=%v state=%s", bi.IsStarted(), bi.Session(), bi.State())
+	}
+	if err := bi.Start(context.Background()); err != nil {
+		t.Fatalf("restart after close retry: %v", err)
+	}
+	if err := bi.Stop(); err != nil {
+		t.Fatalf("final stop: %v", err)
+	}
+}
+
+type initializerTestProvider struct {
+	closeErr error
+}
+
+func (p *initializerTestProvider) Name() string { return "initializer-test" }
+
+func (p *initializerTestProvider) Launch(context.Context, ProviderConfig) (*BrowserSession, error) {
+	return &BrowserSession{ProviderName: p.Name(), SessionID: "test"}, nil
+}
+
+func (p *initializerTestProvider) Close() error {
+	err := p.closeErr
+	p.closeErr = nil
+	return err
+}
+
+func (p *initializerTestProvider) Healthy() bool { return true }
 
 // TestTASK2257_BridgeInitConfigDefaults verifies defaults
 // (spec L4018: Lifecycle).
@@ -304,7 +364,7 @@ func TestTASK2257_FullSpecParity(t *testing.T) {
 	}
 
 	// 2. init.go - Bridge initialization and lifecycle
-	bi := NewBridgeInitializer(BridgeInitConfig{})
+	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
 	if err := bi.Start(context.Background()); err != nil {
 		t.Error("init.go: start failed")
 	}

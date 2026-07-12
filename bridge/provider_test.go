@@ -45,6 +45,7 @@ func TestProviderRegistryAvailable(t *testing.T) {
 
 func TestLocalChromeProviderLaunch(t *testing.T) {
 	p := &LocalChromeProvider{}
+	t.Cleanup(func() { _ = p.Close() })
 	session, err := p.Launch(context.Background(), ProviderConfig{
 		SessionName: "test-session",
 		Headless:    true,
@@ -65,8 +66,21 @@ func TestLocalChromeProviderLaunch(t *testing.T) {
 
 func TestLocalChromeProviderHealthy(t *testing.T) {
 	p := &LocalChromeProvider{}
+	if p.Healthy() {
+		t.Fatal("provider without a validated runtime must be unhealthy")
+	}
+	_, err := p.Launch(context.Background(), ProviderConfig{SessionName: "health-test", Headless: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !p.Healthy() {
-		t.Fatal("local chrome should always be healthy")
+		t.Fatal("provider with a validated runtime must be healthy")
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if p.Healthy() {
+		t.Fatal("closed provider must be unhealthy")
 	}
 }
 
@@ -154,7 +168,10 @@ func TestSelectFromConfigProviderEnv(t *testing.T) {
 
 func TestProviderClose(t *testing.T) {
 	p := &LocalChromeProvider{}
-	_, _ = p.Launch(context.Background(), ProviderConfig{SessionName: "test"})
+	_, err := p.Launch(context.Background(), ProviderConfig{SessionName: "test", Headless: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}

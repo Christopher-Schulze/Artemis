@@ -41,11 +41,11 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a renderless browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, and a persistent JSON-over-WebSocket steering server. It has no supported Chromium/CDP, hybrid-router, pixel-screenshot, authenticated-profile, or verified browser anti-detection capability. It does not ship a Model Context Protocol (MCP) endpoint.
+Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, and a low-level Chromium/CDP lifecycle with owned or external process semantics. It has no supported hybrid router, high-level Chromium action surface, pixel-screenshot, authenticated-profile, or verified browser anti-detection capability. It does not ship a Model Context Protocol (MCP) endpoint.
 
 ## Release Capability Contract
 
-`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. Chromium-backed actions remain unavailable; use `engine.Engine` for lower-level embedding or `serve.Server` for persistent wire steering.
+`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. `bridge.LaunchChromium` and `bridge.ConnectChromium` own the low-level CDP runtime; high-level Chromium-backed actions remain unavailable. Use `engine.Engine` for lower-level renderless embedding or `serve.Server` for persistent renderless wire steering.
 
 Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require the reproducible TASK-2360 artifact.
 
@@ -94,6 +94,8 @@ artemis/
   prompts/             9 AgentScope browser agent prompt templates + template executor
   actions/             auto-login: form detection, login flow, post-login verification
   platform/            platform capability detection (GPU, CPU, memory, fonts)
+  process/             Chromium discovery, isolated launch, supervision, diagnostics,
+                       process-group cleanup and disposable profile ownership
   serve/               WS steering server (JSON over WebSocket)
   telemetry/           OpenTelemetry hooks + anonymous counters
   internal/            non-exported helpers (pool, provenance guard)
@@ -425,7 +427,7 @@ Support state: **unavailable**. The `bridge` package contains CDP-shaped types a
 | `bridge.BridgeState` | type | bridge state machine states |
 | `bridge.BridgeStateMachine` | struct | state machine with `IsActiveState`, `IsTerminalState` |
 | `bridge.ContextKind` | type | context hierarchy kinds (Alloc, Browser, Tab) |
-| `bridge.CDPContextNode` / `bridge.CDPContextTree` | struct | context hierarchy nodes |
+| `bridge.CDPContextUnit` / `bridge.CDPContextTree` | struct | context hierarchy units |
 | `bridge.Batcher` | struct | CDP command batcher for pipelining |
 | `bridge.CDPPipeline` | struct | CDP command pipeline |
 | `bridge.CDPTask` / `bridge.CDPTaskResult` | struct | batched task + result |
@@ -473,7 +475,7 @@ The `bridge/actions` package implements high-level browser actions: click with h
 
 ## CDP Operations
 
-Support state: **unavailable**. `bridge/cdpops` exposes operation shapes; its tests do not prove those operations against a real Chromium lifecycle.
+Support state: **kernel supported, high-level operations unavailable**. `process.Browser`, `bridge.CDPTransport`, `bridge.ChromiumBrowser`, `bridge.BrowserContext`, and `bridge.Page` behavior-prove binary discovery, isolated launch, browser identity, bounded request correlation, target events, lifecycle ownership, navigation, crash handling, and cleanup against real Chromium. The `bridge/cdpops` geometry and action shapes below remain unavailable until TASK-2351 and TASK-2352 prove real DOM/AX references and action postconditions.
 
 | Symbol | Kind | Purpose |
 |---|---|---|

@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestFormatWebSocketURLIPv4(t *testing.T) {
@@ -101,8 +104,19 @@ func TestDiscoverJSONListFallback(t *testing.T) {
 func TestDiscoverDevToolsBrowserFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/devtools/browser" {
-			// Chrome responds to a plain HTTP GET on the WS endpoint with 400.
-			http.Error(w, "WebSocket Protocol Error", http.StatusBadRequest)
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.CloseNow()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			command, err := readCDPCommand(ctx, conn)
+			if err == nil {
+				_ = writeCDPMessage(ctx, conn, map[string]any{
+					"id": command.ID, "result": map[string]any{"product": "Chrome/136", "protocolVersion": "1.3"},
+				})
+			}
 			return
 		}
 		http.NotFound(w, r)
@@ -180,11 +194,29 @@ func TestDiscoverJSONVersionNoWebSocket(t *testing.T) {
 	host, port := splitHostPort(t, srv.URL)
 	d := NewChromeDiscoveryWithClient(srv.Client())
 	results, err := d.Discover(host, port)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("missing WebSocket endpoint must fail discovery")
 	}
 	if results[0].Found {
 		t.Fatal("should not be found without webSocketDebuggerUrl")
+	}
+}
+
+func TestDiscoverRejectsNonWebSocketDebuggerURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"Browser": "Chrome/120", "webSocketDebuggerUrl": "http://127.0.0.1:9222/devtools/browser/x",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	host, port := splitHostPort(t, srv.URL)
+	results, err := NewChromeDiscoveryWithClient(srv.Client()).Discover(host, port)
+	if err == nil || len(results) == 0 || results[0].Found {
+		t.Fatalf("results=%+v err=%v", results, err)
 	}
 }
 
@@ -201,8 +233,8 @@ func TestDiscoverJSONListEmpty(t *testing.T) {
 	host, port := splitHostPort(t, srv.URL)
 	d := NewChromeDiscoveryWithClient(srv.Client())
 	results, err := d.Discover(host, port)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("empty target list without fallback must fail discovery")
 	}
 	for _, r := range results {
 		if r.Method == DiscoveryJSONList && r.Found {

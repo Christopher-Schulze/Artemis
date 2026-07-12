@@ -65,8 +65,8 @@ var capabilityRegistry = []Capability{
 	},
 	{
 		ID: "chromium.cdp", Description: "Launch and control Chromium through CDP", Mode: ModeChromium,
-		State: SupportUnavailable, Entrypoint: "bridge", Owner: "unassigned",
-		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "no proven Chromium process and CDP lifecycle",
+		State: SupportSupported, Since: Version, Entrypoint: "bridge.LaunchChromium/bridge.ConnectChromium", Owner: "bridge.ChromiumBrowser/process.Browser/bridge.CDPTransport",
+		BehaviorTest: "bridge.TestChromiumLifecycleIntegration",
 	},
 	{
 		ID: "hybrid.routing", Description: "Escalate deterministically from renderless execution to Chromium", Mode: ModeHybrid,

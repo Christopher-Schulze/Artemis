@@ -25,9 +25,9 @@ const (
 	ContextKindTab ContextKind = "tab"
 )
 
-// BridgeContextNode is the spec-mandated alias for CDPContextNode
+// BridgeContextUnit is the public alias for CDPContextUnit
 // (spec L4018: Context Hierarchy).
-type BridgeContextNode = CDPContextNode
+type BridgeContextUnit = CDPContextUnit
 
 // BridgeContextTree is the spec-mandated alias for CDPContextTree
 // (spec L4018: Context Hierarchy).

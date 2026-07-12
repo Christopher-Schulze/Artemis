@@ -17,10 +17,13 @@ func TestWFArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
 
 	// Set up a valid tree for baseline
 	tree := NewCDPContextTree()
-	if err := tree.Attach(CDPContextNode{ID: "root", Kind: "page"}); err != nil {
+	if err := tree.Attach(CDPContextUnit{ID: "alloc", Kind: ContextKindAlloc}); err != nil {
 		t.Fatalf("baseline attach root: %v", err)
 	}
-	if err := tree.Attach(CDPContextNode{ID: "child", ParentID: "root", Kind: "frame"}); err != nil {
+	if err := tree.Attach(CDPContextUnit{ID: "browser", ParentID: "alloc", Kind: ContextKindBrowser}); err != nil {
+		t.Fatalf("baseline attach browser: %v", err)
+	}
+	if err := tree.Attach(CDPContextUnit{ID: "child", ParentID: "browser", Kind: ContextKindTab}); err != nil {
 		t.Fatalf("baseline attach child: %v", err)
 	}
 
@@ -32,15 +35,15 @@ func TestWFArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
 			"empty_id",
 			func() error {
 				t := NewCDPContextTree()
-				return t.Attach(CDPContextNode{ID: "", Kind: "page"})
+				return t.Attach(CDPContextUnit{ID: "", Kind: ContextKindAlloc})
 			},
 		},
 		{
 			"missing_parent",
 			func() error {
 				t := NewCDPContextTree()
-				_ = t.Attach(CDPContextNode{ID: "root", Kind: "page"})
-				return t.Attach(CDPContextNode{ID: "orphan", ParentID: "nonexistent", Kind: "frame"})
+				_ = t.Attach(CDPContextUnit{ID: "root", Kind: ContextKindAlloc})
+				return t.Attach(CDPContextUnit{ID: "orphan", ParentID: "nonexistent", Kind: ContextKindBrowser})
 			},
 		},
 		{
@@ -87,19 +90,19 @@ func TestWFArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid hierarchy lookup must succeed, got: %v", err)
 	}
-	if len(chain) != 2 {
-		t.Fatalf("expected 2 nodes in chain, got %d", len(chain))
+	if len(chain) != 3 {
+		t.Fatalf("expected 3 units in chain, got %d", len(chain))
 	}
-	if chain[0].ID != "root" || chain[1].ID != "child" {
-		t.Fatalf("expected [root, child], got %v", chain)
+	if chain[0].ID != "alloc" || chain[1].ID != "browser" || chain[2].ID != "child" {
+		t.Fatalf("expected [alloc, browser, child], got %v", chain)
 	}
 
-	// Baseline: RootID succeeds for valid node
+	// Baseline: RootID succeeds for a valid unit.
 	rootID, err := tree.RootID("child")
 	if err != nil {
 		t.Fatalf("valid RootID must succeed, got: %v", err)
 	}
-	if rootID != "root" {
-		t.Fatalf("expected root, got %s", rootID)
+	if rootID != "alloc" {
+		t.Fatalf("expected alloc, got %s", rootID)
 	}
 }

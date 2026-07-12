@@ -43,10 +43,11 @@ func TestCheckHealthRecovery(t *testing.T) {
 
 func TestCDPContextHierarchy(t *testing.T) {
 	tree := bridge.NewCDPContextTree()
-	_ = tree.Attach(bridge.CDPContextNode{ID: "root", Kind: "browser"})
-	_ = tree.Attach(bridge.CDPContextNode{ID: "tab1", ParentID: "root", Kind: "page"})
+	_ = tree.Attach(bridge.CDPContextUnit{ID: "alloc", Kind: bridge.ContextKindAlloc})
+	_ = tree.Attach(bridge.CDPContextUnit{ID: "root", ParentID: "alloc", Kind: bridge.ContextKindBrowser})
+	_ = tree.Attach(bridge.CDPContextUnit{ID: "tab1", ParentID: "root", Kind: bridge.ContextKindTab})
 	chain, err := tree.Hierarchy("tab1")
-	if err != nil || len(chain) != 2 {
+	if err != nil || len(chain) != 3 {
 		t.Fatalf("chain=%v err=%v", chain, err)
 	}
 }

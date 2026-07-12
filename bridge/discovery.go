@@ -3,10 +3,12 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -70,13 +72,19 @@ func NewChromeDiscoveryWithClient(client *http.Client) *ChromeDiscovery {
 // Discover tries each fallback method against host:port and returns the
 // results in attempt order. At least one Found result indicates success.
 func (d *ChromeDiscovery) Discover(host string, port int) ([]DiscoveryResult, error) {
+	if strings.TrimSpace(host) == "" || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("chrome discovery: valid host and port required")
+	}
 	results := make([]DiscoveryResult, 0, 3)
+	var failures error
 
 	if r, err := d.tryJSONVersion(host, port); err == nil {
 		results = append(results, r)
 		if r.Found {
 			return results, nil
 		}
+	} else {
+		failures = errors.Join(failures, fmt.Errorf("json/version: %w", err))
 	}
 
 	if r, err := d.tryJSONList(host, port); err == nil {
@@ -84,6 +92,8 @@ func (d *ChromeDiscovery) Discover(host string, port int) ([]DiscoveryResult, er
 		if r.Found {
 			return results, nil
 		}
+	} else {
+		failures = errors.Join(failures, fmt.Errorf("json/list: %w", err))
 	}
 
 	if r, err := d.tryDevToolsBrowser(host, port); err == nil {
@@ -91,12 +101,11 @@ func (d *ChromeDiscovery) Discover(host string, port int) ([]DiscoveryResult, er
 		if r.Found {
 			return results, nil
 		}
+	} else {
+		failures = errors.Join(failures, fmt.Errorf("devtools/browser: %w", err))
 	}
 
-	if len(results) == 0 {
-		return nil, fmt.Errorf("chrome discovery failed for %s:%d: no endpoint reachable", host, port)
-	}
-	return results, nil
+	return results, fmt.Errorf("chrome discovery failed for %s:%d: %w", host, port, failures)
 }
 
 func (d *ChromeDiscovery) tryJSONVersion(host string, port int) (DiscoveryResult, error) {
@@ -109,12 +118,13 @@ func (d *ChromeDiscovery) tryJSONVersion(host string, port int) (DiscoveryResult
 	if err := json.Unmarshal(body, &v); err != nil {
 		return DiscoveryResult{URL: url, Method: DiscoveryJSONVersion, Found: false}, err
 	}
+	webSocketURL := rewriteWebSocketEndpoint(v.WebSocketDebuggerURL, host, port)
 	return DiscoveryResult{
 		URL:            url,
 		Method:         DiscoveryJSONVersion,
 		BrowserVersion: v.Browser,
-		WebSocketURL:   v.WebSocketDebuggerURL,
-		Found:          v.WebSocketDebuggerURL != "",
+		WebSocketURL:   webSocketURL,
+		Found:          validWebSocketEndpoint(webSocketURL),
 	}, nil
 }
 
@@ -129,35 +139,48 @@ func (d *ChromeDiscovery) tryJSONList(host string, port int) (DiscoveryResult, e
 		return DiscoveryResult{URL: url, Method: DiscoveryJSONList, Found: false}, err
 	}
 	ws := ""
-	if len(targets) > 0 {
-		ws = targets[0].WebSocketDebuggerURL
+	for _, target := range targets {
+		if target.Type == "browser" && target.WebSocketDebuggerURL != "" {
+			ws = target.WebSocketDebuggerURL
+			break
+		}
 	}
+	if ws == "" {
+		for _, target := range targets {
+			if target.WebSocketDebuggerURL != "" {
+				ws = target.WebSocketDebuggerURL
+				break
+			}
+		}
+	}
+	webSocketURL := rewriteWebSocketEndpoint(ws, host, port)
 	return DiscoveryResult{
 		URL:          url,
 		Method:       DiscoveryJSONList,
-		WebSocketURL: ws,
-		Found:        ws != "",
+		WebSocketURL: webSocketURL,
+		Found:        validWebSocketEndpoint(webSocketURL),
 	}, nil
 }
 
 func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (DiscoveryResult, error) {
 	wsURL := FormatWebSocketURL(host, port, "/devtools/browser")
-	probeURL := fmt.Sprintf("http://%s/devtools/browser", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-	// Chrome responds to a plain HTTP GET on the browser WS endpoint with a
-	// 400/426 upgrade-required status when the endpoint is live. A 404 or
-	// connection error means the browser endpoint is not exposed.
-	resp, err := d.client.Get(probeURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := DialCDPTransport(ctx, CDPTransportConfig{URL: wsURL, HTTPClient: d.client})
 	if err != nil {
 		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, err
 	}
-	defer resp.Body.Close()
-	// Drain the body so the underlying connection can be reused; the read
-	// result is irrelevant since we only inspect the status code.
-	io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUpgradeRequired || resp.StatusCode == http.StatusSwitchingProtocols {
-		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, WebSocketURL: wsURL, Found: true}, nil
+	defer transport.Close()
+	var version BrowserVersion
+	if err := transport.Call(ctx, "Browser.getVersion", nil, &version); err != nil {
+		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, err
 	}
-	return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, fmt.Errorf("devtools/browser endpoint returned status %d", resp.StatusCode)
+	if version.Product == "" || version.ProtocolVersion == "" {
+		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, fmt.Errorf("incomplete Browser.getVersion response")
+	}
+	return DiscoveryResult{
+		URL: wsURL, Method: DiscoveryDevToolsBrowser, BrowserVersion: version.Product, WebSocketURL: wsURL, Found: true,
+	}, nil
 }
 
 func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
@@ -175,7 +198,29 @@ func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d for %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	const maxDiscoveryResponse = 1024 * 1024
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryResponse+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDiscoveryResponse {
+		return nil, fmt.Errorf("response exceeds %d bytes", maxDiscoveryResponse)
+	}
+	return data, nil
+}
+
+func rewriteWebSocketEndpoint(endpoint, host string, port int) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "ws" && parsed.Scheme != "wss") {
+		return endpoint
+	}
+	parsed.Host = net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	return parsed.String()
+}
+
+func validWebSocketEndpoint(endpoint string) bool {
+	parsed, err := url.Parse(endpoint)
+	return err == nil && (parsed.Scheme == "ws" || parsed.Scheme == "wss") && parsed.Host != ""
 }
 
 // FormatWebSocketURL builds a ws:// URL with correct IPv6 bracketing.

@@ -10,8 +10,8 @@ import (
 // lifecycle).
 //
 // This file provides the spec-mandated bridge initialization and
-// lifecycle management. Handles Chrome launch + stealth injection
-// and bridge startup/shutdown.
+// lifecycle management. Handles validated Chromium startup/shutdown
+// and rejects unproven stealth configuration.
 
 // BridgeInitConfig configures bridge initialization
 // (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
@@ -30,31 +30,58 @@ type BridgeInitializer struct {
 	mu       sync.Mutex
 	config   BridgeInitConfig
 	registry *BridgeProviderRegistry
+	provider BrowserProvider
 	session  *BridgeSession
+	state    *BridgeStateMachine
 	started  bool
 }
 
 // NewBridgeInitializer creates a new BridgeInitializer
 // (spec L4018: Lifecycle).
 func NewBridgeInitializer(config BridgeInitConfig) *BridgeInitializer {
+	config.ApplyDefaults()
 	return &BridgeInitializer{
 		config:   config,
 		registry: NewBridgeProviderRegistry(),
+		state:    NewBridgeStateMachine(),
 	}
 }
 
-// Start initializes the bridge: launches Chrome + stealth injection
-// (spec L4018: Chrome Launch + Stealth Injection).
+// Start initializes the bridge and launches validated Chromium.
 func (bi *BridgeInitializer) Start(ctx context.Context) error {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
 	if bi.started {
 		return fmt.Errorf("init: bridge already started")
 	}
-	// In a real implementation, this would:
-	// 1. Select provider from registry
-	// 2. Launch Chrome with stealth flags
-	// 3. Inject stealth scripts
+	if ctx == nil {
+		return fmt.Errorf("init: context required")
+	}
+	if bi.config.StealthEnabled {
+		return fmt.Errorf("init: stealth is unavailable until its browser behavior is proven")
+	}
+	if err := bi.state.Transition(BridgeStateInitializing); err != nil {
+		return err
+	}
+	provider, err := bi.registry.Get(bi.config.ProviderName)
+	if err != nil {
+		_ = bi.state.Transition(BridgeStateError)
+		return err
+	}
+	session, err := provider.Launch(ctx, ProviderConfig{
+		Headless: bi.config.Headless, SessionName: "artemis-bridge", ProfileDir: bi.config.UserDataDir,
+		ChromePath: bi.config.ChromePath, MaxTabs: bi.config.MaxTabs,
+	})
+	if err != nil {
+		_ = bi.state.Transition(BridgeStateError)
+		return err
+	}
+	if err := bi.state.Transition(BridgeStateReady); err != nil {
+		_ = provider.Close()
+		return err
+	}
+	bi.provider = provider
+	bi.session = session
 	bi.started = true
 	return nil
 }
@@ -67,6 +94,24 @@ func (bi *BridgeInitializer) Stop() error {
 	if !bi.started {
 		return fmt.Errorf("init: bridge not started")
 	}
+	state := bi.state.State()
+	if state != BridgeStateError {
+		if err := bi.state.Transition(BridgeStateShuttingDown); err != nil {
+			return err
+		}
+	}
+	err := bi.provider.Close()
+	if err != nil {
+		if state != BridgeStateError {
+			_ = bi.state.Transition(BridgeStateError)
+		}
+		return err
+	}
+	if err := bi.state.Transition(BridgeStateStopped); err != nil {
+		return err
+	}
+	bi.provider = nil
+	bi.session = nil
 	bi.started = false
 	return nil
 }
@@ -104,6 +149,18 @@ func (c *BridgeInitConfig) ApplyDefaults() {
 	if c.MaxTabs <= 0 {
 		c.MaxTabs = 10
 	}
+}
+
+// Session returns the active validated bridge session.
+func (bi *BridgeInitializer) Session() *BridgeSession {
+	bi.mu.Lock()
+	defer bi.mu.Unlock()
+	return bi.session
+}
+
+// State returns the bridge lifecycle state.
+func (bi *BridgeInitializer) State() BridgeState {
+	return bi.state.State()
 }
 
 // String returns a diagnostic summary.
