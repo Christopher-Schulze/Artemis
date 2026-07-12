@@ -88,11 +88,24 @@ type Engine struct {
 // New creates an Engine using cfg. The returned engine must be Closed.
 func New(cfg Config) (*Engine, error) {
 	cfg.applyDefaults()
+	policyConfig := network.DefaultPolicyConfig()
+	if !cfg.BlockPrivateIPs {
+		policyConfig.AllowPrivateNetworks = true
+		policyConfig.AllowedPorts = make([]int, 65535)
+		for index := range policyConfig.AllowedPorts {
+			policyConfig.AllowedPorts[index] = index + 1
+		}
+	}
+	policy, err := network.NewPolicy(policyConfig, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("engine: build network policy: %w", err)
+	}
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
 		UserAgent:    cfg.UserAgent,
 		ProxyURL:     cfg.ProxyURL,
 		Timeout:      cfg.Timeout,
 		MaxBodyBytes: cfg.MaxBodyBytes,
+		Policy:       policy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("engine: build http client: %w", err)
@@ -151,15 +164,6 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 			}
 		}
 	}
-	// IP filter
-	if e.cfg.BlockPrivateIPs {
-		if u, perr := url.Parse(rawURL); perr == nil {
-			if perr := network.CheckHostPublic(u); perr != nil {
-				return nil, fmt.Errorf("engine: %w", perr)
-			}
-		}
-	}
-
 	// OnRequest interception
 	if opts.OnRequest != nil {
 		mock, err := opts.OnRequest(&RequestInfo{

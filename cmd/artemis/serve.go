@@ -16,7 +16,7 @@ func cmdServe(args []string) int {
 	host := fs.String("host", "127.0.0.1", "bind host")
 	port := fs.Int("port", 9333, "bind port")
 	obeyRobots := fs.Bool("obey-robots", false, "consult robots.txt before fetching")
-	blockPriv := fs.Bool("block-private-ips", false, "refuse to fetch private/loopback IPs")
+	blockPriv := fs.Bool("block-private-ips", true, "refuse to fetch private/loopback IPs")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: artemis serve [flags]
 

@@ -14,12 +14,28 @@ import (
 
 func newTestClient(t *testing.T, cfg HTTPClientConfig) *HTTPClient {
 	t.Helper()
+	if cfg.Policy == nil {
+		policyConfig := DefaultPolicyConfig()
+		policyConfig.AllowPrivateNetworks = true
+		policyConfig.AllowedPorts = allTestPorts()
+		cfg.Policy = mustPolicy(t, policyConfig, nil, nil)
+	}
 	c, err := NewHTTPClient(cfg)
 	if err != nil {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	return c
+}
+
+func allTestPorts() []int {
+	// Tests allocate arbitrary loopback ports; allow the entire valid range
+	// while private-network access remains an explicit test-only opt-in.
+	ports := make([]int, 65535)
+	for index := range ports {
+		ports[index] = index + 1
+	}
+	return ports
 }
 
 func TestDoStatusHeadersBody(t *testing.T) {
@@ -99,6 +115,22 @@ func TestDoFollowsRedirects(t *testing.T) {
 	}
 	if resp.FinalURL != final.URL {
 		t.Errorf("final url = %q, want %q", resp.FinalURL, final.URL)
+	}
+}
+
+func TestDoRejectsRedirectToPrivateTarget(t *testing.T) {
+	client, err := NewHTTPClient(HTTPClientConfig{})
+	if err != nil {
+		t.Fatalf("NewHTTPClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://127.0.0.1/secret", nil)
+	if err != nil {
+		t.Fatalf("build redirect request: %v", err)
+	}
+	err = client.client.CheckRedirect(request, []*http.Request{{}})
+	if !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("redirect error = %v, want policy denial", err)
 	}
 }
 

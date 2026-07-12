@@ -28,6 +28,11 @@ type HTTPClientConfig struct {
 	Timeout time.Duration
 	// MaxBodyBytes caps the response body. Zero means unlimited.
 	MaxBodyBytes int64
+	// Policy is the mandatory outbound network security boundary. Nil uses
+	// the deny-private default policy.
+	Policy *Policy
+	// SessionID correlates redacted policy decisions without exposing URLs.
+	SessionID string
 }
 
 // HTTPClient performs HTTP requests on behalf of the engine.
@@ -40,10 +45,20 @@ type HTTPClient struct {
 
 // NewHTTPClient builds an HTTPClient.
 func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
+	policy := cfg.Policy
+	if policy == nil {
+		var err error
+		policy, err = NewPolicy(DefaultPolicyConfig(), nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("default network policy: %w", err)
+		}
+	}
+	cfg.Policy = policy
 	// Pool tuned for crawler-style workloads: lots of subresources from
 	// a small set of hosts, parallel fetches via the async-runtime.
 	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 nil,
+		DialContext:           policy.DialContext,
 		MaxIdleConns:          512,
 		MaxIdleConnsPerHost:   64,
 		MaxConnsPerHost:       0, // unlimited (HTTP/2 multiplex needs only one)
@@ -61,6 +76,9 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse proxy url %q: %w", cfg.ProxyURL, err)
 		}
+		if _, err := policy.ResolveURL(context.Background(), u.String(), TargetProxy, cfg.SessionID); err != nil {
+			return nil, fmt.Errorf("validate proxy url: %w", err)
+		}
 		transport.Proxy = http.ProxyURL(u)
 	}
 	jar, err := cookiejar.New(nil)
@@ -73,6 +91,12 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 			Transport: transport,
 			Jar:       jar,
 			Timeout:   cfg.Timeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= policy.Config().MaxRedirects {
+					return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
+				}
+				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetRedirect, cfg.SessionID)
+			},
 		},
 		jar: jar,
 	}, nil
@@ -132,6 +156,9 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 			req.Header.Add(k, v)
 		}
 	}
+	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetNavigation, c.cfg.SessionID); err != nil {
+		return nil, fmt.Errorf("validate request: %w", err)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -142,6 +169,10 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 	limit := r.MaxBodyBytes
 	if limit == 0 {
 		limit = c.cfg.MaxBodyBytes
+	}
+	policyLimit := c.cfg.Policy.Config().MaxResponseBodyBytes
+	if limit <= 0 || policyLimit < limit {
+		limit = policyLimit
 	}
 	body, err := readLimited(resp.Body, limit)
 	if err != nil {
