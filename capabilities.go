@@ -72,8 +72,8 @@ var capabilityRegistry = []Capability{
 	{ID: "chromium.actions", Description: "Execute typed browser actions with actionability and postcondition evidence", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "bridge/actions.(*Runtime).Execute", Owner: "bridge/actions.Runtime", BehaviorTest: "actions.TestRuntimeRealChromiumInteractionMatrix"},
 	{
 		ID: "hybrid.routing", Description: "Escalate deterministically from renderless execution to Chromium", Mode: ModeHybrid,
-		State: SupportUnavailable, Entrypoint: "bridge/provider.go", Owner: "unassigned",
-		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "the Chromium target is unavailable",
+		State: SupportSupported, Since: Version, Entrypoint: "router.New/router.(*HybridRouter).Execute", Owner: "router.HybridRouter/router.ChromiumExecutor",
+		BehaviorTest: "router.TestChromiumExecutorAgainstRealChromiumFixture",
 	},
 	{
 		ID: "chromium.screenshot", Description: "Capture pixels rendered by Chromium", Mode: ModeChromium,

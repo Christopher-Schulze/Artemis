@@ -13,6 +13,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
 func cmdFetch(args []string) int {
@@ -86,16 +87,17 @@ Flags:
 		})
 	}
 
-	page, err := eng.Fetch(ctx, url, engine.FetchOpts{
-		Headers:          hdrs,
-		RunInlineScripts: *runScripts,
-		Console:          console,
-	})
+	routeResult, err := routePage(ctx, eng, url, *runScripts, hdrs, console, artemisrouter.ActionFetch)
 	if err != nil {
 		errf("fetch %s: %v", url, err)
 		return 1
 	}
-	defer page.Close()
+	defer routeResult.Close()
+	page, ok := routeResult.Resource.(*engine.Page)
+	if !ok || page == nil {
+		errf("fetch %s: router returned no page", url)
+		return 1
+	}
 
 	if *evalExpr != "" {
 		v, err := page.Eval(ctx, *evalExpr)

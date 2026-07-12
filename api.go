@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
 // api.go is the public API for the artemis package.
 //
-// It provides the top-level Agent, Session, and Task types for the supported
-// renderless runtime. Chromium-backed subsystems remain outside this API until
-// their lifecycle and behavior are release-supported.
+// It provides the top-level Agent, Session, and Task types. The Agent routes
+// typed fetches through the canonical hybrid contract; standalone Chromium
+// operations use router.ChromiumExecutor with an owned CDP page.
 
 // Agent is the top-level artemis browser automation agent
 type Agent struct {
@@ -24,6 +25,7 @@ type Agent struct {
 	runtime    RenderlessRuntime
 	factory    RuntimeFactory
 	dispatcher Dispatcher
+	hybrid     *artemisrouter.HybridRouter
 	sessions   SessionStore
 	telemetry  Telemetry
 	runCtx     context.Context
@@ -100,6 +102,7 @@ const (
 	TaskErrorInvalidTransition     TaskErrorCode = "invalid_transition"
 	TaskErrorSessionNotFound       TaskErrorCode = "session_not_found"
 	TaskErrorSessionLimit          TaskErrorCode = "session_limit"
+	TaskErrorResourceLimit         TaskErrorCode = "resource_limit"
 )
 
 // NewAgent validates config and creates an Agent with production dependencies.
@@ -158,6 +161,15 @@ func (a *Agent) failStart(runtime RenderlessRuntime, err error) error {
 
 func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 	runCtx, cancel := context.WithCancel(context.Background())
+	hybrid, hybridErr := a.buildHybridRouter(runtime)
+	if hybridErr != nil {
+		cancel()
+		_ = runtime.Close()
+		a.mu.Lock()
+		a.state = AgentStateError
+		a.mu.Unlock()
+		return newTaskError(TaskErrorExecutionFailed, "start", hybridErr)
+	}
 	a.mu.Lock()
 	if a.state != AgentStateStarting {
 		a.mu.Unlock()
@@ -166,6 +178,7 @@ func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 		return newTaskError(TaskErrorInvalidTransition, "start", fmt.Errorf("state changed during startup"))
 	}
 	a.runtime = runtime
+	a.hybrid = hybrid
 	a.runCtx = runCtx
 	a.cancel = cancel
 	a.state = AgentStateRunning
@@ -221,6 +234,7 @@ func (a *Agent) closeSessions() {
 func (a *Agent) finishStop() {
 	a.mu.Lock()
 	a.runtime = nil
+	a.hybrid = nil
 	a.runCtx = nil
 	a.cancel = nil
 	a.state = AgentStateStopped
@@ -304,7 +318,7 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 	defer done()
 	execCtx, cancel := executionContext(ctx, lease.runCtx, sessionCtx, task, lease.config)
 	defer cancel()
-	data, dispatchErr := lease.dispatcher.Execute(execCtx, lease.runtime, task)
+	data, dispatchErr := executeTaskThroughRouter(execCtx, lease, task)
 	if dispatchErr != nil {
 		return failedTaskResult(task.ID, start, classifyTaskError("execute", dispatchErr))
 	}
@@ -328,8 +342,66 @@ func validatePageResult(result *PageResult) *TaskError {
 type executionLease struct {
 	runtime    RenderlessRuntime
 	dispatcher Dispatcher
+	hybrid     *artemisrouter.HybridRouter
 	runCtx     context.Context
 	config     AgentConfig
+}
+
+func executeTaskThroughRouter(ctx context.Context, lease executionLease, task Task) (*PageResult, error) {
+	if lease.hybrid == nil {
+		return lease.dispatcher.Execute(ctx, lease.runtime, task)
+	}
+	var action FetchAction
+	switch value := task.Action.(type) {
+	case FetchAction:
+		action = value
+	case *FetchAction:
+		if value == nil {
+			return nil, newTaskError(TaskErrorInvalidInput, "dispatch", fmt.Errorf("nil fetch action"))
+		}
+		action = *value
+	default:
+		return lease.dispatcher.Execute(ctx, lease.runtime, task)
+	}
+	signals := artemisrouter.Signals{IsHTML: true}
+	if action.RunScripts {
+		signals.ScriptCount = 1
+	}
+	result, err := lease.hybrid.Execute(ctx, artemisrouter.RouteRequest{
+		URL: action.URL, Action: artemisrouter.ActionFetch, Signals: signals,
+		State:   artemisrouter.BrowserState{SessionID: task.SessionID},
+		TraceID: task.ID, EvidenceID: task.ID,
+	})
+	if err != nil {
+		return nil, routeErrorToTaskError(err)
+	}
+	defer result.Close()
+	return &PageResult{
+		URL: result.Output.URL, StatusCode: result.Output.StatusCode, Title: result.Output.Title,
+		HTML: result.Output.HTML, Text: result.Output.Text, Markdown: result.Output.Markdown,
+		Links: result.Output.Links,
+	}, nil
+}
+
+func routeErrorToTaskError(err error) *TaskError {
+	var routeErr *artemisrouter.RouteError
+	if !errors.As(err, &routeErr) || routeErr == nil {
+		return classifyTaskError("route", err)
+	}
+	code := TaskErrorExecutionFailed
+	switch routeErr.Code {
+	case artemisrouter.ErrorInvalidInput:
+		code = TaskErrorInvalidInput
+	case artemisrouter.ErrorPolicyDenied:
+		code = TaskErrorPolicyDenied
+	case artemisrouter.ErrorUnavailable:
+		code = TaskErrorCapabilityUnavailable
+	case artemisrouter.ErrorCancelled:
+		code = TaskErrorCancelled
+	case artemisrouter.ErrorResourceBudget:
+		code = TaskErrorResourceLimit
+	}
+	return newTaskError(code, "route", err)
 }
 
 func (a *Agent) beginExecution() (executionLease, *TaskError) {
@@ -342,7 +414,18 @@ func (a *Agent) beginExecution() (executionLease, *TaskError) {
 		return executionLease{}, newTaskError(TaskErrorBrowserCrash, "execute", fmt.Errorf("renderless runtime is unhealthy"))
 	}
 	a.operations.Add(1)
-	return executionLease{runtime: a.runtime, dispatcher: a.dispatcher, runCtx: a.runCtx, config: a.config}, nil
+	return executionLease{runtime: a.runtime, dispatcher: a.dispatcher, hybrid: a.hybrid, runCtx: a.runCtx, config: a.config}, nil
+}
+
+func (a *Agent) buildHybridRouter(runtime RenderlessRuntime) (*artemisrouter.HybridRouter, error) {
+	if _, ok := a.dispatcher.(renderlessDispatcher); !ok {
+		return nil, nil
+	}
+	executor := artemisrouter.RuntimeExecutor{Runtime: runtime}
+	return artemisrouter.New(artemisrouter.Config{Executors: map[artemisrouter.Mode]artemisrouter.Executor{
+		artemisrouter.ModeStaticFetch:  executor,
+		artemisrouter.ModeRenderlessJS: executor,
+	}})
 }
 
 func validateTask(task Task) *TaskError {

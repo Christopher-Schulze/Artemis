@@ -11,6 +11,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
 // run.go (TASK-2343: `run --script FILE <url>` CLI subcommand).
@@ -127,16 +128,17 @@ Flags:
 		})
 	}
 
-	page, err := eng.Fetch(ctx, targetURL, engine.FetchOpts{
-		Headers:          hdrs,
-		RunInlineScripts: *runInlineScripts,
-		Console:          console,
-	})
+	routeResult, err := routePage(ctx, eng, targetURL, *runInlineScripts, hdrs, console, artemisrouter.ActionFetch)
 	if err != nil {
 		errf("fetch %s: %v", targetURL, err)
 		return 1
 	}
-	defer page.Close()
+	defer routeResult.Close()
+	page, ok := routeResult.Resource.(*engine.Page)
+	if !ok || page == nil {
+		errf("fetch %s: router returned no page", targetURL)
+		return 1
+	}
 
 	// Execute the user script.
 	result, err := page.Eval(ctx, scriptSrc)

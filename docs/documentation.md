@@ -41,11 +41,11 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, and a low-level Chromium/CDP lifecycle with owned or external process semantics. It has no supported hybrid router, high-level Chromium action surface, pixel-screenshot, authenticated-profile, or verified browser anti-detection capability. It does not ship a Model Context Protocol (MCP) endpoint.
+Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, and the canonical deterministic hybrid router contract. High-level Chromium action composition, authenticated-profile policy, and verified browser anti-detection remain separate release surfaces. It does not ship a Model Context Protocol (MCP) endpoint.
 
 ## Release Capability Contract
 
-`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. `bridge.LaunchChromium` and `bridge.ConnectChromium` own the low-level CDP runtime; high-level Chromium-backed actions remain unavailable. Use `engine.Engine` for lower-level renderless embedding or `serve.Server` for persistent renderless wire steering.
+`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a hybrid-routed renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. `router.ChromiumExecutor` composes a caller-owned CDP page into the same typed route/evidence contract. Use `engine.Engine` for lower-level renderless embedding or `serve.Server` for persistent renderless wire steering.
 
 Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require the reproducible TASK-2360 artifact.
 
@@ -382,21 +382,28 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 
 ## Hybrid Execution Router
 
-Support state: **unavailable**. `bridge.ExecutionRouter` models route transitions, but no behavior probe proves a real Chromium target or end-to-end escalation. Callers must not treat `RouteRendered` or provider symbols as evidence of Chromium execution.
+Support state: **supported**. `router.HybridRouter` deterministically selects `static_fetch`, `renderless_js`, `chromium_cdp`, or `stealth`, validates caller policy, transfers isolated state, escalates only upward, bounds attempts, opens per-mode circuits after repeated failures, and emits route evidence containing URL hashes and state counts but no cookie/storage values. `router.RenderlessExecutor` adapts the real V8 engine; `router.ChromiumExecutor` adapts a caller-owned `*bridge.Page` and proves a committed DOM through CDP.
 
 ```go
-router := bridge.NewExecutionRouter()
-next, err := router.Escalate(bridge.RouteStatic, err)
-// RouteStatic -> RouteRendered on failure
-// RouteRendered -> error (no further route)
+hybrid, err := router.New(router.Config{Executors: map[router.Mode]router.Executor{
+    router.ModeRenderlessJS: router.RenderlessExecutor{Engine: eng},
+    router.ModeChromiumCDP: router.ChromiumExecutor{Page: page},
+}})
+result, err := hybrid.Execute(ctx, router.RouteRequest{
+    URL: "https://example.test", Signals: router.Signals{IsHTML: true},
+})
 ```
 
 | Symbol | Kind | Purpose |
 |---|---|---|
-| `bridge.RouteStatic` | `RouteKind` | no-JS / API / RSS pages |
-| `bridge.RouteRendered` | `RouteKind` | modeled rendered route; unavailable release target |
-| `bridge.NewExecutionRouter()` | func | create router |
-| `router.Escalate(current, err)` | method | compute next route on failure |
+| `router.HybridRouter` | struct | policy-validated hybrid execution owner |
+| `router.RenderlessExecutor` | struct | real V8/renderless engine adapter |
+| `router.ChromiumExecutor` | struct | real CDP page adapter with DOM postcondition |
+| `router.BrowserState` | struct | isolated cookie/storage/profile state transfer |
+| `router.RouteEvidence` | struct | redacted route, fallback, cost, and lineage evidence |
+| `router.RouteFailure` | struct | typed fallback reason and retry admission |
+
+The legacy compatibility symbols `bridge.ExecutionRouter`, `bridge.NewExecutionRouter`, `bridge.RouteStatic`, and `bridge.RouteRendered` remain available for older callers; new code must use `router.HybridRouter` so policy, state lineage, and evidence cannot be bypassed.
 
 ## Browser Provider Switch
 

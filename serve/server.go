@@ -19,6 +19,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/profile"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
 // Opts configures a Server.
@@ -32,12 +33,14 @@ type Opts struct {
 		Execute(context.Context, actions.Request) actions.Outcome
 	}
 	ProfileRuntime *profile.RuntimeManager
+	Router         *artemisrouter.HybridRouter
 }
 
 // Server is a single-engine WebSocket steering server. Multiple
 // concurrent sessions can be active per server.
 type Server struct {
 	eng      *engine.Engine
+	router   *artemisrouter.HybridRouter
 	opts     Opts
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -59,11 +62,15 @@ func New(eng *engine.Engine, opts Opts) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	return &Server{
-		eng:      eng,
-		opts:     opts,
-		sessions: make(map[string]*session),
+	hybrid := opts.Router
+	if hybrid == nil && eng != nil {
+		executor := artemisrouter.RenderlessExecutor{Engine: eng}
+		hybrid, _ = artemisrouter.New(artemisrouter.Config{Executors: map[artemisrouter.Mode]artemisrouter.Executor{
+			artemisrouter.ModeStaticFetch:  executor,
+			artemisrouter.ModeRenderlessJS: executor,
+		}})
 	}
+	return &Server{eng: eng, router: hybrid, opts: opts, sessions: make(map[string]*session)}
 }
 
 // ListenAndServe blocks while serving on addr until ctx is cancelled.
@@ -274,9 +281,35 @@ func (s *Server) cmdPageOpen(ctx context.Context, req *Request) *Response {
 	if sess == nil {
 		return errResp(req.ID, "no_session", "unknown sessionId")
 	}
-	page, err := s.eng.Fetch(ctx, p.URL, engine.FetchOpts{RunInlineScripts: p.RunScripts})
-	if err != nil {
-		return errResp(req.ID, "fetch_failed", err.Error())
+	var page *engine.Page
+	if s.router != nil {
+		signals := artemisrouter.Signals{IsHTML: true}
+		if p.RunScripts {
+			signals.ScriptCount = 1
+		}
+		result, routeErr := s.router.Execute(ctx, artemisrouter.RouteRequest{
+			URL: p.URL, Action: artemisrouter.ActionNavigate, Signals: signals,
+			State: artemisrouter.BrowserState{SessionID: p.SessionID}, TraceID: req.ID, EvidenceID: req.ID,
+		})
+		if routeErr != nil {
+			return errResp(req.ID, "fetch_failed", routeErr.Error())
+		}
+		var ok bool
+		page, ok = result.Resource.(*engine.Page)
+		if !ok || page == nil {
+			_ = result.Close()
+			return errResp(req.ID, "fetch_failed", "router returned no retained page resource")
+		}
+		result.Resource = nil
+	} else {
+		if s.eng == nil {
+			return errResp(req.ID, "fetch_failed", "renderless engine is not configured")
+		}
+		var err error
+		page, err = s.eng.Fetch(ctx, p.URL, engine.FetchOpts{RunInlineScripts: p.RunScripts})
+		if err != nil {
+			return errResp(req.ID, "fetch_failed", err.Error())
+		}
 	}
 	pageID := "p" + s.newSessionID()
 	sess.mu.Lock()
