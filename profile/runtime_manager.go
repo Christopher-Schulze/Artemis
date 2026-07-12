@@ -9,13 +9,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 const runtimeSchemaVersion = 1
+
+var opaqueProfileIDPattern = regexp.MustCompile(`^pro_[0-9a-f]{32}$`)
 
 type SessionID string
 type ProfileID string
@@ -60,6 +65,15 @@ type ResourceUsage struct {
 	DownloadBytes int64 `json:"download_bytes"`
 }
 
+type DownloadRecord struct {
+	ID        string    `json:"id"`
+	Filename  string    `json:"filename"`
+	MIME      string    `json:"mime"`
+	Size      int64     `json:"size"`
+	SHA256    string    `json:"sha256"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type RuntimeSession struct {
 	ID           SessionID           `json:"id"`
 	ProfileID    ProfileID           `json:"profile_id"`
@@ -76,6 +90,8 @@ type RuntimeSession struct {
 	Pages        map[PageID]string   `json:"pages"`
 	Recovered    bool                `json:"recovered"`
 	CrashMarker  bool                `json:"crash_marker"`
+	Permissions  map[string][]string `json:"permissions"`
+	Downloads    []DownloadRecord    `json:"downloads"`
 }
 
 type runtimeManifest struct {
@@ -93,12 +109,12 @@ type RuntimeManager struct {
 }
 
 type OpenSessionRequest struct {
-	ProfileID    ProfileID
-	OwnerUserRef string
-	Class        ProfileClass
-	DataDir      string
-	Limits       ResourceLimits
-	Lifetime     time.Duration
+	ProfileID    ProfileID      `json:"profile_id"`
+	OwnerUserRef string         `json:"owner_user_ref"`
+	Class        ProfileClass   `json:"class"`
+	DataDir      string         `json:"data_dir,omitempty"`
+	Limits       ResourceLimits `json:"limits"`
+	Lifetime     time.Duration  `json:"lifetime"`
 }
 
 type ProfileArchive struct {
@@ -143,10 +159,13 @@ func NewRuntimeManager(root string) (*RuntimeManager, error) {
 }
 
 func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (*RuntimeSession, error) {
+	if ctx == nil {
+		return nil, &RuntimeError{Class: FailureInvalid, Op: "open", Msg: "context required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if request.ProfileID == "" || strings.TrimSpace(request.OwnerUserRef) == "" {
+	if (!profileNamePattern.MatchString(string(request.ProfileID)) && !opaqueProfileIDPattern.MatchString(string(request.ProfileID))) || !ownerRefPattern.MatchString(request.OwnerUserRef) {
 		return nil, &RuntimeError{Class: FailureInvalid, Op: "open", Msg: "profile and owner required"}
 	}
 	if request.Class != ProfileEphemeral && request.Class != ProfilePersistent && request.Class != ProfileAttached {
@@ -179,6 +198,8 @@ func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (
 		base := "persistent"
 		if request.Class == ProfileEphemeral {
 			base = "ephemeral"
+		} else if request.Class == ProfileAttached {
+			base = "attached"
 		}
 		dataDir = filepath.Join(m.root, base, string(request.ProfileID))
 	}
@@ -191,7 +212,7 @@ func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (
 		return nil, fmt.Errorf("profile runtime open: data dir: %w", err)
 	}
 	created := m.now().UTC()
-	s := &RuntimeSession{ID: SessionID(id), ProfileID: request.ProfileID, ContextID: ContextID(contextID), OwnerUserRef: request.OwnerUserRef, Class: request.Class, State: SessionActive, DataDir: dataDir, CreatedAt: created, ExpiresAt: created.Add(lifetime), Limits: limits, Pages: make(map[PageID]string), CrashMarker: true}
+	s := &RuntimeSession{ID: SessionID(id), ProfileID: request.ProfileID, ContextID: ContextID(contextID), OwnerUserRef: request.OwnerUserRef, Class: request.Class, State: SessionActive, DataDir: dataDir, CreatedAt: created, ExpiresAt: created.Add(lifetime), Limits: limits, Pages: make(map[PageID]string), Permissions: make(map[string][]string), CrashMarker: true}
 	m.sessions[s.ID] = s
 	if err := m.persistLocked(); err != nil {
 		delete(m.sessions, s.ID)
@@ -265,6 +286,9 @@ func (m *RuntimeManager) ImportProfile(data []byte, owner string, cookies *Cooki
 }
 
 func (m *RuntimeManager) ResetProfile(ctx context.Context, id ProfileID, owner string) error {
+	if ctx == nil {
+		return &RuntimeError{Class: FailureInvalid, Op: "reset", Msg: "context required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -323,6 +347,36 @@ func (m *RuntimeManager) RegisterPage(id SessionID, owner, targetID string) (Pag
 	return pageID, nil
 }
 
+func (m *RuntimeManager) ClosePage(id SessionID, pageID PageID, owner string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.authorizeLocked(id, owner, "close page")
+	if err != nil {
+		return err
+	}
+	if _, ok := s.Pages[pageID]; !ok {
+		return &RuntimeError{Class: FailureNotFound, Op: "close page", Msg: "page not found in session"}
+	}
+	delete(s.Pages, pageID)
+	s.Usage.Pages = len(s.Pages)
+	return m.persistLocked()
+}
+
+func (m *RuntimeManager) SwitchProfile(ctx context.Context, current SessionID, owner string, next OpenSessionRequest) (*RuntimeSession, error) {
+	currentSession, err := m.Get(current, owner)
+	if err != nil {
+		return nil, err
+	}
+	if currentSession.State != SessionActive {
+		return nil, &RuntimeError{Class: FailureConflict, Op: "switch", Msg: "current session is not active"}
+	}
+	next.OwnerUserRef = owner
+	if err := m.Close(ctx, current, owner); err != nil {
+		return nil, err
+	}
+	return m.Open(ctx, next)
+}
+
 func (m *RuntimeManager) ResolvePage(sessionID SessionID, pageID PageID, owner string) (string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -344,14 +398,78 @@ func (m *RuntimeManager) Account(id SessionID, owner string, usage ResourceUsage
 	if err != nil {
 		return err
 	}
+	usage.Pages = len(s.Pages)
 	if usage.Pages > s.Limits.MaxPages || usage.MemoryBytes > s.Limits.MaxMemoryBytes || usage.DiskBytes > s.Limits.MaxDiskBytes || usage.DownloadBytes > s.Limits.MaxDownloadBytes {
 		return &RuntimeError{Class: FailureLimit, Op: "account", Msg: "resource limit exceeded"}
 	}
+	previous := s.Usage
 	s.Usage = usage
-	return m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		s.Usage = previous
+		return err
+	}
+	return nil
+}
+
+func (m *RuntimeManager) RecordPermission(id SessionID, owner, origin string, permissions []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.authorizeLocked(id, owner, "record permission")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(origin) == "" {
+		return &RuntimeError{Class: FailureInvalid, Op: "record permission", Msg: "origin required"}
+	}
+	values := append([]string(nil), permissions...)
+	sort.Strings(values)
+	previous, existed := s.Permissions[origin]
+	s.Permissions[origin] = values
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			s.Permissions[origin] = previous
+		} else {
+			delete(s.Permissions, origin)
+		}
+		return err
+	}
+	return nil
+}
+
+func (m *RuntimeManager) RecordDownload(id SessionID, owner string, record DownloadRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.authorizeLocked(id, owner, "record download")
+	if err != nil {
+		return err
+	}
+	if record.Size < 0 || record.Size+s.Usage.DownloadBytes > s.Limits.MaxDownloadBytes {
+		return &RuntimeError{Class: FailureLimit, Op: "record download", Msg: "download limit exceeded"}
+	}
+	if record.ID == "" {
+		value, err := newOpaqueID("dl")
+		if err != nil {
+			return err
+		}
+		record.ID = value
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = m.now().UTC()
+	}
+	s.Downloads = append(s.Downloads, record)
+	s.Usage.DownloadBytes += record.Size
+	if err := m.persistLocked(); err != nil {
+		s.Downloads = s.Downloads[:len(s.Downloads)-1]
+		s.Usage.DownloadBytes -= record.Size
+		return err
+	}
+	return nil
 }
 
 func (m *RuntimeManager) Close(ctx context.Context, id SessionID, owner string) error {
+	if ctx == nil {
+		return &RuntimeError{Class: FailureInvalid, Op: "close", Msg: "context required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -377,6 +495,9 @@ func (m *RuntimeManager) Close(ctx context.Context, id SessionID, owner string) 
 }
 
 func (m *RuntimeManager) Expire(ctx context.Context) ([]SessionID, error) {
+	if ctx == nil {
+		return nil, &RuntimeError{Class: FailureInvalid, Op: "expire", Msg: "context required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -406,18 +527,28 @@ func (m *RuntimeManager) Expire(ctx context.Context) ([]SessionID, error) {
 }
 
 func (m *RuntimeManager) DeleteProfile(ctx context.Context, profileID ProfileID, owner string) error {
+	if ctx == nil {
+		return &RuntimeError{Class: FailureInvalid, Op: "delete profile", Msg: "context required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	found := false
 	for _, s := range m.sessions {
+		if s.ProfileID == profileID {
+			found = true
+		}
 		if s.ProfileID == profileID && s.OwnerUserRef != owner {
 			return &RuntimeError{Class: FailureDenied, Op: "delete profile", Msg: "owner mismatch"}
 		}
 		if s.ProfileID == profileID && s.State == SessionActive {
 			return &RuntimeError{Class: FailureConflict, Op: "delete profile", Msg: "profile has active session"}
 		}
+	}
+	if !found {
+		return &RuntimeError{Class: FailureNotFound, Op: "delete profile", Msg: "profile not found"}
 	}
 	path := filepath.Join(m.root, "persistent", string(profileID))
 	if err := ensureContained(m.root, path); err != nil {
@@ -446,9 +577,15 @@ func (m *RuntimeManager) load() error {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return &RuntimeError{Class: FailureCorrupt, Op: "load", Msg: err.Error()}
 	}
+	migrated := false
+	if manifest.Version == 0 {
+		manifest.Version = runtimeSchemaVersion
+		migrated = true
+	}
 	if manifest.Version != runtimeSchemaVersion {
 		return &RuntimeError{Class: FailureCorrupt, Op: "load", Msg: fmt.Sprintf("unsupported schema %d", manifest.Version)}
 	}
+	recoveredAny := migrated
 	for id, session := range manifest.Sessions {
 		if session == nil || session.ID != id || session.ProfileID == "" || session.OwnerUserRef == "" {
 			return &RuntimeError{Class: FailureCorrupt, Op: "load", Msg: "invalid session record"}
@@ -456,13 +593,20 @@ func (m *RuntimeManager) load() error {
 		if session.Pages == nil {
 			session.Pages = make(map[PageID]string)
 		}
+		if session.Permissions == nil {
+			session.Permissions = make(map[string][]string)
+		}
 		if session.CrashMarker && session.State == SessionActive {
 			session.State = SessionCrashed
 			session.Recovered = true
 			session.Pages = make(map[PageID]string)
 			session.Usage.Pages = 0
+			recoveredAny = true
 		}
 		m.sessions[id] = session
+	}
+	if recoveredAny {
+		return m.persistLocked()
 	}
 	return nil
 }
@@ -515,20 +659,58 @@ func (m *RuntimeManager) lockProfile(id ProfileID) error {
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(filepath.Join(lockDir, string(id)+".lock"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	lockPath := filepath.Join(lockDir, string(id)+".lock")
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		return &RuntimeError{Class: FailureConflict, Op: "lock", Msg: "profile locked by another process"}
+		if !staleProcessLock(lockPath) {
+			return &RuntimeError{Class: FailureConflict, Op: "lock", Msg: "profile locked by another process"}
+		}
+		if err := os.Remove(lockPath); err != nil {
+			return err
+		}
+		file, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	}
 	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
+		file.Close()
+		os.Remove(lockPath)
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		os.Remove(lockPath)
 		return err
 	}
 	m.locks[id] = file
 	return nil
 }
 
+func staleProcessLock(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return true
+	}
+	err = process.Signal(syscall.Signal(0))
+	return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
+}
+
 func (m *RuntimeManager) unlockProfile(id ProfileID) {
 	file, ok := m.locks[id]
 	if !ok {
+		path := filepath.Join(m.root, "locks", string(id)+".lock")
+		if staleProcessLock(path) {
+			_ = os.Remove(path)
+		}
 		return
 	}
 	name := file.Name()
@@ -587,5 +769,10 @@ func cloneSession(session *RuntimeSession) *RuntimeSession {
 	for id, target := range session.Pages {
 		copy.Pages[id] = target
 	}
+	copy.Permissions = make(map[string][]string, len(session.Permissions))
+	for origin, permissions := range session.Permissions {
+		copy.Permissions[origin] = append([]string(nil), permissions...)
+	}
+	copy.Downloads = append([]DownloadRecord(nil), session.Downloads...)
 	return &copy
 }

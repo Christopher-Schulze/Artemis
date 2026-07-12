@@ -212,7 +212,28 @@ func SaveStorageStateFile(state *StorageState, path string) error {
 			return fmt.Errorf("storage state: mkdir: %w", err)
 		}
 	}
-	return os.WriteFile(path, data, 0o600)
+	tmp, err := os.CreateTemp(dir, ".storage-state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("storage state: temp: %w", err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 // LoadStorageStateFile reads a StorageState from a JSON file (spec L4262).

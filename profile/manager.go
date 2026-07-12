@@ -1,14 +1,20 @@
 package profile
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
+
+var profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+var ownerRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$`)
 
 // ShareScope controls profile sharing (spec L4583).
 type ShareScope string
@@ -21,6 +27,7 @@ const (
 
 // BrowserProfile is one enterprise browser profile (spec L4583).
 type BrowserProfile struct {
+	ID                  ProfileID  `json:"id"`
 	Name                string     `json:"name"`
 	DisplayName         string     `json:"display_name"`
 	Color               string     `json:"color"` // hex for UI
@@ -95,10 +102,12 @@ func (g *BrowserProfileAccessGate) Check(profile *BrowserProfile, callerUserRef 
 
 // ProfileManager is the multi-profile CRUD manager (spec L4583).
 type ProfileManager struct {
-	mu       sync.Mutex
-	profiles map[string]*BrowserProfile // keyed by Name
-	gate     *BrowserProfileAccessGate
-	baseDir  string // browser profiles dir
+	mu           sync.Mutex
+	profiles     map[string]*BrowserProfile // keyed by Name
+	gate         *BrowserProfileAccessGate
+	baseDir      string // browser profiles dir
+	metadataPath string
+	loadErr      error
 }
 
 // NewProfileManager creates a manager. baseDir is the profiles root
@@ -107,11 +116,17 @@ func NewProfileManager(baseDir string, gate *BrowserProfileAccessGate) *ProfileM
 	if baseDir == "" {
 		baseDir = DefaultProfileBaseDir()
 	}
-	return &ProfileManager{
-		profiles: make(map[string]*BrowserProfile),
-		gate:     gate,
-		baseDir:  baseDir,
+	if gate == nil {
+		gate = &BrowserProfileAccessGate{}
 	}
+	m := &ProfileManager{
+		profiles:     make(map[string]*BrowserProfile),
+		gate:         gate,
+		baseDir:      baseDir,
+		metadataPath: filepath.Join(baseDir, "profiles.json"),
+	}
+	m.loadErr = m.load()
+	return m
 }
 
 // DefaultProfileBaseDir returns the browser profiles dir.
@@ -141,14 +156,24 @@ func (m *ProfileManager) Create(p *BrowserProfile) error {
 	if p == nil {
 		return errors.New("profile manager: nil profile")
 	}
-	if strings.TrimSpace(p.Name) == "" {
-		return errors.New("profile manager: name required")
+	if m.loadErr != nil {
+		return m.loadErr
 	}
-	if strings.TrimSpace(p.OwnerUserRef) == "" {
-		return errors.New("profile manager: owner_user_ref required")
+	if !profileNamePattern.MatchString(p.Name) {
+		return errors.New("profile manager: name must use lowercase letters, numbers, and hyphens")
+	}
+	if !ownerRefPattern.MatchString(p.OwnerUserRef) {
+		return errors.New("profile manager: invalid owner_user_ref")
 	}
 	if p.ShareScope == "" {
 		p.ShareScope = SharePrivate
+	}
+	if p.ID == "" {
+		value, err := newOpaqueID("pro")
+		if err != nil {
+			return err
+		}
+		p.ID = ProfileID(value)
 	}
 	if p.StealthLevel == "" {
 		p.StealthLevel = "default"
@@ -173,7 +198,11 @@ func (m *ProfileManager) Create(p *BrowserProfile) error {
 			return fmt.Errorf("profile manager: mkdir data dir: %w", err)
 		}
 	}
-	m.profiles[p.Name] = p
+	m.profiles[p.Name] = cloneProfile(p)
+	if err := m.persistLocked(); err != nil {
+		delete(m.profiles, p.Name)
+		return err
+	}
 	return nil
 }
 
@@ -181,6 +210,9 @@ func (m *ProfileManager) Create(p *BrowserProfile) error {
 func (m *ProfileManager) Get(name, callerUserRef string) (*BrowserProfile, error) {
 	if m == nil {
 		return nil, errors.New("profile manager: nil")
+	}
+	if m.loadErr != nil {
+		return nil, m.loadErr
 	}
 	m.mu.Lock()
 	p, ok := m.profiles[name]
@@ -194,12 +226,39 @@ func (m *ProfileManager) Get(name, callerUserRef string) (*BrowserProfile, error
 			return nil, fmt.Errorf("profile manager: access denied: %s", dec.Reason)
 		}
 	}
-	return p, nil
+	return cloneProfile(p), nil
+}
+
+func (m *ProfileManager) GetByID(id ProfileID, callerUserRef string) (*BrowserProfile, error) {
+	if m == nil {
+		return nil, errors.New("profile manager: nil")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.loadErr != nil {
+		return nil, m.loadErr
+	}
+	for _, profile := range m.profiles {
+		if profile.ID != id {
+			continue
+		}
+		if m.gate != nil {
+			decision := m.gate.Check(profile, callerUserRef)
+			if !decision.Allowed {
+				return nil, fmt.Errorf("profile manager: access denied: %s", decision.Reason)
+			}
+		}
+		return cloneProfile(profile), nil
+	}
+	return nil, fmt.Errorf("profile manager: id %s not found", id)
 }
 
 // List returns all profiles the caller is allowed to see.
 func (m *ProfileManager) List(callerUserRef string) []*BrowserProfile {
 	if m == nil {
+		return nil
+	}
+	if m.loadErr != nil {
 		return nil
 	}
 	m.mu.Lock()
@@ -212,9 +271,19 @@ func (m *ProfileManager) List(callerUserRef string) []*BrowserProfile {
 				continue
 			}
 		}
-		out = append(out, p)
+		out = append(out, cloneProfile(p))
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func cloneProfile(profile *BrowserProfile) *BrowserProfile {
+	copy := *profile
+	copy.SharedWithUserRefs = append([]string(nil), profile.SharedWithUserRefs...)
+	copy.Domains = append([]string(nil), profile.Domains...)
+	copy.Credentials = append([]string(nil), profile.Credentials...)
+	copy.AllowedDomains = append([]string(nil), profile.AllowedDomains...)
+	return &copy
 }
 
 // Delete removes a profile by name, after access-gate check. Does NOT
@@ -222,6 +291,9 @@ func (m *ProfileManager) List(callerUserRef string) []*BrowserProfile {
 func (m *ProfileManager) Delete(name, callerUserRef string) error {
 	if m == nil {
 		return errors.New("profile manager: nil")
+	}
+	if m.loadErr != nil {
+		return m.loadErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -236,6 +308,10 @@ func (m *ProfileManager) Delete(name, callerUserRef string) error {
 		}
 	}
 	delete(m.profiles, name)
+	if err := m.persistLocked(); err != nil {
+		m.profiles[name] = p
+		return err
+	}
 	return nil
 }
 
@@ -245,6 +321,9 @@ func (m *ProfileManager) Delete(name, callerUserRef string) error {
 func (m *ProfileManager) SwitchProfile(name, callerUserRef string) (*BrowserProfile, error) {
 	if m == nil {
 		return nil, errors.New("profile manager: nil")
+	}
+	if m.loadErr != nil {
+		return nil, m.loadErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -259,14 +338,99 @@ func (m *ProfileManager) SwitchProfile(name, callerUserRef string) (*BrowserProf
 		}
 	}
 	// Deactivate all profiles owned by the same user.
+	previous := make(map[string]bool)
 	for _, p := range m.profiles {
 		if p.OwnerUserRef == target.OwnerUserRef {
+			previous[p.Name] = p.IsActive
 			p.IsActive = false
 		}
 	}
 	target.IsActive = true
 	target.LastUsedAt = time.Now().UTC()
-	return target, nil
+	if err := m.persistLocked(); err != nil {
+		for name, active := range previous {
+			m.profiles[name].IsActive = active
+		}
+		return nil, err
+	}
+	return cloneProfile(target), nil
+}
+
+func (m *ProfileManager) load() error {
+	data, err := os.ReadFile(m.metadataPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("profile manager: load metadata: %w", err)
+	}
+	var profiles []*BrowserProfile
+	if err := json.Unmarshal(data, &profiles); err != nil {
+		return fmt.Errorf("profile manager: parse metadata: %w", err)
+	}
+	migrated := false
+	for _, profile := range profiles {
+		if profile == nil || profile.Name == "" || profile.OwnerUserRef == "" {
+			return errors.New("profile manager: invalid metadata")
+		}
+		if _, exists := m.profiles[profile.Name]; exists {
+			return fmt.Errorf("profile manager: duplicate metadata %s", profile.Name)
+		}
+		if profile.ID == "" {
+			value, err := newOpaqueID("pro")
+			if err != nil {
+				return err
+			}
+			profile.ID = ProfileID(value)
+			migrated = true
+		}
+		m.profiles[profile.Name] = profile
+	}
+	if migrated {
+		return m.persistLocked()
+	}
+	return nil
+}
+
+func (m *ProfileManager) persistLocked() error {
+	profiles := make([]*BrowserProfile, 0, len(m.profiles))
+	for _, profile := range m.profiles {
+		copy := *profile
+		profiles = append(profiles, &copy)
+	}
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+	data, err := json.MarshalIndent(profiles, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(m.baseDir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(m.baseDir, ".profiles-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, m.metadataPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 // PurgeDataDir removes the on-disk data dir for a profile. Caller must

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -120,18 +121,43 @@ func (s *CredentialStore) save() error {
 	for _, r := range s.records {
 		records = append(records, r)
 	}
+	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("credential store: marshal: %w", err)
 	}
 	dir := filepath.Dir(s.path)
+	if dir == "" {
+		dir = "."
+	}
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("credential store: mkdir: %w", err)
 		}
 	}
-	if err := os.WriteFile(s.path, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".credentials-*.tmp")
+	if err != nil {
+		return fmt.Errorf("credential store: temp: %w", err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
 		return fmt.Errorf("credential store: write: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, s.path); err != nil {
+		return fmt.Errorf("credential store: replace: %w", err)
 	}
 	return nil
 }
@@ -221,7 +247,10 @@ func (s *CredentialStore) GetCredential(profileName, domain string) (*StoredCred
 			if err != nil {
 				return nil, "", err
 			}
-			return r, pw, nil
+			copy := *r
+			copy.Password = append([]byte(nil), r.Password...)
+			copy.Nonce = append([]byte(nil), r.Nonce...)
+			return &copy, pw, nil
 		}
 	}
 	return nil, "", errors.New("credential store: not found")
@@ -247,6 +276,7 @@ func (s *CredentialStore) ListCredentials(profileName string) []CredentialSummar
 			LastLoginOK: r.LastLoginOK,
 		})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
@@ -257,8 +287,13 @@ func (s *CredentialStore) DeleteCredential(id string) error {
 	if _, ok := s.records[id]; !ok {
 		return errors.New("credential store: not found")
 	}
+	record := s.records[id]
 	delete(s.records, id)
-	return s.save()
+	if err := s.save(); err != nil {
+		s.records[id] = record
+		return err
+	}
+	return nil
 }
 
 // UpdateLastUsed marks a credential as used at now, auto on login success
@@ -270,9 +305,14 @@ func (s *CredentialStore) UpdateLastUsed(id string, loginOK bool) error {
 	if !ok {
 		return errors.New("credential store: not found")
 	}
+	previousTime, previousOK := r.LastUsedAt, r.LastLoginOK
 	r.LastUsedAt = time.Now().UTC()
 	r.LastLoginOK = loginOK
-	return s.save()
+	if err := s.save(); err != nil {
+		r.LastUsedAt, r.LastLoginOK = previousTime, previousOK
+		return err
+	}
+	return nil
 }
 
 // DecryptPassword exposes the decrypted password for a record (used by

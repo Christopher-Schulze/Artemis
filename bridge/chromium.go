@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
@@ -58,7 +59,7 @@ type targetParams struct {
 
 type createTargetParams struct {
 	URL              string `json:"url"`
-	BrowserContextID string `json:"browserContextId"`
+	BrowserContextID string `json:"browserContextId,omitempty"`
 }
 
 type attachTargetParams struct {
@@ -301,6 +302,26 @@ func (b *ChromiumBrowser) NewContext(ctx context.Context) (*BrowserContext, erro
 	return contextOwner, nil
 }
 
+// DefaultContext returns the persistent Chromium profile context. Pages in
+// this context use the launched process's user-data-dir and therefore retain
+// cookies and origin storage across an explicit browser restart.
+func (b *ChromiumBrowser) DefaultContext() (*BrowserContext, error) {
+	if err := b.ensureOpen(); err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.terminal != nil {
+		return nil, &CDPError{Code: CDPErrorClosed, Op: "open default context", Err: fmt.Errorf("browser closed concurrently")}
+	}
+	if contextOwner, ok := b.contexts[""]; ok {
+		return contextOwner, nil
+	}
+	contextOwner := &BrowserContext{id: "", browser: b, pages: make(map[string]*Page)}
+	b.contexts[""] = contextOwner
+	return contextOwner, nil
+}
+
 func (b *ChromiumBrowser) callCleanup(method string, params any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
 	defer cancel()
@@ -393,6 +414,13 @@ func (b *ChromiumBrowser) close() error {
 		cancel()
 		if err != nil && !IsCDPError(err, CDPErrorClosed) {
 			result = errors.Join(result, fmt.Errorf("request browser close: %w", err))
+		}
+		if b.process != nil && err == nil {
+			select {
+			case <-b.process.Done():
+			case <-time.After(2 * time.Second):
+				result = errors.Join(result, fmt.Errorf("wait for graceful browser close: timeout"))
+			}
 		}
 	}
 	result = errors.Join(result, b.transport.Close())
@@ -524,7 +552,7 @@ func (c *BrowserContext) close(remote bool) error {
 	}
 	c.mu.Unlock()
 	var result error
-	if remote {
+	if remote && c.id != "" {
 		err := c.browser.callCleanup("Target.disposeBrowserContext", browserContextParams{BrowserContextID: c.id})
 		result = errors.Join(result, err)
 	}

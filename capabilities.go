@@ -87,8 +87,8 @@ var capabilityRegistry = []Capability{
 	},
 	{
 		ID: "profiles.persistent", Description: "Persist isolated authenticated browser profiles", Mode: ModeChromium,
-		State: SupportUnavailable, Entrypoint: "profile", Owner: "unassigned",
-		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "no proven browser-backed persistence lifecycle exists",
+		State: SupportSupported, Since: Version, Entrypoint: "profile.NewBrowserRuntime", Owner: "profile.RuntimeManager",
+		BehaviorTest: "profile.TestBrowserRuntimePersistentCookieAndStorageAcrossRestart",
 	},
 }
 

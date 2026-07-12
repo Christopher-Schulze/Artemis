@@ -18,6 +18,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/profile"
 )
 
 // Opts configures a Server.
@@ -30,6 +31,7 @@ type Opts struct {
 	ChromiumActions interface {
 		Execute(context.Context, actions.Request) actions.Outcome
 	}
+	ProfileRuntime *profile.RuntimeManager
 }
 
 // Server is a single-engine WebSocket steering server. Multiple
@@ -44,9 +46,11 @@ type Server struct {
 }
 
 type session struct {
-	id    string
-	mu    sync.Mutex
-	pages map[string]*engine.Page
+	id      string
+	owner   string
+	managed bool
+	mu      sync.Mutex
+	pages   map[string]*engine.Page
 }
 
 // New creates a Server bound to eng. The returned Server must be Closed
@@ -195,8 +199,30 @@ func (s *Server) newSessionID() string {
 }
 
 func (s *Server) cmdSessionNew(req *Request) *Response {
+	var params SessionNewParams
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return errResp(req.ID, string(ErrBadParams), err.Error())
+		}
+	}
 	id := "s" + s.newSessionID()
-	sess := &session{id: id, pages: make(map[string]*engine.Page)}
+	managed := false
+	if s.opts.ProfileRuntime != nil {
+		if params.OwnerUserRef == "" || params.ProfileID == "" {
+			return errResp(req.ID, string(ErrBadParams), "ownerUserRef and profileId are required")
+		}
+		class := profile.ProfileClass(params.Class)
+		if class == "" {
+			class = profile.ProfileEphemeral
+		}
+		created, err := s.opts.ProfileRuntime.Open(context.Background(), profile.OpenSessionRequest{ProfileID: profile.ProfileID(params.ProfileID), OwnerUserRef: params.OwnerUserRef, Class: class})
+		if err != nil {
+			return errResp(req.ID, string(ErrBadParams), err.Error())
+		}
+		id = string(created.ID)
+		managed = true
+	}
+	sess := &session{id: id, owner: params.OwnerUserRef, managed: managed, pages: make(map[string]*engine.Page)}
 	s.mu.Lock()
 	s.sessions[id] = sess
 	s.mu.Unlock()
@@ -220,6 +246,11 @@ func (s *Server) cmdSessionClose(req *Request) *Response {
 			_ = page.Close()
 		}
 		sess.mu.Unlock()
+		if sess.managed {
+			if err := s.opts.ProfileRuntime.Close(context.Background(), profile.SessionID(sess.id), sess.owner); err != nil {
+				return errResp(req.ID, string(ErrNoSession), err.Error())
+			}
+		}
 	}
 	return okResp(req.ID, map[string]any{})
 }

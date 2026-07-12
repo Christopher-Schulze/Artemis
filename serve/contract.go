@@ -89,7 +89,11 @@ const (
 
 // SessionNewParams has no parameters; session.new creates a fresh
 // session with server-assigned IDs.
-type SessionNewParams struct{}
+type SessionNewParams struct {
+	ProfileID    string `json:"profileId"`
+	OwnerUserRef string `json:"ownerUserRef"`
+	Class        string `json:"class"`
+}
 
 // SessionCloseParams closes an open session and all its pages.
 type SessionCloseParams struct {

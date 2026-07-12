@@ -1,9 +1,12 @@
 package profile
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,6 +53,7 @@ func TestTASK1599_RoutesReturnsHandler(t *testing.T) {
 func TestTASK1599_GetProfiles(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/browser/profiles", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -61,6 +65,7 @@ func TestTASK1599_PostProfile(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	body := `{"name":"test","owner_user_ref":"user1"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/browser/profiles", strings.NewReader(body))
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	// May fail due to nil manager, but should not panic
@@ -106,8 +111,13 @@ func TestTASK1599_PutSettings(t *testing.T) {
 }
 
 func TestTASK1599_GetSessions(t *testing.T) {
-	api := NewBrowserAPI(nil, nil, nil, nil)
+	runtime, err := NewRuntimeManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
 	req := httptest.NewRequest(http.MethodGet, "/api/browser/sessions", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -116,8 +126,13 @@ func TestTASK1599_GetSessions(t *testing.T) {
 }
 
 func TestTASK1599_PostSessions(t *testing.T) {
-	api := NewBrowserAPI(nil, nil, nil, nil)
-	req := httptest.NewRequest(http.MethodPost, "/api/browser/sessions", nil)
+	runtime, err := NewRuntimeManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
+	req := httptest.NewRequest(http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"api-profile","class":"ephemeral"}`))
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
@@ -126,8 +141,17 @@ func TestTASK1599_PostSessions(t *testing.T) {
 }
 
 func TestTASK1599_DeleteSessionByID(t *testing.T) {
-	api := NewBrowserAPI(nil, nil, nil, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/sess-001", nil)
+	runtime, err := NewRuntimeManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := runtime.Open(context.Background(), OpenSessionRequest{ProfileID: "api-profile", OwnerUserRef: "user1", Class: ProfileEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
+	req := httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/"+string(session.ID), nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -135,9 +159,37 @@ func TestTASK1599_DeleteSessionByID(t *testing.T) {
 	}
 }
 
+func TestBrowserAPILoginExecutesSessionManager(t *testing.T) {
+	manager := NewProfileManager(t.TempDir(), nil)
+	if err := manager.Create(&BrowserProfile{Name: "login-profile", OwnerUserRef: "owner", AllowedDomains: []string{"example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := NewCredentialStore(filepath.Join(t.TempDir(), "credentials.enc"), bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := credentials.StoreCredential("login-profile", "example.com", "user", "secret", LoginSelectors{}); err != nil {
+		t.Fatal(err)
+	}
+	sessions := NewSessionManager(credentials, &fakeDetector{visible: true}, &fakeExecutor{fillOK: true})
+	api := NewBrowserAPI(manager, sessions, NewCookieStore(), NewStorageManager(t.TempDir()))
+	req := httptest.NewRequest(http.MethodPost, "/api/browser/profiles/login-profile/login", strings.NewReader(`{"domain":"example.com","purpose":"support"}`))
+	req.Header.Set("X-Artemis-Owner", "owner")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", w.Code, w.Body.String())
+	}
+	var result LoginAttemptResult
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil || !result.Success {
+		t.Fatalf("login result=%+v err=%v", result, err)
+	}
+}
+
 func TestTASK1599_MethodNotAllowed(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPatch, "/api/browser/profiles", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -146,11 +198,16 @@ func TestTASK1599_MethodNotAllowed(t *testing.T) {
 }
 
 func TestTASK1599_FullSpecParity(t *testing.T) {
-	api := NewBrowserAPI(nil, nil, nil, nil)
+	runtime, err := NewRuntimeManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
 	h := api.Routes()
 
 	// 1. GET /api/browser/profiles
 	req := httptest.NewRequest(http.MethodGet, "/api/browser/profiles", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -176,6 +233,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 
 	// 4. GET /api/browser/sessions
 	req = httptest.NewRequest(http.MethodGet, "/api/browser/sessions", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -183,15 +241,21 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 5. POST /api/browser/sessions
-	req = httptest.NewRequest(http.MethodPost, "/api/browser/sessions", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"full-spec","class":"ephemeral"}`))
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Errorf("POST sessions: expected 201, got %d", w.Code)
 	}
+	var created RuntimeSession
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
 
 	// 6. DELETE /api/browser/sessions/:id
-	req = httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/sess-1", nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/"+string(created.ID), nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -200,6 +264,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 
 	// 7. Method not allowed
 	req = httptest.NewRequest(http.MethodPatch, "/api/browser/profiles", nil)
+	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {

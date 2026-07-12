@@ -40,6 +40,8 @@ func main() {
 		os.Exit(cmdObserve(os.Args[2:]))
 	case "act":
 		os.Exit(cmdAct(os.Args[2:]))
+	case "session":
+		os.Exit(cmdSession(os.Args[2:]))
 	default:
 		errf("unknown command %q", os.Args[1])
 		printUsage(os.Stderr)
@@ -59,6 +61,7 @@ Commands:
   serve     run the JSON-over-WebSocket steering server
   observe   capture a bounded Chromium DOM/accessibility snapshot as JSON
   act       execute one typed Chromium action and emit evidence as JSON
+  session   manage durable profile sessions
   version   print version
   capabilities  print the machine-readable capability contract
   help      print this help
