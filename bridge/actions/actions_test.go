@@ -27,8 +27,8 @@ func TestTASK2253_NewClickAction(t *testing.T) {
 func TestTASK2253_ClickExecute(t *testing.T) {
 	a := NewClickAction("e5")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("click should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("click without runtime must fail explicitly")
 	}
 	if result.Ref != "e5" {
 		t.Errorf("ref: got %s, want e5", result.Ref)
@@ -65,8 +65,8 @@ func TestTASK2253_ClickWithMovement(t *testing.T) {
 		input.MousePoint{X: 0, Y: 0},
 		input.MousePoint{X: 200, Y: 200},
 	)
-	if !result.Success {
-		t.Error("click with movement should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("click without runtime must fail explicitly")
 	}
 }
 
@@ -101,11 +101,11 @@ func TestTASK2253_NewTypeAction(t *testing.T) {
 func TestTASK2253_TypeExecute(t *testing.T) {
 	a := NewTypeAction("e3", "hello")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("type should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("type without runtime must fail explicitly")
 	}
-	if result.CharsTyped != 5 {
-		t.Errorf("chars: got %d, want 5", result.CharsTyped)
+	if result.CharsTyped != 0 {
+		t.Errorf("chars: got %d, want 0", result.CharsTyped)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestTASK2253_NewFormFill(t *testing.T) {
 func TestTASK2253_FormFillExecute(t *testing.T) {
 	a := NewFormFill("e5", "test")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("fill should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("fill without runtime must fail explicitly")
 	}
 }
 
@@ -204,8 +204,8 @@ func TestTASK2253_FormFillEmptyValue(t *testing.T) {
 func TestTASK2253_FormSelectExecute(t *testing.T) {
 	a := NewFormSelect("e5", "option1")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("select should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("select without runtime must fail explicitly")
 	}
 }
 
@@ -214,8 +214,8 @@ func TestTASK2253_FormSelectExecute(t *testing.T) {
 func TestTASK2253_FormCheckExecute(t *testing.T) {
 	a := NewFormCheck("e5")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("check should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("check without runtime must fail explicitly")
 	}
 }
 
@@ -224,8 +224,8 @@ func TestTASK2253_FormCheckExecute(t *testing.T) {
 func TestTASK2253_FormSubmitExecute(t *testing.T) {
 	a := NewFormSubmit("e5")
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("submit should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("submit without runtime must fail explicitly")
 	}
 }
 
@@ -251,8 +251,8 @@ func TestTASK2253_FormBatch(t *testing.T) {
 		t.Errorf("results: got %d, want 3", len(results))
 	}
 	for _, r := range results {
-		if !r.Success {
-			t.Error("all results should succeed")
+		if r.Success || r.Error == "" {
+			t.Error("batch without runtime must fail explicitly")
 		}
 	}
 }
@@ -303,8 +303,8 @@ func TestTASK2253_NewScrollAction(t *testing.T) {
 func TestTASK2253_ScrollExecute(t *testing.T) {
 	a := NewScrollAction(ScrollDown, 500)
 	result := a.Execute(context.Background())
-	if !result.Success {
-		t.Error("scroll should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("scroll without runtime must fail explicitly")
 	}
 }
 
@@ -500,26 +500,26 @@ func TestTASK2253_FullSpecParity(t *testing.T) {
 
 	// 1. click.go - click w/ human-like movement
 	clickResult := NewClickAction("e5").Execute(ctx)
-	if !clickResult.Success {
-		t.Error("click.go: click should succeed")
+	if clickResult.Success || clickResult.Error == "" {
+		t.Error("click.go: runtime-less click must fail")
 	}
 
 	// 2. type.go - text input w/ keystroke timing
 	typeResult := NewTypeAction("e3", "hello").Execute(ctx)
-	if !typeResult.Success {
-		t.Error("type.go: type should succeed")
+	if typeResult.Success || typeResult.Error == "" {
+		t.Error("type.go: runtime-less type must fail")
 	}
 
 	// 3. form.go - form fill/select/check/submit
 	formResult := NewFormFill("e5", "value").Execute(ctx)
-	if !formResult.Success {
-		t.Error("form.go: fill should succeed")
+	if formResult.Success || formResult.Error == "" {
+		t.Error("form.go: runtime-less fill must fail")
 	}
 
 	// 4. scroll.go - scroll w/ easeInOut
 	scrollResult := NewScrollAction(ScrollDown, 500).Execute(ctx)
-	if !scrollResult.Success {
-		t.Error("scroll.go: scroll should succeed")
+	if scrollResult.Success || scrollResult.Error == "" {
+		t.Error("scroll.go: runtime-less scroll must fail")
 	}
 
 	// 5. resolve.go - unified selector resolution

@@ -71,14 +71,27 @@ func (a ScrollAction) Execute(ctx context.Context) ScrollResult {
 			Error:     fmt.Sprintf("scroll: invalid direction %q", a.Direction),
 		}
 	}
-	// In a real implementation, this would use CDP to scroll
-	// with easeInOut easing over the specified duration.
-	return ScrollResult{
-		Success:   true,
-		Direction: a.Direction,
-		Amount:    a.Amount,
-		Duration:  time.Since(start),
+	return ScrollResult{Direction: a.Direction, Amount: a.Amount, Duration: time.Since(start), Error: "scroll: owned Runtime required"}
+}
+
+func (a ScrollAction) ExecuteWith(ctx context.Context, runtime *Runtime) ScrollResult {
+	start := time.Now()
+	if runtime == nil {
+		return ScrollResult{Direction: a.Direction, Amount: a.Amount, Duration: time.Since(start), Error: "scroll: runtime required"}
 	}
+	dx, dy := 0.0, 0.0
+	switch a.Direction {
+	case ScrollUp:
+		dy = -float64(a.Amount)
+	case ScrollDown:
+		dy = float64(a.Amount)
+	case ScrollLeft:
+		dx = -float64(a.Amount)
+	case ScrollRight:
+		dx = float64(a.Amount)
+	}
+	out := runtime.Execute(ctx, Request{Kind: KindScroll, DeltaX: dx, DeltaY: dy})
+	return ScrollResult{Success: out.Success, Direction: a.Direction, Amount: a.Amount, Duration: out.Evidence.Duration, Error: out.Error}
 }
 
 // EaseInOut computes the easeInOut value for a given t (0-1)

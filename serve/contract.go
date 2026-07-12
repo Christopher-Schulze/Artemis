@@ -11,6 +11,8 @@ package serve
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 )
 
 // ProtocolVersion is the wire-protocol version this server implements.
@@ -33,6 +35,7 @@ const (
 	CmdPageType        Command = "page.type"
 	CmdPageWaitIdle    Command = "page.wait_idle"
 	CmdPageAssert      Command = "page.assert"
+	CmdChromiumAct     Command = "chromium.act"
 )
 
 // ErrCode is the canonical error taxonomy. Clients can branch on
@@ -157,6 +160,13 @@ type PageAssertParams struct {
 	Substring string `json:"substring"`
 	Status    int    `json:"status"`
 	Expr      string `json:"expr"`
+}
+
+type ChromiumActParams struct {
+	Request actions.Request `json:"request"`
+}
+type ChromiumActResult struct {
+	Outcome actions.Outcome `json:"outcome"`
 }
 
 // --- Typed result structs ---

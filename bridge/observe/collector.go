@@ -109,6 +109,11 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 	axByBackend := make(map[int64]axNode)
 	warnings := make([]string, 0)
 	for _, frameID := range frameIDs {
+		if router, ok := c.caller.(FrameCaller); ok {
+			if _, attached := router.FrameSessions()[frameID]; attached {
+				continue
+			}
+		}
 		var tree axTreeResult
 		if err := c.caller.Call(ctx, "Accessibility.getFullAXTree", map[string]any{"frameId": frameID}, &tree); err != nil {
 			if frameID == frames.FrameTree.Frame.ID {
@@ -124,6 +129,44 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 		}
 	}
 	nodes, root, reasons := c.buildNodes(dom, axByBackend)
+	if router, ok := c.caller.(FrameCaller); ok {
+		frameSessions := router.FrameSessions()
+		attachedFrameIDs := make([]string, 0, len(frameSessions))
+		for frameID := range frameSessions {
+			attachedFrameIDs = append(attachedFrameIDs, frameID)
+		}
+		sort.Strings(attachedFrameIDs)
+		for _, frameID := range attachedFrameIDs {
+			var frameDOM domSnapshotResult
+			_ = router.CallFrame(ctx, frameID, "Accessibility.enable", map[string]any{}, &struct{}{})
+			_ = router.CallFrame(ctx, frameID, "DOM.enable", map[string]any{}, &struct{}{})
+			if err := router.CallFrame(ctx, frameID, "DOMSnapshot.captureSnapshot", params, &frameDOM); err != nil {
+				warnings = append(warnings, "DOM snapshot unavailable for OOPIF "+frameID+": "+err.Error())
+				continue
+			}
+			var frameAX axTreeResult
+			if err := router.CallFrame(ctx, frameID, "Accessibility.getFullAXTree", map[string]any{}, &frameAX); err != nil {
+				warnings = append(warnings, "AX tree unavailable for OOPIF "+frameID+": "+err.Error())
+			}
+			frameAXByBackend := make(map[int64]axNode)
+			for _, ax := range frameAX.Nodes {
+				if !ax.Ignored && ax.BackendNodeID != 0 {
+					frameAXByBackend[ax.BackendNodeID] = ax
+				}
+			}
+			frameNodes, _, frameReasons := c.buildNodes(frameDOM, frameAXByBackend)
+			nodes = append(nodes, frameNodes...)
+			for _, reason := range frameReasons {
+				if !contains(reasons, reason) {
+					reasons = append(reasons, reason)
+				}
+			}
+			var frameDocument documentResult
+			if err := router.CallFrame(ctx, frameID, "DOM.getDocument", map[string]any{"depth": -1, "pierce": true}, &frameDocument); err == nil {
+				collectShadowPaths(frameDocument.Root, nil, shadowPaths)
+			}
+		}
+	}
 	if document.Root.BackendNodeID != 0 {
 		root = document.Root.BackendNodeID
 	}
@@ -171,6 +214,14 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 	return snapshot, nil
 }
 
+// LastSnapshot returns the most recent completed observation. It is useful for
+// evidence collection while Chromium is blocked by a modal JavaScript dialog.
+func (c *Collector) LastSnapshot() Snapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.last
+}
+
 func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, mainFrame string) []string {
 	parents := make(map[int64]int64, len(nodes))
 	for _, node := range nodes {
@@ -191,7 +242,7 @@ func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, mainFrame s
 		var result struct {
 			BackendNodeID int64 `json:"backendNodeId"`
 		}
-		params := map[string]any{"x": int(math.Round(node.Box.X + node.Box.Width/2)), "y": int(math.Round(node.Box.Y + node.Box.Height/2)), "includeUserAgentShadowDOM": true, "ignorePointerEventsNone": false}
+		params := map[string]any{"x": int(math.Round(node.Box.X + node.Box.Width/2)), "y": int(math.Round(node.Box.Y + node.Box.Height/2)), "includeUserAgentShadowDOM": false, "ignorePointerEventsNone": false}
 		if err := c.caller.Call(ctx, "DOM.getNodeForLocation", params, &result); err != nil {
 			warnings = append(warnings, "hit test unavailable for backend node "+strconv.FormatInt(node.BackendNodeID, 10)+": "+err.Error())
 			continue

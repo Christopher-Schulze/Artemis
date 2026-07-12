@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
@@ -452,6 +453,10 @@ func (c *BrowserContext) NewPage(ctx context.Context, initialURL string) (*Page,
 		_ = c.browser.callCleanup("Target.closeTarget", targetParams{TargetID: targetID})
 		return nil, err
 	}
+	if err := page.enableFrameRouting(ctx); err != nil {
+		_ = page.close(true)
+		return nil, err
+	}
 	keepSlot = true
 	return page, nil
 }
@@ -484,7 +489,7 @@ func (c *BrowserContext) attachTarget(ctx context.Context, targetID string) (str
 }
 
 func (c *BrowserContext) registerPage(targetID, sessionID string) (*Page, error) {
-	page := &Page{targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached}
+	page := &Page{targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached, frameSessions: make(map[string]string)}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -534,15 +539,18 @@ func (c *BrowserContext) close(remote bool) error {
 
 // Page owns one target and flattened CDP session.
 type Page struct {
-	mu        sync.RWMutex
-	targetID  string
-	sessionID string
-	owner     *BrowserContext
-	state     TargetState
-	stateErr  string
-	closeOnce sync.Once
-	closeErr  error
-	removed   bool
+	mu            sync.RWMutex
+	targetID      string
+	sessionID     string
+	owner         *BrowserContext
+	state         TargetState
+	stateErr      string
+	closeOnce     sync.Once
+	closeErr      error
+	removed       bool
+	frameMu       sync.RWMutex
+	frameSessions map[string]string
+	frameSub      *CDPSubscription
 }
 
 // TargetID returns the immutable CDP target ID.
@@ -553,6 +561,14 @@ func (p *Page) TargetID() string {
 // SessionID returns the immutable flattened CDP session ID.
 func (p *Page) SessionID() string {
 	return p.sessionID
+}
+
+// BrowserContextID returns the owning isolated CDP browser-context ID.
+func (p *Page) BrowserContextID() string {
+	if p.owner == nil {
+		return ""
+	}
+	return p.owner.ID()
 }
 
 // State returns the target lifecycle state.
@@ -587,6 +603,133 @@ func (p *Page) Call(ctx context.Context, method string, params any, result any) 
 		return err
 	}
 	return p.owner.browser.transport.CallSession(ctx, p.sessionID, method, params, result)
+}
+
+// CallBrowser invokes a browser-session CDP method through this page's owner.
+func (p *Page) CallBrowser(ctx context.Context, method string, params any, result any) error {
+	if ctx == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "browser call", Err: fmt.Errorf("context required")}
+	}
+	if err := p.ensureAttached(); err != nil {
+		return err
+	}
+	if p.owner == nil || p.owner.browser == nil {
+		return &TargetError{TargetID: p.targetID, State: p.State(), Message: "page has no browser owner"}
+	}
+	return p.owner.browser.transport.Call(ctx, method, params, result)
+}
+
+// NewSibling creates another page in the same isolated browser context.
+func (p *Page) NewSibling(ctx context.Context, initialURL string) (*Page, error) {
+	if p.owner == nil {
+		return nil, &TargetError{TargetID: p.targetID, State: p.State(), Message: "page has no browser-context owner"}
+	}
+	return p.owner.NewPage(ctx, initialURL)
+}
+
+// ContextPages returns a target-ID ordered snapshot of live sibling pages.
+func (p *Page) ContextPages() []*Page {
+	if p.owner == nil {
+		return nil
+	}
+	p.owner.mu.Lock()
+	defer p.owner.mu.Unlock()
+	pages := make([]*Page, 0, len(p.owner.pages))
+	for _, page := range p.owner.pages {
+		pages = append(pages, page)
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].TargetID() < pages[j].TargetID() })
+	return pages
+}
+
+// Activate brings this page target to the foreground.
+func (p *Page) Activate(ctx context.Context) error {
+	return p.CallBrowser(ctx, "Target.activateTarget", targetParams{TargetID: p.targetID}, &struct{}{})
+}
+
+func (p *Page) enableFrameRouting(ctx context.Context) error {
+	sub, err := p.owner.browser.transport.Subscribe(128)
+	if err != nil {
+		return fmt.Errorf("subscribe frame targets: %w", err)
+	}
+	p.frameMu.Lock()
+	p.frameSub = sub
+	p.frameMu.Unlock()
+	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true, "filter": []map[string]string{{"type": "iframe"}}}
+	if err := p.Call(ctx, "Target.setAutoAttach", params, &struct{}{}); err != nil {
+		sub.Close()
+		return fmt.Errorf("enable iframe auto-attach: %w", err)
+	}
+	go p.monitorFrameTargets(sub)
+	return nil
+}
+
+func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
+	for {
+		select {
+		case event, ok := <-sub.Events:
+			if !ok {
+				return
+			}
+			var payload struct {
+				SessionID  string `json:"sessionId"`
+				TargetInfo struct {
+					TargetID string `json:"targetId"`
+					Type     string `json:"type"`
+				} `json:"targetInfo"`
+			}
+			if json.Unmarshal(event.Params, &payload) != nil {
+				continue
+			}
+			p.frameMu.Lock()
+			switch event.Method {
+			case "Target.attachedToTarget":
+				if payload.TargetInfo.Type == "iframe" && payload.TargetInfo.TargetID != "" && payload.SessionID != "" {
+					p.frameSessions[payload.TargetInfo.TargetID] = payload.SessionID
+				}
+			case "Target.detachedFromTarget":
+				for frameID, sessionID := range p.frameSessions {
+					if sessionID == payload.SessionID {
+						delete(p.frameSessions, frameID)
+					}
+				}
+			}
+			p.frameMu.Unlock()
+		case _, ok := <-sub.Errors:
+			if !ok {
+				return
+			}
+			return
+		}
+	}
+}
+
+// FrameSessions returns the current OOPIF frame-to-session routing table.
+func (p *Page) FrameSessions() map[string]string {
+	p.frameMu.RLock()
+	defer p.frameMu.RUnlock()
+	out := make(map[string]string, len(p.frameSessions))
+	for frameID, sessionID := range p.frameSessions {
+		out[frameID] = sessionID
+	}
+	return out
+}
+
+// CallFrame invokes method through an OOPIF session when frameID is attached.
+func (p *Page) CallFrame(ctx context.Context, frameID, method string, params, result any) error {
+	if frameID == "" {
+		return p.Call(ctx, method, params, result)
+	}
+	p.frameMu.RLock()
+	sessionID := p.frameSessions[frameID]
+	p.frameMu.RUnlock()
+	if sessionID == "" {
+		return p.Call(ctx, method, params, result)
+	}
+	if err := p.ensureAttached(); err != nil {
+		return err
+	}
+	return p.owner.browser.transport.CallSession(ctx, sessionID, method, params, result)
 }
 
 // Navigate loads url and returns CDP frame/loader identity.
@@ -627,6 +770,13 @@ func (p *Page) close(remote bool) error {
 	p.state = TargetStateClosed
 	p.stateErr = "closed by owner"
 	p.mu.Unlock()
+	p.frameMu.Lock()
+	if p.frameSub != nil {
+		p.frameSub.Close()
+		p.frameSub = nil
+	}
+	p.frameSessions = make(map[string]string)
+	p.frameMu.Unlock()
 	var err error
 	if remote && previous == TargetStateAttached {
 		err = p.owner.browser.callCleanup("Target.closeTarget", targetParams{TargetID: p.targetID})

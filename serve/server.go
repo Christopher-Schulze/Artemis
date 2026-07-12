@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
@@ -25,6 +26,10 @@ type Opts struct {
 	Logger *slog.Logger
 	// AcceptOptions tunes the websocket Accept handshake.
 	AcceptOptions *websocket.AcceptOptions
+	// ChromiumActions is an optional owned page-scoped action executor.
+	ChromiumActions interface {
+		Execute(context.Context, actions.Request) actions.Outcome
+	}
 }
 
 // Server is a single-engine WebSocket steering server. Multiple
@@ -163,9 +168,26 @@ func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 		return s.cmdPageWaitIdle(ctx, req)
 	case "page.assert":
 		return s.cmdPageAssert(ctx, req)
+	case "chromium.act":
+		return s.cmdChromiumAct(ctx, req)
 	default:
 		return errResp(req.ID, "unknown_cmd", fmt.Sprintf("unknown cmd %q", req.Cmd))
 	}
+}
+
+func (s *Server) cmdChromiumAct(ctx context.Context, req *Request) *Response {
+	if s.opts.ChromiumActions == nil {
+		return errResp(req.ID, "no_page", "Chromium action runtime is not configured")
+	}
+	var params ChromiumActParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, "bad_params", err.Error())
+	}
+	outcome := s.opts.ChromiumActions.Execute(ctx, params.Request)
+	if !outcome.Success {
+		return errResp(req.ID, string(outcome.Failure), outcome.Error)
+	}
+	return okResp(req.ID, ChromiumActResult{Outcome: outcome})
 }
 
 func (s *Server) newSessionID() string {

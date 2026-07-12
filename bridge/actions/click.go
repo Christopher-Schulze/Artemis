@@ -42,11 +42,7 @@ func NewClickAction(ref string) ClickAction {
 	}
 }
 
-// Execute executes the click action
-// (spec L4020: click w/ human-like movement).
-// In a real implementation, this would use CDP to move the mouse
-// along the Bezier path and click. Here we provide the action
-// structure and validation.
+// Execute rejects execution without an owned Chromium runtime.
 func (a ClickAction) Execute(ctx context.Context) ClickResult {
 	start := time.Now()
 	if a.Ref == "" {
@@ -56,16 +52,16 @@ func (a ClickAction) Execute(ctx context.Context) ClickResult {
 			Duration: time.Since(start),
 		}
 	}
-	// In a real implementation, this would:
-	// 1. Resolve the ref to coordinates
-	// 2. Generate a Bezier mouse path to the target
-	// 3. Move the mouse along the path
-	// 4. Click at the target
-	return ClickResult{
-		Success:  true,
-		Ref:      a.Ref,
-		Duration: time.Since(start),
+	return ClickResult{Ref: a.Ref, Duration: time.Since(start), Error: "click: owned Runtime required"}
+}
+
+func (a ClickAction) ExecuteWith(ctx context.Context, runtime *Runtime) ClickResult {
+	start := time.Now()
+	if runtime == nil {
+		return ClickResult{Ref: a.Ref, Duration: time.Since(start), Error: "click: runtime required"}
 	}
+	out := runtime.Execute(ctx, Request{Kind: KindClick, Ref: a.Ref})
+	return ClickResult{Success: out.Success, Ref: a.Ref, Duration: out.Evidence.Duration, Error: out.Error}
 }
 
 // GenerateClickPath generates a human-like mouse path for clicking

@@ -43,10 +43,7 @@ func NewTypeAction(ref string, text string) TypeAction {
 	}
 }
 
-// Execute executes the type action
-// (spec L4020: text input w/ keystroke timing).
-// In a real implementation, this would use CDP to focus the element
-// and type each character with the specified delay.
+// Execute rejects execution without an owned Chromium runtime.
 func (a TypeAction) Execute(ctx context.Context) TypeResult {
 	start := time.Now()
 	if a.Ref == "" {
@@ -61,16 +58,24 @@ func (a TypeAction) Execute(ctx context.Context) TypeResult {
 			Error:   "type: empty text",
 		}
 	}
-	// In a real implementation, this would:
-	// 1. Focus the element
-	// 2. Optionally clear the field
-	// 3. Type each character with delay + variance
-	return TypeResult{
-		Success:    true,
-		Ref:        a.Ref,
-		CharsTyped: len(a.Text),
-		Duration:   time.Since(start),
+	return TypeResult{Ref: a.Ref, Duration: time.Since(start), Error: "type: owned Runtime required"}
+}
+
+func (a TypeAction) ExecuteWith(ctx context.Context, runtime *Runtime) TypeResult {
+	start := time.Now()
+	if runtime == nil {
+		return TypeResult{Ref: a.Ref, Duration: time.Since(start), Error: "type: runtime required"}
 	}
+	kind := KindType
+	if a.ClearFirst {
+		kind = KindFill
+	}
+	out := runtime.Execute(ctx, Request{Kind: kind, Ref: a.Ref, Text: a.Text})
+	chars := 0
+	if out.Success {
+		chars = len(a.Text)
+	}
+	return TypeResult{Success: out.Success, Ref: a.Ref, CharsTyped: chars, Duration: out.Evidence.Duration, Error: out.Error}
 }
 
 // EstimatedDuration estimates the total typing duration

@@ -68,6 +68,8 @@ var capabilityRegistry = []Capability{
 		State: SupportSupported, Since: Version, Entrypoint: "bridge.LaunchChromium/bridge.ConnectChromium", Owner: "bridge.ChromiumBrowser/process.Browser/bridge.CDPTransport",
 		BehaviorTest: "bridge.TestChromiumLifecycleIntegration",
 	},
+	{ID: "chromium.observe", Description: "Capture bounded DOM and accessibility observations with stable references", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "bridge/observe.(*Collector).Capture", Owner: "bridge/observe.Collector", BehaviorTest: "observe_test.TestChromiumObservationFixture"},
+	{ID: "chromium.actions", Description: "Execute typed browser actions with actionability and postcondition evidence", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "bridge/actions.(*Runtime).Execute", Owner: "bridge/actions.Runtime", BehaviorTest: "actions.TestRuntimeRealChromiumInteractionMatrix"},
 	{
 		ID: "hybrid.routing", Description: "Escalate deterministically from renderless execution to Chromium", Mode: ModeHybrid,
 		State: SupportUnavailable, Entrypoint: "bridge/provider.go", Owner: "unassigned",
@@ -75,8 +77,8 @@ var capabilityRegistry = []Capability{
 	},
 	{
 		ID: "chromium.screenshot", Description: "Capture pixels rendered by Chromium", Mode: ModeChromium,
-		State: SupportUnavailable, Entrypoint: "bridge/cdpops", Owner: "unassigned",
-		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "renderless image synthesis is not a browser screenshot",
+		State: SupportSupported, Since: Version, Entrypoint: "bridge/actions.(*Runtime).Execute", Owner: "bridge/actions.Runtime",
+		BehaviorTest: "actions.TestRuntimeRealChromiumInteractionMatrix",
 	},
 	{
 		ID: "chromium.stealth", Description: "Apply and verify Chromium anti-detection controls", Mode: ModeChromium,

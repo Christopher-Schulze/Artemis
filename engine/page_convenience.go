@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 )
 
@@ -33,18 +34,21 @@ func (p *Page) Type(ctx context.Context, selector, text string) (actions.TypeRes
 	if selector == "" {
 		return actions.TypeResult{}, fmt.Errorf("page.Type: empty selector")
 	}
-	node, err := p.document.QuerySelector(selector)
+	if text == "" {
+		return actions.TypeResult{}, fmt.Errorf("page.Type: empty text")
+	}
+	element, err := p.document.QuerySelector(selector)
 	if err != nil {
 		return actions.TypeResult{}, fmt.Errorf("page.Type: query %q: %w", selector, err)
 	}
-	if node == nil {
+	if element == nil {
 		return actions.TypeResult{}, fmt.Errorf("page.Type: no element matches %q", selector)
 	}
-	action := actions.NewTypeAction(selector, text)
-	result := action.Execute(ctx)
-	if !result.Success {
-		return result, fmt.Errorf("page.Type: %s", result.Error)
+	start := time.Now()
+	if err := agent.Type(p.document, selector, text); err != nil {
+		return actions.TypeResult{Ref: selector, Duration: time.Since(start), Error: err.Error()}, fmt.Errorf("page.Type: %w", err)
 	}
+	result := actions.TypeResult{Success: true, Ref: selector, CharsTyped: len(text), Duration: time.Since(start)}
 	return result, nil
 }
 
@@ -57,24 +61,23 @@ func (p *Page) TypeWithDelay(ctx context.Context, selector, text string, delay, 
 	if selector == "" {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: empty selector")
 	}
-	node, err := p.document.QuerySelector(selector)
+	if text == "" {
+		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: empty text")
+	}
+	element, err := p.document.QuerySelector(selector)
 	if err != nil {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: query %q: %w", selector, err)
 	}
-	if node == nil {
+	if element == nil {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: no element matches %q", selector)
 	}
-	action := actions.TypeAction{
-		Ref:        selector,
-		Text:       text,
-		Delay:      delay,
-		Variance:   variance,
-		ClearFirst: true,
+	_ = delay
+	_ = variance
+	start := time.Now()
+	if err := agent.Type(p.document, selector, text); err != nil {
+		return actions.TypeResult{Ref: selector, Duration: time.Since(start), Error: err.Error()}, fmt.Errorf("page.TypeWithDelay: %w", err)
 	}
-	result := action.Execute(ctx)
-	if !result.Success {
-		return result, fmt.Errorf("page.TypeWithDelay: %s", result.Error)
-	}
+	result := actions.TypeResult{Success: true, Ref: selector, CharsTyped: len(text), Duration: time.Since(start)}
 	return result, nil
 }
 
@@ -93,11 +96,11 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	if formSelector == "" {
 		return nil, fmt.Errorf("page.Form: empty form selector")
 	}
-	formNode, err := p.document.QuerySelector(formSelector)
+	formElement, err := p.document.QuerySelector(formSelector)
 	if err != nil {
 		return nil, fmt.Errorf("page.Form: query %q: %w", formSelector, err)
 	}
-	if formNode == nil {
+	if formElement == nil {
 		return nil, fmt.Errorf("page.Form: no form matches %q", formSelector)
 	}
 	if len(fields) == 0 {
@@ -107,8 +110,8 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	var allActions []actions.FormAction
 	allFieldsFound := true
 	for selector, value := range fields {
-		fieldNode, fieldErr := p.document.QuerySelector(selector)
-		if fieldErr != nil || fieldNode == nil {
+		fieldElement, fieldErr := p.document.QuerySelector(selector)
+		if fieldErr != nil || fieldElement == nil {
 			allFieldsFound = false
 			// Record a failed fill for the missing field.
 			allActions = append(allActions, actions.FormAction{
@@ -125,7 +128,31 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 		allActions = append(allActions, actions.NewFormSubmit(formSelector))
 	}
 
-	results := actions.FormBatch(ctx, allActions)
+	results := make([]actions.FormResult, 0, len(allActions))
+	for _, action := range allActions {
+		start := time.Now()
+		result := actions.FormResult{Type: action.Type, Ref: action.Ref}
+		switch action.Type {
+		case actions.FormActionFill:
+			if action.Ref == "" {
+				result.Error = "form: field not found"
+			} else if err := agent.Type(p.document, action.Ref, action.Value); err != nil {
+				result.Error = err.Error()
+			} else {
+				result.Success = true
+			}
+		case actions.FormActionSubmit:
+			if err := p.Click(ctx, formElement); err != nil {
+				result.Error = err.Error()
+			} else {
+				result.Success = true
+			}
+		default:
+			result.Error = "form: unsupported renderless action"
+		}
+		result.Duration = time.Since(start)
+		results = append(results, result)
+	}
 
 	// Check for errors.
 	var firstErr error
@@ -154,17 +181,19 @@ func (p *Page) FormSubmit(ctx context.Context, formSelector string) (actions.For
 	if formSelector == "" {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: empty form selector")
 	}
-	formNode, err := p.document.QuerySelector(formSelector)
+	formElement, err := p.document.QuerySelector(formSelector)
 	if err != nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: query %q: %w", formSelector, err)
 	}
-	if formNode == nil {
+	if formElement == nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: no form matches %q", formSelector)
 	}
-	action := actions.NewFormSubmit(formSelector)
-	result := action.Execute(ctx)
-	if !result.Success {
-		return result, fmt.Errorf("page.FormSubmit: %s", result.Error)
+	start := time.Now()
+	err = p.Click(ctx, formElement)
+	result := actions.FormResult{Success: err == nil, Type: actions.FormActionSubmit, Ref: formSelector, Duration: time.Since(start)}
+	if err != nil {
+		result.Error = err.Error()
+		return result, fmt.Errorf("page.FormSubmit: %w", err)
 	}
 	return result, nil
 }
@@ -179,12 +208,12 @@ func (p *Page) ClickSelector(ctx context.Context, selector string) error {
 	if selector == "" {
 		return fmt.Errorf("page.ClickSelector: empty selector")
 	}
-	node, err := p.document.QuerySelector(selector)
+	element, err := p.document.QuerySelector(selector)
 	if err != nil {
 		return fmt.Errorf("page.ClickSelector: query %q: %w", selector, err)
 	}
-	if node == nil {
+	if element == nil {
 		return fmt.Errorf("page.ClickSelector: no element matches %q", selector)
 	}
-	return p.Click(ctx, node)
+	return p.Click(ctx, element)
 }

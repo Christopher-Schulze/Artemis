@@ -10,6 +10,12 @@ type Caller interface {
 	Call(context.Context, string, any, any) error
 }
 
+type FrameCaller interface {
+	Caller
+	FrameSessions() map[string]string
+	CallFrame(context.Context, string, string, any, any) error
+}
+
 type Mode string
 
 const (

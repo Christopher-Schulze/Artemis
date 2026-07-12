@@ -89,12 +89,20 @@ func (a FormAction) Execute(ctx context.Context) FormResult {
 	default:
 		return FormResult{Success: false, Type: a.Type, Ref: a.Ref, Error: fmt.Sprintf("form: unknown action type %q", a.Type)}
 	}
-	return FormResult{
-		Success:  true,
-		Type:     a.Type,
-		Ref:      a.Ref,
-		Duration: time.Since(start),
+	return FormResult{Type: a.Type, Ref: a.Ref, Duration: time.Since(start), Error: "form: owned Runtime required"}
+}
+
+func (a FormAction) ExecuteWith(ctx context.Context, runtime *Runtime) FormResult {
+	start := time.Now()
+	if runtime == nil {
+		return FormResult{Type: a.Type, Ref: a.Ref, Duration: time.Since(start), Error: "form: runtime required"}
 	}
+	kind := Kind(a.Type)
+	if a.Type == FormActionSubmit {
+		kind = KindClick
+	}
+	out := runtime.Execute(ctx, Request{Kind: kind, Ref: a.Ref, Value: a.Value})
+	return FormResult{Success: out.Success, Type: a.Type, Ref: a.Ref, Duration: out.Evidence.Duration, Error: out.Error}
 }
 
 // FormBatch executes multiple form actions in sequence
@@ -103,6 +111,14 @@ func FormBatch(ctx context.Context, actions []FormAction) []FormResult {
 	results := make([]FormResult, len(actions))
 	for i, a := range actions {
 		results[i] = a.Execute(ctx)
+	}
+	return results
+}
+
+func FormBatchWith(ctx context.Context, runtime *Runtime, actions []FormAction) []FormResult {
+	results := make([]FormResult, len(actions))
+	for i, a := range actions {
+		results[i] = a.ExecuteWith(ctx, runtime)
 	}
 	return results
 }
