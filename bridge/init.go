@@ -11,17 +11,18 @@ import (
 //
 // This file provides the spec-mandated bridge initialization and
 // lifecycle management. Handles validated Chromium startup/shutdown
-// and rejects unproven stealth configuration.
+// and accepts only a validated target-script contract for stealth.
 
 // BridgeInitConfig configures bridge initialization
 // (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
 type BridgeInitConfig struct {
-	ProviderName   string `json:"providerName"`
-	Headless       bool   `json:"headless"`
-	StealthEnabled bool   `json:"stealthEnabled"`
-	MaxTabs        int    `json:"maxTabs"`
-	UserDataDir    string `json:"userDataDir,omitempty"`
-	ChromePath     string `json:"chromePath,omitempty"`
+	ProviderName   string             `json:"providerName"`
+	Headless       bool               `json:"headless"`
+	StealthEnabled bool               `json:"stealthEnabled"`
+	TargetScripts  TargetScriptConfig `json:"-"`
+	MaxTabs        int                `json:"maxTabs"`
+	UserDataDir    string             `json:"userDataDir,omitempty"`
+	ChromePath     string             `json:"chromePath,omitempty"`
 }
 
 // BridgeInitializer manages bridge initialization and lifecycle
@@ -57,8 +58,8 @@ func (bi *BridgeInitializer) Start(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("init: context required")
 	}
-	if bi.config.StealthEnabled {
-		return fmt.Errorf("init: stealth is unavailable until its browser behavior is proven")
+	if bi.config.StealthEnabled && bi.config.TargetScripts.PageScript == "" && bi.config.TargetScripts.WorkerScript == "" {
+		return fmt.Errorf("init: stealth enabled without a validated target script contract")
 	}
 	if err := bi.state.Transition(BridgeStateInitializing); err != nil {
 		return err
@@ -75,6 +76,18 @@ func (bi *BridgeInitializer) Start(ctx context.Context) error {
 	if err != nil {
 		_ = bi.state.Transition(BridgeStateError)
 		return err
+	}
+	if bi.config.TargetScripts.PageScript != "" || bi.config.TargetScripts.WorkerScript != "" {
+		if session.Runtime == nil {
+			_ = provider.Close()
+			_ = bi.state.Transition(BridgeStateError)
+			return fmt.Errorf("init: target scripts require a CDP runtime")
+		}
+		if err := session.Runtime.ConfigureTargetScripts(bi.config.TargetScripts); err != nil {
+			_ = provider.Close()
+			_ = bi.state.Transition(BridgeStateError)
+			return fmt.Errorf("init: configure target scripts: %w", err)
+		}
 	}
 	if err := bi.state.Transition(BridgeStateReady); err != nil {
 		_ = provider.Close()

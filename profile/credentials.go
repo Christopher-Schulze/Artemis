@@ -55,6 +55,58 @@ type CredentialSummary struct {
 	LastLoginOK bool      `json:"last_login_ok"`
 }
 
+// CredentialLease owns one decrypted password for the shortest possible
+// credentialed operation. The password is never serializable or printable and
+// is wiped when Close is called.
+type CredentialLease struct {
+	mu       sync.Mutex
+	record   StoredCredential
+	password []byte
+	closed   bool
+}
+
+func (l *CredentialLease) Record() *StoredCredential {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil
+	}
+	record := l.record
+	record.Password = append([]byte(nil), l.record.Password...)
+	record.Nonce = append([]byte(nil), l.record.Nonce...)
+	return &record
+}
+
+// WithPassword invokes fn while the decrypted value is live. The callback is
+// the only API that can consume the password.
+func (l *CredentialLease) WithPassword(fn func(string) error) error {
+	if l == nil || fn == nil {
+		return errors.New("credential lease: callback required")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed || len(l.password) == 0 {
+		return errors.New("credential lease: closed")
+	}
+	return fn(string(l.password))
+}
+
+func (l *CredentialLease) Close() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range l.password {
+		l.password[i] = 0
+	}
+	l.password = nil
+	l.closed = true
+}
+
 // CredentialStore is the AES-256-GCM encrypted credential store backed by
 // a JSON file in the browser data dir.
 //
@@ -254,6 +306,24 @@ func (s *CredentialStore) GetCredential(profileName, domain string) (*StoredCred
 		}
 	}
 	return nil, "", errors.New("credential store: not found")
+}
+
+// AcquireCredential decrypts one credential into a short-lived lease. The
+// encrypted record remains the only persisted representation.
+func (s *CredentialStore) AcquireCredential(profileName, domain string) (*CredentialLease, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.records {
+		if r.ProfileName != profileName || r.Domain != domain {
+			continue
+		}
+		password, err := s.decryptPassword(r.Password, r.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		return &CredentialLease{record: *r, password: []byte(password)}, nil
+	}
+	return nil, errors.New("credential store: not found")
 }
 
 // ListCredentials returns password-less summaries, optionally filtered by

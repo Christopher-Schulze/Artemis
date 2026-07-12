@@ -61,3 +61,22 @@ func TestDetermineStealthLevel(t *testing.T) {
 		t.Fatalf("domain not allowlisted must not escalate, got %s", level2)
 	}
 }
+
+func TestStealthAckWildcardRequiresDomainBoundary(t *testing.T) {
+	lookup := func(string) ([]net.IP, error) { return []net.IP{net.ParseIP("93.184.216.34")}, nil }
+	ack := StealthAck{AcknowledgedAt: time.Now(), LegalBasis: "contract", Purpose: "automation", DomainAllow: []string{"*.example.com"}}
+	level, err := DetermineStealthLevel("https://evil-example.com/page", StealthPolicy{Requested: StealthParanoid, Ack: ack}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if level != StealthDefault {
+		t.Fatalf("wildcard crossed domain boundary: %s", level)
+	}
+	level, err = DetermineStealthLevel("https://shop.example.com/page", StealthPolicy{Requested: StealthParanoid, Ack: ack}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if level != StealthParanoid {
+		t.Fatalf("valid wildcard was denied: %s", level)
+	}
+}

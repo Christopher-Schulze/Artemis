@@ -41,7 +41,7 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, and the canonical deterministic hybrid router contract. High-level Chromium action composition, authenticated-profile policy, and verified browser anti-detection remain separate release surfaces. It does not ship a Model Context Protocol (MCP) endpoint.
+Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, the canonical deterministic hybrid router contract, and verified page/worker stealth pre-script injection when an acknowledged environment profile is supplied. Challenge resolution is experimental and always requires policy admission plus a verified postcondition. It does not ship a Model Context Protocol (MCP) endpoint.
 
 ## Release Capability Contract
 
@@ -551,7 +551,9 @@ The `renderless` package is the in-process no-render JS browser path. It provide
 
 ## Stealth Layer
 
-Support state: **unavailable as browser anti-detection**. The `stealth` package generates patches, flags, and profiles, but no real-browser behavior probe establishes anti-detection effectiveness.
+Support state: **supported for measured, policy-acknowledged page and worker injection**. `StealthDefault` keeps local/LAN browsing unmodified. `StealthStealth` and `StealthParanoid` require a valid legal acknowledgement and public-domain policy; the immutable `EnvironmentProfile` validates UA/client-hint, platform, locale, timezone, viewport, and optional measured WebGL/network values before generating scripts. `bridge.BrowserContext.NewPageWithScripts` installs the page pre-script before navigation, and the CDP target router injects the worker script while child targets are paused. The real behavior contract is `bridge.TestChromiumTargetScriptsRunBeforePageAndWorkerCode`; this is not a universal anti-detection or challenge-solving guarantee.
+
+The patch and launch-flag counts below describe the existing stealth catalog. The production `BrowserRuntime` path activates only measured profile overrides that passed validation; it does not market the catalog counts as proof of universal anti-detection.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -577,6 +579,11 @@ Support state: **unavailable as browser anti-detection**. The `stealth` package 
 | `stealth.ValidateH2Settings(frame)` | func | validate H2 settings frame |
 | `stealth.DeriveEffectiveType(rtt, downlink)` | func | derive network effective type |
 | `stealth.ParseChromeVersion(ua)` | func | parse Chrome version from UA |
+| `stealth.EnvironmentProfile` | struct | immutable versioned session environment and fingerprint contract |
+| `stealth.NewEnvironmentProfile(...)` | func | validate measured facts and derive stable profile identity |
+| `stealth.NewDocumentScript(profile)` | func | render a JSON-escaped page pre-script |
+| `stealth.NewWorkerScript(profile)` | func | render a worker-safe pre-script with the same identity |
+| `stealth.EnvironmentProfile.ValidateConsistency(probe)` | method | fail closed on observed fingerprint drift |
 | `stealth.STEALTH_ARGS` | var | stealth launch arguments |
 | `stealth.BasePatchCount` / `stealth.ParanoidPatchCount` | const | patch count constants |
 
@@ -604,7 +611,7 @@ The `observe` package implements page observation: accessibility tree extraction
 
 ## Solver / CAPTCHA Pipeline
 
-The `solver` package implements a 2-stage challenge/CAPTCHA pipeline: vision solve (screenshot → LLM vision → instruction → execute) → user fallback. Challenge types are classified by `ChallengeType`.
+The `solver` package implements a 2-stage challenge/CAPTCHA pipeline: vision solve (screenshot → LLM vision → instruction → execute) → user fallback. `ChallengeDetector` records deterministic DOM, title, network, response, and visual signals. `ChallengeResolver` is the policy boundary: it admits only allowlisted domains, challenge types and strategies, bounds attempts/duration, and reports `solved` only after a caller-provided postcondition is true. Unsupported and disallowed outcomes remain typed failures.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -627,6 +634,8 @@ The `solver` package implements a 2-stage challenge/CAPTCHA pipeline: vision sol
 | `solver.FormatChallengePrompt(challengeType, context)` | func | format challenge prompt |
 | `solver.PageSignals` | struct | page signals for detection |
 | `solver.ChallengeInfo` | struct | detected challenge info |
+| `solver.ChallengeResolver` | struct | policy-gated strategy execution with verified outcome |
+| `solver.ChallengeOutcome` | struct | secret-free typed challenge result |
 | `solver.DefaultVisionModel` | const | `qwen3.6-vision` |
 
 ## Human-like Input
@@ -678,7 +687,7 @@ The `security` package implements browser security: SSRF prevention (private IP 
 
 ## Profile / Session Management
 
-Support state: **unavailable as persistent authenticated browsing**. Profile data types and storage helpers exist, but a real browser-backed persistence, isolation, restart, and login lifecycle is not proven.
+Support state: **supported for isolated persistent Chromium sessions and owner-checked credential/MFA execution**. The real browser persistence and restart fixture is `profile.TestBrowserRuntimePersistentCookieAndStorageAcrossRestart`; authenticated flows require an injected encrypted `CredentialStore`, a `BrowserLoginExecutor`, an allowlisted purpose/domain policy, and a verified postcondition.
 
 | Symbol | Kind | Purpose |
 |---|---|---|
@@ -695,6 +704,10 @@ Support state: **unavailable as persistent authenticated browsing**. Profile dat
 | `profile.GeoMode` | type | geo-mode enum (explicit_wins, proxy_locked) |
 | `profile.KeychainProvider` | struct | in-memory keychain (test) |
 | `profile.SecretProvider` | interface | pluggable keychain abstraction |
+| `profile.CredentialLease` | struct | short-lived decrypted credential with wipe-on-close |
+| `profile.Authenticator` | struct | policy-bounded credential, MFA and postcondition orchestration |
+| `profile.BrowserLoginExecutor` | struct | real CDP form/MFA executor with secret-free evidence |
+| `profile.BrowserRuntime.Authenticate` | method | owner-checked authenticated operation on an owned page |
 
 ## Scraper Subsystem
 

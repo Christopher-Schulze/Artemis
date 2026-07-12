@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +72,26 @@ type navigateParams struct {
 	URL string `json:"url"`
 }
 
+// TargetScriptConfig is the browser-owned pre-script contract. PageScript is
+// installed with Page.addScriptToEvaluateOnNewDocument; WorkerScript is
+// evaluated while a worker target is paused before it resumes. Keeping the
+// shape in bridge avoids a package cycle while allowing stealth to own the
+// script contents and versioning.
+type TargetScriptConfig struct {
+	Version      string
+	PageScript   string
+	WorkerScript string
+}
+
+type targetScriptResult struct {
+	Identifier string `json:"identifier"`
+}
+
+type targetScriptEvaluateParams struct {
+	Expression    string `json:"expression"`
+	ReturnByValue bool   `json:"returnByValue"`
+}
+
 // TargetError reports target-specific lifecycle failure.
 type TargetError struct {
 	TargetID string
@@ -84,22 +105,23 @@ func (e *TargetError) Error() string {
 
 // ChromiumBrowser owns one CDP transport and optionally its local process.
 type ChromiumBrowser struct {
-	mu         sync.RWMutex
-	transport  *CDPTransport
-	process    *browserprocess.Browser
-	endpoint   string
-	owned      bool
-	version    BrowserVersion
-	contexts   map[string]*BrowserContext
-	pages      map[string]*Page
-	sessionMap map[string]*Page
-	maxPages   int
-	pageSlots  int
-	monitor    *CDPSubscription
-	closed     bool
-	terminal   error
-	closeOnce  sync.Once
-	closeErr   error
+	mu            sync.RWMutex
+	transport     *CDPTransport
+	process       *browserprocess.Browser
+	endpoint      string
+	owned         bool
+	version       BrowserVersion
+	contexts      map[string]*BrowserContext
+	pages         map[string]*Page
+	sessionMap    map[string]*Page
+	maxPages      int
+	pageSlots     int
+	monitor       *CDPSubscription
+	targetScripts TargetScriptConfig
+	closed        bool
+	terminal      error
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 // ConnectChromium validates an external browser endpoint without taking process ownership.
@@ -188,6 +210,50 @@ func (b *ChromiumBrowser) ProfileDir() string {
 // Transport exposes the typed CDP transport for advanced browser-scoped calls.
 func (b *ChromiumBrowser) Transport() *CDPTransport {
 	return b.transport
+}
+
+// ConfigureTargetScripts installs the immutable script contract used for
+// subsequently created pages and attached child targets. Existing pages are
+// intentionally not mutated: callers must configure before opening pages so
+// the first document script runs before page code.
+func (b *ChromiumBrowser) ConfigureTargetScripts(config TargetScriptConfig) error {
+	if b == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "configure target scripts", Err: fmt.Errorf("browser required")}
+	}
+	if config.PageScript == "" && config.WorkerScript == "" {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.closed || b.terminal != nil {
+			return &CDPError{Code: CDPErrorClosed, Op: "configure target scripts", Err: fmt.Errorf("browser is closed")}
+		}
+		if b.targetScripts.PageScript != "" || b.targetScripts.WorkerScript != "" {
+			return &CDPError{Code: CDPErrorInvalidConfig, Op: "configure target scripts", Err: fmt.Errorf("target scripts are immutable")}
+		}
+		b.targetScripts = TargetScriptConfig{}
+		return nil
+	}
+	if strings.TrimSpace(config.Version) == "" {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "configure target scripts", Err: fmt.Errorf("script version required")}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.terminal != nil {
+		return &CDPError{Code: CDPErrorClosed, Op: "configure target scripts", Err: fmt.Errorf("browser is closed")}
+	}
+	if b.targetScripts.PageScript != "" || b.targetScripts.WorkerScript != "" {
+		if b.targetScripts != config {
+			return &CDPError{Code: CDPErrorInvalidConfig, Op: "configure target scripts", Err: fmt.Errorf("target scripts already configured")}
+		}
+		return nil
+	}
+	b.targetScripts = config
+	return nil
+}
+
+func (b *ChromiumBrowser) targetScriptConfig() TargetScriptConfig {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.targetScripts
 }
 
 // SetMaxPages updates the positive runtime target bound before workload admission.
@@ -446,8 +512,22 @@ func (c *BrowserContext) ID() string {
 
 // NewPage creates and attaches one flattened CDP target session.
 func (c *BrowserContext) NewPage(ctx context.Context, initialURL string) (*Page, error) {
+	return c.newPage(ctx, initialURL, c.browser.targetScriptConfig())
+}
+
+// NewPageWithScripts creates a page with a caller-selected immutable target
+// script contract. It is used when a navigation policy selects a different
+// supported stealth level for the target while retaining the same profile.
+func (c *BrowserContext) NewPageWithScripts(ctx context.Context, initialURL string, scripts TargetScriptConfig) (*Page, error) {
+	return c.newPage(ctx, initialURL, scripts)
+}
+
+func (c *BrowserContext) newPage(ctx context.Context, initialURL string, scripts TargetScriptConfig) (*Page, error) {
 	if ctx == nil {
 		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "create page", Err: fmt.Errorf("context required")}
+	}
+	if (scripts.PageScript != "" || scripts.WorkerScript != "") && strings.TrimSpace(scripts.Version) == "" {
+		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "create page", Err: fmt.Errorf("target script version required")}
 	}
 	c.mu.Lock()
 	if c.closed {
@@ -464,10 +544,14 @@ func (c *BrowserContext) NewPage(ctx context.Context, initialURL string) (*Page,
 			c.browser.releasePage()
 		}
 	}()
-	if initialURL == "" {
-		initialURL = "about:blank"
+	targetURL := initialURL
+	if targetURL == "" {
+		targetURL = "about:blank"
 	}
-	targetID, err := c.createTarget(ctx, initialURL)
+	// Always create about:blank first. This gives the owner a chance to install
+	// Page.addScriptToEvaluateOnNewDocument before any caller-controlled page
+	// script executes.
+	targetID, err := c.createTarget(ctx, "about:blank")
 	if err != nil {
 		return nil, err
 	}
@@ -476,14 +560,24 @@ func (c *BrowserContext) NewPage(ctx context.Context, initialURL string) (*Page,
 		_ = c.browser.callCleanup("Target.closeTarget", targetParams{TargetID: targetID})
 		return nil, err
 	}
-	page, err := c.registerPage(targetID, sessionID)
+	page, err := c.registerPage(targetID, sessionID, scripts)
 	if err != nil {
 		_ = c.browser.callCleanup("Target.closeTarget", targetParams{TargetID: targetID})
+		return nil, err
+	}
+	if err := page.installPageScript(ctx); err != nil {
+		_ = page.close(true)
 		return nil, err
 	}
 	if err := page.enableFrameRouting(ctx); err != nil {
 		_ = page.close(true)
 		return nil, err
+	}
+	if targetURL != "about:blank" {
+		if _, _, err := page.Navigate(ctx, targetURL); err != nil {
+			_ = page.close(true)
+			return nil, err
+		}
 	}
 	keepSlot = true
 	return page, nil
@@ -516,8 +610,8 @@ func (c *BrowserContext) attachTarget(ctx context.Context, targetID string) (str
 	return attached.SessionID, nil
 }
 
-func (c *BrowserContext) registerPage(targetID, sessionID string) (*Page, error) {
-	page := &Page{targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached, frameSessions: make(map[string]string)}
+func (c *BrowserContext) registerPage(targetID, sessionID string, scripts TargetScriptConfig) (*Page, error) {
+	page := &Page{targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached, frameSessions: make(map[string]string), targetScripts: scripts}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -567,18 +661,38 @@ func (c *BrowserContext) close(remote bool) error {
 
 // Page owns one target and flattened CDP session.
 type Page struct {
-	mu            sync.RWMutex
-	targetID      string
-	sessionID     string
-	owner         *BrowserContext
-	state         TargetState
-	stateErr      string
-	closeOnce     sync.Once
-	closeErr      error
-	removed       bool
-	frameMu       sync.RWMutex
-	frameSessions map[string]string
-	frameSub      *CDPSubscription
+	mu              sync.RWMutex
+	targetID        string
+	sessionID       string
+	owner           *BrowserContext
+	state           TargetState
+	stateErr        string
+	targetScriptErr string
+	closeOnce       sync.Once
+	closeErr        error
+	removed         bool
+	frameMu         sync.RWMutex
+	frameSessions   map[string]string
+	frameSub        *CDPSubscription
+	targetScripts   TargetScriptConfig
+}
+
+func (p *Page) installPageScript(ctx context.Context) error {
+	config := p.targetScripts
+	if config.PageScript == "" {
+		return nil
+	}
+	if err := p.Call(ctx, "Page.enable", nil, nil); err != nil {
+		return fmt.Errorf("enable page pre-script domain: %w", err)
+	}
+	var result targetScriptResult
+	if err := p.Call(ctx, "Page.addScriptToEvaluateOnNewDocument", map[string]string{"source": config.PageScript}, &result); err != nil {
+		return fmt.Errorf("install page pre-script: %w", err)
+	}
+	if result.Identifier == "" {
+		return &CDPError{Code: CDPErrorProtocol, Op: "install page pre-script", Err: fmt.Errorf("empty script identifier")}
+	}
+	return nil
 }
 
 // TargetID returns the immutable CDP target ID.
@@ -610,6 +724,30 @@ func (p *Page) setState(state TargetState, message string) {
 	p.mu.Lock()
 	p.state = state
 	p.stateErr = message
+	p.mu.Unlock()
+}
+
+// TargetScriptStatus reports the immutable pre-script version and the first
+// child-target injection failure, if any. A child target error is surfaced
+// separately from target lifecycle state so callers cannot mistake a usable
+// page transport for a fully covered stealth session.
+func (p *Page) TargetScriptStatus() (string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.targetScriptErr == "" {
+		return p.targetScripts.Version, nil
+	}
+	return p.targetScripts.Version, fmt.Errorf("target script injection: %s", p.targetScriptErr)
+}
+
+func (p *Page) setTargetScriptError(targetType string, err error) {
+	if err == nil {
+		return
+	}
+	p.mu.Lock()
+	if p.targetScriptErr == "" {
+		p.targetScriptErr = fmt.Sprintf("%s: %v", targetType, err)
+	}
 	p.mu.Unlock()
 }
 
@@ -683,7 +821,8 @@ func (p *Page) enableFrameRouting(ctx context.Context) error {
 	p.frameMu.Lock()
 	p.frameSub = sub
 	p.frameMu.Unlock()
-	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true, "filter": []map[string]string{{"type": "iframe"}}}
+	config := p.targetScripts
+	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": config.WorkerScript != "" || config.PageScript != "", "flatten": true}
 	if err := p.Call(ctx, "Target.setAutoAttach", params, &struct{}{}); err != nil {
 		sub.Close()
 		return fmt.Errorf("enable iframe auto-attach: %w", err)
@@ -709,26 +848,63 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 			if json.Unmarshal(event.Params, &payload) != nil {
 				continue
 			}
-			p.frameMu.Lock()
 			switch event.Method {
 			case "Target.attachedToTarget":
+				p.frameMu.Lock()
 				if payload.TargetInfo.Type == "iframe" && payload.TargetInfo.TargetID != "" && payload.SessionID != "" {
 					p.frameSessions[payload.TargetInfo.TargetID] = payload.SessionID
 				}
+				p.frameMu.Unlock()
+				p.initializeAttachedTarget(payload.SessionID, payload.TargetInfo.Type)
 			case "Target.detachedFromTarget":
+				p.frameMu.Lock()
 				for frameID, sessionID := range p.frameSessions {
 					if sessionID == payload.SessionID {
 						delete(p.frameSessions, frameID)
 					}
 				}
+				p.frameMu.Unlock()
 			}
-			p.frameMu.Unlock()
 		case _, ok := <-sub.Errors:
 			if !ok {
 				return
 			}
 			return
 		}
+	}
+}
+
+func (p *Page) initializeAttachedTarget(sessionID, targetType string) {
+	if sessionID == "" {
+		return
+	}
+	config := p.targetScripts
+	if config.PageScript == "" && config.WorkerScript == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	script := config.PageScript
+	if strings.Contains(targetType, "worker") {
+		script = config.WorkerScript
+	}
+	if script != "" {
+		method := "Page.addScriptToEvaluateOnNewDocument"
+		params := any(map[string]string{"source": script})
+		if strings.Contains(targetType, "worker") {
+			method = "Runtime.evaluate"
+			params = targetScriptEvaluateParams{Expression: script}
+		} else if err := p.owner.browser.transport.CallSession(ctx, sessionID, "Page.enable", nil, nil); err != nil {
+			p.setTargetScriptError(targetType, err)
+			return
+		}
+		if err := p.owner.browser.transport.CallSession(ctx, sessionID, method, params, nil); err != nil {
+			p.setTargetScriptError(targetType, err)
+			return
+		}
+	}
+	if err := p.owner.browser.transport.CallSession(ctx, sessionID, "Runtime.runIfWaitingForDebugger", nil, nil); err != nil {
+		p.setTargetScriptError(targetType, err)
 	}
 }
 

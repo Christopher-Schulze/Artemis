@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/bridge"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -78,6 +79,37 @@ func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 	}
 	if result.Result.Value != "authenticated|retained" {
 		t.Fatalf("persistent state lost: %q", result.Result.Value)
+	}
+}
+
+func TestMeasureEnvironmentUsesChromiumValues(t *testing.T) {
+	binary, err := browserprocess.DiscoverBinary("")
+	if err != nil {
+		t.Fatalf("Chromium unavailable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	browser, err := browserprocess.Launch(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Close()
+	transportBrowser, err := bridge.ConnectChromium(ctx, browser.Endpoint())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transportBrowser.Close()
+	browserContext, err := transportBrowser.NewContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browserContext.Close()
+	facts, err := measureEnvironment(ctx, browserContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !facts.Measured || facts.UserAgent == "" || facts.Platform == "" || facts.Locale == "" || facts.Timezone == "" || facts.ViewportWidth <= 0 || facts.ViewportHeight <= 0 || facts.DevicePixelRatio <= 0 || facts.HardwareConcurrency <= 0 {
+		t.Fatalf("incomplete measured environment: %+v", facts)
 	}
 }
 

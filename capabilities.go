@@ -82,8 +82,18 @@ var capabilityRegistry = []Capability{
 	},
 	{
 		ID: "chromium.stealth", Description: "Apply and verify Chromium anti-detection controls", Mode: ModeChromium,
-		State: SupportUnavailable, Entrypoint: "stealth/bridge", Owner: "unassigned",
-		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "no real Chromium behavior probe exists",
+		State: SupportSupported, Since: Version, Entrypoint: "stealth.NewDocumentScript/bridge.BrowserContext.NewPageWithScripts", Owner: "stealth.EnvironmentProfile/bridge.TargetScriptConfig",
+		BehaviorTest: "bridge.TestChromiumTargetScriptsRunBeforePageAndWorkerCode",
+	},
+	{
+		ID: "chromium.challenge", Description: "Detect and resolve browser challenges through policy-gated verified outcomes", Mode: ModeChromium,
+		State: SupportExperimental, Since: Version, Entrypoint: "solver.ChallengeDetector/solver.ChallengeResolver", Owner: "solver.ChallengeDetector/solver.ChallengeResolver",
+		BehaviorTest: "solver.TestChallengeResolverRequiresPolicyAndPostcondition",
+	},
+	{
+		ID: "chromium.h2_fingerprint", Description: "Match browser HTTP/2 fingerprint settings to a measured Chromium build", Mode: ModeChromium,
+		State: SupportUnavailable, Entrypoint: "stealth.H2Fingerprint", Owner: "stealth.H2Fingerprint",
+		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "no verified Chromium transport-level H2 parity contract",
 	},
 	{
 		ID: "profiles.persistent", Description: "Persist isolated authenticated browser profiles", Mode: ModeChromium,

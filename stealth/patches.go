@@ -3,22 +3,30 @@ package stealth
 import (
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 // Profile carries per-session deterministic overrides so that the
 // same profile always generates the same canvas/audio fingerprint.
 type Profile struct {
-	ViewportWidth    int
-	ViewportHeight   int
-	DevicePixelRatio float64
-	UserAgent        string
-	Vendor           string
-	Platform         string
-	Languages        string // e.g. "de-DE,de,en-US,en"
-	Timezone         string // e.g. "Europe/Berlin"
-	ColorScheme      string // "light" or "dark"
-	ReducedMotion    bool
+	ViewportWidth       int
+	ViewportHeight      int
+	DevicePixelRatio    float64
+	UserAgent           string
+	Vendor              string
+	Platform            string
+	Languages           string // e.g. "de-DE,de,en-US,en"
+	Timezone            string // e.g. "Europe/Berlin"
+	ColorScheme         string // "light" or "dark"
+	ReducedMotion       bool
+	ChromeVersion       string
+	PlatformVersion     string
+	Architecture        string
+	HardwareConcurrency int
+	DeviceMemoryGB      int
+	WebGLVendor         string
+	WebGLRenderer       string
 	// Seed is hashed into canvas/audio randomness so the same profile
 	// is stable across restarts but different profiles differ.
 	Seed string
@@ -27,43 +35,83 @@ type Profile struct {
 // Defaults returns a Profile with sensible defaults.
 func Defaults() Profile {
 	return Profile{
-		ViewportWidth:    1920,
-		ViewportHeight:   1080,
-		DevicePixelRatio: 2.0,
-		UserAgent:        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-		Vendor:           "Google Inc.",
-		Platform:         "MacIntel",
-		Languages:        "de-DE,de,en-US,en",
-		Timezone:         "Europe/Berlin",
-		ColorScheme:      "light",
-		ReducedMotion:    false,
-		Seed:             "artemis-default",
+		ViewportWidth:       1920,
+		ViewportHeight:      1080,
+		DevicePixelRatio:    2.0,
+		UserAgent:           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+		Vendor:              "Google Inc.",
+		Platform:            "MacIntel",
+		Languages:           "de-DE,de,en-US,en",
+		Timezone:            "Europe/Berlin",
+		ColorScheme:         "light",
+		ReducedMotion:       false,
+		Seed:                "artemis-default",
+		ChromeVersion:       "126.0.0.0",
+		PlatformVersion:     "14.0",
+		Architecture:        "arm",
+		HardwareConcurrency: 8,
+		DeviceMemoryGB:      8,
+		WebGLVendor:         "Intel Inc.",
+		WebGLRenderer:       "Intel Iris OpenGL Engine",
 	}
 }
 
 // Script returns the full stealth patch script for the profile.
 func Script(p Profile) string {
+	d := Defaults()
 	if p.UserAgent == "" {
-		d := Defaults()
 		p.UserAgent = d.UserAgent
+	}
+	if p.Vendor == "" {
 		p.Vendor = d.Vendor
+	}
+	if p.Platform == "" {
 		p.Platform = d.Platform
+	}
+	if p.Languages == "" {
 		p.Languages = d.Languages
+	}
+	if p.Timezone == "" {
 		p.Timezone = d.Timezone
+	}
+	if p.ColorScheme == "" {
 		p.ColorScheme = d.ColorScheme
-		p.ReducedMotion = d.ReducedMotion
-		if p.ViewportWidth == 0 {
-			p.ViewportWidth = d.ViewportWidth
+	}
+	if p.ViewportWidth == 0 {
+		p.ViewportWidth = d.ViewportWidth
+	}
+	if p.ViewportHeight == 0 {
+		p.ViewportHeight = d.ViewportHeight
+	}
+	if p.DevicePixelRatio == 0 {
+		p.DevicePixelRatio = d.DevicePixelRatio
+	}
+	if p.Seed == "" {
+		p.Seed = d.Seed
+	}
+	if p.ChromeVersion == "" {
+		p.ChromeVersion = ParseChromeVersion(p.UserAgent)
+		if p.ChromeVersion == "" {
+			p.ChromeVersion = d.ChromeVersion
 		}
-		if p.ViewportHeight == 0 {
-			p.ViewportHeight = d.ViewportHeight
-		}
-		if p.DevicePixelRatio == 0 {
-			p.DevicePixelRatio = d.DevicePixelRatio
-		}
-		if p.Seed == "" {
-			p.Seed = d.Seed
-		}
+	}
+	if p.PlatformVersion == "" {
+		p.PlatformVersion = d.PlatformVersion
+	}
+	if p.Architecture == "" {
+		p.Architecture = d.Architecture
+	}
+	if p.HardwareConcurrency == 0 {
+		p.HardwareConcurrency = d.HardwareConcurrency
+	}
+	if p.DeviceMemoryGB == 0 {
+		p.DeviceMemoryGB = d.DeviceMemoryGB
+	}
+	if p.WebGLVendor == "" {
+		p.WebGLVendor = d.WebGLVendor
+	}
+	if p.WebGLRenderer == "" {
+		p.WebGLRenderer = d.WebGLRenderer
 	}
 	seedHash := sha256.Sum256([]byte(p.Seed))
 	seedHex := fmt.Sprintf("%x", seedHash[:8])
@@ -89,7 +137,11 @@ func Script(p Profile) string {
 	b.WriteString("  });\n")
 
 	// 3. navigator.languages
-	b.WriteString("  _defineProperty(navigator, 'languages', { get: () => ['" + strings.ReplaceAll(p.Languages, ",", "','") + "'] });\n")
+	languageValues := make([]string, 0, len(strings.Split(p.Languages, ",")))
+	for _, language := range strings.Split(p.Languages, ",") {
+		languageValues = append(languageValues, strconv.Quote(strings.TrimSpace(language)))
+	}
+	b.WriteString("  _defineProperty(navigator, 'languages', { get: () => [" + strings.Join(languageValues, ",") + "] });\n")
 
 	// 4. window.chrome runtime with csi/loadTimes
 	b.WriteString("  window.chrome = window.chrome || {};\n")
@@ -115,8 +167,8 @@ func Script(p Profile) string {
 	// 6. WebGL vendor/renderer
 	b.WriteString("  const _getParam = WebGLRenderingContext.prototype.getParameter;\n")
 	b.WriteString("  WebGLRenderingContext.prototype.getParameter = function(p) {\n")
-	b.WriteString("    if (p === 0x1F00) return 'Intel Inc.';\n")               // VENDOR
-	b.WriteString("    if (p === 0x1F01) return 'Intel Iris OpenGL Engine';\n") // RENDERER
+	b.WriteString(fmt.Sprintf("    if (p === 0x1F00) return %s;\n", strconv.Quote(p.WebGLVendor)))
+	b.WriteString(fmt.Sprintf("    if (p === 0x1F01) return %s;\n", strconv.Quote(p.WebGLRenderer)))
 	b.WriteString("    return _getParam.call(this, p);\n")
 	b.WriteString("  };\n")
 
@@ -162,16 +214,16 @@ func Script(p Profile) string {
 	b.WriteString(fmt.Sprintf("  _defineProperty(window, 'devicePixelRatio', { get: () => %v });\n", p.DevicePixelRatio))
 
 	// 13. navigator.vendor
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'vendor', { get: () => '%s' });\n", p.Vendor))
+	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'vendor', { get: () => %s });\n", strconv.Quote(p.Vendor)))
 
 	// 14. navigator.platform
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'platform', { get: () => '%s' });\n", p.Platform))
+	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'platform', { get: () => %s });\n", strconv.Quote(p.Platform)))
 
 	// 15. navigator.deviceMemory
-	b.WriteString("  _defineProperty(navigator, 'deviceMemory', { get: () => 8 });\n")
+	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'deviceMemory', { get: () => %d });\n", p.DeviceMemoryGB))
 
 	// 16. navigator.hardwareConcurrency
-	b.WriteString("  _defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });\n")
+	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'hardwareConcurrency', { get: () => %d });\n", p.HardwareConcurrency))
 
 	// 17-18. screen dimensions
 	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'width', { get: () => %d });\n", p.ViewportWidth))
@@ -183,7 +235,7 @@ func Script(p Profile) string {
 	b.WriteString(fmt.Sprintf("  const _origDateTimeFormat = Intl.DateTimeFormat;\n"))
 	b.WriteString(fmt.Sprintf("  Intl.DateTimeFormat = function(locales, options) {\n"))
 	b.WriteString(fmt.Sprintf("    options = options || {};\n"))
-	b.WriteString(fmt.Sprintf("    options.timeZone = options.timeZone || '%s';\n", p.Timezone))
+	b.WriteString(fmt.Sprintf("    options.timeZone = options.timeZone || %s;\n", strconv.Quote(p.Timezone)))
 	b.WriteString(fmt.Sprintf("    return _origDateTimeFormat.call(this, locales, options);\n"))
 	b.WriteString(fmt.Sprintf("  };\n"))
 	b.WriteString(fmt.Sprintf("  Intl.DateTimeFormat.prototype = _origDateTimeFormat.prototype;\n"))
@@ -202,8 +254,16 @@ func Script(p Profile) string {
 	b.WriteString("  const _origMatchMedia = window.matchMedia;\n")
 	b.WriteString("  window.matchMedia = function(query) {\n")
 	b.WriteString("    const m = _origMatchMedia.call(window, query);\n")
-	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", p.ColorScheme))
-	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", map[string]string{"light": "dark", "dark": "light"}[p.ColorScheme]))
+	colorScheme := "light"
+	if p.ColorScheme == "dark" {
+		colorScheme = "dark"
+	}
+	oppositeScheme := "dark"
+	if colorScheme == "dark" {
+		oppositeScheme = "light"
+	}
+	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", colorScheme))
+	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", oppositeScheme))
 	if p.ReducedMotion {
 		b.WriteString("    if (query === '(prefers-reduced-motion: reduce)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")
 		b.WriteString("    if (query === '(prefers-reduced-motion: no-preference)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")
@@ -244,14 +304,14 @@ func Script(p Profile) string {
 
 	// 30. navigator.userAgentData brands
 	b.WriteString("  if (!navigator.userAgentData) {\n")
-	b.WriteString("    const _major = '126';\n")
+	b.WriteString(fmt.Sprintf("    const _major = %s;\n", strconv.Quote(majorVersion(p.ChromeVersion))))
 	b.WriteString("    _defineProperty(navigator, 'userAgentData', { get: () => ({\n")
 	b.WriteString("      brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n")
 	b.WriteString("      mobile: false,\n")
-	b.WriteString(fmt.Sprintf("      platform: '%s',\n", p.Platform))
+	b.WriteString(fmt.Sprintf("      platform: %s,\n", strconv.Quote(p.Platform)))
 	b.WriteString("      getHighEntropyValues: (hints) => Promise.resolve({\n")
-	b.WriteString(fmt.Sprintf("        architecture: 'arm', brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n"))
-	b.WriteString(fmt.Sprintf("        bitness: '64', mobile: false, model: '', platform: '%s', platformVersion: '14.0', uaFullVersion: '126.0.6478.126'\n", p.Platform))
+	b.WriteString(fmt.Sprintf("        architecture: %s, brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n", strconv.Quote(p.Architecture)))
+	b.WriteString(fmt.Sprintf("        bitness: '64', mobile: false, model: '', platform: %s, platformVersion: %s, uaFullVersion: %s\n", strconv.Quote(p.Platform), strconv.Quote(p.PlatformVersion), strconv.Quote(p.ChromeVersion)))
 	b.WriteString("      })\n")
 	b.WriteString("    }) });\n")
 	b.WriteString("  }\n")

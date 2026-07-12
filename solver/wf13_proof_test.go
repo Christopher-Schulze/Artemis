@@ -138,6 +138,54 @@ func TestWFChallengeDetectorEffect(t *testing.T) {
 		}
 		hits++
 	}
+	signalCases := []struct {
+		name   string
+		sig    PageSignals
+		source ChallengeSignalSource
+		marker string
+	}{
+		{
+			name:   "recaptcha-alias-signal",
+			sig:    PageSignals{HTML: `<script>window.recaptcha = {}</script>`},
+			source: SignalDOM,
+			marker: "g-recaptcha",
+		},
+		{
+			name:   "generic-challenge-signal",
+			sig:    PageSignals{HTML: `<div data-state="challenge">blocked</div>`},
+			source: SignalDOM,
+			marker: "challenge marker",
+		},
+		{
+			name:   "visual-browser-check-signal",
+			sig:    PageSignals{VisualText: "Checking your browser"},
+			source: SignalVisual,
+			marker: "challenge text",
+		},
+		{
+			name:   "element-challenge-signal",
+			sig:    PageSignals{ElementMarkers: []string{"account-challenge-panel"}},
+			source: SignalDOM,
+			marker: "account-challenge-panel",
+		},
+	}
+	for _, c := range signalCases {
+		t.Run(c.name, func(t *testing.T) {
+			info, err := d.Detect(context.Background(), c.sig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, signal := range info.Signals {
+				if signal.Source == c.source && signal.Marker == c.marker {
+					if !signal.Present || signal.Weight <= 0 {
+						t.Fatalf("signal is not actionable: %+v", signal)
+					}
+					return
+				}
+			}
+			t.Fatalf("missing %s/%s signal in %+v", c.source, c.marker, info.Signals)
+		})
+	}
 	hitRate := float64(hits) / float64(len(cases))
 	fmt.Printf("effectiveness_rate=%.1f\n", hitRate)
 	fmt.Printf("detection_hit_rate=%.2f classified=%d\n", hitRate, hits)

@@ -92,7 +92,7 @@ func ackValid(ack StealthAck, host string) bool {
 		}
 		if strings.HasPrefix(p, "*.") {
 			suffix := strings.TrimPrefix(p, "*.")
-			if strings.HasSuffix(host, suffix) || host == suffix {
+			if host == suffix || strings.HasSuffix(host, "."+suffix) {
 				return true
 			}
 			continue
