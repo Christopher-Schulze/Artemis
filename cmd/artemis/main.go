@@ -36,6 +36,8 @@ func main() {
 		os.Exit(cmdRun(os.Args[2:]))
 	case "serve":
 		os.Exit(cmdServe(os.Args[2:]))
+	case "observe":
+		os.Exit(cmdObserve(os.Args[2:]))
 	default:
 		errf("unknown command %q", os.Args[1])
 		printUsage(os.Stderr)
@@ -53,6 +55,7 @@ Commands:
   fetch     fetch a URL and dump html / markdown / text / title / links / structured / semantic
   run       load a JavaScript file and execute it in the page context (--script FILE <url>)
   serve     run the JSON-over-WebSocket steering server
+  observe   capture a bounded Chromium DOM/accessibility snapshot as JSON
   version   print version
   capabilities  print the machine-readable capability contract
   help      print this help

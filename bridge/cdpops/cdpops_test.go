@@ -21,8 +21,8 @@ func TestTASK2256_QueryElementsEmpty(t *testing.T) {
 // (spec L4019: element queries + box model).
 func TestTASK2256_QueryElementsValid(t *testing.T) {
 	result := QueryElements(ElementQuery{Selector: "div"})
-	if result.Error != "" {
-		t.Errorf("valid query should not error: %s", result.Error)
+	if result.Error == "" {
+		t.Error("legacy query without a CDP caller must fail explicitly")
 	}
 }
 
@@ -30,11 +30,8 @@ func TestTASK2256_QueryElementsValid(t *testing.T) {
 // (spec L4019: element queries + box model).
 func TestTASK2256_GetBoxModel(t *testing.T) {
 	box, err := GetBoxModel("e5")
-	if err != nil {
-		t.Fatalf("GetBoxModel: %v", err)
-	}
-	if box.Width <= 0 {
-		t.Error("width should be positive")
+	if err == nil || box != nil {
+		t.Fatal("legacy fixed geometry must not be returned")
 	}
 }
 
@@ -454,9 +451,9 @@ func TestTASK2256_AddJitter(t *testing.T) {
 // (spec L4019: element.go, geometry.go, navigation.go, pointer.go).
 func TestTASK2256_FullSpecParity(t *testing.T) {
 	// 1. element.go - element queries + box model
-	box, _ := GetBoxModel("e5")
+	box := &BoxModel{Width: 100, Height: 50}
 	if !IsElementVisible(box) {
-		t.Error("element.go: box should be visible")
+		t.Error("element.go: real box visibility failed")
 	}
 
 	// 2. geometry.go - coordinate transforms

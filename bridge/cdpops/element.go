@@ -75,12 +75,7 @@ func QueryElements(query ElementQuery) QueryResult {
 	if query.Selector == "" {
 		return QueryResult{Error: "element query: empty selector"}
 	}
-	// In a real implementation, this would use CDP DOM.querySelector
-	// or DOM.querySelectorAll. Here we provide the structure.
-	return QueryResult{
-		Elements: []ElementInfo{},
-		Total:    0,
-	}
+	return QueryResult{Error: "element query: CDP caller required; use ElementClient.QuerySelector"}
 }
 
 // GetBoxModel retrieves the box model for an element
@@ -89,15 +84,7 @@ func GetBoxModel(ref string) (*BoxModel, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("box model: empty ref")
 	}
-	// In a real implementation, this would use CDP DOM.getBoxModel
-	return &BoxModel{
-		Content: Quad{0, 0, 100, 0, 100, 100, 0, 100},
-		Border:  Quad{0, 0, 100, 0, 100, 100, 0, 100},
-		Padding: Quad{0, 0, 100, 0, 100, 100, 0, 100},
-		Margin:  Quad{0, 0, 100, 0, 100, 100, 0, 100},
-		Width:   100,
-		Height:  100,
-	}, nil
+	return nil, fmt.Errorf("box model: CDP caller required; use ElementClient.GetBoxModel")
 }
 
 // IsElementVisible checks if an element is visible
@@ -123,6 +110,9 @@ func IsElementClickable(info *ElementInfo) bool {
 func GetElementCenter(box *BoxModel) (float64, float64) {
 	if box == nil {
 		return 0, 0
+	}
+	if box.Content != (Quad{}) {
+		return (box.Content.X1 + box.Content.X3) / 2, (box.Content.Y1 + box.Content.Y3) / 2
 	}
 	return float64(box.Width) / 2, float64(box.Height) / 2
 }

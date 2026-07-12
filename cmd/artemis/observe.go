@@ -1,0 +1,96 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/Christopher-Schulze/Artemis/bridge"
+	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+)
+
+func cmdObserve(args []string) int {
+	fs := newFlagSet("observe")
+	binary := fs.String("binary", "", "Chromium binary path (auto-discovered when empty)")
+	timeout := fs.Duration("timeout", 20*time.Second, "navigation and capture timeout")
+	interactive := fs.Bool("interactive", false, "emit only interactive nodes")
+	maxNodes := fs.Int("max-nodes", 2000, "maximum emitted nodes")
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: artemis observe [flags] <url>"); fs.PrintDefaults() }
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fs.Usage()
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: *binary, Headless: true})
+	if err != nil {
+		errf("observe launch: %v", err)
+		return 1
+	}
+	defer browser.Close()
+	browserContext, err := browser.NewContext(ctx)
+	if err != nil {
+		errf("observe context: %v", err)
+		return 1
+	}
+	defer browserContext.Close()
+	page, err := browserContext.NewPage(ctx, fs.Arg(0))
+	if err != nil {
+		errf("observe page: %v", err)
+		return 1
+	}
+	if err = waitDocumentReady(ctx, page); err != nil {
+		errf("observe readiness: %v", err)
+		return 1
+	}
+	config := bridgeobserve.DefaultConfig()
+	config.MaxNodes = *maxNodes
+	collector, err := bridgeobserve.NewCollector(page, config)
+	if err != nil {
+		errf("observe collector: %v", err)
+		return 1
+	}
+	mode := bridgeobserve.ModeFull
+	if *interactive {
+		mode = bridgeobserve.ModeInteractive
+	}
+	snapshot, err := collector.Capture(ctx, mode, "")
+	if err != nil {
+		errf("observe capture: %v", err)
+		return 1
+	}
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err = encoder.Encode(snapshot); err != nil {
+		errf("observe output: %v", err)
+		return 1
+	}
+	return 0
+}
+
+func waitDocumentReady(ctx context.Context, page *bridge.Page) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var result struct {
+			Result struct {
+				Value any `json:"value"`
+			} `json:"result"`
+		}
+		err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &result)
+		if err == nil && (result.Result.Value == "interactive" || result.Result.Value == "complete") {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("document readiness: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
