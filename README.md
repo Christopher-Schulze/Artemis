@@ -10,7 +10,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev)
 [![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
 
-Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, and persistent renderless steering over JSON WebSocket. Chromium/CDP control, hybrid routing, browser screenshots, persistent authenticated profiles, and verified anti-detection remain unavailable release capabilities. Package symbols for those future surfaces are not a support claim.
+Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, and persistent renderless steering over JSON WebSocket. Chromium/CDP control, hybrid routing, browser screenshots, persistent authenticated profiles, and verified anti-detection remain unavailable release capabilities. Package symbols for those future surfaces are not a support claim.
 
 ---
 
@@ -27,6 +27,7 @@ The result is a self-contained Go binary for pages that fit the documented rende
 - **Renderless execution:** HTTP fetch, HTML parsing, V8 JavaScript, DOM mutation, cookies, and request interception.
 - **Agent-native extraction:** clean Markdown, semantic tree, structured data (JSON-LD/microdata), links, forms, and actionable elements, ready to feed an LLM.
 - **Dual-mode:** embed the Go packages in-process, or run `artemis serve` and drive it from any language over JSON-over-WebSocket.
+- **Owned Agent lifecycle:** typed fetch actions run through tracked sessions with cancellation, stable errors, health snapshots, and idempotent shutdown.
 - **Explicit capability truth:** `artemis capabilities` reports supported and unavailable release surfaces from the registry used by Omnimus tool registration.
 - **Security controls:** optional robots and private-IP guards are available on renderless fetches; enable them for untrusted URLs.
 

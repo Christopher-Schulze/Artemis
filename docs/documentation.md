@@ -45,7 +45,7 @@ Artemis is a renderless browser engine written in Go for AI-agent extraction and
 
 ## Release Capability Contract
 
-`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` API is unavailable and returns `capability_unavailable`; use `engine.Engine` or `serve.Server` for supported execution.
+`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. Chromium-backed actions remain unavailable; use `engine.Engine` for lower-level embedding or `serve.Server` for persistent wire steering.
 
 Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require the reproducible TASK-2360 artifact.
 

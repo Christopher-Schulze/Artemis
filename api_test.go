@@ -8,9 +8,18 @@ import (
 
 // ==================== api.go tests ====================
 
+func mustAgent(t *testing.T, config AgentConfig) *Agent {
+	t.Helper()
+	agent, err := NewAgent(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agent
+}
+
 // TestTASK2258_NewAgent verifies agent creation
 func TestTASK2258_NewAgent(t *testing.T) {
-	a := NewAgent(AgentConfig{MaxTabs: 5})
+	a := mustAgent(t, AgentConfig{MaxTabs: 5})
 	if a == nil {
 		t.Fatal("agent should not be nil")
 	}
@@ -26,6 +35,9 @@ func TestTASK2258_NewAgent(t *testing.T) {
 func TestTASK2258_AgentConfigDefaults(t *testing.T) {
 	cfg := AgentConfig{}
 	cfg.ApplyDefaults()
+	if cfg.MaxSessions != 64 {
+		t.Error("default max sessions should be 64")
+	}
 	if cfg.MaxTabs != 10 {
 		t.Error("default max tabs should be 10")
 	}
@@ -39,7 +51,7 @@ func TestTASK2258_AgentConfigDefaults(t *testing.T) {
 
 // TestTASK2258_AgentStart verifies start
 func TestTASK2258_AgentStart(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	err := a.Start(context.Background())
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -54,7 +66,7 @@ func TestTASK2258_AgentStart(t *testing.T) {
 
 // TestTASK2258_AgentStartTwice verifies double start fails.
 func TestTASK2258_AgentStartTwice(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	a.Start(context.Background())
 	err := a.Start(context.Background())
 	if err == nil {
@@ -64,7 +76,7 @@ func TestTASK2258_AgentStartTwice(t *testing.T) {
 
 // TestTASK2258_AgentStop verifies stop
 func TestTASK2258_AgentStop(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	a.Start(context.Background())
 	err := a.Stop()
 	if err != nil {
@@ -80,7 +92,7 @@ func TestTASK2258_AgentStop(t *testing.T) {
 
 // TestTASK2258_AgentStopNotStarted verifies stop without start.
 func TestTASK2258_AgentStopNotStarted(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	err := a.Stop()
 	if err == nil {
 		t.Error("stop without start should fail")
@@ -89,7 +101,7 @@ func TestTASK2258_AgentStopNotStarted(t *testing.T) {
 
 // TestTASK2258_AgentConfig verifies config retrieval
 func TestTASK2258_AgentConfig(t *testing.T) {
-	a := NewAgent(AgentConfig{MaxTabs: 7, UserAgent: "test"})
+	a := mustAgent(t, AgentConfig{MaxTabs: 7, UserAgent: "test"})
 	cfg := a.Config()
 	if cfg.MaxTabs != 7 {
 		t.Error("max tabs mismatch")
@@ -101,8 +113,14 @@ func TestTASK2258_AgentConfig(t *testing.T) {
 
 // TestTASK2258_AgentCreateSession verifies session creation
 func TestTASK2258_AgentCreateSession(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	s := a.CreateSession("user1")
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if s == nil {
 		t.Fatal("session should not be nil")
 	}
@@ -114,40 +132,45 @@ func TestTASK2258_AgentCreateSession(t *testing.T) {
 	}
 }
 
-// TestAgentExecuteTaskReturnsUnavailable prevents lifecycle-only wiring from
-// being advertised as real browser task execution.
-func TestAgentExecuteTaskReturnsUnavailable(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	a.Start(context.Background())
+// TestAgentExecuteTaskRequiresSession prevents unowned execution.
+func TestAgentExecuteTaskRequiresSession(t *testing.T) {
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	result := a.ExecuteTask(context.Background(), Task{
-		ID:  "task-1",
-		URL: "https://example.com",
+		ID: "task-1", Action: FetchAction{URL: "https://example.com"},
 	})
 	if result.Success {
-		t.Fatal("task must not succeed without a runtime executor")
+		t.Fatal("task must not succeed without an owned session")
 	}
-	if result.ErrorCode != TaskErrorCapabilityUnavailable {
-		t.Fatalf("ErrorCode = %q, want %q", result.ErrorCode, TaskErrorCapabilityUnavailable)
+	if result.ErrorCode != TaskErrorInvalidInput {
+		t.Fatalf("ErrorCode = %q, want %q", result.ErrorCode, TaskErrorInvalidInput)
 	}
 }
 
 // TestTASK2258_AgentExecuteTaskNotStarted verifies task fails when not started.
 func TestTASK2258_AgentExecuteTaskNotStarted(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	result := a.ExecuteTask(context.Background(), Task{
-		ID:  "task-1",
-		URL: "https://example.com",
+		ID: "task-1", SessionID: "session-1", Action: FetchAction{URL: "https://example.com"},
 	})
-	if result.Success || result.ErrorCode != TaskErrorAgentNotStarted {
+	if result.Success || result.ErrorCode != TaskErrorInvalidTransition {
 		t.Error("task should fail when not started")
 	}
 }
 
 // TestTASK2258_AgentExecuteTaskEmptyURL verifies empty URL fails.
-func TestTASK2258_AgentExecuteTaskEmptyURL(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	a.Start(context.Background())
-	result := a.ExecuteTask(context.Background(), Task{ID: "task-1"})
+func TestTASK2258_AgentExecuteTaskEmptyActionURL(t *testing.T) {
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	session, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := a.ExecuteTask(context.Background(), Task{ID: "task-1", SessionID: session.SessionID(), Action: FetchAction{}})
 	if result.Success || result.ErrorCode != TaskErrorInvalidInput {
 		t.Error("empty URL should fail")
 	}
@@ -165,9 +188,17 @@ func TestTASK2258_IsValidAgentState(t *testing.T) {
 
 // TestTASK2258_SessionClose verifies session close
 func TestTASK2258_SessionClose(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	s := a.CreateSession("user1")
-	s.Close()
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if s.IsActive() {
 		t.Error("session should not be active after close")
 	}
@@ -175,17 +206,29 @@ func TestTASK2258_SessionClose(t *testing.T) {
 
 // TestTASK2258_SessionTabs verifies tab management
 func TestTASK2258_SessionTabs(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	s := a.CreateSession("user1")
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if s.TabCount() != 0 {
 		t.Error("initial tab count should be 0")
 	}
-	s.AddTab()
-	s.AddTab()
+	if err := s.AddTab(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddTab(); err != nil {
+		t.Fatal(err)
+	}
 	if s.TabCount() != 2 {
 		t.Errorf("tabs: got %d, want 2", s.TabCount())
 	}
-	s.RemoveTab()
+	if err := s.RemoveTab(); err != nil {
+		t.Fatal(err)
+	}
 	if s.TabCount() != 1 {
 		t.Errorf("tabs: got %d, want 1", s.TabCount())
 	}
@@ -193,9 +236,17 @@ func TestTASK2258_SessionTabs(t *testing.T) {
 
 // TestTASK2258_SessionRemoveTabZero verifies tab count doesn't go negative.
 func TestTASK2258_SessionRemoveTabZero(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	s := a.CreateSession("user1")
-	s.RemoveTab()
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveTab(); err != nil {
+		t.Fatal(err)
+	}
 	if s.TabCount() != 0 {
 		t.Error("tab count should not go below 0")
 	}
@@ -203,7 +254,7 @@ func TestTASK2258_SessionRemoveTabZero(t *testing.T) {
 
 // TestTASK2258_AgentString verifies String.
 func TestTASK2258_AgentString(t *testing.T) {
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	s := a.String()
 	if s == "" {
 		t.Error("String should not be empty")
@@ -212,8 +263,14 @@ func TestTASK2258_AgentString(t *testing.T) {
 
 // TestTASK2258_SessionString verifies String.
 func TestTASK2258_SessionString(t *testing.T) {
-	a := NewAgent(AgentConfig{})
-	s := a.CreateSession("user1")
+	a := mustAgent(t, AgentConfig{})
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	str := s.String()
 	if str == "" {
 		t.Error("String should not be empty")
@@ -222,7 +279,7 @@ func TestTASK2258_SessionString(t *testing.T) {
 
 // TestTASK2258_TaskString verifies String.
 func TestTASK2258_TaskString(t *testing.T) {
-	task := Task{ID: "t1", URL: "https://example.com", Action: "click"}
+	task := Task{ID: "t1", SessionID: "s1", Action: FetchAction{URL: "https://example.com"}}
 	s := task.String()
 	if s == "" {
 		t.Error("String should not be empty")
@@ -241,7 +298,7 @@ func TestTASK2258_TaskResultString(t *testing.T) {
 // TestTASK2258_FullSpecParity verifies the api.go public API
 func TestTASK2258_FullSpecParity(t *testing.T) {
 	// Create agent
-	a := NewAgent(AgentConfig{})
+	a := mustAgent(t, AgentConfig{})
 	if a.State() != AgentStateCreated {
 		t.Error("should start in created state")
 	}
@@ -253,18 +310,20 @@ func TestTASK2258_FullSpecParity(t *testing.T) {
 	}
 
 	// Create session
-	s := a.CreateSession("user1")
+	s, err := a.CreateSession("user1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !s.IsActive() {
 		t.Error("session should be active")
 	}
 
-	// The lifecycle shell must fail closed until TASK-2349 wires execution.
+	// Invalid URLs fail closed through the real dispatcher.
 	result := a.ExecuteTask(context.Background(), Task{
-		ID:  "task-1",
-		URL: "https://example.com",
+		ID: "task-1", SessionID: s.SessionID(), Action: FetchAction{},
 	})
-	if result.Success || result.ErrorCode != TaskErrorCapabilityUnavailable {
-		t.Error("task should return typed capability_unavailable")
+	if result.Success || result.ErrorCode != TaskErrorInvalidInput {
+		t.Error("task should return typed invalid_input")
 	}
 
 	// Stop agent

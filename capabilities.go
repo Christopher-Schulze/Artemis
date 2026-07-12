@@ -59,9 +59,9 @@ var capabilityRegistry = []Capability{
 		BehaviorTest: "serve.TestSessionOpenEvalDump",
 	},
 	{
-		ID: "agent.high_level", Description: "Execute browser automation tasks through the root Agent API", Mode: ModeHybrid,
-		State: SupportUnavailable, Entrypoint: "artemis.(*Agent).ExecuteTask", Owner: "artemis.Agent",
-		BehaviorTest: "artemis.TestAgentExecuteTaskReturnsUnavailable", UnavailableWhy: "the root Agent API has no runtime executor",
+		ID: "agent.high_level", Description: "Execute typed renderless fetch actions through an owned Agent lifecycle", Mode: ModeRenderless,
+		State: SupportSupported, Since: Version, Entrypoint: "artemis.(*Agent).ExecuteTask", Owner: "artemis.Agent",
+		BehaviorTest: "artemis.TestAgentExecutesFetchWithObservableEvidence",
 	},
 	{
 		ID: "chromium.cdp", Description: "Launch and control Chromium through CDP", Mode: ModeChromium,

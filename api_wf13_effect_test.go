@@ -13,21 +13,21 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("oracle: AgentState constants are distinct", func(t *testing.T) {
-		if AgentStateCreated != "created" || AgentStateRunning != "running" || AgentStateIdle != "idle" || AgentStateStopped != "stopped" || AgentStateError != "error" {
+		if AgentStateCreated != "created" || AgentStateStarting != "starting" || AgentStateRunning != "running" || AgentStateStopping != "stopping" || AgentStateStopped != "stopped" || AgentStateError != "error" {
 			t.Fatal("AgentState constants incorrect")
 		}
 	})
 
 	t.Run("oracle: AgentConfig struct has fields", func(t *testing.T) {
-		c := AgentConfig{Headless: true, MaxTabs: 5}
-		if !c.Headless || c.MaxTabs != 5 {
+		c := AgentConfig{MaxSessions: 3, MaxTabs: 5}
+		if c.MaxSessions != 3 || c.MaxTabs != 5 {
 			t.Fatal("AgentConfig fields incorrect")
 		}
 	})
 
 	t.Run("oracle: Task struct has fields", func(t *testing.T) {
-		task := Task{ID: "t1", URL: "https://example.com", Action: "navigate"}
-		if task.ID != "t1" || task.URL != "https://example.com" || task.Action != "navigate" {
+		task := Task{ID: "t1", SessionID: "s1", Action: FetchAction{URL: "https://example.com"}}
+		if task.ID != "t1" || task.SessionID != "s1" || task.Action.Kind() != ActionFetch {
 			t.Fatal("Task fields incorrect")
 		}
 	})
@@ -40,7 +40,7 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: NewAgent returns agent in created state", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
+		a := mustAgent(t, AgentConfig{})
 		if a == nil {
 			t.Fatal("expected non-nil agent")
 		}
@@ -58,7 +58,7 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: Start changes state to running", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
+		a := mustAgent(t, AgentConfig{})
 		if err := a.Start(ctx); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
@@ -71,7 +71,7 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: Start twice returns error", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
+		a := mustAgent(t, AgentConfig{})
 		_ = a.Start(ctx)
 		if err := a.Start(ctx); err == nil {
 			t.Fatal("expected error for double start")
@@ -79,7 +79,7 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: Stop changes state to stopped", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
+		a := mustAgent(t, AgentConfig{})
 		_ = a.Start(ctx)
 		if err := a.Stop(); err != nil {
 			t.Fatalf("Stop: %v", err)
@@ -93,14 +93,14 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: Stop without start returns error", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
+		a := mustAgent(t, AgentConfig{})
 		if err := a.Stop(); err == nil {
-			t.Fatal("expected error for stop without start")
+			t.Fatal("expected invalid transition for stop without start")
 		}
 	})
 
 	t.Run("oracle: Config returns config", func(t *testing.T) {
-		a := NewAgent(AgentConfig{MaxTabs: 7})
+		a := mustAgent(t, AgentConfig{MaxTabs: 7})
 		c := a.Config()
 		if c.MaxTabs != 7 {
 			t.Fatalf("expected 7, got %d", c.MaxTabs)
@@ -108,8 +108,14 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: CreateSession returns non-nil", func(t *testing.T) {
-		a := NewAgent(AgentConfig{})
-		s := a.CreateSession("user1")
+		a := mustAgent(t, AgentConfig{})
+		if err := a.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		s, err := a.CreateSession("user1")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if s == nil {
 			t.Fatal("expected non-nil session")
 		}
