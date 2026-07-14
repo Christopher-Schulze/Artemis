@@ -556,7 +556,7 @@ const domBootstrap = `
     },
     set data(v) {
       const t = this.nodeType;
-      if (t === 3 || t === 4 || t === 8) __node_set(this.__id, 'textContent', String(v));
+      if (t === 3 || t === 4 || t === 8) __node_set(this.__id, 'textContent', v === null ? '' : String(v));
     },
     get nodeValue() {
       const t = this.nodeType;
@@ -564,7 +564,7 @@ const domBootstrap = `
     },
     set nodeValue(v) {
       const t = this.nodeType;
-      if (t === 3 || t === 4 || t === 8) __node_set(this.__id, 'textContent', String(v));
+      if (t === 3 || t === 4 || t === 8) __node_set(this.__id, 'textContent', v === null ? '' : String(v));
     },
     get length() {
       const t = this.nodeType;

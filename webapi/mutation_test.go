@@ -63,6 +63,18 @@ func TestAppendAndRemoveChild(t *testing.T) {
 	}
 }
 
+func TestSetTextContentOnTextNode(t *testing.T) {
+	text := CreateTextNode("test")
+	SetTextContent(text, "")
+	if text.Text() != "" || text.Data() != "" {
+		t.Errorf("empty text content = %q", text.Text())
+	}
+	SetTextContent(text, "hello")
+	if text.Text() != "hello" {
+		t.Errorf("text content = %q, want hello", text.Text())
+	}
+}
+
 func TestSetInnerHTMLReplacesChildren(t *testing.T) {
 	d := parseFix(t, `<div><p>old</p></div>`)
 	div, _ := d.QuerySelector("div")

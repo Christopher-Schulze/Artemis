@@ -31,6 +31,7 @@ const (
 	KindMalformed     Kind = "malformed"
 	KindSlow          Kind = "slow"
 	KindCrash         Kind = "crash"
+	KindWPT           Kind = "wpt"
 	KindUnknown       Kind = "unknown"
 )
 

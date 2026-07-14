@@ -189,13 +189,16 @@ const webapiMoreBootstrap = `
       return false;
     };
     // dataset proxy: el.dataset.foo <-> el.getAttribute('data-foo')
+    class DOMStringMap {}
+    globalThis.DOMStringMap = DOMStringMap;
     Object.defineProperty(__ELEM_PROTO, 'dataset', {
       get() {
         const self = this;
-        return new Proxy({}, {
+        return new Proxy(Object.create(DOMStringMap.prototype), {
           get(_t, prop) {
             if (typeof prop !== 'string') return undefined;
             const k = 'data-' + prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+            if (!self.hasAttribute(k)) return undefined;
             return self.getAttribute(k);
           },
           set(_t, prop, value) {
@@ -203,6 +206,11 @@ const webapiMoreBootstrap = `
             const k = 'data-' + prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
             self.setAttribute(k, String(value));
             return true;
+          },
+          has(_t, prop) {
+            if (typeof prop !== 'string') return false;
+            const k = 'data-' + prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+            return self.hasAttribute(k);
           },
         });
       },

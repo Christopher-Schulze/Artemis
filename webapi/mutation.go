@@ -150,20 +150,27 @@ func SetInnerHTML(n *Node, src string) error {
 	return nil
 }
 
-// SetTextContent replaces the children of n with a single text node.
+// SetTextContent replaces the children of n with a single text node, or
+// sets the node's own Data for leaf text/comment/raw nodes.
 func SetTextContent(n *Node, text string) {
 	if n == nil {
 		return
 	}
-	for c := n.raw.FirstChild; c != nil; {
-		next := c.NextSibling
-		n.raw.RemoveChild(c)
-		c = next
-	}
-	if text == "" {
+	switch n.raw.Type {
+	case html.TextNode, html.CommentNode, html.RawNode:
+		n.raw.Data = text
 		return
+	case html.ElementNode, html.DocumentNode:
+		for c := n.raw.FirstChild; c != nil; {
+			next := c.NextSibling
+			n.raw.RemoveChild(c)
+			c = next
+		}
+		if text == "" {
+			return
+		}
+		n.raw.AppendChild(&html.Node{Type: html.TextNode, Data: text})
 	}
-	n.raw.AppendChild(&html.Node{Type: html.TextNode, Data: text})
 }
 
 // CreateElement creates a new detached element node with the given tag.
