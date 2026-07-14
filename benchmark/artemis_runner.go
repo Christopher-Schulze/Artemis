@@ -3,54 +3,46 @@ package benchmark
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/engine"
-	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/internal/fixture"
 	"github.com/Christopher-Schulze/Artemis/parser"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // ArtemisRunner runs the Artemis engine against benchmark scenarios.
-// It uses an httptest server to serve fixture HTML and measures the
+// It uses a fixture server to serve fixture HTML and measures the
 // full fetch→parse→(optional JS)→extract pipeline.
 type ArtemisRunner struct {
 	engine *engine.Engine
-	server *httptest.Server
+	server *fixture.Server
 }
 
-// NewArtemisRunner creates a runner with a pooled V8 engine and an
-// httptest server serving the given scenarios. The caller must call
+// NewArtemisRunner creates a runner with a pooled V8 engine and a
+// fixture server serving the given scenarios. The caller must call
 // Close to release resources.
 func NewArtemisRunner(scenarios []Scenario) *ArtemisRunner {
-	mux := newScenarioMux(scenarios)
-	server := httptest.NewServer(mux)
-	policyConfig := network.PolicyConfig{AllowPrivateNetworks: true}
-	if u, perr := url.Parse(server.URL); perr == nil {
-		if port, perr := strconv.Atoi(u.Port()); perr == nil {
-			policyConfig.AllowedPorts = []int{port}
-		}
+	srv := fixture.NewServer()
+	for _, s := range scenarios {
+		srv.RegisterHTML("/"+s.ID, s.HTML)
 	}
 	eng, err := engine.New(engine.Config{
 		JSContextPoolSize: 8,
 		JSContextPoolWarm: false,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
-		PolicyConfig:      policyConfig,
+		PolicyConfig:      srv.PolicyConfig(),
 	})
 	if err != nil {
-		server.Close()
-		return &ArtemisRunner{server: server}
+		srv.Close()
+		return &ArtemisRunner{server: srv}
 	}
-	return &ArtemisRunner{engine: eng, server: server}
+	return &ArtemisRunner{engine: eng, server: srv}
 }
 
 // Close releases the engine and server resources.
@@ -63,14 +55,14 @@ func (r *ArtemisRunner) Close() {
 	}
 }
 
-// BaseURL returns the httptest server URL.
+// BaseURL returns the fixture server URL.
 func (r *ArtemisRunner) BaseURL() string {
-	return r.server.URL
+	return r.server.BaseURL()
 }
 
 // RunScenario runs the Artemis engine against a single scenario and
 // returns the measured result. The scenarioID must match a scenario
-// served by the httptest server.
+// served by the fixture server.
 func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioResult {
 	result := ScenarioResult{
 		ScenarioID: s.ID,
@@ -83,7 +75,7 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 		return result
 	}
 
-	scenarioURL := r.server.URL + "/" + s.ID
+	scenarioURL := r.server.URL("/" + s.ID)
 
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
@@ -129,7 +121,7 @@ func (r *ArtemisRunner) RunAll(ctx context.Context, scenarios []Scenario) []Scen
 // target to get precise allocation counts.
 func (r *ArtemisRunner) RunScenarioBench(b *testing.B, s Scenario) {
 	b.Helper()
-	scenarioURL := r.server.URL + "/" + s.ID
+	scenarioURL := r.server.URL("/" + s.ID)
 	runScripts := s.ScriptCount > 0
 	ctx := context.Background()
 
@@ -183,49 +175,4 @@ func DOMQueryBench(b *testing.B, s Scenario) {
 		_ = webapi.GetElementsByTagName(root, "div")
 		_ = webapi.GetElementsByClassName(root, "card")
 	}
-}
-
-// newScenarioMux creates an HTTP mux that serves each scenario at
-// /<scenarioID>.
-func newScenarioMux(scenarios []Scenario) *serveMux {
-	mux := &serveMux{routes: map[string]string{}}
-	for _, s := range scenarios {
-		mux.routes[s.ID] = s.HTML
-	}
-	return mux
-}
-
-// serveMux is a minimal HTTP handler that serves scenario fixtures.
-type serveMux struct {
-	routes map[string]string
-}
-
-func (m *serveMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Extract scenario ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/")
-	id := path
-	if path == "" || path == "/" {
-		id = "nav-001"
-	}
-	html, ok := m.routes[id]
-	if !ok {
-		w.WriteHeader(404)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(200)
-	w.Write([]byte(html))
-}
-
-// resolveURL resolves a relative URL against the base.
-func resolveURL(base, ref string) string {
-	b, err := url.Parse(base)
-	if err != nil {
-		return ref
-	}
-	r, err := url.Parse(ref)
-	if err != nil {
-		return ref
-	}
-	return b.ResolveReference(r).String()
 }
