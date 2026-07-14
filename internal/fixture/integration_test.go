@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,19 +25,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// crossResult is the observable evidence a runner can return for a fixture.
-type crossResult struct {
-	URL        string
-	StatusCode int
-	Title      string
-	Text       string
-	HTML       string
-	Markdown   string
-	EvalResult string
-	EvalErr    string
-	Links      []string
-}
-
 // runner is a cross-adapter fixture surface. Each concrete implementation
 // executes the same deterministic fixture scenarios through a single
 // Artemis path: engine, Chromium bridge, hybrid router, serve, Agent API, or
@@ -46,7 +34,7 @@ type runner interface {
 	start(ctx context.Context, t *testing.T, srv *Server)
 	stop(ctx context.Context, t *testing.T)
 	canRun(sc Scenario) (bool, string)
-	run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult
+	run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult
 }
 
 // TestFixtureCorpusThroughAllPaths runs the deterministic local fixture
@@ -55,6 +43,7 @@ type runner interface {
 func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 	srv := NewServerWithDefaults()
 	defer srv.Close()
+	t.Setenv("ARTEMIS_REPLAY_DIR", t.TempDir())
 
 	runners := []runner{
 		&engineRunner{},
@@ -81,6 +70,11 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 				}
 				t.Run(sc.ID, func(t *testing.T) {
 					result := r.run(ctx, t, sc, srv)
+					if replayDir := os.Getenv("ARTEMIS_REPLAY_DIR"); replayDir != "" {
+						if _, err := CaptureReplay(sc, r.name(), result, 0, SystemMetadata(), DefaultRedactionConfig(), replayDir); err != nil {
+							t.Errorf("replay capture: %v", err)
+						}
+					}
 					assertCrossResult(t, sc, result)
 				})
 			}
@@ -88,7 +82,7 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 	}
 }
 
-func assertCrossResult(t *testing.T, sc Scenario, got crossResult) {
+func assertCrossResult(t *testing.T, sc Scenario, got CrossResult) {
 	wantStatus := sc.Expect.Status
 	if wantStatus == 0 {
 		wantStatus = 200
@@ -153,7 +147,7 @@ func (r *engineRunner) stop(ctx context.Context, t *testing.T) {
 
 func (r *engineRunner) canRun(sc Scenario) (bool, string) { return true, "" }
 
-func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	page, err := r.eng.Fetch(ctx, srv.URL(sc.Path), engine.FetchOpts{
 		RunScripts: sc.RunScripts,
@@ -171,7 +165,7 @@ func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *
 	return resultFromEnginePage(ctx, t, page, sc)
 }
 
-func resultFromEnginePage(ctx context.Context, t *testing.T, page *engine.Page, sc Scenario) crossResult {
+func resultFromEnginePage(ctx context.Context, t *testing.T, page *engine.Page, sc Scenario) CrossResult {
 	t.Helper()
 	var evalRes string
 	var evalErr string
@@ -187,7 +181,7 @@ func resultFromEnginePage(ctx context.Context, t *testing.T, page *engine.Page, 
 	for _, l := range page.Links() {
 		links = append(links, l.Href)
 	}
-	return crossResult{
+	return CrossResult{
 		URL:        page.URL(),
 		StatusCode: page.StatusCode(),
 		Title:      page.Title(),
@@ -265,7 +259,7 @@ func (r *bridgeRunner) canRun(sc Scenario) (bool, string) {
 	return true, ""
 }
 
-func (r *bridgeRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *bridgeRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	if _, _, err := r.page.Navigate(ctx, srv.URL(sc.Path)); err != nil {
 		t.Fatalf("bridge Navigate: %v", err)
@@ -299,7 +293,7 @@ type callCaller interface {
 	Call(context.Context, string, any, any) error
 }
 
-func resultFromBridgePage(ctx context.Context, t *testing.T, page *bridge.Page, sc Scenario) crossResult {
+func resultFromBridgePage(ctx context.Context, t *testing.T, page *bridge.Page, sc Scenario) CrossResult {
 	t.Helper()
 	var snap struct {
 		Result struct {
@@ -340,7 +334,7 @@ func resultFromBridgePage(ctx context.Context, t *testing.T, page *bridge.Page, 
 	for _, l := range snap.Result.Value.Links {
 		links = append(links, l.Href)
 	}
-	return crossResult{
+	return CrossResult{
 		URL:        snap.Result.Value.URL,
 		StatusCode: 200,
 		Title:      snap.Result.Value.Title,
@@ -489,7 +483,7 @@ func (r *routerRunner) canRun(sc Scenario) (bool, string) {
 	return true, ""
 }
 
-func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	signals := signalsForScenario(sc)
 	req := router.RouteRequest{
@@ -506,7 +500,7 @@ func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *
 	if result.Resource != nil {
 		defer result.Resource.Close()
 	}
-	return crossResult{
+	return CrossResult{
 		URL:        result.Output.URL,
 		StatusCode: result.Output.StatusCode,
 		Title:      result.Output.Title,
@@ -636,7 +630,7 @@ func (r *serveRunner) call(t *testing.T, c *websocket.Conn, cmd serve.Command, p
 	return resp
 }
 
-func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	c := r.dial(t)
 	defer c.Close(websocket.StatusNormalClosure, "")
@@ -717,7 +711,7 @@ func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 		t.Fatalf("page.close: %v", closeResp.Error)
 	}
 
-	return crossResult{
+	return CrossResult{
 		URL:        open.URL,
 		StatusCode: open.Status,
 		Title:      title,
@@ -785,7 +779,7 @@ func (r *agentRunner) canRun(sc Scenario) (bool, string) {
 	return true, ""
 }
 
-func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	session, err := r.agent.CreateSession("fixture-runner")
 	if err != nil {
@@ -807,7 +801,7 @@ func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 	for _, l := range result.Data.Links {
 		links = append(links, l.Href)
 	}
-	return crossResult{
+	return CrossResult{
 		URL:        result.Data.URL,
 		StatusCode: result.Data.StatusCode,
 		Title:      result.Data.Title,
@@ -869,7 +863,7 @@ func (r *omnimusRunner) canRun(sc Scenario) (bool, string) {
 	return true, ""
 }
 
-func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) crossResult {
+func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	if r.session == "" {
 		sess, err := r.runtime.Open(ctx, profile.OpenSessionRequest{

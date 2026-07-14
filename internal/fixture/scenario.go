@@ -47,7 +47,7 @@ type Scenario struct {
 	ContentType string
 	Status      int
 	HTML        string
-	Handler     http.Handler
+	Handler     http.Handler `json:"-"`
 	Expect      Expect
 	RunScripts  bool
 	AsyncFetch  bool
