@@ -40,6 +40,7 @@ func CurrentEnvironment(benchmarkTag string) Environment {
 // available, otherwise total bytes allocated.
 type ScenarioResult struct {
 	ScenarioID string     `json:"scenarioId"`
+	Workload   string     `json:"workload,omitempty"`
 	Engine     EngineName `json:"engine"`
 	EngineMode string     `json:"engineMode"`
 	WallMs     float64    `json:"wallMs"`
@@ -47,6 +48,7 @@ type ScenarioResult struct {
 	AllocBytes int64      `json:"allocBytes"`
 	AllocCount int64      `json:"allocCount"`
 	RSSBytes   int64      `json:"rssBytes"`
+	Throughput float64    `json:"throughput"`
 	OK         bool       `json:"ok"`
 	Validated  bool       `json:"validated"`
 	Error      string     `json:"error,omitempty"`
@@ -75,15 +77,19 @@ type Environment struct {
 
 // Scorecard is the full head-to-head result set across all scenarios.
 type Scorecard struct {
-	Version       string           `json:"version"`
-	MatrixVersion string           `json:"matrixVersion"`
-	Date          time.Time        `json:"date"`
-	Host          string           `json:"host"`
-	Environment   Environment      `json:"environment"`
-	Mode          ScorecardMode    `json:"mode"`
-	Honest        bool             `json:"honest"`
-	HonestReason  string           `json:"honestReason,omitempty"`
-	Results       []ScenarioResult `json:"results"`
+	Version           string            `json:"version"`
+	MatrixVersion     string            `json:"matrixVersion"`
+	Date              time.Time         `json:"date"`
+	Host              string            `json:"host"`
+	Environment       Environment       `json:"environment"`
+	Mode              ScorecardMode     `json:"mode"`
+	Honest            bool              `json:"honest"`
+	HonestReason      string            `json:"honestReason,omitempty"`
+	ArtemisVersion    string            `json:"artemisVersion,omitempty"`
+	CompetitorVersion string            `json:"competitorVersion,omitempty"`
+	Results           []ScenarioResult  `json:"results"`
+	Aggregates        []MetricAggregate `json:"aggregates,omitempty"`
+	BudgetChecks      []BudgetCheck     `json:"budgetChecks,omitempty"`
 }
 
 // NewScorecard creates an empty scorecard with the current timestamp.
@@ -107,6 +113,19 @@ func (s *Scorecard) AddResult(r ScenarioResult) {
 	s.Results = append(s.Results, r)
 }
 
+// ToMetricSet returns the result as a MetricSet.
+func (r ScenarioResult) ToMetricSet() MetricSet {
+	return MetricSet{
+		WallMs:     r.WallMs,
+		CPUMs:      r.CPUMs,
+		AllocBytes: r.AllocBytes,
+		AllocCount: r.AllocCount,
+		RSSBytes:   r.RSSBytes,
+		Throughput: r.Throughput,
+		ErrorRate:  MetricErrorRateFromBool(!r.OK),
+	}
+}
+
 // Summary returns per-engine aggregate stats.
 type EngineSummary struct {
 	Engine    EngineName `json:"engine"`
@@ -116,6 +135,23 @@ type EngineSummary struct {
 	Losses    int        `json:"losses"`
 	Errors    int        `json:"errors"`
 	Scenarios int        `json:"scenarios"`
+}
+
+// MetricAggregate captures statistics per metric kind per engine.
+type MetricAggregate struct {
+	Engine    EngineName `json:"engine"`
+	Kind      MetricKind `json:"kind"`
+	Aggregate `json:"aggregate"`
+}
+
+// BudgetCheck records a regression budget evaluation.
+type BudgetCheck struct {
+	Kind     MetricKind `json:"kind"`
+	Engine   EngineName `json:"engine"`
+	Baseline float64    `json:"baseline"`
+	Current  float64    `json:"current"`
+	OK       bool       `json:"ok"`
+	Reason   string     `json:"reason,omitempty"`
 }
 
 // Summarize computes per-engine aggregate stats and win/loss counts.
@@ -178,6 +214,89 @@ func (s *Scorecard) Summarize() []EngineSummary {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Engine < out[j].Engine })
 	return out
+}
+
+// ComputeAggregates computes per-engine, per-metric statistics from the results.
+func (s *Scorecard) ComputeAggregates() []MetricAggregate {
+	byEngineMetric := map[EngineName]map[MetricKind][]float64{}
+	for _, r := range s.Results {
+		if !r.OK {
+			continue
+		}
+		if _, ok := byEngineMetric[r.Engine]; !ok {
+			byEngineMetric[r.Engine] = map[MetricKind][]float64{}
+		}
+		for _, sample := range r.ToMetricSet().ToSamples() {
+			byEngineMetric[r.Engine][sample.Kind] = append(byEngineMetric[r.Engine][sample.Kind], sample.Value)
+		}
+	}
+
+	out := []MetricAggregate{}
+	engines := make([]EngineName, 0, len(byEngineMetric))
+	for e := range byEngineMetric {
+		engines = append(engines, e)
+	}
+	sort.Slice(engines, func(i, j int) bool { return engines[i] < engines[j] })
+	for _, e := range engines {
+		kinds := make([]MetricKind, 0, len(byEngineMetric[e]))
+		for k := range byEngineMetric[e] {
+			kinds = append(kinds, k)
+		}
+		sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+		for _, k := range kinds {
+			agg := ComputeAggregate(byEngineMetric[e][k])
+			out = append(out, MetricAggregate{Engine: e, Kind: k, Aggregate: agg})
+		}
+	}
+	return out
+}
+
+// CheckBudgets evaluates the scorecard against the provided regression budgets.
+// For head-to-head scorecards, the competitor engine is the baseline for Artemis.
+func (s *Scorecard) CheckBudgets(budgets []RegressionBudget) []BudgetCheck {
+	checks := []BudgetCheck{}
+	if s.Mode != ModeHeadToHead || !s.Honest {
+		return checks
+	}
+	byScenarioEngine := map[string]map[EngineName]ScenarioResult{}
+	for _, r := range s.Results {
+		if _, ok := byScenarioEngine[r.ScenarioID]; !ok {
+			byScenarioEngine[r.ScenarioID] = map[EngineName]ScenarioResult{}
+		}
+		byScenarioEngine[r.ScenarioID][r.Engine] = r
+	}
+
+	for _, b := range budgets {
+		for _, engines := range byScenarioEngine {
+			baseline, ok := engines[EngineCompetitor]
+			current, ok2 := engines[EngineArtemis]
+			if !ok || !ok2 {
+				continue
+			}
+			if !baseline.OK || !current.OK {
+				continue
+			}
+			baseVal := baseline.ToMetricSet().sampleValue(b.MetricKind)
+			curVal := current.ToMetricSet().sampleValue(b.MetricKind)
+			ok, reason := b.Check(baseVal, curVal)
+			checks = append(checks, BudgetCheck{
+				Kind:     b.MetricKind,
+				Engine:   EngineArtemis,
+				Baseline: baseVal,
+				Current:  curVal,
+				OK:       ok,
+				Reason:   reason,
+			})
+		}
+	}
+	return checks
+}
+
+// Finalize computes aggregates and evaluates regression budgets. Call before
+// writing a scorecard to ensure all derived fields are populated.
+func (s *Scorecard) Finalize(budgets []RegressionBudget) {
+	s.Aggregates = s.ComputeAggregates()
+	s.BudgetChecks = s.CheckBudgets(budgets)
 }
 
 // WriteJSON writes the scorecard as JSON to the given path.

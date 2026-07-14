@@ -49,10 +49,31 @@ func NewArtemisRunner(scenarios []Scenario) *ArtemisRunner {
 func (r *ArtemisRunner) Close() {
 	if r.engine != nil {
 		r.engine.Close()
+		r.engine = nil
 	}
 	if r.server != nil {
 		r.server.Close()
 	}
+}
+
+// Reset releases and recreates the engine so the next run is cold.
+func (r *ArtemisRunner) Reset() error {
+	if r.engine != nil {
+		r.engine.Close()
+		r.engine = nil
+	}
+	eng, err := engine.New(engine.Config{
+		JSContextPoolSize: 8,
+		JSContextPoolWarm: false,
+		Timeout:           10 * time.Second,
+		MaxBodyBytes:      10 * 1024 * 1024,
+		PolicyConfig:      r.server.PolicyConfig(),
+	})
+	if err != nil {
+		return err
+	}
+	r.engine = eng
+	return nil
 }
 
 // BaseURL returns the fixture server URL.
@@ -81,11 +102,16 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 
-	start := time.Now()
-	page, err := r.engine.Fetch(ctx, scenarioURL, engine.FetchOpts{RunScripts: s.ScriptCount > 0})
+	var page *engine.Page
+	ms, err := measureFunc(func() error {
+		var fetchErr error
+		page, fetchErr = r.engine.Fetch(ctx, scenarioURL, engine.FetchOpts{RunScripts: s.ScriptCount > 0})
+		return fetchErr
+	})
 	if err != nil {
-		wallMs := float64(time.Since(start).Microseconds()) / 1000.0
-		result.WallMs = wallMs
+		result.WallMs = ms.WallMs
+		result.CPUMs = ms.CPUMs
+		result.RSSBytes = ms.RSSBytes
 		result.Error = fmt.Sprintf("fetch: %v", err)
 		return result
 	}
@@ -96,14 +122,15 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	links := page.Links()
 	text := page.Text()
 
-	wallMs := float64(time.Since(start).Microseconds()) / 1000.0
-
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memAfter)
 
-	result.WallMs = wallMs
+	result.WallMs = ms.WallMs
+	result.CPUMs = ms.CPUMs
+	result.RSSBytes = ms.RSSBytes
 	result.AllocBytes = int64(memAfter.TotalAlloc - memBefore.TotalAlloc)
 	result.AllocCount = int64(memAfter.Mallocs - memBefore.Mallocs)
+	result.Throughput = ms.Throughput
 	result.OK = true
 	result.Validated = validateScenario(s, title, links, text)
 	return result

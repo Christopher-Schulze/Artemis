@@ -350,7 +350,18 @@ func DefaultScenarios() []Scenario {
 func ScenarioByID(id string) *Scenario {
 	for _, s := range DefaultScenarios() {
 		if s.ID == id {
-			return &s
+			sc := s
+			return &sc
+		}
+	}
+	return nil
+}
+
+func scenarioByID(scenarios []Scenario, id string) *Scenario {
+	for _, s := range scenarios {
+		if s.ID == id {
+			sc := s
+			return &sc
 		}
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 )
 
@@ -26,6 +27,13 @@ type HarnessConfig struct {
 	RequireHeadToHead bool
 	// BenchmarkTag annotates the environment manifest (e.g. "cold", "warm").
 	BenchmarkTag string
+	// RegressionBudgets are evaluated when the scorecard is finalized.
+	RegressionBudgets []RegressionBudget
+	// Workloads defines the workload combinations to run. If empty, the
+	// harness uses a single default workload.
+	Workloads []Workload
+	// Profile controls optional pprof output.
+	Profile ProfileConfig
 }
 
 // DefaultHarnessConfig returns the default harness configuration.
@@ -63,23 +71,71 @@ func NewHarness(cfg HarnessConfig) *Harness {
 // Run executes the full benchmark and writes the scorecard.
 // It returns the scorecard and any error that prevented completion.
 func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
+	stopProfile, err := StartProfile(h.cfg.Profile)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stopProfile() }()
+
 	sc := NewScorecard()
 	sc.Environment = CurrentEnvironment(h.cfg.BenchmarkTag)
+	sc.ArtemisVersion = artemisVersion()
 
-	// Set up Artemis runner
-	h.artemis = NewArtemisRunner(h.scenarios)
-	defer h.artemis.Close()
+	workloads := h.cfg.Workloads
+	if len(workloads) == 0 {
+		workloads = DefaultWorkloads(h.scenarios)
+	}
 
 	// Run Artemis side
-	for _, s := range h.scenarios {
-		results := make([]ScenarioResult, 0, h.cfg.Iterations)
-		for i := 0; i < h.cfg.Iterations; i++ {
-			r := h.artemis.RunScenario(ctx, s)
+	for _, w := range workloads {
+		s := scenarioByID(h.scenarios, w.ScenarioID)
+		if s == nil {
+			continue
+		}
+		s.EngineMode = w.EngineMode
+
+		artemis := NewArtemisRunner(h.scenarios)
+		if w.Warmth == WarmthWarm {
+			// Warm reuse: share the same runner across warm workloads
+			if h.artemis == nil {
+				h.artemis = artemis
+			} else {
+				artemis.Close()
+				artemis = h.artemis
+			}
+		}
+		if w.Warmth == WarmthCold {
+			if h.artemis != nil {
+				h.artemis.Close()
+				h.artemis = nil
+			}
+			h.artemis = artemis
+		}
+		if w.Locality == LocalityNetwork {
+			artemis.Close()
+			h.artemis = nil
+			return sc, fmt.Errorf("network locality not supported in this harness")
+		}
+
+		results := make([]ScenarioResult, 0, w.Iterations)
+		for i := 0; i < w.Iterations; i++ {
+			r := artemis.RunScenario(ctx, *s)
+			r.Workload = w.Key()
 			results = append(results, r)
 		}
 		median := medianResult(results)
 		sc.AddResult(median)
+		if w.Warmth == WarmthCold {
+			artemis.Close()
+			h.artemis = nil
+		}
 	}
+	defer func() {
+		if h.artemis != nil {
+			h.artemis.Close()
+			h.artemis = nil
+		}
+	}()
 
 	// Run competitor side (if not skipped and binary available)
 	if !h.cfg.SkipCompetitor {
@@ -101,6 +157,9 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 				})
 			}
 		} else {
+			if v, err := h.competitor.Version(); err == nil {
+				sc.CompetitorVersion = v
+			}
 			if err := h.competitor.Start(ctx); err != nil {
 				honestReason = fmt.Sprintf("competitor start failed: %v", err)
 				for _, s := range h.scenarios {
@@ -150,7 +209,10 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 				sc.HonestReason = fmt.Sprintf("incomplete results: artemis ok=%d, competitor ok=%d, expected=%d", artemisOK, competitorOK, len(h.scenarios))
 			}
 		}
+
 	}
+
+	sc.Finalize(h.cfg.RegressionBudgets)
 
 	// Write scorecard
 	jsonPath := filepath.Join(h.cfg.OutputDir, "scorecard.json")
@@ -163,11 +225,26 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 		return sc, fmt.Errorf("write md scorecard: %w", err)
 	}
 
-	if h.cfg.RequireHeadToHead && (!h.cfg.SkipCompetitor && !sc.Honest) {
+	if err := WriteReport(h.cfg.OutputDir); err != nil {
+		return sc, fmt.Errorf("write report: %w", err)
+	}
+
+	if h.cfg.RequireHeadToHead && !sc.Honest {
 		return sc, fmt.Errorf("head-to-head required but scorecard is not honest: %s", sc.HonestReason)
 	}
 
 	return sc, nil
+}
+
+func artemisVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return info.Main.Sum
 }
 
 // medianResult returns the result with the median wall time from a

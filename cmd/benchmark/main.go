@@ -21,6 +21,8 @@ func main() {
 	iterations := flag.Int("iterations", 5, "iterations per scenario")
 	outputDir := flag.String("output", "benchmark/results", "output directory for scorecard")
 	benchmarkTag := flag.String("benchmark-tag", "", "environment tag (e.g. cold, warm, renderless)")
+	cpuProfile := flag.String("cpu-profile", "", "write CPU profile to file")
+	memProfile := flag.String("mem-profile", "", "write memory profile to file")
 	flag.Parse()
 
 	cfg := benchmark.HarnessConfig{
@@ -29,6 +31,10 @@ func main() {
 		SkipCompetitor:    *skipCompetitor,
 		RequireHeadToHead: *requireHeadToHead,
 		BenchmarkTag:      *benchmarkTag,
+		Profile: benchmark.ProfileConfig{
+			CPUProfilePath: *cpuProfile,
+			MemProfilePath: *memProfile,
+		},
 		Competitor: benchmark.CompetitorConfig{
 			DownloadURL: *downloadURL,
 		},

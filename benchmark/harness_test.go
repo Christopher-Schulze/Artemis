@@ -39,16 +39,17 @@ func TestHarnessArtemisOnly(t *testing.T) {
 		t.Errorf("matrix version = %s, want %s", sc.MatrixVersion, ScenarioMatrixVersion)
 	}
 
-	// Should have results for all scenarios (Artemis side only)
+	// Should have results for all default workloads (Artemis side only)
 	scenarios := DefaultScenarios()
+	workloads := DefaultWorkloads(scenarios)
 	artemisResults := 0
 	for _, r := range sc.Results {
 		if r.Engine == EngineArtemis {
 			artemisResults++
 		}
 	}
-	if artemisResults != len(scenarios) {
-		t.Errorf("artemis results = %d, want %d", artemisResults, len(scenarios))
+	if artemisResults != len(workloads) {
+		t.Errorf("artemis results = %d, want %d", artemisResults, len(workloads))
 	}
 
 	// All Artemis results should be OK
@@ -137,8 +138,9 @@ func TestHarnessCompetitorUnavailable(t *testing.T) {
 	}
 
 	scenarios := DefaultScenarios()
-	if artemisOK != len(scenarios) {
-		t.Errorf("artemis OK = %d, want %d", artemisOK, len(scenarios))
+	workloads := DefaultWorkloads(scenarios)
+	if artemisOK != len(workloads) {
+		t.Errorf("artemis OK = %d, want %d", artemisOK, len(workloads))
 	}
 	if competitorErrors != len(scenarios) {
 		t.Errorf("competitor errors = %d, want %d", competitorErrors, len(scenarios))

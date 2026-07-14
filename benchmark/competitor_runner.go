@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,12 @@ type CompetitorConfig struct {
 	// If empty, the competitor is considered unavailable and the
 	// harness reports honestly.
 	DownloadURL string
+	// ExpectedSHA256 is the hex-encoded SHA256 of the expected binary.
+	// If non-empty, the downloaded binary is verified against this.
+	ExpectedSHA256 string
+	// VersionArgs are the command-line arguments used to retrieve the version.
+	// Default: ["--version"].
+	VersionArgs []string
 	// Port is the port the competitor binary listens on.
 	Port int
 	// Timeout is the maximum time to wait for the competitor to start.
@@ -57,6 +65,9 @@ func NewCompetitorRunner(cfg CompetitorConfig) *CompetitorRunner {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
+	if len(cfg.VersionArgs) == 0 {
+		cfg.VersionArgs = []string{"--version"}
+	}
 	return &CompetitorRunner{cfg: cfg}
 }
 
@@ -84,6 +95,9 @@ func (r *CompetitorRunner) IsAvailable() bool {
 // explaining the situation honestly.
 func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
 	if r.IsAvailable() {
+		if err := r.verifyChecksum(); err != nil {
+			return err
+		}
 		return nil
 	}
 	if r.cfg.DownloadURL == "" {
@@ -120,6 +134,11 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
 		return fmt.Errorf("competitor binary write: %w", err)
 	}
 
+	if err := r.verifyChecksum(); err != nil {
+		os.Remove(r.BinaryPath())
+		return err
+	}
+
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(r.BinaryPath(), 0o755); err != nil {
 			return fmt.Errorf("competitor binary chmod: %w", err)
@@ -127,6 +146,47 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *CompetitorRunner) verifyChecksum() error {
+	if r.cfg.ExpectedSHA256 == "" {
+		return nil
+	}
+	got, err := fileSHA256(r.BinaryPath())
+	if err != nil {
+		return fmt.Errorf("competitor checksum: %w", err)
+	}
+	if !strings.EqualFold(got, r.cfg.ExpectedSHA256) {
+		return fmt.Errorf("competitor checksum mismatch: got %s, want %s", got, r.cfg.ExpectedSHA256)
+	}
+	return nil
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// Version runs the binary's version command and returns the captured output.
+func (r *CompetitorRunner) Version() (string, error) {
+	if !r.IsAvailable() {
+		return "", fmt.Errorf("competitor binary not available")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, r.BinaryPath(), r.cfg.VersionArgs...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("competitor version: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Start launches the competitor binary as a subprocess listening on
