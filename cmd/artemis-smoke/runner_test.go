@@ -11,15 +11,28 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
 // startServeServer starts an in-process artemis serve.Server on a free
 // port and returns the address. This lets the runner tests exercise the
 // full WS path without spawning a subprocess or hitting the internet.
+func testConfig() engine.Config {
+	return engine.Config{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
+}
+
+func allTestPorts() []int {
+	ports := make([]int, 65535)
+	for i := range ports {
+		ports[i] = i + 1
+	}
+	return ports
+}
+
 func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	t.Helper()
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig())
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}

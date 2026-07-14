@@ -25,7 +25,7 @@ func TestIframeInlineScriptExecutes(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestIframeMultipleEachRuns(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{})
 	if err != nil {

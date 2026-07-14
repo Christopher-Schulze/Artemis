@@ -40,7 +40,7 @@ func TestAsyncFetchParallel(t *testing.T) {
 	}))
 	defer page.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(api, page))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestAsyncFetchSequentialAwait(t *testing.T) {
 	}))
 	defer page.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, api, page)
 	defer eng.Close()
 	p, err := eng.Fetch(context.Background(), page.URL, FetchOpts{
 		RunScripts: true,
@@ -125,7 +125,7 @@ func TestAsyncWaitIdleCancel(t *testing.T) {
 	}))
 	defer page.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, api, page)
 	defer eng.Close()
 	p, err := eng.Fetch(context.Background(), page.URL, FetchOpts{
 		RunScripts: true,

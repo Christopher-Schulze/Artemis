@@ -17,7 +17,7 @@ func benchServer() *httptest.Server {
 func BenchmarkFetch(b *testing.B) {
 	srv := benchServer()
 	defer srv.Close()
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func BenchmarkFetch(b *testing.B) {
 func BenchmarkFetchRunScripts(b *testing.B) {
 	srv := benchServer()
 	defer srv.Close()
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func BenchmarkFetchRunScripts(b *testing.B) {
 func BenchmarkEval(b *testing.B) {
 	srv := benchServer()
 	defer srv.Close()
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func BenchmarkEval(b *testing.B) {
 func BenchmarkClickRoundTrip(b *testing.B) {
 	srv := benchServer()
 	defer srv.Close()
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}

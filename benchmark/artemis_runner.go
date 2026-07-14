@@ -7,12 +7,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/parser"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
@@ -31,11 +33,18 @@ type ArtemisRunner struct {
 func NewArtemisRunner(scenarios []Scenario) *ArtemisRunner {
 	mux := newScenarioMux(scenarios)
 	server := httptest.NewServer(mux)
+	policyConfig := network.PolicyConfig{AllowPrivateNetworks: true}
+	if u, perr := url.Parse(server.URL); perr == nil {
+		if port, perr := strconv.Atoi(u.Port()); perr == nil {
+			policyConfig.AllowedPorts = []int{port}
+		}
+	}
 	eng, err := engine.New(engine.Config{
 		JSContextPoolSize: 8,
 		JSContextPoolWarm: false,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
+		PolicyConfig:      policyConfig,
 	})
 	if err != nil {
 		server.Close()

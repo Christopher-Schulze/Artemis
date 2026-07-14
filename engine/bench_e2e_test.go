@@ -68,7 +68,7 @@ func BenchmarkEndToEnd100Pages(b *testing.B) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -103,7 +103,9 @@ func BenchmarkEndToEnd100PagesPooled(b *testing.B) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{JSContextPoolSize: 8})
+	cfg := testConfig(srv)
+	cfg.JSContextPoolSize = 8
+	eng, err := New(cfg)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -138,7 +140,10 @@ func BenchmarkEndToEnd100PagesPooledWarm(b *testing.B) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{JSContextPoolSize: 8, JSContextPoolWarm: true})
+	cfg := testConfig(srv)
+	cfg.JSContextPoolSize = 8
+	cfg.JSContextPoolWarm = true
+	eng, err := New(cfg)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -170,7 +175,7 @@ func BenchmarkEndToEnd100PagesNoScripts(b *testing.B) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -15,16 +15,10 @@ func TestPageTypeBasic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	result, err := page.Type(context.Background(), "#q", "hello world")
@@ -53,10 +47,10 @@ func TestPageTypeEmptyText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.Type(context.Background(), "#q", "")
@@ -71,10 +65,10 @@ func TestPageTypeSelectorNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.Type(context.Background(), "#nonexistent", "text")
@@ -89,10 +83,10 @@ func TestPageTypeInvalidSelector(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.Type(context.Background(), "!!!invalid", "text")
@@ -107,10 +101,10 @@ func TestPageTypeWithDelay(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	result, err := page.TypeWithDelay(context.Background(), "#q", "hi", 10*time.Millisecond, 5*time.Millisecond)
@@ -144,10 +138,10 @@ func TestPageFormFill(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	fields := map[string]string{
@@ -180,10 +174,10 @@ func TestPageFormFillAndSubmit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	fields := map[string]string{
@@ -220,10 +214,10 @@ func TestPageFormMissingField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	fields := map[string]string{
@@ -259,10 +253,10 @@ func TestPageFormSubmitSkippedOnMissingField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	fields := map[string]string{
@@ -299,10 +293,10 @@ func TestPageFormNoFields(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.Form(context.Background(), "#f", map[string]string{}, false)
@@ -317,10 +311,10 @@ func TestPageFormSelectorNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.Form(context.Background(), "#nonexistent", map[string]string{"#a": "b"}, false)
@@ -339,10 +333,10 @@ func TestPageFormSubmitOnly(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	result, err := page.FormSubmit(context.Background(), "#login")
@@ -371,10 +365,10 @@ func TestPageFormSubmitNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	_, err := page.FormSubmit(context.Background(), "#nonexistent")
@@ -389,10 +383,10 @@ func TestPageClickSelector(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	err := page.ClickSelector(context.Background(), "#btn")
@@ -416,10 +410,10 @@ func TestPageClickSelectorNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 
-	page, _ := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
+	page := mustFetch(t, eng, srv.URL, FetchOpts{})
 	defer page.Close()
 
 	err := page.ClickSelector(context.Background(), "#nonexistent")

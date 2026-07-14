@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/Christopher-Schulze/Artemis/engine"
 )
 
 type executorFunc func(context.Context, ExecutionRequest) (ExecutionOutput, error)
@@ -63,10 +61,7 @@ func TestHybridRouterStaticUsesRealRenderlessExecutor(t *testing.T) {
 	}))
 	defer server.Close()
 
-	eng, err := engine.New(engine.Config{Timeout: time.Second})
-	if err != nil {
-		t.Fatalf("engine.New: %v", err)
-	}
+	eng := testEngineConfig(t, time.Second, server)
 	defer eng.Close()
 	r, err := New(Config{Executors: map[Mode]Executor{
 		ModeStaticFetch: RenderlessExecutor{Engine: eng},

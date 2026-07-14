@@ -6,7 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 type contractRuntime struct {
@@ -50,6 +54,32 @@ type contractFactory struct {
 
 func (f contractFactory) Start(context.Context, AgentConfig) (RenderlessRuntime, error) {
 	return f.runtime, f.err
+}
+
+// newTestEngineRuntime creates a real renderless engine that can fetch the
+// provided httptest fixture server. It is used by tests that need a real
+// runtime against loopback fixtures.
+func newTestEngineRuntime(t *testing.T, srv *httptest.Server) RenderlessRuntime {
+	t.Helper()
+	cfg := engine.Config{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true}}
+	if srv != nil {
+		u, err := url.Parse(srv.URL)
+		if err == nil {
+			p := u.Port()
+			if p != "" {
+				if port, err := strconv.Atoi(p); err == nil {
+					ports := []int{80, 443, port}
+					sort.Ints(ports)
+					cfg.PolicyConfig.AllowedPorts = ports
+				}
+			}
+		}
+	}
+	eng, err := engine.New(cfg)
+	if err != nil {
+		t.Fatalf("engine.New: %v", err)
+	}
+	return &ownedEngineRuntime{Engine: eng}
 }
 
 type retryFactory struct {
@@ -151,7 +181,7 @@ func TestAgentExecutesFetchWithObservableEvidence(t *testing.T) {
 	}))
 	defer server.Close()
 
-	agent := mustAgent(t, AgentConfig{})
+	agent, _ := newContractAgent(t, AgentConfig{}, newTestEngineRuntime(t, server), renderlessDispatcher{})
 	session := startSession(t, agent)
 	result := agent.ExecuteTask(context.Background(), Task{
 		ID: "observable", SessionID: session.SessionID(), Action: FetchAction{URL: server.URL, RunScripts: true},

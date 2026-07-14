@@ -19,7 +19,7 @@ func TestRunScriptInPageSimple(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestRunScriptInPageQuerySelector(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestRunScriptInPageMultiLineScript(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRunScriptInPageDOMMutation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRunScriptInPageScriptError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRunScriptInPageUndefinedResult(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestRunScriptInPageArithmetic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestRunScriptInPageWithInlineScripts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestRunScriptInPageWithoutInlineScripts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestCmdRunValidScript(t *testing.T) {
 	scriptPath := filepath.Join(dir, "script.js")
 	os.WriteFile(scriptPath, []byte(`document.title`), 0o600)
 
-	exitCode := cmdRun([]string{"--script", scriptPath, srv.URL})
+	exitCode := cmdRun([]string{"--script", scriptPath, "--allow-private-networks", "--allow-port", srvPort(srv), srv.URL})
 	if exitCode != 0 {
 		t.Errorf("exit code = %d, want 0 for valid script", exitCode)
 	}
@@ -298,7 +298,7 @@ func TestCmdRunWithHeaders(t *testing.T) {
 	scriptPath := filepath.Join(dir, "script.js")
 	os.WriteFile(scriptPath, []byte(`1+1`), 0o600)
 
-	exitCode := cmdRun([]string{"--script", scriptPath, "--header", "X-Custom=test", srv.URL})
+	exitCode := cmdRun([]string{"--script", scriptPath, "--header", "X-Custom=test", "--allow-private-networks", "--allow-port", srvPort(srv), srv.URL})
 	if exitCode != 0 {
 		t.Errorf("exit code = %d, want 0", exitCode)
 	}

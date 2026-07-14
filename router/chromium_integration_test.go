@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
-	"github.com/Christopher-Schulze/Artemis/engine"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -61,10 +60,7 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	eng, err := engine.New(engine.Config{Timeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
+	eng := testEngineConfig(t, time.Second, fixture)
 	defer eng.Close()
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true})
 	if err != nil {

@@ -31,7 +31,7 @@ func TestExternalScriptLoadingExecutesInOrder(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestExternalScriptCachedPerPage(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestExternalScript404DoesNotAbort(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

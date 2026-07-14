@@ -88,18 +88,11 @@ type Engine struct {
 // New creates an Engine using cfg. The returned engine must be Closed.
 func New(cfg Config) (*Engine, error) {
 	cfg.applyDefaults()
-	policyConfig := network.DefaultPolicyConfig()
-	if !cfg.BlockPrivateIPs {
-		policyConfig.AllowPrivateNetworks = true
-		policyConfig.AllowedPorts = make([]int, 65535)
-		for index := range policyConfig.AllowedPorts {
-			policyConfig.AllowedPorts[index] = index + 1
-		}
-	}
-	policy, err := network.NewPolicy(policyConfig, nil, nil)
+	policy, err := network.NewPolicy(cfg.PolicyConfig, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("engine: build network policy: %w", err)
 	}
+	cfg.PolicyConfig = policy.Config()
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
 		UserAgent:    cfg.UserAgent,
 		ProxyURL:     cfg.ProxyURL,

@@ -4,7 +4,11 @@
 // Go program embedding Artemis.
 package engine
 
-import "time"
+import (
+	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
+)
 
 // Default values used when a Config field is left at its zero value.
 const (
@@ -14,7 +18,10 @@ const (
 )
 
 // Config configures engine behavior. The zero value is usable; defaults
-// are filled in by New.
+// are filled in by New. The zero value is secure by default: it denies
+// private/loopback/link-local/multicast/metadata/CGNAT, Unix, file, and
+// data schemes, and only allows ports 80 and 443. Callers can relax
+// these rules by setting PolicyConfig explicitly.
 type Config struct {
 	// UserAgent is the User-Agent header sent with every request.
 	UserAgent string
@@ -27,10 +34,10 @@ type Config struct {
 	// ObeyRobots fetches /robots.txt for each new host and refuses to
 	// fetch URLs that the configured UserAgent is not allowed to crawl.
 	ObeyRobots bool
-	// BlockPrivateIPs refuses to fetch URLs whose host resolves to a
-	// loopback, link-local, multicast, or RFC1918 address. Useful to
-	// stop SSRF when the engine is exposed via the WS steering server.
-	BlockPrivateIPs bool
+	// PolicyConfig controls the outbound network security policy. The
+	// zero value denies private/local/metadata/file/data/unsupported
+	// targets and restricts ports to 80/443.
+	PolicyConfig network.PolicyConfig
 	// JSContextPoolSize enables the v8.Context pool for JS execution.
 	// Pooled Contexts skip ~30% of NewContext CPU cost (install* and
 	// flushBootstraps) by reusing a previously-built v8.Context after

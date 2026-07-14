@@ -27,6 +27,14 @@ func TestWFNetguardSec(t *testing.T) {
 	if denied != len(private) {
 		t.Fatalf("denied %d/%d private targets", denied, len(private))
 	}
+	// Mutant-killing positive control: public numeric targets must be allowed.
+	public := []string{"http://8.8.8.8/", "http://1.1.1.1/"}
+	for _, u := range public {
+		if err := ng.Allow(u); err != nil {
+			t.Fatalf("public target %q incorrectly denied: %v", u, err)
+		}
+	}
+
 	denyRate := float64(denied) / float64(len(private))
 	fmt.Printf("deny_rate=%.1f\n", denyRate)
 	fmt.Printf("security_pass_rate=%.1f\n", denyRate)

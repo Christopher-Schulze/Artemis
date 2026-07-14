@@ -26,7 +26,7 @@ func TestExternalStylesheetLoaded(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestExternalStylesheet404Tolerated(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eng, _ := New(Config{})
+	eng := mustNewTest(t, srv)
 	defer eng.Close()
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{})
 	if err != nil {

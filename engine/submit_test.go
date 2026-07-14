@@ -36,7 +36,7 @@ func TestPageSubmitPOSTRoundTrip(t *testing.T) {
 	}))
 	defer form.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(target, form))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -89,7 +89,7 @@ document.getElementById('b').addEventListener('click', () => {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

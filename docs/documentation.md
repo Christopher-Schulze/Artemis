@@ -145,7 +145,7 @@ The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedde
 | `Timeout` | `30s` | per-request timeout |
 | `MaxBodyBytes` | `50 MiB` | response body cap; `network.ErrBodyTooLarge` on overflow |
 | `ObeyRobots` | `false` | per-host robots.txt fetched + cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
-| `BlockPrivateIPs` | `false` | reject loopback / RFC1918 / link-local / multicast / CGNAT hosts (SSRF guard) |
+| `PolicyConfig` | `network.PolicyConfig{}` (default-deny) | network policy; zero value blocks private/loopback IPs and limits destinations to public ports 80/443. Set `AllowPrivateNetworks: true` and `AllowedPorts` to permit fixture/loopback servers. |
 | `JSContextPoolSize` | `0` (disabled) | size of the v8.Context pool. When > 0, `Page.Close` returns the underlying v8.Context to the pool and the next `Fetch(... RunScripts=true)` reuses it via JS-side `__artemis_reset(url)`. Skips ~30% of NewContext CPU cost. See [v8.Context pool](#v8context-pool) for caveats. |
 | `JSContextPoolWarm` | `false` | when paired with `JSContextPoolSize > 0`, pre-builds all N v8.Contexts at engine.New time so the first Fetch hits the pool fast path immediately. |
 
@@ -354,7 +354,7 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 | Setting / hook | Effect |
 |---|---|
 | `engine.Config.ObeyRobots` | per-host robots.txt fetched and cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
-| `engine.Config.BlockPrivateIPs` | rejects loopback, RFC1918, link-local, multicast, CGNAT hosts |
+| `engine.Config.PolicyConfig` (zero value / `AllowPrivateNetworks: false`) | rejects loopback, RFC1918, link-local, multicast, CGNAT hosts and limits ports to 80/443 |
 | `engine.FetchOpts.OnRequest(req) (resp, err)` | called before the network call; non-nil resp short-circuits with a mock |
 | `document.cookie` (JS) | getter returns `name=value; ...` for the current URL; setter ingests one Set-Cookie line into the jar |
 

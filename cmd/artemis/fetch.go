@@ -13,6 +13,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/network"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
@@ -26,6 +27,8 @@ func cmdFetch(args []string) int {
 	runScripts := fs.Bool("run-scripts", false, "execute inline <script> tags after parse")
 	evalExpr := fs.String("eval", "", "JS expression to evaluate after fetch (printed to stdout, replacing --dump)")
 	consoleOn := fs.Bool("console", false, "forward JS console.* to stderr (slog)")
+	allowPrivate := fs.Bool("allow-private-networks", false, "allow requests to private/loopback IP targets (default false)")
+	allowPort := fs.Int("allow-port", 0, "allow a specific destination port (0 = default 80/443 only)")
 	var headers stringSliceFlag
 	fs.Var(&headers, "header", "extra header (k=v or k:v); repeatable")
 	fs.Usage = func() {
@@ -60,6 +63,12 @@ Flags:
 		ProxyURL:     *proxyURL,
 		Timeout:      timeout,
 		MaxBodyBytes: *maxBody,
+		PolicyConfig: network.PolicyConfig{
+			AllowPrivateNetworks: *allowPrivate,
+		},
+	}
+	if *allowPort != 0 {
+		cfg.PolicyConfig.AllowedPorts = []int{*allowPort}
 	}
 	eng, err := engine.New(cfg)
 	if err != nil {

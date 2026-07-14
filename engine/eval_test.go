@@ -17,7 +17,7 @@ func TestPageEval(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestRunInlineScripts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestInlineScriptConsoleRouted(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

@@ -14,11 +14,24 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
 )
+
+func testConfig() engine.Config {
+	return engine.Config{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
+}
+
+func allTestPorts() []int {
+	ports := make([]int, 65535)
+	for i := range ports {
+		ports[i] = i + 1
+	}
+	return ports
+}
 
 func startServer(t *testing.T) (string, func()) {
 	t.Helper()
-	eng, err := engine.New(engine.Config{})
+	eng, err := engine.New(testConfig())
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}

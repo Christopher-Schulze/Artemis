@@ -16,7 +16,7 @@ func TestEngineFetchEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

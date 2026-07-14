@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
@@ -29,8 +30,10 @@ Flags:
 	}
 
 	eng, err := engine.New(engine.Config{
-		ObeyRobots:      *obeyRobots,
-		BlockPrivateIPs: *blockPriv,
+		ObeyRobots: *obeyRobots,
+		PolicyConfig: network.PolicyConfig{
+			AllowPrivateNetworks: !*blockPriv,
+		},
 	})
 	if err != nil {
 		errf("init engine: %v", err)

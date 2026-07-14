@@ -23,7 +23,9 @@ func TestObeyRobotsBlocksDisallowed(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{ObeyRobots: true})
+	cfg := testConfig(srv)
+	cfg.ObeyRobots = true
+	eng, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -44,12 +46,12 @@ func TestObeyRobotsBlocksDisallowed(t *testing.T) {
 }
 
 func TestBlockPrivateIPs(t *testing.T) {
-	eng, err := New(Config{BlockPrivateIPs: true})
+	eng, err := New(Config{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer eng.Close()
-	_, err = eng.Fetch(context.Background(), "http://127.0.0.1:1/", FetchOpts{})
+	_, err = eng.Fetch(context.Background(), "http://127.0.0.1/", FetchOpts{})
 	if err == nil {
 		t.Error("expected error for loopback")
 	}
@@ -96,7 +98,7 @@ func TestDocumentCookieGetSet(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	eng, err := New(Config{})
+	eng, err := New(testConfig(srv))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

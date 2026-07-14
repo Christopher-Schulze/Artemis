@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/url"
@@ -28,29 +29,33 @@ func IsPrivateOrLocal(ip net.IP) bool {
 	return false
 }
 
-// CheckHostPublic resolves the URL host and returns ErrPrivateIP if any
-// resolved address is private/local. A host that fails to resolve
-// returns nil (let the actual request error normally).
+func allPorts() []int {
+	ports := make([]int, 65535)
+	for i := range ports {
+		ports[i] = i + 1
+	}
+	return ports
+}
+
+// CheckHostPublic returns ErrPrivateIP if the URL host resolves to a
+// private, local, or otherwise non-public address, or if resolution
+// fails. It is fail-closed: DNS failures and malformed inputs are
+// treated as private and are denied. This function is retained as a
+// compatibility wrapper around the unified Policy engine.
 func CheckHostPublic(u *url.URL) error {
 	if u == nil || u.Host == "" {
 		return nil
 	}
-	host := u.Hostname()
-	// numeric host: check directly
-	if ip := net.ParseIP(host); ip != nil {
-		if IsPrivateOrLocal(ip) {
-			return ErrPrivateIP
-		}
-		return nil
+	raw := u.String()
+	if u.Scheme == "" {
+		raw = "http://" + u.Host
 	}
-	addrs, err := net.LookupIP(host)
+	policy, err := NewPolicy(PolicyConfig{AllowPrivateNetworks: false, AllowedPorts: allPorts()}, nil, nil)
 	if err != nil {
-		return nil
+		return err
 	}
-	for _, ip := range addrs {
-		if IsPrivateOrLocal(ip) {
-			return ErrPrivateIP
-		}
+	if _, err := policy.ResolveURL(context.Background(), raw, TargetNavigation, ""); err != nil {
+		return ErrPrivateIP
 	}
 	return nil
 }
