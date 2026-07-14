@@ -6,7 +6,7 @@ import "testing"
 // pipeline for a navigation scenario.
 func BenchmarkArtemisFetchNav(b *testing.B) {
 	s := *ScenarioByID("nav-001")
-	r := NewArtemisRunner([]Scenario{s})
+	r := NewArtemisRunner([]Scenario{s}, false)
 	defer r.Close()
 	r.RunScenarioBench(b, s)
 }
@@ -15,7 +15,7 @@ func BenchmarkArtemisFetchNav(b *testing.B) {
 // content-rich scrape scenario.
 func BenchmarkArtemisFetchScrape(b *testing.B) {
 	s := *ScenarioByID("scr-001")
-	r := NewArtemisRunner([]Scenario{s})
+	r := NewArtemisRunner([]Scenario{s}, false)
 	defer r.Close()
 	r.RunScenarioBench(b, s)
 }
@@ -24,7 +24,7 @@ func BenchmarkArtemisFetchScrape(b *testing.B) {
 // V8 script execution for a script-heavy page.
 func BenchmarkArtemisFetchScriptHeavy(b *testing.B) {
 	s := *ScenarioByID("scr-003")
-	r := NewArtemisRunner([]Scenario{s})
+	r := NewArtemisRunner([]Scenario{s}, false)
 	defer r.Close()
 	r.RunScenarioBench(b, s)
 }
@@ -33,7 +33,7 @@ func BenchmarkArtemisFetchScriptHeavy(b *testing.B) {
 // inline scripts, exercising V8 context pool reuse.
 func BenchmarkArtemisFetchHeavyJS(b *testing.B) {
 	s := *ScenarioByID("scr-004")
-	r := NewArtemisRunner([]Scenario{s})
+	r := NewArtemisRunner([]Scenario{s}, false)
 	defer r.Close()
 	r.RunScenarioBench(b, s)
 }

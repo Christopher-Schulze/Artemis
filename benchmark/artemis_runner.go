@@ -25,15 +25,16 @@ type ArtemisRunner struct {
 
 // NewArtemisRunner creates a runner with a pooled V8 engine and a
 // fixture server serving the given scenarios. The caller must call
-// Close to release resources.
-func NewArtemisRunner(scenarios []Scenario) *ArtemisRunner {
+// Close to release resources. warmPool pre-builds JS contexts so warm
+// runs avoid the context creation cost.
+func NewArtemisRunner(scenarios []Scenario, warmPool bool) *ArtemisRunner {
 	srv := fixture.NewServer()
 	for _, s := range scenarios {
 		srv.RegisterHTML("/"+s.ID, s.HTML)
 	}
 	eng, err := engine.New(engine.Config{
 		JSContextPoolSize: 8,
-		JSContextPoolWarm: false,
+		JSContextPoolWarm: warmPool,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
 		PolicyConfig:      srv.PolicyConfig(),
@@ -57,14 +58,15 @@ func (r *ArtemisRunner) Close() {
 }
 
 // Reset releases and recreates the engine so the next run is cold.
-func (r *ArtemisRunner) Reset() error {
+// warmPool pre-builds JS contexts for warm runs.
+func (r *ArtemisRunner) Reset(warmPool bool) error {
 	if r.engine != nil {
 		r.engine.Close()
 		r.engine = nil
 	}
 	eng, err := engine.New(engine.Config{
 		JSContextPoolSize: 8,
-		JSContextPoolWarm: false,
+		JSContextPoolWarm: warmPool,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
 		PolicyConfig:      r.server.PolicyConfig(),

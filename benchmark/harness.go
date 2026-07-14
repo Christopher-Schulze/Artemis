@@ -94,7 +94,7 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 		}
 		s.EngineMode = w.EngineMode
 
-		artemis := NewArtemisRunner(h.scenarios)
+		artemis := NewArtemisRunner(h.scenarios, w.Warmth == WarmthWarm)
 		if w.Warmth == WarmthWarm {
 			// Warm reuse: share the same runner across warm workloads
 			if h.artemis == nil {
