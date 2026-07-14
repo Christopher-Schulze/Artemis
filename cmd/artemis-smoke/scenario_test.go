@@ -126,6 +126,28 @@ func TestLoadScenariosMissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadSmokeMatrix(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "smoke", "scenarios.yaml")
+	sf, err := LoadScenarios(path)
+	if err != nil {
+		t.Fatalf("LoadScenarios %s: %v", path, err)
+	}
+	if len(sf.Scenarios) == 0 {
+		t.Fatal("smoke matrix has no scenarios")
+	}
+	for _, s := range sf.Scenarios {
+		if s.Site == "" {
+			t.Fatalf("scenario %q missing Site", s.ID)
+		}
+		if s.Description == "" {
+			t.Fatalf("scenario %q missing Description", s.ID)
+		}
+		if s.ID == "" {
+			t.Fatal("scenario missing ID")
+		}
+	}
+}
+
 func TestScenarioMissingEnvSkips(t *testing.T) {
 	// Ensure the env var is unset for a deterministic skip.
 	t.Setenv("ARTEMIS_SMOKE_NEVER_SET", "")
