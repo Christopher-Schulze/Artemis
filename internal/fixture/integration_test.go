@@ -65,7 +65,11 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 				sc := sc
 				ok, reason := r.canRun(sc)
 				if !ok {
-					t.Logf("%s: skip %s: %s", r.name(), sc.ID, reason)
+					q, qok := IsQuarantined(r.name(), sc, reason)
+					if !qok {
+						t.Fatalf("no-skip enforcement: %s cannot run %s (reason %q) and is not quarantined (or expired)", r.name(), sc.ID, reason)
+					}
+					t.Logf("%s: skip %s: %s (quarantined by %s until %s)", r.name(), sc.ID, reason, q.Owner, q.Expires.Format(time.RFC3339))
 					continue
 				}
 				t.Run(sc.ID, func(t *testing.T) {
@@ -145,7 +149,7 @@ func (r *engineRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *engineRunner) canRun(sc Scenario) (bool, string) { return true, "" }
+func (r *engineRunner) canRun(sc Scenario) (bool, string) { return Check("renderless", sc) }
 
 func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
@@ -249,15 +253,7 @@ func (r *bridgeRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *bridgeRunner) canRun(sc Scenario) (bool, string) {
-	if sc.AsyncFetch {
-		return false, "bridge does not support AsyncFetch interception"
-	}
-	if sc.Expect.Status != 0 && sc.Expect.Status != 200 {
-		return false, "bridge cannot verify non-200 HTTP status"
-	}
-	return true, ""
-}
+func (r *bridgeRunner) canRun(sc Scenario) (bool, string) { return Check("chromium", sc) }
 
 func (r *bridgeRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
@@ -470,18 +466,7 @@ func (r *routerRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *routerRunner) canRun(sc Scenario) (bool, string) {
-	if sc.Expect.Eval != "" {
-		return false, "router does not support eval"
-	}
-	if sc.WaitForIdle || sc.AsyncFetch {
-		return false, "router does not support WaitForIdle or AsyncFetch"
-	}
-	if sc.Status != 0 && sc.Status != 200 {
-		return false, "router cannot verify non-200 HTTP status"
-	}
-	return true, ""
-}
+func (r *routerRunner) canRun(sc Scenario) (bool, string) { return Check("hybrid", sc) }
 
 func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
@@ -597,12 +582,7 @@ func (r *serveRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *serveRunner) canRun(sc Scenario) (bool, string) {
-	if sc.AsyncFetch {
-		return false, "serve page.open does not enable AsyncFetch"
-	}
-	return true, ""
-}
+func (r *serveRunner) canRun(sc Scenario) (bool, string) { return Check("serve", sc) }
 
 func (r *serveRunner) dial(t *testing.T) *websocket.Conn {
 	t.Helper()
@@ -769,15 +749,7 @@ func (r *agentRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *agentRunner) canRun(sc Scenario) (bool, string) {
-	if sc.Expect.Eval != "" {
-		return false, "Agent.ExecuteTask does not support Eval"
-	}
-	if sc.WaitForIdle || sc.AsyncFetch {
-		return false, "Agent.ExecuteTask does not support WaitForIdle or AsyncFetch"
-	}
-	return true, ""
-}
+func (r *agentRunner) canRun(sc Scenario) (bool, string) { return Check("agent", sc) }
 
 func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
@@ -853,15 +825,7 @@ func (r *omnimusRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *omnimusRunner) canRun(sc Scenario) (bool, string) {
-	if sc.AsyncFetch {
-		return false, "BrowserRuntime does not support AsyncFetch interception"
-	}
-	if sc.Expect.Status != 0 && sc.Expect.Status != 200 {
-		return false, "BrowserRuntime cannot verify non-200 HTTP status"
-	}
-	return true, ""
-}
+func (r *omnimusRunner) canRun(sc Scenario) (bool, string) { return Check("omnimus", sc) }
 
 func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
