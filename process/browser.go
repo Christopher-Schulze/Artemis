@@ -374,12 +374,35 @@ func (b *Browser) terminate() error {
 				default:
 				}
 			}
+			return nil
 		case <-timer.C:
 			if err := signalProcessGroup(b.cmd.Process, syscall.SIGKILL); err != nil {
 				return fmt.Errorf("kill Chromium process group: %w", err)
 			}
-			<-b.done
 		}
 	}
-	return nil
+
+	// The process group signal may not reach the leader if the Chromium
+	// main process has changed its process group. Use a direct SIGKILL to
+	// the recorded pid as a fallback, and bound the total close time so
+	// the caller never waits indefinitely.
+	timer := time.NewTimer(b.shutdown)
+	defer timer.Stop()
+	select {
+	case <-b.done:
+		return nil
+	case <-timer.C:
+		if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("kill Chromium process: %w", err)
+		}
+	}
+
+	timer2 := time.NewTimer(b.shutdown)
+	defer timer2.Stop()
+	select {
+	case <-b.done:
+		return nil
+	case <-timer2.C:
+		return fmt.Errorf("Chromium process %d did not exit after SIGKILL", b.cmd.Process.Pid)
+	}
 }
