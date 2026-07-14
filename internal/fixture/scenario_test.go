@@ -64,5 +64,32 @@ func TestDefaultScenariosExpectHasDefaults(t *testing.T) {
 		if sc.Kind == "" {
 			t.Fatalf("scenario %s missing Kind", sc.ID)
 		}
+		if err := sc.Expect.Validate(); err != nil {
+			t.Fatalf("scenario %s invalid Expect: %v", sc.ID, err)
+		}
+	}
+}
+
+func TestExpectValidate(t *testing.T) {
+	valid := []Expect{
+		{Status: 200},
+		{Status: 0},
+		{Eval: "1+1", EvalContains: "2"},
+	}
+	for i, e := range valid {
+		if err := e.Validate(); err != nil {
+			t.Fatalf("valid Expect %d failed validation: %v", i, err)
+		}
+	}
+
+	invalid := []Expect{
+		{Status: 99},
+		{Status: 600},
+		{Eval: "1+1"},
+	}
+	for i, e := range invalid {
+		if err := e.Validate(); err == nil {
+			t.Fatalf("invalid Expect %d should fail validation", i)
+		}
 	}
 }

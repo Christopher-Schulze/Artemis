@@ -1,6 +1,7 @@
 package fixture
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 )
@@ -65,6 +66,17 @@ type Expect struct {
 	Eval         string
 	EvalContains string
 	URL          string
+}
+
+// Validate returns an error if the Expect carries an invalid combination of fields.
+func (e Expect) Validate() error {
+	if e.Status != 0 && (e.Status < 100 || e.Status > 599) {
+		return fmt.Errorf("Expect: invalid HTTP status %d", e.Status)
+	}
+	if e.Eval != "" && e.EvalContains == "" {
+		return fmt.Errorf("Expect: Eval set without EvalContains")
+	}
+	return nil
 }
 
 // DefaultScenarios returns the complete local fixture corpus.

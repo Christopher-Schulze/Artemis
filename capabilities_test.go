@@ -42,3 +42,26 @@ func TestSupportedOmnimusToolsAreExplicit(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultCompatibilityMatrix(t *testing.T) {
+	m := DefaultCompatibilityMatrix()
+	if m.Version != Version {
+		t.Fatalf("Version = %q, want %q", m.Version, Version)
+	}
+	if len(m.Modes) != 3 {
+		t.Fatalf("expected 3 execution modes, got %d", len(m.Modes))
+	}
+	if len(m.Rows) != len(Capabilities()) {
+		t.Fatalf("expected %d rows, got %d", len(Capabilities()), len(m.Rows))
+	}
+	seen := make(map[string]bool)
+	for _, row := range m.Rows {
+		if seen[row.ID] {
+			t.Fatalf("duplicate capability %q in matrix", row.ID)
+		}
+		seen[row.ID] = true
+		if row.State == "" {
+			t.Fatalf("capability %q missing State", row.ID)
+		}
+	}
+}

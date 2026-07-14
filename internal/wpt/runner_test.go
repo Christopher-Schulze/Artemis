@@ -76,3 +76,22 @@ func TestRunnerUnregisteredPath(t *testing.T) {
 		t.Fatal("expected error for unregistered WPT path")
 	}
 }
+
+func TestResultValidate(t *testing.T) {
+	valid := Result{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: "OK"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid Result failed validation: %v", err)
+	}
+
+	invalid := []Result{
+		{Path: "", Name: "n", Status: "PASS", HarnessStatus: "OK"},
+		{Path: "a.html", Name: "", Status: "PASS", HarnessStatus: "OK"},
+		{Path: "a.html", Name: "n", Status: "", HarnessStatus: "OK"},
+		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: ""},
+	}
+	for i, r := range invalid {
+		if err := r.Validate(); err == nil {
+			t.Fatalf("invalid Result %d should fail validation", i)
+		}
+	}
+}

@@ -36,6 +36,23 @@ type Result struct {
 	HarnessStatus string
 }
 
+// Validate returns an error if the result is incomplete or inconsistent.
+func (r Result) Validate() error {
+	if r.Path == "" {
+		return fmt.Errorf("wpt Result: Path is empty")
+	}
+	if r.Name == "" {
+		return fmt.Errorf("wpt Result %q: Name is empty", r.Path)
+	}
+	if r.Status == "" {
+		return fmt.Errorf("wpt Result %q/%q: Status is empty", r.Path, r.Name)
+	}
+	if r.HarnessStatus == "" {
+		return fmt.Errorf("wpt Result %q/%q: HarnessStatus is empty", r.Path, r.Name)
+	}
+	return nil
+}
+
 // Runner serves a pinned WPT subset from the embedded testdata mirror and
 // executes it against an Artemis engine.
 type Runner struct {

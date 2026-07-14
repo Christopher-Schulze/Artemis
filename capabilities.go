@@ -138,6 +138,24 @@ func OmnimusToolSupported(name string) bool {
 	return false
 }
 
+// CompatibilityMatrix is a deterministic view of the capability registry by
+// execution mode and support state. It is the canonical source for which
+// public API claims are supported on which engine surface.
+type CompatibilityMatrix struct {
+	Version string       `json:"version"`
+	Modes   []string     `json:"modes"`
+	Rows    []Capability `json:"rows"`
+}
+
+// DefaultCompatibilityMatrix returns the canonical matrix for the current release.
+func DefaultCompatibilityMatrix() CompatibilityMatrix {
+	return CompatibilityMatrix{
+		Version: Version,
+		Modes:   []string{string(ModeRenderless), string(ModeChromium), string(ModeHybrid)},
+		Rows:    Capabilities(),
+	}
+}
+
 // ValidateCapabilityRegistry rejects claims that lack executable evidence metadata.
 func ValidateCapabilityRegistry() error {
 	seenIDs := make(map[string]struct{}, len(capabilityRegistry))
