@@ -67,6 +67,7 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	result := ScenarioResult{
 		ScenarioID: s.ID,
 		Engine:     EngineArtemis,
+		EngineMode: string(s.EngineMode),
 		Timestamp:  time.Now().UTC(),
 	}
 
@@ -90,10 +91,10 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	}
 
 	// Exercise extraction surfaces to measure the full pipeline
-	_ = page.Title()
+	title := page.Title()
 	_ = page.Markdown()
-	_ = page.Links()
-	_ = page.Text()
+	links := page.Links()
+	text := page.Text()
 
 	wallMs := float64(time.Since(start).Microseconds()) / 1000.0
 
@@ -104,7 +105,29 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	result.AllocBytes = int64(memAfter.TotalAlloc - memBefore.TotalAlloc)
 	result.AllocCount = int64(memAfter.Mallocs - memBefore.Mallocs)
 	result.OK = true
+	result.Validated = validateScenario(s, title, links, text)
 	return result
+}
+
+func validateScenario(s Scenario, title string, links []agent.Link, text string) bool {
+	if title != s.ExpectTitle {
+		return false
+	}
+	if s.ExpectLinks > 0 && len(links) < s.ExpectLinks {
+		return false
+	}
+	if s.ExpectParagraphs > 0 {
+		paragraphs := 0
+		for _, line := range strings.Split(text, "\n") {
+			if strings.TrimSpace(line) != "" {
+				paragraphs++
+			}
+		}
+		if paragraphs < s.ExpectParagraphs {
+			return false
+		}
+	}
+	return true
 }
 
 // RunAll runs all scenarios and returns the results.

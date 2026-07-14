@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -18,18 +19,58 @@ const (
 	EngineCompetitor EngineName = "lightpanda"
 )
 
+// CurrentEnvironment returns the platform and software environment manifest
+// for a benchmark run. The benchmarkTag is a caller-supplied discriminator
+// (e.g. "cold", "warm", "renderless", "chromium").
+func CurrentEnvironment(benchmarkTag string) Environment {
+	host, _ := os.Hostname()
+	return Environment{
+		GoVersion:      runtime.Version(),
+		OS:             runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		NumCPU:         runtime.NumCPU(),
+		ScenarioMatrix: ScenarioMatrixVersion,
+		BenchmarkTag:   benchmarkTag,
+		Host:           host,
+	}
+}
+
 // ScenarioResult is the measured outcome of running one engine against
 // one scenario. Times are wall-clock; memory is peak RSS delta if
 // available, otherwise total bytes allocated.
 type ScenarioResult struct {
 	ScenarioID string     `json:"scenarioId"`
 	Engine     EngineName `json:"engine"`
+	EngineMode string     `json:"engineMode"`
 	WallMs     float64    `json:"wallMs"`
+	CPUMs      float64    `json:"cpuMs"`
 	AllocBytes int64      `json:"allocBytes"`
 	AllocCount int64      `json:"allocCount"`
+	RSSBytes   int64      `json:"rssBytes"`
 	OK         bool       `json:"ok"`
+	Validated  bool       `json:"validated"`
 	Error      string     `json:"error,omitempty"`
 	Timestamp  time.Time  `json:"timestamp"`
+}
+
+// ScorecardMode reports whether the scorecard can be compared fairly.
+type ScorecardMode string
+
+const (
+	ModeHeadToHead  ScorecardMode = "head-to-head"
+	ModeArtemisOnly ScorecardMode = "artemis-only"
+	ModeError       ScorecardMode = "error"
+)
+
+// Environment captures the software/hardware context for reproducibility.
+type Environment struct {
+	GoVersion      string `json:"goVersion"`
+	OS             string `json:"os"`
+	Arch           string `json:"arch"`
+	NumCPU         int    `json:"numCPU"`
+	ScenarioMatrix string `json:"scenarioMatrix"`
+	BenchmarkTag   string `json:"benchmarkTag"`
+	Host           string `json:"host"`
 }
 
 // Scorecard is the full head-to-head result set across all scenarios.
@@ -38,6 +79,10 @@ type Scorecard struct {
 	MatrixVersion string           `json:"matrixVersion"`
 	Date          time.Time        `json:"date"`
 	Host          string           `json:"host"`
+	Environment   Environment      `json:"environment"`
+	Mode          ScorecardMode    `json:"mode"`
+	Honest        bool             `json:"honest"`
+	HonestReason  string           `json:"honestReason,omitempty"`
 	Results       []ScenarioResult `json:"results"`
 }
 
@@ -49,6 +94,10 @@ func NewScorecard() *Scorecard {
 		MatrixVersion: ScenarioMatrixVersion,
 		Date:          time.Now().UTC(),
 		Host:          host,
+		Environment:   CurrentEnvironment(""),
+		Mode:          ModeArtemisOnly,
+		Honest:        true,
+		HonestReason:  "default: no competitor run requested",
 		Results:       []ScenarioResult{},
 	}
 }
@@ -70,9 +119,8 @@ type EngineSummary struct {
 }
 
 // Summarize computes per-engine aggregate stats and win/loss counts.
-// A "win" is a scenario where the engine had a lower wall time than
-// the other engine. Only scenarios where both engines ran successfully
-// are counted for win/loss.
+// Win/loss counts are only reported when the scorecard mode is head-to-head
+// and honest; otherwise all wins/losses are zero.
 func (s *Scorecard) Summarize() []EngineSummary {
 	byEngine := map[EngineName]*EngineSummary{}
 	byScenario := map[string]map[EngineName]ScenarioResult{}
@@ -94,29 +142,29 @@ func (s *Scorecard) Summarize() []EngineSummary {
 		byScenario[r.ScenarioID][r.Engine] = r
 	}
 
-	// Count wins/losses
-	for _, engines := range byScenario {
-		if len(engines) < 2 {
-			continue
-		}
-		var best EngineName
-		var bestMs float64 = -1
-		for name, r := range engines {
-			if bestMs < 0 || r.WallMs < bestMs {
-				best = name
-				bestMs = r.WallMs
+	if s.Mode == ModeHeadToHead && s.Honest {
+		for _, engines := range byScenario {
+			if len(engines) < 2 {
+				continue
 			}
-		}
-		for name := range engines {
-			if name == best {
-				byEngine[name].Wins++
-			} else {
-				byEngine[name].Losses++
+			var best EngineName
+			var bestMs float64 = -1
+			for name, r := range engines {
+				if bestMs < 0 || r.WallMs < bestMs {
+					best = name
+					bestMs = r.WallMs
+				}
+			}
+			for name := range engines {
+				if name == best {
+					byEngine[name].Wins++
+				} else {
+					byEngine[name].Losses++
+				}
 			}
 		}
 	}
 
-	// Compute averages
 	for _, su := range byEngine {
 		completed := su.Scenarios - su.Errors
 		if completed > 0 {
@@ -154,7 +202,14 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 	b.WriteString(fmt.Sprintf("- **Date:** %s\n", s.Date.Format(time.RFC3339)))
 	b.WriteString(fmt.Sprintf("- **Host:** %s\n", s.Host))
 	b.WriteString(fmt.Sprintf("- **Matrix Version:** %s\n", s.MatrixVersion))
-	b.WriteString(fmt.Sprintf("- **Scorecard Version:** %s\n\n", s.Version))
+	b.WriteString(fmt.Sprintf("- **Scorecard Version:** %s\n", s.Version))
+	b.WriteString(fmt.Sprintf("- **Mode:** %s\n", s.Mode))
+	b.WriteString(fmt.Sprintf("- **Honest:** %v\n", s.Honest))
+	if s.HonestReason != "" {
+		b.WriteString(fmt.Sprintf("- **Honest Reason:** %s\n", s.HonestReason))
+	}
+	b.WriteString(fmt.Sprintf("- **Environment:** Go %s, %s/%s, %d CPU, tag=%q\n\n",
+		s.Environment.GoVersion, s.Environment.OS, s.Environment.Arch, s.Environment.NumCPU, s.Environment.BenchmarkTag))
 
 	// Summary table
 	summaries := s.Summarize()
@@ -169,8 +224,8 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 
 	// Per-scenario results
 	b.WriteString("## Per-Scenario Results\n\n")
-	b.WriteString("| Scenario | Engine | Wall ms | Allocs | Bytes | OK | Error |\n")
-	b.WriteString("|----------|--------|---------|--------|-------|----|-------|\n")
+	b.WriteString("| Scenario | Engine | Mode | Wall ms | CPU ms | RSS | Allocs | Bytes | OK | Valid | Error |\n")
+	b.WriteString("|----------|--------|------|---------|--------|-----|--------|-------|----|-------|-------|\n")
 
 	// Sort results by scenario ID then engine
 	sorted := make([]ScenarioResult, len(s.Results))
@@ -187,40 +242,42 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 		if errMsg == "" {
 			errMsg = "-"
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %.3f | %d | %d | %v | %s |\n",
-			r.ScenarioID, r.Engine, r.WallMs, r.AllocCount, r.AllocBytes, r.OK, errMsg))
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %.3f | %.3f | %d | %d | %d | %v | %v | %s |\n",
+			r.ScenarioID, r.Engine, r.EngineMode, r.WallMs, r.CPUMs, r.RSSBytes, r.AllocCount, r.AllocBytes, r.OK, r.Validated, errMsg))
 	}
 	b.WriteString("\n")
 
-	// Win/loss detail
-	b.WriteString("## Win/Loss Detail\n\n")
-	byScenario := map[string]map[EngineName]ScenarioResult{}
-	for _, r := range s.Results {
-		if _, ok := byScenario[r.ScenarioID]; !ok {
-			byScenario[r.ScenarioID] = map[EngineName]ScenarioResult{}
-		}
-		byScenario[r.ScenarioID][r.Engine] = r
-	}
-	scenarioIDs := make([]string, 0, len(byScenario))
-	for id := range byScenario {
-		scenarioIDs = append(scenarioIDs, id)
-	}
-	sort.Strings(scenarioIDs)
-
-	for _, id := range scenarioIDs {
-		engines := byScenario[id]
-		if len(engines) < 2 {
-			continue
-		}
-		var winner EngineName
-		var winnerMs float64 = -1
-		for name, r := range engines {
-			if r.OK && (winnerMs < 0 || r.WallMs < winnerMs) {
-				winner = name
-				winnerMs = r.WallMs
+	// Win/loss detail only for honest head-to-head
+	if s.Mode == ModeHeadToHead && s.Honest {
+		b.WriteString("## Win/Loss Detail\n\n")
+		byScenario := map[string]map[EngineName]ScenarioResult{}
+		for _, r := range s.Results {
+			if _, ok := byScenario[r.ScenarioID]; !ok {
+				byScenario[r.ScenarioID] = map[EngineName]ScenarioResult{}
 			}
+			byScenario[r.ScenarioID][r.Engine] = r
 		}
-		b.WriteString(fmt.Sprintf("- **%s**: winner = %s (%.3f ms)\n", id, winner, winnerMs))
+		scenarioIDs := make([]string, 0, len(byScenario))
+		for id := range byScenario {
+			scenarioIDs = append(scenarioIDs, id)
+		}
+		sort.Strings(scenarioIDs)
+
+		for _, id := range scenarioIDs {
+			engines := byScenario[id]
+			if len(engines) < 2 {
+				continue
+			}
+			var winner EngineName
+			var winnerMs float64 = -1
+			for name, r := range engines {
+				if r.OK && (winnerMs < 0 || r.WallMs < winnerMs) {
+					winner = name
+					winnerMs = r.WallMs
+				}
+			}
+			b.WriteString(fmt.Sprintf("- **%s**: winner = %s (%.3f ms)\n", id, winner, winnerMs))
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

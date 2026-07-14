@@ -21,6 +21,11 @@ type HarnessConfig struct {
 	// SkipCompetitor disables the competitor side entirely.
 	// Use this to run Artemis-only benchmarks.
 	SkipCompetitor bool
+	// RequireHeadToHead makes the harness fail if a competitor run was
+	// expected but could not be completed honestly.
+	RequireHeadToHead bool
+	// BenchmarkTag annotates the environment manifest (e.g. "cold", "warm").
+	BenchmarkTag string
 }
 
 // DefaultHarnessConfig returns the default harness configuration.
@@ -59,6 +64,7 @@ func NewHarness(cfg HarnessConfig) *Harness {
 // It returns the scorecard and any error that prevented completion.
 func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 	sc := NewScorecard()
+	sc.Environment = CurrentEnvironment(h.cfg.BenchmarkTag)
 
 	// Set up Artemis runner
 	h.artemis = NewArtemisRunner(h.scenarios)
@@ -77,11 +83,14 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 
 	// Run competitor side (if not skipped and binary available)
 	if !h.cfg.SkipCompetitor {
+		sc.Mode = ModeHeadToHead
 		h.competitor = NewCompetitorRunner(h.cfg.Competitor)
 		defer h.competitor.Close()
 
+		honestReason := ""
 		if err := h.competitor.EnsureBinary(ctx); err != nil {
 			// Report honestly: competitor unavailable
+			honestReason = fmt.Sprintf("competitor unavailable: %v", err)
 			for _, s := range h.scenarios {
 				sc.AddResult(ScenarioResult{
 					ScenarioID: s.ID,
@@ -93,6 +102,7 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 			}
 		} else {
 			if err := h.competitor.Start(ctx); err != nil {
+				honestReason = fmt.Sprintf("competitor start failed: %v", err)
 				for _, s := range h.scenarios {
 					sc.AddResult(ScenarioResult{
 						ScenarioID: s.ID,
@@ -115,6 +125,31 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 				}
 			}
 		}
+
+		// Determine honesty after competitor side
+		if honestReason != "" {
+			sc.Honest = false
+			sc.HonestReason = honestReason
+		} else {
+			artemisOK := 0
+			competitorOK := 0
+			for _, r := range sc.Results {
+				if r.OK {
+					if r.Engine == EngineArtemis {
+						artemisOK++
+					} else {
+						competitorOK++
+					}
+				}
+			}
+			if artemisOK == len(h.scenarios) && competitorOK == len(h.scenarios) {
+				sc.Honest = true
+				sc.HonestReason = "both engines completed all scenarios"
+			} else {
+				sc.Honest = false
+				sc.HonestReason = fmt.Sprintf("incomplete results: artemis ok=%d, competitor ok=%d, expected=%d", artemisOK, competitorOK, len(h.scenarios))
+			}
+		}
 	}
 
 	// Write scorecard
@@ -126,6 +161,10 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 	}
 	if err := sc.WriteMarkdown(mdPath); err != nil {
 		return sc, fmt.Errorf("write md scorecard: %w", err)
+	}
+
+	if h.cfg.RequireHeadToHead && (!h.cfg.SkipCompetitor && !sc.Honest) {
+		return sc, fmt.Errorf("head-to-head required but scorecard is not honest: %s", sc.HonestReason)
 	}
 
 	return sc, nil

@@ -26,6 +26,15 @@ const (
 	KindScriptHeavy ScenarioKind = "script-heavy"
 )
 
+// EngineMode names the Artemis execution path a scenario uses.
+type EngineMode string
+
+const (
+	ModeRenderless EngineMode = "renderless"
+	ModeChromium   EngineMode = "chromium"
+	ModeHybrid     EngineMode = "hybrid"
+)
+
 // Scenario is a single benchmark scenario: an HTML fixture served by
 // the httptest server, plus metadata about what engine surface it
 // exercises and what extraction is expected.
@@ -42,6 +51,8 @@ type Scenario struct {
 	ScriptCount int `json:"scriptCount"`
 	// BodyBytes is the fixture body size in bytes.
 	BodyBytes int `json:"bodyBytes"`
+	// EngineMode is the Artemis execution path for this scenario.
+	EngineMode EngineMode `json:"engineMode"`
 	// ExpectTitle is the expected <title> text.
 	ExpectTitle string `json:"expectTitle"`
 	// ExpectLinks is the expected number of <a href> links.
@@ -69,6 +80,7 @@ func DefaultScenarios() []Scenario {
 <footer><p>(c) 2026 Test Site</p></footer>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Home - Test Site",
 			ExpectLinks:      3,
 			ExpectParagraphs: 2,
@@ -85,6 +97,7 @@ func DefaultScenarios() []Scenario {
 <p>You are being redirected. <a href="/final">Click here</a> if not redirected.</p>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Redirecting...",
 			ExpectLinks:      1,
 			ExpectParagraphs: 1,
@@ -115,6 +128,7 @@ func DefaultScenarios() []Scenario {
 </aside>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Article: The Future of Web Scraping",
 			ExpectLinks:      3,
 			ExpectParagraphs: 6,
@@ -141,6 +155,7 @@ func DefaultScenarios() []Scenario {
 <a href="/reviews">Reviews</a>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Product: Widget Pro X100",
 			ExpectLinks:      2,
 			ExpectParagraphs: 2,
@@ -168,6 +183,7 @@ func DefaultScenarios() []Scenario {
 </ul>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "DOM Test Page",
 			ExpectLinks:      0,
 			ExpectParagraphs: 8,
@@ -197,6 +213,7 @@ func DefaultScenarios() []Scenario {
 </form>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Form Page",
 			ExpectLinks:      0,
 			ExpectParagraphs: 0,
@@ -226,6 +243,7 @@ func DefaultScenarios() []Scenario {
 <blockquote>This is a blockquote.</blockquote>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Markdown Test",
 			ExpectLinks:      1,
 			ExpectParagraphs: 2,
@@ -251,6 +269,7 @@ func DefaultScenarios() []Scenario {
 <p>See <a href="/docs/api">API docs</a> and <a href="/docs/guide">Guide</a>.</p>
 </body></html>`,
 			ScriptCount:      0,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Complex Markdown",
 			ExpectLinks:      2,
 			ExpectParagraphs: 5,
@@ -280,6 +299,7 @@ func DefaultScenarios() []Scenario {
 <a href="/page2">Page 2</a>
 </body></html>`,
 			ScriptCount:      10,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Script Heavy Page",
 			ExpectLinks:      2,
 			ExpectParagraphs: 1,
@@ -318,6 +338,7 @@ func DefaultScenarios() []Scenario {
 <a href="/next">Next</a>
 </body></html>`,
 			ScriptCount:      20,
+			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Heavy JS Page",
 			ExpectLinks:      1,
 			ExpectParagraphs: 1,
