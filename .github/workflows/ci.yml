@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Build + Vet + Race Test
+  test-linux:
+    name: Linux - Build + Vet + Race + Bench
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,3 +40,89 @@ jobs:
 
       - name: Bench (smoke)
         run: go test -bench=. -benchmem -run='^$' -benchtime=1x ./...
+
+  test-macos-arm64:
+    name: macOS Apple Silicon - Build + Vet + Race
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Install C toolchain
+        run: |
+          brew install --quiet autoconf automake libtool || true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Race test
+        run: go test -race -count=1 -timeout 300s ./...
+
+  chromium-integration-linux:
+    name: Linux - Chromium Fixture Integration
+    runs-on: ubuntu-latest
+    needs: test-linux
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Install C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install Chromium
+        run: |
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+          which chromium-browser || which chromium
+
+      - name: Chromium integration tests
+        env:
+          ARTEMIS_CHROMIUM_INTEGRATION: "1"
+        run: go test -run Integration -count=1 -timeout 600s ./...
+
+  chromium-integration-macos:
+    name: macOS Apple Silicon - Chromium Fixture Integration
+    runs-on: macos-14
+    needs: test-macos-arm64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Install C toolchain
+        run: |
+          brew install --quiet autoconf automake libtool || true
+
+      - name: Install Chromium
+        run: |
+          brew install --quiet chromium || true
+          ls -la /opt/homebrew/bin/chromium || true
+
+      - name: Chromium integration tests
+        env:
+          ARTEMIS_CHROMIUM_INTEGRATION: "1"
+        run: go test -run Integration -count=1 -timeout 600s ./...
