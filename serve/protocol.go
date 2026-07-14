@@ -7,17 +7,20 @@ import "encoding/json"
 
 // Request is the incoming envelope.
 type Request struct {
-	ID     string          `json:"id"`
-	Cmd    string          `json:"cmd"`
-	Params json.RawMessage `json:"params,omitempty"`
+	ID      string          `json:"id"`
+	Version string          `json:"version,omitempty"`
+	Cmd     string          `json:"cmd"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 // Response is the reply envelope.
 type Response struct {
-	ID    string `json:"id"`
-	OK    bool   `json:"ok"`
-	Value any    `json:"value,omitempty"`
-	Error *Err   `json:"error,omitempty"`
+	ID      string `json:"id"`
+	Version string `json:"version,omitempty"`
+	Seq     int64  `json:"seq,omitempty"`
+	OK      bool   `json:"ok"`
+	Value   any    `json:"value,omitempty"`
+	Error   *Err   `json:"error,omitempty"`
 }
 
 // Err is a structured error returned in a Response.
@@ -28,6 +31,8 @@ type Err struct {
 
 // Event is a server-pushed message.
 type Event struct {
-	Event  string `json:"event"`
-	Params any    `json:"params,omitempty"`
+	Event   string `json:"event"`
+	Version string `json:"version,omitempty"`
+	Seq     int64  `json:"seq,omitempty"`
+	Params  any    `json:"params,omitempty"`
 }

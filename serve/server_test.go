@@ -13,12 +13,12 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Christopher-Schulze/Artemis/engine"
+	artemis "github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
-func testConfig() engine.Config {
-	return engine.Config{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
+func testAgentConfig() artemis.AgentConfig {
+	return artemis.AgentConfig{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
 }
 
 func allTestPorts() []int {
@@ -31,13 +31,19 @@ func allTestPorts() []int {
 
 func startServer(t *testing.T) (string, func()) {
 	t.Helper()
-	eng, err := engine.New(testConfig())
+	agent, err := artemis.NewAgent(testAgentConfig())
 	if err != nil {
-		t.Fatalf("engine: %v", err)
+		t.Fatalf("agent: %v", err)
 	}
-	srv := New(eng, Opts{})
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := agent.Start(ctx); err != nil {
+		cancel()
+		t.Fatalf("agent start: %v", err)
+	}
+	srv := New(agent, Opts{})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		cancel()
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
@@ -46,7 +52,8 @@ func startServer(t *testing.T) (string, func()) {
 	}()
 	cleanup := func() {
 		_ = ln.Close()
-		_ = eng.Close()
+		cancel()
+		_ = agent.Stop()
 	}
 	return addr, cleanup
 }
@@ -92,7 +99,8 @@ func TestSessionOpenEvalDump(t *testing.T) {
 	c := dial(t, addr)
 	defer c.CloseNow()
 
-	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
+	newP, _ := json.Marshal(SessionNewParams{OwnerUserRef: "test"})
+	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new", Params: newP})
 	if !resp.OK {
 		t.Fatalf("session.new: %+v", resp)
 	}
@@ -134,7 +142,7 @@ func TestSessionOpenEvalDump(t *testing.T) {
 		t.Errorf("page.close: %+v", r)
 	}
 
-	closeS := []byte(fmt.Sprintf(`{"sessionId":%q}`, sid))
+	closeS, _ := json.Marshal(SessionCloseParams{SessionID: sid, OwnerUserRef: "test"})
 	if r := roundTrip(t, c, Request{ID: "6", Cmd: "session.close", Params: closeS}); !r.OK {
 		t.Errorf("session.close: %+v", r)
 	}
@@ -152,9 +160,15 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestServerLifecycleListenAndShutdown(t *testing.T) {
-	eng, _ := engine.New(engine.Config{})
-	defer eng.Close()
-	srv := New(eng, Opts{})
+	agent, err := artemis.NewAgent(testAgentConfig())
+	if err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	if err := agent.Start(context.Background()); err != nil {
+		t.Fatalf("agent start: %v", err)
+	}
+	defer agent.Stop()
+	srv := New(agent, Opts{})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -170,7 +184,8 @@ func TestServerLifecycleListenAndShutdown(t *testing.T) {
 func openSessionPage(t *testing.T, addr string, pageURL string) (sid, pid string, c *websocket.Conn) {
 	t.Helper()
 	c = dial(t, addr)
-	resp := roundTrip(t, c, Request{ID: "s", Cmd: "session.new"})
+	newP, _ := json.Marshal(SessionNewParams{OwnerUserRef: "test"})
+	resp := roundTrip(t, c, Request{ID: "s", Cmd: "session.new", Params: newP})
 	if !resp.OK {
 		t.Fatalf("session.new: %+v", resp)
 	}

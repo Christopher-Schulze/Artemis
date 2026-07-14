@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/profile"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
@@ -19,28 +21,32 @@ import (
 
 // Agent is the top-level artemis browser automation agent
 type Agent struct {
-	mu         sync.RWMutex
-	config     AgentConfig
-	state      AgentState
-	runtime    RenderlessRuntime
-	factory    RuntimeFactory
-	dispatcher Dispatcher
-	hybrid     *artemisrouter.HybridRouter
-	sessions   SessionStore
-	telemetry  Telemetry
-	runCtx     context.Context
-	cancel     context.CancelFunc
-	operations sync.WaitGroup
-	sessionSeq uint64
+	mu              sync.RWMutex
+	config          AgentConfig
+	state           AgentState
+	runtime         RenderlessRuntime
+	factory         RuntimeFactory
+	dispatcher      Dispatcher
+	hybrid          *artemisrouter.HybridRouter
+	sessions        SessionStore
+	telemetry       Telemetry
+	runCtx          context.Context
+	cancel          context.CancelFunc
+	operations      sync.WaitGroup
+	sessionSeq      uint64
+	chromiumActions ChromiumActions
+	profileRuntime  *profile.RuntimeManager
 }
 
 // AgentConfig configures the artemis agent
 type AgentConfig struct {
-	MaxSessions   int           `json:"maxSessions"`
-	MaxTabs       int           `json:"maxTabs"`
-	ScriptTimeout time.Duration `json:"scriptTimeout"`
-	FetchTimeout  time.Duration `json:"fetchTimeout"`
-	UserAgent     string        `json:"userAgent"`
+	MaxSessions   int                  `json:"maxSessions"`
+	MaxTabs       int                  `json:"maxTabs"`
+	ScriptTimeout time.Duration        `json:"scriptTimeout"`
+	FetchTimeout  time.Duration        `json:"fetchTimeout"`
+	UserAgent     string               `json:"userAgent"`
+	ObeyRobots    bool                 `json:"obeyRobots"`
+	PolicyConfig  network.PolicyConfig `json:"policyConfig"`
 }
 
 // AgentState enumerates agent lifecycle states
@@ -67,6 +73,10 @@ type Session struct {
 	createdAt  time.Time
 	tabs       int
 	active     bool
+	pages      map[string]*engine.Page
+	pageSeq    uint64
+	managed    bool
+	profileID  string
 }
 
 // Task represents a browser automation task
@@ -103,6 +113,7 @@ const (
 	TaskErrorSessionNotFound       TaskErrorCode = "session_not_found"
 	TaskErrorSessionLimit          TaskErrorCode = "session_limit"
 	TaskErrorResourceLimit         TaskErrorCode = "resource_limit"
+	TaskErrorPageNotFound          TaskErrorCode = "page_not_found"
 )
 
 // NewAgent validates config and creates an Agent with production dependencies.
@@ -287,6 +298,7 @@ func (a *Agent) CreateSession(userID string) (*Session, error) {
 		userID:    userID,
 		createdAt: now,
 		active:    true,
+		pages:     make(map[string]*engine.Page),
 	}
 	if err := a.sessions.PutIfBelow(session, maxSessions); err != nil {
 		a.mu.Unlock()
@@ -542,7 +554,7 @@ func (s *Session) TabCount() int {
 }
 
 // AddTab increments the tab count
-func (s *Session) AddTab() error {
+func (s *Session) AddTab() *TaskError {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.active {
@@ -556,7 +568,7 @@ func (s *Session) AddTab() error {
 }
 
 // RemoveTab decrements the tab count
-func (s *Session) RemoveTab() error {
+func (s *Session) RemoveTab() *TaskError {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.active {

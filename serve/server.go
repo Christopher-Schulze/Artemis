@@ -2,6 +2,8 @@ package serve
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,11 +17,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Christopher-Schulze/Artemis/agent"
-	"github.com/Christopher-Schulze/Artemis/bridge/actions"
-	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/profile"
-	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
 // Opts configures a Server.
@@ -28,49 +27,77 @@ type Opts struct {
 	Logger *slog.Logger
 	// AcceptOptions tunes the websocket Accept handshake.
 	AcceptOptions *websocket.AcceptOptions
-	// ChromiumActions is an optional owned page-scoped action executor.
-	ChromiumActions interface {
-		Execute(context.Context, actions.Request) actions.Outcome
-	}
-	ProfileRuntime *profile.RuntimeManager
-	Router         *artemisrouter.HybridRouter
+	// AuthToken is the optional bearer token required for every connection.
+	// If empty, no authentication is enforced.
+	AuthToken string
+	// OriginPatterns lists allowed WebSocket origins. Empty means the
+	// websocket Accept default (same-origin / no cross-origin).
+	OriginPatterns []string
+	// InsecureSkipOrigin disables origin verification.
+	InsecureSkipOrigin bool
+	// RateLimit is the optional per-connection request rate limit.
+	RateLimit RateLimit
 }
 
-// Server is a single-engine WebSocket steering server. Multiple
-// concurrent sessions can be active per server.
+// RateLimit configures per-connection request throttling.
+type RateLimit struct {
+	RequestsPerSecond int
+	Burst             int
+}
+
+// Server is a single Agent WebSocket steering server. Multiple concurrent
+// sessions can be active per server.
 type Server struct {
-	eng      *engine.Engine
-	router   *artemisrouter.HybridRouter
-	opts     Opts
+	agent       *artemis.Agent
+	opts        Opts
+	mu          sync.Mutex
+	writeMu     sync.Mutex
+	nextSeq     atomic.Uint64
+	srv         *http.Server
+	authTokenMu sync.RWMutex
+	authToken   string
+	inflight    map[string]context.CancelFunc
+	outbox      map[string]*streamOutbox
+}
+
+// streamOutbox stores ordered events and a terminal response for a stream so
+// that a reconnecting client can resume without duplication.
+type streamOutbox struct {
 	mu       sync.Mutex
-	sessions map[string]*session
-	nextID   atomic.Uint64
-	srv      *http.Server
+	events   []streamEvent
+	terminal *Response
+	closed   bool
+	seq      uint64
+	reqID    string
 }
 
-type session struct {
-	id      string
-	owner   string
-	managed bool
-	mu      sync.Mutex
-	pages   map[string]*engine.Page
+type streamEvent struct {
+	seq      uint64
+	event    *Event
+	terminal *Response
 }
 
-// New creates a Server bound to eng. The returned Server must be Closed
+// New creates a Server bound to an Agent. The returned Server must be Closed
 // after Serve returns.
-func New(eng *engine.Engine, opts Opts) *Server {
+func New(agent *artemis.Agent, opts Opts) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	hybrid := opts.Router
-	if hybrid == nil && eng != nil {
-		executor := artemisrouter.RenderlessExecutor{Engine: eng}
-		hybrid, _ = artemisrouter.New(artemisrouter.Config{Executors: map[artemisrouter.Mode]artemisrouter.Executor{
-			artemisrouter.ModeStaticFetch:  executor,
-			artemisrouter.ModeRenderlessJS: executor,
-		}})
+	if opts.AcceptOptions == nil {
+		opts.AcceptOptions = &websocket.AcceptOptions{}
 	}
-	return &Server{eng: eng, router: hybrid, opts: opts, sessions: make(map[string]*session)}
+	if len(opts.OriginPatterns) > 0 {
+		opts.AcceptOptions.OriginPatterns = opts.OriginPatterns
+	}
+	opts.AcceptOptions.InsecureSkipVerify = opts.InsecureSkipOrigin
+	s := &Server{
+		agent:     agent,
+		opts:      opts,
+		authToken: opts.AuthToken,
+		inflight:  make(map[string]context.CancelFunc),
+		outbox:    make(map[string]*streamOutbox),
+	}
+	return s
 }
 
 // ListenAndServe blocks while serving on addr until ctx is cancelled.
@@ -112,6 +139,14 @@ func (s *Server) HandleWSForTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if token := s.getAuthToken(); token != "" {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer "+token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	c, err := websocket.Accept(w, r, s.opts.AcceptOptions)
 	if err != nil {
 		s.opts.Logger.Warn("ws accept failed", "err", err)
@@ -123,25 +158,59 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	c.SetReadLimit(8 << 20)
 
 	ctx := r.Context()
+	var wg sync.WaitGroup
+	rl := newRateLimiter(s.opts.RateLimit)
+
 	for {
 		_, data, err := c.Read(ctx)
 		if err != nil {
-			return
+			break
 		}
 		var req Request
 		if err := json.Unmarshal(data, &req); err != nil {
-			s.writeResp(ctx, c, &Response{
-				ID: req.ID, OK: false,
-				Error: &Err{Code: "bad_request", Message: err.Error()},
-			})
+			wg.Add(1)
+			go func(req Request) {
+				defer wg.Done()
+				s.writeResp(ctx, c, &Response{
+					ID: req.ID, OK: false,
+					Error: &Err{Code: string(ErrBadRequest), Message: err.Error()},
+				})
+			}(req)
 			continue
 		}
-		resp := s.dispatch(ctx, &req)
+		wg.Add(1)
+		go s.handleRequest(ctx, c, &req, &wg, rl)
+	}
+	wg.Wait()
+}
+
+func (s *Server) handleRequest(ctx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup, rl *rateLimiter) {
+	defer wg.Done()
+	if rl != nil && !rl.Allow() {
+		s.writeResp(ctx, c, errResp(req.ID, string(ErrRateExceeded), "rate limit exceeded"))
+		return
+	}
+	if verr := s.checkVersion(req); verr != nil {
+		s.writeResp(ctx, c, verr)
+		return
+	}
+	dispatchCtx, cancel := context.WithCancel(ctx)
+	s.registerInflight(req.ID, cancel)
+	defer func() {
+		cancel()
+		s.unregisterInflight(req.ID)
+	}()
+	resp := s.dispatch(dispatchCtx, ctx, c, req, wg)
+	if resp != nil {
 		s.writeResp(ctx, c, resp)
 	}
 }
 
 func (s *Server) writeResp(ctx context.Context, c *websocket.Conn, r *Response) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	r.Version = ProtocolVersion
+	r.Seq = int64(s.nextSeq.Add(1))
 	out, err := json.Marshal(r)
 	if err != nil {
 		s.opts.Logger.Error("marshal resp", "err", err)
@@ -152,400 +221,566 @@ func (s *Server) writeResp(ctx context.Context, c *websocket.Conn, r *Response) 
 	}
 }
 
-func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
+func (s *Server) writeEvent(ctx context.Context, c *websocket.Conn, ev *Event) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	ev.Version = ProtocolVersion
+	ev.Seq = int64(s.nextSeq.Add(1))
+	out, err := json.Marshal(ev)
+	if err != nil {
+		s.opts.Logger.Error("marshal event", "err", err)
+		return
+	}
+	if err := c.Write(ctx, websocket.MessageText, out); err != nil {
+		s.opts.Logger.Warn("ws event", "err", err)
+	}
+}
+
+func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup) *Response {
 	switch req.Cmd {
-	case "version":
-		return okResp(req.ID, VersionResponse{
-			Protocol: ProtocolVersion,
-			Server:   "artemis-serve",
-		})
-	case "session.new":
-		return s.cmdSessionNew(req)
-	case "session.close":
+	case string(CmdVersion):
+		return s.cmdVersion(req)
+	case string(CmdCapabilities):
+		return s.cmdCapabilities(req)
+	case string(CmdHeartbeat):
+		return s.cmdHeartbeat(req)
+	case string(CmdSessionNew):
+		return s.cmdSessionNew(ctx, req)
+	case string(CmdSessionClose):
 		return s.cmdSessionClose(req)
-	case "page.open":
+	case string(CmdSessionList):
+		return s.cmdSessionList(req)
+	case string(CmdPageOpen):
 		return s.cmdPageOpen(ctx, req)
-	case "page.close":
+	case string(CmdPageClose):
 		return s.cmdPageClose(req)
-	case "page.eval":
+	case string(CmdPageEval):
 		return s.cmdPageEval(ctx, req)
-	case "page.dump":
+	case string(CmdPageDump):
 		return s.cmdPageDump(req)
-	case "page.click_by_text":
+	case string(CmdPageClickByText):
 		return s.cmdPageClickByText(ctx, req)
-	case "page.type":
+	case string(CmdPageType):
 		return s.cmdPageType(req)
-	case "page.wait_idle":
+	case string(CmdPageWaitIdle):
 		return s.cmdPageWaitIdle(ctx, req)
-	case "page.assert":
+	case string(CmdPageAssert):
 		return s.cmdPageAssert(ctx, req)
-	case "chromium.act":
+	case string(CmdChromiumAct):
 		return s.cmdChromiumAct(ctx, req)
+	case string(CmdStream):
+		return s.cmdStream(ctx, connCtx, c, req, wg)
+	case string(CmdCancel):
+		return s.cmdCancel(req)
+	case string(CmdTokenRotate):
+		return s.cmdTokenRotate(req)
 	default:
-		return errResp(req.ID, "unknown_cmd", fmt.Sprintf("unknown cmd %q", req.Cmd))
+		return errResp(req.ID, string(ErrUnknownCmd), fmt.Sprintf("unknown cmd %q", req.Cmd))
 	}
 }
 
-func (s *Server) cmdChromiumAct(ctx context.Context, req *Request) *Response {
-	if s.opts.ChromiumActions == nil {
-		return errResp(req.ID, "no_page", "Chromium action runtime is not configured")
-	}
-	var params ChromiumActParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
-	}
-	outcome := s.opts.ChromiumActions.Execute(ctx, params.Request)
-	if !outcome.Success {
-		return errResp(req.ID, string(outcome.Failure), outcome.Error)
-	}
-	return okResp(req.ID, ChromiumActResult{Outcome: outcome})
+func (s *Server) registerInflight(id string, cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inflight[id] = cancel
 }
 
-func (s *Server) newSessionID() string {
-	return strconv.FormatUint(s.nextID.Add(1), 10)
+func (s *Server) unregisterInflight(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inflight, id)
 }
 
-func (s *Server) cmdSessionNew(req *Request) *Response {
+func (s *Server) cancelRequest(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn, ok := s.inflight[id]
+	if ok && fn != nil {
+		fn()
+	}
+	return ok
+}
+
+func (s *Server) getAuthToken() string {
+	s.authTokenMu.RLock()
+	defer s.authTokenMu.RUnlock()
+	return s.authToken
+}
+
+func (s *Server) setAuthToken(token string) {
+	s.authTokenMu.Lock()
+	defer s.authTokenMu.Unlock()
+	s.authToken = token
+}
+
+func (s *Server) checkVersion(req *Request) *Response {
+	if req.Cmd == string(CmdVersion) || req.Version == "" {
+		return nil
+	}
+	if majorVersion(req.Version) != majorVersion(ProtocolVersion) {
+		return errResp(req.ID, string(ErrVersionMismatch), fmt.Sprintf("protocol version mismatch: client %s, server %s", req.Version, ProtocolVersion))
+	}
+	return nil
+}
+
+func majorVersion(v string) string {
+	parts := strings.Split(v, ".")
+	if len(parts) == 0 {
+		return v
+	}
+	return parts[0]
+}
+
+func (s *Server) taskErrorResponse(req *Request, err error, fallback ErrCode) *Response {
+	var taskErr *artemis.TaskError
+	if !errors.As(err, &taskErr) {
+		return errResp(req.ID, string(fallback), err.Error())
+	}
+	return errResp(req.ID, string(mapTaskErrorCode(taskErr, fallback)), taskErr.Error())
+}
+
+func mapTaskErrorCode(err *artemis.TaskError, fallback ErrCode) ErrCode {
+	switch err.Code {
+	case artemis.TaskErrorInvalidInput:
+		return ErrBadParams
+	case artemis.TaskErrorCapabilityUnavailable:
+		return ErrCapabilityUnavailable
+	case artemis.TaskErrorPolicyDenied:
+		return ErrOwnershipDenied
+	case artemis.TaskErrorTimeout:
+		return fallback
+	case artemis.TaskErrorCancelled:
+		return ErrCancelled
+	case artemis.TaskErrorStaleReference, artemis.TaskErrorInvalidTransition:
+		return ErrNoSession
+	case artemis.TaskErrorSessionNotFound:
+		return ErrNoSession
+	case artemis.TaskErrorSessionLimit:
+		return ErrSessionLimit
+	case artemis.TaskErrorResourceLimit:
+		return ErrResourceLimit
+	case artemis.TaskErrorPageNotFound:
+		return ErrNoPage
+	case artemis.TaskErrorExecutionFailed:
+		return fallback
+	case artemis.TaskErrorBrowserCrash:
+		return fallback
+	default:
+		return fallback
+	}
+}
+
+func (s *Server) cmdVersion(req *Request) *Response {
+	return okResp(req.ID, VersionResponse{
+		Protocol:     ProtocolVersion,
+		Server:       "artemis-serve",
+		Capabilities: artemis.Capabilities(),
+	})
+}
+
+func (s *Server) cmdCapabilities(req *Request) *Response {
+	return okResp(req.ID, VersionResponse{
+		Protocol:     ProtocolVersion,
+		Server:       "artemis-serve",
+		Capabilities: artemis.Capabilities(),
+	})
+}
+
+func (s *Server) cmdHeartbeat(req *Request) *Response {
+	return okResp(req.ID, HeartbeatResult{Now: time.Now().UnixMilli()})
+}
+
+func (s *Server) cmdSessionNew(ctx context.Context, req *Request) *Response {
 	var params SessionNewParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return errResp(req.ID, string(ErrBadParams), err.Error())
 		}
 	}
-	id := "s" + s.newSessionID()
-	managed := false
-	if s.opts.ProfileRuntime != nil {
-		if params.OwnerUserRef == "" || params.ProfileID == "" {
-			return errResp(req.ID, string(ErrBadParams), "ownerUserRef and profileId are required")
-		}
-		class := profile.ProfileClass(params.Class)
-		if class == "" {
-			class = profile.ProfileEphemeral
-		}
-		created, err := s.opts.ProfileRuntime.Open(context.Background(), profile.OpenSessionRequest{ProfileID: profile.ProfileID(params.ProfileID), OwnerUserRef: params.OwnerUserRef, Class: class})
-		if err != nil {
-			return errResp(req.ID, string(ErrBadParams), err.Error())
-		}
-		id = string(created.ID)
-		managed = true
+	owner := params.OwnerUserRef
+	if owner == "" {
+		owner = "anonymous"
 	}
-	sess := &session{id: id, owner: params.OwnerUserRef, managed: managed, pages: make(map[string]*engine.Page)}
-	s.mu.Lock()
-	s.sessions[id] = sess
-	s.mu.Unlock()
-	return okResp(req.ID, map[string]any{"sessionId": id})
+	class := profile.ProfileClass(params.Class)
+	if class == "" {
+		class = profile.ProfileEphemeral
+	}
+	var session *artemis.Session
+	var err error
+	if params.ProfileID != "" {
+		session, err = s.agent.CreateSessionForProfile(ctx, profile.OpenSessionRequest{
+			ProfileID:    profile.ProfileID(params.ProfileID),
+			OwnerUserRef: owner,
+			Class:        class,
+		})
+	} else {
+		session, err = s.agent.CreateSession(owner)
+	}
+	if err != nil {
+		return s.taskErrorResponse(req, err, ErrBadParams)
+	}
+	return okResp(req.ID, SessionNewResult{SessionID: session.SessionID(), OwnerUserRef: session.UserID()})
 }
 
 func (s *Server) cmdSessionClose(req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
-	}
-	s.mu.Lock()
-	sess := s.sessions[p.SessionID]
-	delete(s.sessions, p.SessionID)
-	s.mu.Unlock()
-	if sess != nil {
-		sess.mu.Lock()
-		for _, page := range sess.pages {
-			_ = page.Close()
-		}
-		sess.mu.Unlock()
-		if sess.managed {
-			if err := s.opts.ProfileRuntime.Close(context.Background(), profile.SessionID(sess.id), sess.owner); err != nil {
-				return errResp(req.ID, string(ErrNoSession), err.Error())
-			}
+	var params SessionCloseParams
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return errResp(req.ID, string(ErrBadParams), err.Error())
 		}
 	}
-	return okResp(req.ID, map[string]any{})
+	if params.SessionID == "" {
+		return errResp(req.ID, string(ErrBadParams), "sessionId required")
+	}
+	if params.OwnerUserRef == "" {
+		return errResp(req.ID, string(ErrBadParams), "ownerUserRef required")
+	}
+	if err := s.agent.CloseSessionForOwner(params.SessionID, params.OwnerUserRef); err != nil {
+		return s.taskErrorResponse(req, err, ErrNoSession)
+	}
+	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) lookupSession(id string) *session {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sessions[id]
+func (s *Server) cmdSessionList(req *Request) *Response {
+	sessions := s.agent.ListSessions()
+	result := SessionListResult{Sessions: make([]SessionInfo, 0, len(sessions))}
+	for _, session := range sessions {
+		result.Sessions = append(result.Sessions, SessionInfo{
+			SessionID:    session.SessionID(),
+			OwnerUserRef: session.UserID(),
+			Active:       session.IsActive(),
+			TabCount:     session.TabCount(),
+		})
+	}
+	return okResp(req.ID, result)
 }
 
 func (s *Server) cmdPageOpen(ctx context.Context, req *Request) *Response {
-	var p struct {
-		SessionID  string `json:"sessionId"`
-		URL        string `json:"url"`
-		RunScripts bool   `json:"runScripts"`
+	var params PageOpenParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "unknown sessionId")
 	}
-	sess := s.lookupSession(p.SessionID)
-	if sess == nil {
-		return errResp(req.ID, "no_session", "unknown sessionId")
+	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts)
+	if err != nil {
+		return s.taskErrorResponse(req, err, ErrFetchFailed)
 	}
-	var page *engine.Page
-	if s.router != nil {
-		signals := artemisrouter.Signals{IsHTML: true}
-		if p.RunScripts {
-			signals.ScriptCount = 1
-		}
-		result, routeErr := s.router.Execute(ctx, artemisrouter.RouteRequest{
-			URL: p.URL, Action: artemisrouter.ActionNavigate, Signals: signals,
-			State: artemisrouter.BrowserState{SessionID: p.SessionID}, TraceID: req.ID, EvidenceID: req.ID,
-		})
-		if routeErr != nil {
-			return errResp(req.ID, "fetch_failed", routeErr.Error())
-		}
-		var ok bool
-		page, ok = result.Resource.(*engine.Page)
-		if !ok || page == nil {
-			_ = result.Close()
-			return errResp(req.ID, "fetch_failed", "router returned no retained page resource")
-		}
-		result.Resource = nil
-	} else {
-		if s.eng == nil {
-			return errResp(req.ID, "fetch_failed", "renderless engine is not configured")
-		}
-		var err error
-		page, err = s.eng.Fetch(ctx, p.URL, engine.FetchOpts{RunInlineScripts: p.RunScripts})
-		if err != nil {
-			return errResp(req.ID, "fetch_failed", err.Error())
-		}
-	}
-	pageID := "p" + s.newSessionID()
-	sess.mu.Lock()
-	sess.pages[pageID] = page
-	sess.mu.Unlock()
-	return okResp(req.ID, map[string]any{
-		"pageId": pageID,
-		"url":    page.URL(),
-		"status": page.StatusCode(),
-		"title":  page.Title(),
+	return okResp(req.ID, PageOpenResult{
+		PageID: pageID,
+		URL:    page.URL(),
+		Status: page.StatusCode(),
+		Title:  page.Title(),
 	})
 }
 
 func (s *Server) cmdPageClose(req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
+	var params PageCloseParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	sess := s.lookupSession(p.SessionID)
-	if sess == nil {
-		return errResp(req.ID, "no_session", "")
+	if err := session.ClosePage(params.PageID); err != nil {
+		return s.taskErrorResponse(req, err, ErrNoPage)
 	}
-	sess.mu.Lock()
-	page := sess.pages[p.PageID]
-	delete(sess.pages, p.PageID)
-	sess.mu.Unlock()
-	if page != nil {
-		_ = page.Close()
-	}
-	return okResp(req.ID, map[string]any{})
-}
-
-func (s *Server) lookupPage(sessionID, pageID string) *engine.Page {
-	sess := s.lookupSession(sessionID)
-	if sess == nil {
-		return nil
-	}
-	sess.mu.Lock()
-	defer sess.mu.Unlock()
-	return sess.pages[pageID]
+	return okResp(req.ID, EmptyResult{})
 }
 
 func (s *Server) cmdPageEval(ctx context.Context, req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
-		Expr      string `json:"expr"`
+	var params PageEvalParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
-	}
-	v, err := page.Eval(ctx, p.Expr)
+	v, err := session.Eval(ctx, params.PageID, params.Expr)
 	if err != nil {
-		return errResp(req.ID, "eval_failed", err.Error())
+		return s.taskErrorResponse(req, err, ErrEvalFailed)
 	}
-	return okResp(req.ID, map[string]any{"value": v.String()})
+	return okResp(req.ID, PageEvalResult{Value: v.String()})
 }
 
 func (s *Server) cmdPageDump(req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
-		Format    string `json:"format"`
+	var params PageDumpParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	if params.Format == "" {
+		params.Format = string(DumpMarkdown)
 	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	switch p.Format {
-	case "html":
-		return okResp(req.ID, map[string]any{"data": page.HTML()})
-	case "markdown", "":
-		return okResp(req.ID, map[string]any{"data": page.Markdown()})
-	case "text":
-		return okResp(req.ID, map[string]any{"data": page.Text()})
-	case "title":
-		return okResp(req.ID, map[string]any{"data": page.Title()})
-	case "links":
-		return okResp(req.ID, map[string]any{"data": page.Links()})
-	case "structured":
-		return okResp(req.ID, map[string]any{"data": page.StructuredData()})
-	case "semantic":
-		return okResp(req.ID, map[string]any{"data": agent.SemanticString(page.SemanticTree())})
-	default:
-		return errResp(req.ID, "bad_format", "unknown format "+p.Format)
+	data, err := session.Dump(params.PageID, params.Format)
+	if err != nil {
+		var taskErr *artemis.TaskError
+		if errors.As(err, &taskErr) && taskErr.Code == artemis.TaskErrorInvalidInput && strings.Contains(taskErr.Error(), "unknown format") {
+			return errResp(req.ID, string(ErrBadFormat), taskErr.Error())
+		}
+		return s.taskErrorResponse(req, err, ErrBadFormat)
 	}
+	return okResp(req.ID, PageDumpResult{Data: data})
 }
 
 func (s *Server) cmdPageClickByText(ctx context.Context, req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
-		Text      string `json:"text"`
+	var params PageClickByTextParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
-	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
-	}
-	n, ok := agent.ClickByText(page.Document(), p.Text)
+	session, ok := s.agent.Session(params.SessionID)
 	if !ok {
-		return errResp(req.ID, "not_found", "no clickable element with that text")
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	if err := page.Click(ctx, n); err != nil {
-		return errResp(req.ID, "click_failed", err.Error())
+	if err := session.ClickByText(ctx, params.PageID, params.Text); err != nil {
+		return s.taskErrorResponse(req, err, ErrClickFailed)
 	}
-	return okResp(req.ID, map[string]any{})
+	return okResp(req.ID, EmptyResult{})
 }
 
 func (s *Server) cmdPageType(req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
-		Selector  string `json:"selector"`
-		Text      string `json:"text"`
+	var params PageTypeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
+	if err := session.Type(params.PageID, params.Selector, params.Text); err != nil {
+		return s.taskErrorResponse(req, err, ErrTypeFailed)
 	}
-	if err := agent.Type(page.Document(), p.Selector, p.Text); err != nil {
-		return errResp(req.ID, "type_failed", err.Error())
-	}
-	return okResp(req.ID, map[string]any{})
+	return okResp(req.ID, EmptyResult{})
 }
 
 func (s *Server) cmdPageWaitIdle(ctx context.Context, req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
+	var params PageWaitIdleParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
+	if err := session.WaitIdle(ctx, params.PageID); err != nil {
+		return s.taskErrorResponse(req, err, ErrWaitFailed)
 	}
-	if err := page.WaitIdle(ctx); err != nil {
-		return errResp(req.ID, "wait_failed", err.Error())
-	}
-	return okResp(req.ID, map[string]any{})
+	return okResp(req.ID, EmptyResult{})
 }
 
-// cmdPageAssert evaluates an assertion against the current page state.
-// Supported modes:
-//   - mode=selector_exists   params: selector, want (true|false, default true)
-//   - mode=title_contains    params: substring
-//   - mode=text_contains     params: substring
-//   - mode=url_contains      params: substring
-//   - mode=status_eq         params: status (int)
-//   - mode=eval_truthy       params: expr (JS)
 func (s *Server) cmdPageAssert(ctx context.Context, req *Request) *Response {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		PageID    string `json:"pageId"`
-		Mode      string `json:"mode"`
-		Selector  string `json:"selector"`
-		Want      *bool  `json:"want"`
-		Substring string `json:"substring"`
-		Status    int    `json:"status"`
-		Expr      string `json:"expr"`
+	var params PageAssertParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return errResp(req.ID, "bad_params", err.Error())
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
 	}
-	page := s.lookupPage(p.SessionID, p.PageID)
-	if page == nil {
-		return errResp(req.ID, "no_page", "")
-	}
-	want := true
-	if p.Want != nil {
-		want = *p.Want
-	}
-	type assertionResult struct {
-		Pass bool   `json:"pass"`
-		Got  string `json:"got"`
-	}
-	switch p.Mode {
-	case "selector_exists":
-		n, err := page.Document().QuerySelector(p.Selector)
-		if err != nil {
-			return errResp(req.ID, "assert_failed", "query: "+err.Error())
+	result, err := session.Assert(ctx, params.PageID, params.Mode, params.Selector, params.Substring, params.Expr, params.Status, params.Want)
+	if err != nil {
+		var taskErr *artemis.TaskError
+		if errors.As(err, &taskErr) && taskErr.Code == artemis.TaskErrorInvalidInput && strings.Contains(taskErr.Error(), "unknown assert mode") {
+			return errResp(req.ID, string(ErrBadMode), taskErr.Error())
 		}
-		got := n != nil
-		return okResp(req.ID, assertionResult{Pass: got == want, Got: fmt.Sprintf("exists=%v", got)})
-	case "title_contains":
-		t := page.Title()
-		got := strings.Contains(t, p.Substring)
-		return okResp(req.ID, assertionResult{Pass: got == want, Got: t})
-	case "text_contains":
-		t := page.Text()
-		got := strings.Contains(t, p.Substring)
-		return okResp(req.ID, assertionResult{Pass: got == want, Got: truncate(t, 200)})
-	case "url_contains":
-		u := page.URL()
-		got := strings.Contains(u, p.Substring)
-		return okResp(req.ID, assertionResult{Pass: got == want, Got: u})
-	case "status_eq":
-		got := page.StatusCode()
-		return okResp(req.ID, assertionResult{Pass: got == p.Status, Got: strconv.Itoa(got)})
-	case "eval_truthy":
-		if p.Expr == "" {
-			return errResp(req.ID, "bad_params", "eval_truthy requires expr")
-		}
-		v, err := page.Eval(ctx, p.Expr)
-		if err != nil {
-			return errResp(req.ID, "assert_failed", "eval: "+err.Error())
-		}
-		got := v != nil && v.Bool()
-		return okResp(req.ID, assertionResult{Pass: got == want, Got: v.String()})
-	default:
-		return errResp(req.ID, "bad_mode", "unknown assert mode "+p.Mode)
+		return s.taskErrorResponse(req, err, ErrAssertFailed)
 	}
+	return okResp(req.ID, AssertResult{Pass: result.Pass, Got: result.Got})
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+func (s *Server) cmdChromiumAct(ctx context.Context, req *Request) *Response {
+	var params ChromiumActParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	return s[:n] + "..."
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
+	}
+	outcome, err := session.ChromiumAct(ctx, params.Request)
+	if err != nil {
+		return s.taskErrorResponse(req, err, ErrCapabilityUnavailable)
+	}
+	if !outcome.Success {
+		return errResp(req.ID, string(outcome.Failure), outcome.Error)
+	}
+	return okResp(req.ID, ChromiumActResult{Outcome: outcome})
+}
+
+func (s *Server) cmdStream(ctx, connCtx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup) *Response {
+	var params StreamParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
+	}
+
+	if params.StreamID != "" {
+		return s.resumeStream(connCtx, c, req, params.StreamID, params.ResumeFrom)
+	}
+
+	streamID := newStreamID()
+	session, ok := s.agent.Session(params.SessionID)
+	if !ok {
+		return errResp(req.ID, string(ErrNoSession), "")
+	}
+	outbox := &streamOutbox{reqID: req.ID}
+	s.mu.Lock()
+	s.outbox[streamID] = outbox
+	s.mu.Unlock()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.streamOpen(connCtx, c, session, outbox, streamID, params)
+	}()
+
+	return okResp(req.ID, StreamResult{StreamID: streamID})
+}
+
+func (s *Server) resumeStream(ctx context.Context, c *websocket.Conn, req *Request, streamID string, resumeFrom int64) *Response {
+	s.mu.Lock()
+	outbox, ok := s.outbox[streamID]
+	s.mu.Unlock()
+	if !ok {
+		return errResp(req.ID, string(ErrNotFound), "unknown streamId")
+	}
+	events := outbox.eventsSince(resumeFrom)
+	for _, ev := range events {
+		if ev.event != nil {
+			s.writeEvent(ctx, c, ev.event)
+		} else if ev.terminal != nil {
+			terminal := *ev.terminal
+			terminal.ID = req.ID
+			s.writeResp(ctx, c, &terminal)
+		}
+	}
+	if outbox.isClosed() && (len(events) == 0 || events[len(events)-1].terminal == nil) {
+		return okResp(req.ID, StreamResult{StreamID: streamID, Complete: true})
+	}
+	if outbox.isClosed() {
+		return nil
+	}
+	return okResp(req.ID, StreamResult{StreamID: streamID, Resumed: true})
+}
+
+func (s *Server) streamOpen(ctx context.Context, c *websocket.Conn, session *artemis.Session, outbox *streamOutbox, streamID string, params StreamParams) {
+	outbox.pushEvent(&Event{Event: "stream.progress", Params: StreamProgress{StreamID: streamID, Stage: "open"}})
+
+	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts)
+	if err != nil {
+		resp := s.taskErrorResponse(&Request{ID: outbox.reqID}, err, ErrFetchFailed)
+		outbox.pushTerminal(resp)
+		s.writeResp(ctx, c, resp)
+		s.mu.Lock()
+		delete(s.outbox, streamID)
+		s.mu.Unlock()
+		return
+	}
+
+	outbox.pushEvent(&Event{Event: "stream.progress", Params: StreamProgress{StreamID: streamID, Stage: "loaded"}})
+	outbox.pushEvent(&Event{Event: "stream.result", Params: PageOpenResult{
+		PageID: pageID,
+		URL:    page.URL(),
+		Status: page.StatusCode(),
+		Title:  page.Title(),
+	}})
+
+	resp := okResp(outbox.reqID, PageOpenResult{
+		PageID: pageID,
+		URL:    page.URL(),
+		Status: page.StatusCode(),
+		Title:  page.Title(),
+	})
+	outbox.pushTerminal(resp)
+	s.writeResp(ctx, c, resp)
+}
+
+func (s *Server) cmdCancel(req *Request) *Response {
+	var params CancelParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
+	}
+	if s.cancelRequest(params.RequestID) {
+		return okResp(req.ID, CancelResult{Cancelled: true})
+	}
+	return errResp(req.ID, string(ErrNotFound), "request not found")
+}
+
+func (s *Server) cmdTokenRotate(req *Request) *Response {
+	if s.getAuthToken() == "" {
+		return errResp(req.ID, string(ErrCapabilityUnavailable), "token rotation requires an authenticated server")
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return errResp(req.ID, string(ErrExecutionFailed), err.Error())
+	}
+	token := hex.EncodeToString(b)
+	s.setAuthToken(token)
+	return okResp(req.ID, TokenRotateResult{Token: token})
+}
+
+func (o *streamOutbox) pushEvent(ev *Event) uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.seq++
+	seq := o.seq
+	o.events = append(o.events, streamEvent{seq: seq, event: ev})
+	return seq
+}
+
+func (o *streamOutbox) pushTerminal(resp *Response) uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.seq++
+	seq := o.seq
+	o.terminal = resp
+	o.closed = true
+	o.events = append(o.events, streamEvent{seq: seq, terminal: resp})
+	return seq
+}
+
+func (o *streamOutbox) eventsSince(resumeFrom int64) []streamEvent {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var out []streamEvent
+	for _, ev := range o.events {
+		if int64(ev.seq) > resumeFrom {
+			out = append(out, ev)
+		}
+	}
+	if o.terminal != nil {
+		found := false
+		for _, ev := range out {
+			if ev.terminal != nil {
+				found = true
+				break
+			}
+		}
+		if !found && int64(o.seq) > resumeFrom {
+			out = append(out, streamEvent{seq: o.seq, terminal: o.terminal})
+		}
+	}
+	return out
+}
+
+func (o *streamOutbox) isClosed() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.closed
+}
+
+func newStreamID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatUint(uint64(time.Now().UnixNano()), 10)
+	}
+	return hex.EncodeToString(b)
 }
 
 func okResp(id string, value any) *Response {
@@ -554,4 +789,45 @@ func okResp(id string, value any) *Response {
 
 func errResp(id, code, msg string) *Response {
 	return &Response{ID: id, OK: false, Error: &Err{Code: code, Message: msg}}
+}
+
+type rateLimiter struct {
+	limit  int
+	burst  int
+	tokens float64
+	last   time.Time
+	mu     sync.Mutex
+}
+
+func newRateLimiter(r RateLimit) *rateLimiter {
+	if r.RequestsPerSecond <= 0 {
+		return nil
+	}
+	burst := r.Burst
+	if burst <= 0 {
+		burst = r.RequestsPerSecond
+	}
+	if burst < 1 {
+		burst = 1
+	}
+	return &rateLimiter{limit: r.RequestsPerSecond, burst: burst, tokens: float64(burst), last: time.Now()}
+}
+
+func (r *rateLimiter) Allow() bool {
+	if r == nil {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	r.tokens += now.Sub(r.last).Seconds() * float64(r.limit)
+	if r.tokens > float64(r.burst) {
+		r.tokens = float64(r.burst)
+	}
+	if r.tokens >= 1 {
+		r.tokens--
+		r.last = now
+		return true
+	}
+	return false
 }

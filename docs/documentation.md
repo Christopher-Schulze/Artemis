@@ -174,11 +174,19 @@ artemis <command> [flags] [args]
 | `help` | print top-level usage |
 | `capabilities` | print versioned support states as JSON |
 | `fetch <url>` | fetch URL, optionally run scripts, dump html / markdown / text / title / links / structured / semantic |
+| `run <url>` | load a JavaScript file and execute it in the page context |
 | `serve` | start the JSON-over-WebSocket steering server |
+| `observe` | capture a bounded Chromium DOM/accessibility snapshot as JSON |
+| `act` | execute one typed Chromium action and emit evidence as JSON |
+| `session` | manage durable profile sessions (new, list, open, close) |
+| `profile` | manage browser profiles (list, create, get, delete) |
+| `doctor` | diagnose the environment and runtime readiness |
+| `trace` | fetch a URL and emit a trace of lifecycle events as JSON |
+| `benchmark` | run the benchmark harness and emit a scorecard |
 
-`fetch` flags: `--dump {html\|markdown\|text\|title\|links\|structured\|semantic}` (default `markdown`), `--user-agent`, `--proxy`, `--timeout`, `--max-body-bytes`, `--header k=v` (repeatable), `--run-scripts`, `--eval <expr>`, `--console`. Exit 0 on success; 1 on runtime error; 2 on argument error.
+`fetch` flags: `--dump {html\|markdown\|text\|title\|links\|structured\|semantic}` (default `markdown`), `--user-agent`, `--proxy`, `--timeout`, `--max-body-bytes`, `--header k=v` (repeatable), `--run-scripts`, `--eval <expr>`, `--console`, `--allow-private-networks`, `--allow-port`. Exit 0 on success; 1 on runtime error; 2 on argument error.
 
-`serve` flags: `--host`, `--port`, `--obey-robots`, `--block-private-ips`. See [Steering Server](#steering-server).
+`serve` flags: `--host`, `--port`, `--obey-robots`, `--block-private-ips`, `--allowed-ports`, `--token`, `--origin`, `--insecure-origin`, `--rate`, `--burst`. See [Steering Server](#steering-server).
 
 ## Library API
 
@@ -835,25 +843,62 @@ Verified by `TestContextCloseShutsDownWSGoroutines` and `TestContextCloseCancels
 
 ## Steering Server
 
-`artemis serve --host 127.0.0.1 --port 9333` runs a JSON-over-WebSocket server that drives the engine from outside the Go process. NOT Chrome DevTools Protocol; custom shape designed for agent embedding.
+`artemis serve --host 127.0.0.1 --port 9333` runs a JSON-over-WebSocket server that drives the canonical `artemis.Agent` from outside the Go process. NOT Chrome DevTools Protocol; custom shape designed for agent embedding.
 
 ```
 ws://127.0.0.1:9333/
 ```
 
-Commands (request -> response):
+### Connection and lifecycle
+
+Each WebSocket connection is an anonymous client. The server is stateless except for the in-memory agent session/page registry and per-connection message state. Callers create a session, open one or more pages, and close the session when done.
+
+Requests are envelopes `{id, cmd, params}`. Responses are `{id, ok, value, error}`. `error` is `{code, message, op}`.
+
+### Commands
 
 | Command | Params | Returns |
 |---|---|---|
-| `session.new` | - | `{sessionId}` |
-| `session.close` | `{sessionId}` | `{}` |
+| `version` | `{}` | `{version, protocol, capabilities}` |
+| `session.new` | `{ownerUserRef?}` | `{sessionId, ownerUserRef}` |
+| `session.list` | `{ownerUserRef?}` | `{sessions}` |
+| `session.info` | `{sessionId, ownerUserRef}` | `{sessionId, ownerUserRef, active, tabCount, pages}` |
+| `session.close` | `{sessionId, ownerUserRef}` | `{closed}` |
 | `page.open` | `{sessionId, url, runScripts?}` | `{pageId, url, status, title}` |
-| `page.close` | `{sessionId, pageId}` | `{}` |
+| `page.close` | `{sessionId, pageId}` | `{closed}` |
 | `page.eval` | `{sessionId, pageId, expr}` | `{value}` |
 | `page.dump` | `{sessionId, pageId, format}` (`html`/`markdown`/`text`/`title`/`links`/`structured`/`semantic`) | `{data}` |
 | `page.click_by_text` | `{sessionId, pageId, text}` | `{}` |
+| `page.type` | `{sessionId, pageId, selector, text}` | `{}` |
+| `page.wait_idle` | `{sessionId, pageId, timeoutMs?}` | `{}` |
+| `page.assert` | `{sessionId, pageId, mode, selector?, substring?, expr?, status?, want?}` | `{pass, got}` |
+| `chromium.act` | `{request}` | `{outcome}` |
+| `stream` | `{sessionId, pageId, actionId}` | `{streamId}` |
+| `cancel` | `{actionId, requestId}` | `{cancelled}` |
+| `token.rotate` | `{}` | `{token, expiresAt}` |
+| `heartbeat` | `{}` | `{pong}` |
 
-Envelopes: `{id, cmd, params}` -> `{id, ok, value, error: {code, message}}`. CLI flags `--obey-robots`, `--block-private-ips` are recommended when exposing the server beyond loopback.
+### Protocol contract
+
+- Protocol version `2026-07-14` is negotiated with the first `version` command.
+- `ownerUserRef` is required for session lifecycle operations and defaults to `anonymous` for `session.new`.
+- `session.close` requires the same `ownerUserRef` that created the session.
+- `stream` establishes ordered progress/event delivery for long-running actions. Each event carries an `sequenceId` and `ack` so clients can reconnect and resume without duplicate terminal events.
+- `token.rotate` returns a new bearer token. Use `--auth-token <token>` on the server and the `Authorization: Bearer <token>` header on the client.
+- `heartbeat` keeps idle connections alive and detects stalled peers.
+- CLI flags `--obey-robots`, `--block-private-ips`, `--allowed-ports`, `--token`, `--origin`, `--insecure-origin`, `--rate`, and `--burst` control resource governance and access control.
+
+### Error taxonomy
+
+Response errors use stable codes:
+
+- `invalid_input` — malformed request or missing required field.
+- `session_not_found` / `page_not_found` — stale or unknown ID.
+- `policy_denied` — cross-session access, origin, or ownership violation.
+- `timeout` / `cancelled` — deadline or cancellation.
+- `execution_failed` — runtime failure (fetch, eval, action).
+- `capability_unavailable` — optional runtime not configured.
+- `stale_reference` — session or page already closed.
 
 ## Telemetry
 

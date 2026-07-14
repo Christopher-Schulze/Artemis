@@ -256,13 +256,13 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 	if stepTimeout == 0 {
 		stepTimeout = r.cfg.StepTimeout
 	}
-	// sessionID and pageID are tracked across steps and auto-injected
+	// sessionID, pageID, and ownerUserRef are tracked across steps and auto-injected
 	// into step params so scenario YAML doesn't need to thread them.
-	var sessionID, pageID string
+	var sessionID, pageID, ownerUserRef string
 	for i := range s.Steps {
 		st := &s.Steps[i]
 		// Inject tracked IDs into params (don't overwrite explicit values).
-		injectIDs(st, sessionID, pageID)
+		injectIDs(st, sessionID, pageID, ownerUserRef)
 		stepCtx, cancel := context.WithTimeout(ctx, stepTimeout)
 		sr := r.runStep(stepCtx, conn, st, &mu)
 		cancel()
@@ -285,6 +285,9 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 			if id, ok := extractString(sr.Got, "sessionId"); ok {
 				sessionID = id
 			}
+			if owner, ok := extractString(sr.Got, "ownerUserRef"); ok {
+				ownerUserRef = owner
+			}
 		}
 		if st.Cmd == "page.open" {
 			if id, ok := extractString(sr.Got, "pageId"); ok {
@@ -297,6 +300,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		if st.Cmd == "session.close" {
 			sessionID = ""
 			pageID = ""
+			ownerUserRef = ""
 		}
 		if st.Cmd == "page.dump" {
 			if data, ok := extractString(sr.Got, "data"); ok {
@@ -309,10 +313,10 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 	return res
 }
 
-// injectIDs sets sessionId/pageId in step params if the step needs them
+// injectIDs sets sessionId/pageId/ownerUserRef in step params if the step needs them
 // and they aren't already set. This lets scenario YAML omit the
 // bookkeeping IDs.
-func injectIDs(st *Step, sessionID, pageID string) {
+func injectIDs(st *Step, sessionID, pageID, ownerUserRef string) {
 	if st.Params == nil {
 		st.Params = map[string]any{}
 	}
@@ -326,6 +330,11 @@ func injectIDs(st *Step, sessionID, pageID string) {
 	if needsPage && pageID != "" {
 		if _, ok := st.Params["pageId"]; !ok {
 			st.Params["pageId"] = pageID
+		}
+	}
+	if st.Cmd == "session.close" && ownerUserRef != "" {
+		if _, ok := st.Params["ownerUserRef"]; !ok {
+			st.Params["ownerUserRef"] = ownerUserRef
 		}
 	}
 }

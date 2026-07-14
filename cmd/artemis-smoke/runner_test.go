@@ -10,17 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Christopher-Schulze/Artemis/engine"
+	artemis "github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/serve"
 )
-
-// startServeServer starts an in-process artemis serve.Server on a free
-// port and returns the address. This lets the runner tests exercise the
-// full WS path without spawning a subprocess or hitting the internet.
-func testConfig() engine.Config {
-	return engine.Config{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
-}
 
 func allTestPorts() []int {
 	ports := make([]int, 65535)
@@ -32,11 +25,14 @@ func allTestPorts() []int {
 
 func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	t.Helper()
-	eng, err := engine.New(testConfig())
+	agent, err := artemis.NewAgent(artemis.AgentConfig{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}})
 	if err != nil {
-		t.Fatalf("engine: %v", err)
+		t.Fatalf("agent: %v", err)
 	}
-	srv := serve.New(eng, serve.Opts{})
+	if err := agent.Start(context.Background()); err != nil {
+		t.Fatalf("agent start: %v", err)
+	}
+	srv := serve.New(agent, serve.Opts{})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -47,7 +43,7 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	cleanup = func() {
 		_ = httpSrv.Close()
 		_ = ln.Close()
-		_ = eng.Close()
+		_ = agent.Stop()
 	}
 	return addr, cleanup
 }
@@ -223,7 +219,7 @@ func TestScorecardJSONRoundTrip(t *testing.T) {
 
 func TestInjectIDs(t *testing.T) {
 	st := &Step{Cmd: "page.dump", Params: map[string]any{"format": "markdown"}}
-	injectIDs(st, "s1", "p1")
+	injectIDs(st, "s1", "p1", "owner")
 	if st.Params["sessionId"] != "s1" {
 		t.Errorf("sessionId = %v, want s1", st.Params["sessionId"])
 	}
@@ -232,15 +228,21 @@ func TestInjectIDs(t *testing.T) {
 	}
 	// Explicit values should not be overwritten.
 	st2 := &Step{Cmd: "page.dump", Params: map[string]any{"sessionId": "explicit", "pageId": "pp"}}
-	injectIDs(st2, "s1", "p1")
+	injectIDs(st2, "s1", "p1", "owner")
 	if st2.Params["sessionId"] != "explicit" {
 		t.Errorf("sessionId = %v, want explicit", st2.Params["sessionId"])
 	}
 	// session.new needs neither.
 	st3 := &Step{Cmd: "session.new", Params: map[string]any{}}
-	injectIDs(st3, "s1", "p1")
+	injectIDs(st3, "s1", "p1", "owner")
 	if _, ok := st3.Params["sessionId"]; ok {
 		t.Error("session.new should not get sessionId injected")
+	}
+	// session.close should get ownerUserRef injected.
+	st4 := &Step{Cmd: "session.close", Params: map[string]any{}}
+	injectIDs(st4, "s1", "p1", "owner")
+	if st4.Params["ownerUserRef"] != "owner" {
+		t.Errorf("ownerUserRef = %v, want owner", st4.Params["ownerUserRef"])
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 )
 
@@ -19,7 +20,7 @@ import (
 // Clients MUST check that they speak a compatible version. The version
 // is bumped on any breaking change to the envelope shape or to a
 // command's parameter/result schema.
-const ProtocolVersion = "1.0.0"
+const ProtocolVersion = "1.1.0"
 
 // Command names every operation the steering server accepts.
 type Command string
@@ -27,6 +28,7 @@ type Command string
 const (
 	CmdSessionNew      Command = "session.new"
 	CmdSessionClose    Command = "session.close"
+	CmdSessionList     Command = "session.list"
 	CmdPageOpen        Command = "page.open"
 	CmdPageClose       Command = "page.close"
 	CmdPageEval        Command = "page.eval"
@@ -36,6 +38,12 @@ const (
 	CmdPageWaitIdle    Command = "page.wait_idle"
 	CmdPageAssert      Command = "page.assert"
 	CmdChromiumAct     Command = "chromium.act"
+	CmdStream          Command = "stream"
+	CmdCancel          Command = "cancel"
+	CmdTokenRotate     Command = "token.rotate"
+	CmdHeartbeat       Command = "heartbeat"
+	CmdCapabilities    Command = "capabilities"
+	CmdVersion         Command = "version"
 )
 
 // ErrCode is the canonical error taxonomy. Clients can branch on
@@ -44,20 +52,28 @@ const (
 type ErrCode string
 
 const (
-	ErrBadRequest   ErrCode = "bad_request"
-	ErrBadParams    ErrCode = "bad_params"
-	ErrBadMode      ErrCode = "bad_mode"
-	ErrBadFormat    ErrCode = "bad_format"
-	ErrUnknownCmd   ErrCode = "unknown_cmd"
-	ErrNoSession    ErrCode = "no_session"
-	ErrNoPage       ErrCode = "no_page"
-	ErrFetchFailed  ErrCode = "fetch_failed"
-	ErrEvalFailed   ErrCode = "eval_failed"
-	ErrTypeFailed   ErrCode = "type_failed"
-	ErrWaitFailed   ErrCode = "wait_failed"
-	ErrClickFailed  ErrCode = "click_failed"
-	ErrAssertFailed ErrCode = "assert_failed"
-	ErrNotFound     ErrCode = "not_found"
+	ErrBadRequest            ErrCode = "bad_request"
+	ErrBadParams             ErrCode = "bad_params"
+	ErrBadMode               ErrCode = "bad_mode"
+	ErrBadFormat             ErrCode = "bad_format"
+	ErrUnknownCmd            ErrCode = "unknown_cmd"
+	ErrNoSession             ErrCode = "no_session"
+	ErrNoPage                ErrCode = "no_page"
+	ErrFetchFailed           ErrCode = "fetch_failed"
+	ErrEvalFailed            ErrCode = "eval_failed"
+	ErrTypeFailed            ErrCode = "type_failed"
+	ErrWaitFailed            ErrCode = "wait_failed"
+	ErrClickFailed           ErrCode = "click_failed"
+	ErrAssertFailed          ErrCode = "assert_failed"
+	ErrNotFound              ErrCode = "not_found"
+	ErrCapabilityUnavailable ErrCode = "capability_unavailable"
+	ErrVersionMismatch       ErrCode = "version_mismatch"
+	ErrRateExceeded          ErrCode = "rate_exceeded"
+	ErrOwnershipDenied       ErrCode = "ownership_denied"
+	ErrCancelled             ErrCode = "cancelled"
+	ErrSessionLimit          ErrCode = "session_limit"
+	ErrResourceLimit         ErrCode = "resource_limit"
+	ErrExecutionFailed       ErrCode = "execution_failed"
 )
 
 // DumpFormat enumerates the page.dump formats the server accepts.
@@ -97,7 +113,8 @@ type SessionNewParams struct {
 
 // SessionCloseParams closes an open session and all its pages.
 type SessionCloseParams struct {
-	SessionID string `json:"sessionId"`
+	SessionID    string `json:"sessionId"`
+	OwnerUserRef string `json:"ownerUserRef"`
 }
 
 // PageOpenParams opens a URL in a new page within the session.
@@ -167,8 +184,10 @@ type PageAssertParams struct {
 }
 
 type ChromiumActParams struct {
-	Request actions.Request `json:"request"`
+	SessionID string          `json:"sessionId"`
+	Request   actions.Request `json:"request"`
 }
+
 type ChromiumActResult struct {
 	Outcome actions.Outcome `json:"outcome"`
 }
@@ -177,7 +196,8 @@ type ChromiumActResult struct {
 
 // SessionNewResult is the value returned by session.new.
 type SessionNewResult struct {
-	SessionID string `json:"sessionId"`
+	SessionID    string `json:"sessionId"`
+	OwnerUserRef string `json:"ownerUserRef"`
 }
 
 // PageOpenResult is the value returned by page.open.
@@ -270,10 +290,62 @@ func DecodeTypedResult(resp *Response, target interface{}) error {
 // VersionResponse is returned by the version handshake (a client
 // sends cmd="version" and receives this).
 type VersionResponse struct {
-	Protocol string `json:"protocol"`
-	Server   string `json:"server"`
+	Protocol     string               `json:"protocol"`
+	Server       string               `json:"server"`
+	Capabilities []artemis.Capability `json:"capabilities"`
 }
 
-// CmdVersion is a meta-command that returns the protocol version. It
-// is handled inline by the server without touching the engine.
-const CmdVersion Command = "version"
+// SessionInfo describes a single session for session.list.
+type SessionInfo struct {
+	SessionID    string `json:"sessionId"`
+	OwnerUserRef string `json:"ownerUserRef"`
+	Active       bool   `json:"active"`
+	TabCount     int    `json:"tabCount"`
+}
+
+// SessionListResult is the value returned by session.list.
+type SessionListResult struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
+// StreamParams starts or resumes a streaming page.open.
+type StreamParams struct {
+	SessionID  string `json:"sessionId"`
+	URL        string `json:"url"`
+	RunScripts bool   `json:"runScripts"`
+	StreamID   string `json:"streamId,omitempty"`
+	ResumeFrom int64  `json:"resumeFrom,omitempty"`
+}
+
+// StreamResult is the value returned by stream.
+type StreamResult struct {
+	StreamID string `json:"streamId"`
+	Resumed  bool   `json:"resumed,omitempty"`
+	Complete bool   `json:"complete,omitempty"`
+}
+
+// StreamProgress is a server-pushed stream event payload.
+type StreamProgress struct {
+	StreamID string `json:"streamId"`
+	Stage    string `json:"stage"`
+}
+
+// CancelParams cancels an in-flight request.
+type CancelParams struct {
+	RequestID string `json:"requestId"`
+}
+
+// CancelResult is the value returned by cancel.
+type CancelResult struct {
+	Cancelled bool `json:"cancelled"`
+}
+
+// TokenRotateResult is the value returned by token.rotate.
+type TokenRotateResult struct {
+	Token string `json:"token"`
+}
+
+// HeartbeatResult is the value returned by heartbeat.
+type HeartbeatResult struct {
+	Now int64 `json:"now"`
+}
