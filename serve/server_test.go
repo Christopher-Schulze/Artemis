@@ -70,6 +70,67 @@ func dial(t *testing.T, addr string) *websocket.Conn {
 	return c
 }
 
+// startServerWithAuth mirrors startServer but enforces a bearer AuthToken on
+// every connection, so the auth gate in handleWS can be exercised directly.
+func startServerWithAuth(t *testing.T, token string) (string, func()) {
+	t.Helper()
+	agent, err := artemis.NewAgent(testAgentConfig())
+	if err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := agent.Start(ctx); err != nil {
+		cancel()
+		t.Fatalf("agent start: %v", err)
+	}
+	srv := New(agent, Opts{AuthToken: token})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		cancel()
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	go func() {
+		_ = (&http.Server{Handler: http.HandlerFunc(srv.handleWS)}).Serve(ln)
+	}()
+	cleanup := func() {
+		_ = ln.Close()
+		cancel()
+		_ = agent.Stop()
+	}
+	return addr, cleanup
+}
+
+// TestServerAuthTokenEnforced is a failable proof that the serve bearer-token
+// gate rejects missing and wrong tokens and admits the correct one. If the auth
+// check in handleWS is removed or weakened, the missing/wrong-token cases start
+// connecting and fail the test.
+func TestServerAuthTokenEnforced(t *testing.T) {
+	addr, cleanup := startServerWithAuth(t, "s3cret")
+	defer cleanup()
+
+	// No Authorization header -> rejected.
+	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", nil); err == nil {
+		_ = c.Close(websocket.StatusNormalClosure, "")
+		t.Fatal("connection without token was accepted, want rejected")
+	}
+
+	// Wrong token -> rejected.
+	badOpts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer wrong"}}}
+	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", badOpts); err == nil {
+		_ = c.Close(websocket.StatusNormalClosure, "")
+		t.Fatal("connection with wrong token was accepted, want rejected")
+	}
+
+	// Correct token -> accepted.
+	goodOpts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer s3cret"}}}
+	c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", goodOpts)
+	if err != nil {
+		t.Fatalf("connection with correct token was rejected: %v", err)
+	}
+	_ = c.Close(websocket.StatusNormalClosure, "")
+}
+
 func roundTrip(t *testing.T, c *websocket.Conn, req Request) Response {
 	t.Helper()
 	body, _ := json.Marshal(req)
