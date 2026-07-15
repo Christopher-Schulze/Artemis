@@ -33,6 +33,13 @@ const (
 
 const defaultChromiumMaxPages = 32
 
+// defaultGracefulCloseTimeout bounds how long an owned browser is given to exit
+// on its own after the CDP Browser.close request before the process-level
+// SIGTERM/SIGKILL teardown takes over. A generous window lets the browser reclaim
+// its own macOS code-sign clone under load instead of being force-killed and
+// leaving the clone orphaned.
+const defaultGracefulCloseTimeout = 5 * time.Second
+
 // BrowserVersion is the validated Browser.getVersion result.
 type BrowserVersion struct {
 	ProtocolVersion string `json:"protocolVersion"`
@@ -129,8 +136,15 @@ func ConnectChromium(ctx context.Context, endpoint string) (*ChromiumBrowser, er
 	return connectChromium(ctx, endpoint, nil)
 }
 
+// cloneSweepOnce runs the macOS code-sign clone janitor a single time per
+// process, before the first owned browser launch, so repeated launch/teardown
+// cycles cannot accumulate orphaned clone directories. It is off the per-launch
+// latency path (guarded by sync.Once) and a no-op on non-darwin platforms.
+var cloneSweepOnce sync.Once
+
 // LaunchChromium launches and validates an owned Chromium process.
 func LaunchChromium(ctx context.Context, config browserprocess.LaunchConfig) (*ChromiumBrowser, error) {
+	cloneSweepOnce.Do(browserprocess.SweepOrphanCodeSignClones)
 	processOwner, err := browserprocess.Launch(ctx, config)
 	if err != nil {
 		return nil, err
@@ -484,7 +498,7 @@ func (b *ChromiumBrowser) close() error {
 		if b.process != nil && err == nil {
 			select {
 			case <-b.process.Done():
-			case <-time.After(2 * time.Second):
+			case <-time.After(defaultGracefulCloseTimeout):
 				result = errors.Join(result, fmt.Errorf("wait for graceful browser close: timeout"))
 			}
 		}
