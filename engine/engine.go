@@ -82,6 +82,7 @@ var ErrRobotsDisallowed = network.ErrRobotsDisallowed
 type Engine struct {
 	cfg    Config
 	client *network.HTTPClient
+	policy *network.Policy
 	jsRT   *js.Runtime
 }
 
@@ -99,6 +100,7 @@ func New(cfg Config) (*Engine, error) {
 		Timeout:      cfg.Timeout,
 		MaxBodyBytes: cfg.MaxBodyBytes,
 		Policy:       policy,
+		SessionID:    cfg.SessionID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("engine: build http client: %w", err)
@@ -115,7 +117,7 @@ func New(cfg Config) (*Engine, error) {
 	default:
 		rt = js.NewRuntime()
 	}
-	return &Engine{cfg: cfg, client: client, jsRT: rt}, nil
+	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt}, nil
 }
 
 // Config returns a copy of the active configuration.
@@ -184,6 +186,8 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 				Navigator:      opts.Navigator,
 				LoadStylesheet: e.stylesheetLoader(finalURL),
 				LoadIFrame:     e.iframeLoader(finalURL),
+				Policy:         e.policy,
+				SessionID:      e.cfg.SessionID,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("engine: js context: %w", err)
@@ -232,6 +236,8 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 		SetCookie:      e.cookieSetter(resp.FinalURL),
 		LoadStylesheet: e.stylesheetLoader(resp.FinalURL),
 		LoadIFrame:     e.iframeLoader(resp.FinalURL),
+		Policy:         e.policy,
+		SessionID:      e.cfg.SessionID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("engine: js context: %w", err)

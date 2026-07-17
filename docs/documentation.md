@@ -146,6 +146,7 @@ The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedde
 | `MaxBodyBytes` | `50 MiB` | response body cap; `network.ErrBodyTooLarge` on overflow |
 | `ObeyRobots` | `false` | per-host robots.txt fetched + cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
 | `PolicyConfig` | `network.PolicyConfig{}` (default-deny) | network policy; zero value blocks private/loopback IPs and limits destinations to public ports 80/443. Set `AllowPrivateNetworks: true` and `AllowedPorts` to permit fixture/loopback servers. |
+| `SessionID` | empty | optional redacted correlation key propagated through HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket policy decisions |
 | `JSContextPoolSize` | `0` (disabled) | size of the v8.Context pool. When > 0, `Page.Close` returns the underlying v8.Context to the pool and the next `Fetch(... RunScripts=true)` reuses it via JS-side `__artemis_reset(url)`. Skips ~30% of NewContext CPU cost. See [v8.Context pool](#v8context-pool) for caveats. |
 | `JSContextPoolWarm` | `false` | when paired with `JSContextPoolSize > 0`, pre-builds all N v8.Contexts at engine.New time so the first Fetch hits the pool fast path immediately. |
 
@@ -363,6 +364,7 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 |---|---|
 | `engine.Config.ObeyRobots` | per-host robots.txt fetched and cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
 | `engine.Config.PolicyConfig` (zero value / `AllowPrivateNetworks: false`) | rejects loopback, RFC1918, link-local, multicast, CGNAT hosts and limits ports to 80/443 |
+| JavaScript `WebSocket` | initial handshakes use `TargetWebSocket`, redirects use `TargetRedirect`, and every socket dial uses the same `network.Policy.DialContext` as Engine HTTP; nil policy fails closed |
 | `engine.FetchOpts.OnRequest(req) (resp, err)` | called before the network call; non-nil resp short-circuits with a mock |
 | `document.cookie` (JS) | getter returns `name=value; ...` for the current URL; setter ingests one Set-Cookie line into the jar |
 
@@ -789,7 +791,7 @@ The `platform` package detects platform capabilities (GPU, CPU, memory, fonts) f
 
 `NewContext` cold path was overhauled in TASKs 042 + 048. Per-Context allocations:
 
-- **WebSocket registry**: lazy-initialized. The 256-slot event channel and conns map only allocate on first `new WebSocket(...)`. Pages without WS pay zero registry overhead. (-65MB across a 4000-context benchmark.)
+- **WebSocket registry and transport**: lazy-initialized. The 256-slot event channel, conns map, and policy-bound HTTP transport allocate only on first `new WebSocket(...)`. Pages without WS pay zero registry or transport overhead. (-65MB across a 4000-context benchmark before the transport hardening.)
 - **Bootstrap registration**: `Runtime.cachedBootstraps` stores the concatenated bootstrap source per snapshot mode. Once warm, subsequent Contexts skip the per-source `registerBootstrap` slice append entirely.
 - **Runtime-level template caching**: `Runtime` now caches v8 `FunctionTemplate` and `ObjectTemplate` instances for storage, timers, console, DOM bridge, and mutation observer trampolines. Each cached template is registered once per Isolate; per-Context callbacks dispatch to the right state via `Runtime.contextFor(info.Context())` (a `sync.Map[*v8.Context]*Context` populated by NewContext, drained by Close). Storage uses `Object.SetInternalField(0, handle)` to encode the per-Context `*memStorage` choice on the receiver. Without this, the v8go callback registry (`Isolate.cbs`) grows unboundedly across Contexts and 6+ templates per install function were re-registered on every NewContext.
 
@@ -825,7 +827,7 @@ These historical microbenchmark observations are development evidence, not relea
 
 Closing a Context tears down all background work owned by it:
 
-- **WebSocket** — every open conn's `context.CancelFunc` is invoked and the underlying `*websocket.Conn` is `CloseNow`'d, which unblocks the per-conn read goroutine. Read goroutines use `tryEvent` (`select { case events <- ev: case <-ctx.Done(): }`) so they exit cleanly even if the events channel is no longer drained.
+- **WebSocket** — every open conn's `context.CancelFunc` is invoked and the underlying `*websocket.Conn` is `CloseNow`'d, which unblocks the per-conn read goroutine. Read goroutines use `tryEvent` (`select { case events <- ev: case <-ctx.Done(): }`) so they exit cleanly even if the events channel is no longer drained. The lazily created policy-bound handshake transport closes idle connections with the owning Context.
 - **Async fetch** — the per-Runtime async cancel context is canceled, so any goroutine blocked inside the user's `FetchFunc` returns and the post-fetch send into the pending channel falls back to the cancel branch (decrementing `inflight` instead of leaking the goroutine).
 - **Iframes** — every sub-Context's Close runs *before* the parent acquires `Runtime.ctxMu`, so iframe teardown doesn't deadlock on the Runtime serialiser.
 

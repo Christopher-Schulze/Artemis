@@ -4,13 +4,15 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
@@ -36,6 +38,47 @@ func startEchoWS(t *testing.T) (string, func()) {
 	return url, func() { srv.Close() }
 }
 
+func localWebSocketPolicy(t *testing.T, rawURL string, sink network.DecisionSink) *network.Policy {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse WebSocket URL: %v", err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatalf("parse WebSocket port: %v", err)
+	}
+	policy, err := network.NewPolicy(network.PolicyConfig{
+		AllowedPorts:         []int{port},
+		AllowPrivateNetworks: true,
+	}, nil, sink)
+	if err != nil {
+		t.Fatalf("new network policy: %v", err)
+	}
+	return policy
+}
+
+func waitWebSocketTrace(t *testing.T, c *Context, expression, contains string) string {
+	t.Helper()
+	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for {
+		_ = c.WaitIdle(deadline)
+		value, err := c.Eval(context.Background(), expression)
+		if err != nil {
+			t.Fatalf("eval trace: %v", err)
+		}
+		trace := value.String()
+		if strings.Contains(trace, contains) {
+			return trace
+		}
+		if deadline.Err() != nil {
+			t.Fatalf("timed out waiting for %q; trace=%q", contains, trace)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestWebSocketEcho(t *testing.T) {
 	url, stop := startEchoWS(t)
 	defer stop()
@@ -43,7 +86,7 @@ func TestWebSocketEcho(t *testing.T) {
 	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "http://e.test/")
 	rt := NewRuntime()
 	defer rt.Close()
-	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true})
+	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true, Policy: localWebSocketPolicy(t, url, nil)})
 	defer c.Close()
 
 	if _, err := c.Eval(context.Background(), `
@@ -85,7 +128,7 @@ func TestWebSocketReadyStateTransitions(t *testing.T) {
 	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "http://e.test/")
 	rt := NewRuntime()
 	defer rt.Close()
-	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true})
+	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true, Policy: localWebSocketPolicy(t, url, nil)})
 	defer c.Close()
 
 	if _, err := c.Eval(context.Background(), `
@@ -126,7 +169,7 @@ func TestWebSocketSendAfterClose(t *testing.T) {
 	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "http://e.test/")
 	rt := NewRuntime()
 	defer rt.Close()
-	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true})
+	c, _ := rt.NewContext(doc, ContextOpts{AsyncFetch: true, Policy: localWebSocketPolicy(t, url, nil)})
 	defer c.Close()
 
 	// open + close + try send → should throw InvalidStateError
@@ -156,5 +199,127 @@ func TestWebSocketSendAfterClose(t *testing.T) {
 	t.Error("send after close did not throw InvalidStateError")
 }
 
-// silence unused
-var _ sync.Mutex
+func TestWebSocketPolicyDeniesPrivateAndInvalidTargets(t *testing.T) {
+	tests := []struct {
+		name      string
+		targetURL string
+		wantKind  network.TargetKind
+	}{
+		{name: "localhost", targetURL: "ws://localhost:80/socket", wantKind: network.TargetWebSocket},
+		{name: "loopback", targetURL: "ws://127.0.0.1:80/socket", wantKind: network.TargetWebSocket},
+		{name: "invalid scheme", targetURL: "ftp://example.com/socket", wantKind: network.TargetWebSocket},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decisions := make(chan network.Decision, 4)
+			policy, err := network.NewPolicy(network.DefaultPolicyConfig(), nil, func(decision network.Decision) {
+				decisions <- decision
+			})
+			if err != nil {
+				t.Fatalf("new policy: %v", err)
+			}
+			doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "https://e.test/")
+			rt := NewRuntime()
+			defer rt.Close()
+			c, err := rt.NewContext(doc, ContextOpts{Policy: policy, SessionID: "ws-policy-test"})
+			if err != nil {
+				t.Fatalf("new context: %v", err)
+			}
+			defer c.Close()
+			if _, err := c.Eval(context.Background(), `
+				var policyTrace = '';
+				const ws = new WebSocket(`+jsStringLit(test.targetURL)+`);
+				ws.onerror = () => { policyTrace += 'error;'; };
+				ws.onclose = () => { policyTrace += 'close;'; };
+			`); err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			trace := waitWebSocketTrace(t, c, `policyTrace`, "close;")
+			if !strings.Contains(trace, "error;") {
+				t.Fatalf("policy denial did not emit error; trace=%q", trace)
+			}
+			select {
+			case decision := <-decisions:
+				if decision.Action != network.DecisionDeny || decision.Kind != test.wantKind {
+					t.Fatalf("decision=%+v, want deny kind %s", decision, test.wantKind)
+				}
+				if decision.SessionID != "ws-policy-test" {
+					t.Fatalf("session ID=%q", decision.SessionID)
+				}
+			default:
+				t.Fatal("missing policy decision")
+			}
+		})
+	}
+}
+
+func TestWebSocketWithoutPolicyFailsClosed(t *testing.T) {
+	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "https://e.test/")
+	rt := NewRuntime()
+	defer rt.Close()
+	c, err := rt.NewContext(doc, ContextOpts{})
+	if err != nil {
+		t.Fatalf("new context: %v", err)
+	}
+	defer c.Close()
+	if _, err := c.Eval(context.Background(), `
+		var missingPolicyTrace = '';
+		const ws = new WebSocket('wss://example.com/socket');
+		ws.onerror = () => { missingPolicyTrace += 'error;'; };
+		ws.onclose = () => { missingPolicyTrace += 'close;'; };
+	`); err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	trace := waitWebSocketTrace(t, c, `missingPolicyTrace`, "close;")
+	if !strings.Contains(trace, "error;") {
+		t.Fatalf("missing policy did not fail closed: %q", trace)
+	}
+}
+
+func TestWebSocketPolicyRevalidatesRedirect(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "http://localhost:"+strings.TrimPrefix(srv.URL, "http://127.0.0.1:")+"/socket", http.StatusFound)
+			return
+		}
+		c, err := websocket.Accept(w, r, nil)
+		if err == nil {
+			_ = c.CloseNow()
+		}
+	}))
+	defer srv.Close()
+	wsURL := strings.Replace(srv.URL, "http://", "ws://", 1) + "/redirect"
+	decisions := make(chan network.Decision, 8)
+	policy := localWebSocketPolicy(t, wsURL, func(decision network.Decision) {
+		decisions <- decision
+	})
+
+	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "https://e.test/")
+	rt := NewRuntime()
+	defer rt.Close()
+	c, err := rt.NewContext(doc, ContextOpts{Policy: policy})
+	if err != nil {
+		t.Fatalf("new context: %v", err)
+	}
+	defer c.Close()
+	if _, err := c.Eval(context.Background(), `
+		var redirectTrace = '';
+		const ws = new WebSocket(`+jsStringLit(wsURL)+`);
+		ws.onerror = () => { redirectTrace += 'error;'; };
+		ws.onclose = () => { redirectTrace += 'close;'; };
+	`); err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	waitWebSocketTrace(t, c, `redirectTrace`, "close;")
+
+	var sawInitialAllow, sawRedirectDeny bool
+	for len(decisions) > 0 {
+		decision := <-decisions
+		sawInitialAllow = sawInitialAllow || decision.Kind == network.TargetWebSocket && decision.Action == network.DecisionAllow
+		sawRedirectDeny = sawRedirectDeny || decision.Kind == network.TargetRedirect && decision.Action == network.DecisionDeny
+	}
+	if !sawInitialAllow || !sawRedirectDeny {
+		t.Fatalf("decisions missing initial allow or redirect deny: initial=%v redirect=%v", sawInitialAllow, sawRedirectDeny)
+	}
+}

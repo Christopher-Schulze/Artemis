@@ -92,21 +92,24 @@ func TestWebSocketGuard_Evaluate_BlockLocalhost(t *testing.T) {
 	}
 }
 
-func TestWebSocketGuard_Evaluate_AllowLocalhostWhenEnabled(t *testing.T) {
+func TestWebSocketGuard_Evaluate_LocalhostAliasRemainsBlocked(t *testing.T) {
 	config := DefaultWebSocketGuardConfig()
 	config.AllowLocalhost = true
+	config.BlockDirectConnections = false
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
 		URL: "ws://localhost:3000/socket",
 	})
-	if decision.Verdict != WebSocketVerdictAllow {
-		t.Fatalf("expected allow for localhost when enabled, got %s: %s", decision.Verdict, decision.Reason)
+	if decision.Verdict != WebSocketVerdictBlock {
+		t.Fatalf("expected canonical policy to block localhost alias, got %s: %s", decision.Verdict, decision.Reason)
 	}
 }
 
 func TestWebSocketGuard_Evaluate_Allow127Localhost(t *testing.T) {
 	config := DefaultWebSocketGuardConfig()
 	config.AllowLocalhost = true
+	config.BlockDirectConnections = false
+	config.AllowedPorts = []int{3000}
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
 		URL: "ws://127.0.0.1:3000/socket",
@@ -119,6 +122,8 @@ func TestWebSocketGuard_Evaluate_Allow127Localhost(t *testing.T) {
 func TestWebSocketGuard_Evaluate_AllowIPv6Localhost(t *testing.T) {
 	config := DefaultWebSocketGuardConfig()
 	config.AllowLocalhost = true
+	config.BlockDirectConnections = false
+	config.AllowedPorts = []int{3000}
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
 		URL: "ws://[::1]:3000/socket",
@@ -144,7 +149,7 @@ func TestWebSocketGuard_Evaluate_NoBlockDirectConnections(t *testing.T) {
 	config.BlockDirectConnections = false
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
-		URL: "ws://evil.example.com/socket",
+		URL: "ws://1.1.1.1/socket",
 	})
 	if decision.Verdict != WebSocketVerdictAllow {
 		t.Fatalf("expected allow when block_direct_connections=false, got %s", decision.Verdict)
@@ -156,7 +161,7 @@ func TestWebSocketGuard_Evaluate_NoProxyHost(t *testing.T) {
 	config.ProxyHost = ""
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
-		URL: "ws://example.com/socket",
+		URL: "ws://1.1.1.1/socket",
 	})
 	if decision.Verdict != WebSocketVerdictAllow {
 		t.Fatalf("expected allow when no proxy_host set, got %s", decision.Verdict)
@@ -239,45 +244,6 @@ func TestWebSocketGuard_Evaluate_RequestIDNotUsed(t *testing.T) {
 	}
 }
 
-func TestIsLocalhost(t *testing.T) {
-	tests := []struct {
-		host string
-		want bool
-	}{
-		{"localhost", true},
-		{"127.0.0.1", true},
-		{"::1", true},
-		{"0.0.0.0", true},
-		{"example.com", false},
-		{"10.0.0.1", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		if got := isLocalhost(tt.host); got != tt.want {
-			t.Errorf("isLocalhost(%q) = %v, want %v", tt.host, got, tt.want)
-		}
-	}
-}
-
-func TestIsAllowedScheme(t *testing.T) {
-	allowed := []string{"ws", "wss"}
-	if !isAllowedScheme("ws", allowed) {
-		t.Error("expected ws to be allowed")
-	}
-	if !isAllowedScheme("wss", allowed) {
-		t.Error("expected wss to be allowed")
-	}
-	if !isAllowedScheme("WSS", allowed) {
-		t.Error("expected WSS (case-insensitive) to be allowed")
-	}
-	if isAllowedScheme("http", allowed) {
-		t.Error("expected http to not be allowed")
-	}
-	if isAllowedScheme("", allowed) {
-		t.Error("expected empty scheme to not be allowed")
-	}
-}
-
 func TestWebSocketGuard_ConcurrentEvaluate(t *testing.T) {
 	// Verify the guard is thread-safe under concurrent access.
 	g := NewWebSocketGuard(DefaultWebSocketGuardConfig())
@@ -299,15 +265,17 @@ func TestWebSocketGuard_ConcurrentEvaluate(t *testing.T) {
 	}
 }
 
-func TestWebSocketGuard_Evaluate_Allow0000(t *testing.T) {
+func TestWebSocketGuard_Evaluate_BlockUnspecifiedAddress(t *testing.T) {
 	config := DefaultWebSocketGuardConfig()
 	config.AllowLocalhost = true
+	config.BlockDirectConnections = false
+	config.AllowedPorts = []int{3000}
 	g := NewWebSocketGuard(config)
 	decision := g.Evaluate(WebSocketEvent{
 		URL: "ws://0.0.0.0:3000/socket",
 	})
-	if decision.Verdict != WebSocketVerdictAllow {
-		t.Fatalf("expected allow for 0.0.0.0 when localhost enabled, got %s", decision.Verdict)
+	if decision.Verdict != WebSocketVerdictBlock {
+		t.Fatalf("expected canonical policy to block 0.0.0.0, got %s", decision.Verdict)
 	}
 }
 
@@ -320,5 +288,34 @@ func TestWebSocketGuard_Evaluate_BlockNonWSPort(t *testing.T) {
 	})
 	if decision.Verdict != WebSocketVerdictBlock {
 		t.Fatalf("expected block for ftp scheme, got %s", decision.Verdict)
+	}
+}
+
+func TestWebSocketGuardDelegatesToCanonicalPolicy(t *testing.T) {
+	decisions := make(chan Decision, 1)
+	policy, err := NewPolicy(DefaultPolicyConfig(), nil, func(decision Decision) {
+		decisions <- decision
+	})
+	if err != nil {
+		t.Fatalf("NewPolicy: %v", err)
+	}
+	config := DefaultWebSocketGuardConfig()
+	config.BlockDirectConnections = false
+	config.SessionID = "cdp-session"
+	guard := NewWebSocketGuardWithPolicy(config, policy)
+	decision := guard.Evaluate(WebSocketEvent{URL: "ws://127.0.0.1/socket"})
+	if decision.Verdict != WebSocketVerdictBlock {
+		t.Fatalf("expected canonical private-address denial, got %s: %s", decision.Verdict, decision.Reason)
+	}
+	select {
+	case policyDecision := <-decisions:
+		if policyDecision.Kind != TargetWebSocket || policyDecision.Action != DecisionDeny {
+			t.Fatalf("policy decision=%+v", policyDecision)
+		}
+		if policyDecision.SessionID != "cdp-session" {
+			t.Fatalf("session ID=%q", policyDecision.SessionID)
+		}
+	default:
+		t.Fatal("canonical policy was not invoked")
 	}
 }

@@ -38,6 +38,9 @@ type Config struct {
 	// zero value denies private/local/metadata/file/data/unsupported
 	// targets and restricts ports to 80/443.
 	PolicyConfig network.PolicyConfig
+	// SessionID correlates redacted network-policy decisions across
+	// HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket paths.
+	SessionID string
 	// JSContextPoolSize enables the v8.Context pool for JS execution.
 	// Pooled Contexts skip ~30% of NewContext CPU cost (install* and
 	// flushBootstraps) by reusing a previously-built v8.Context after

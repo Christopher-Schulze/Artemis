@@ -2,11 +2,16 @@ package js
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 	v8 "rogchap.com/v8go"
+
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 // wsEventKind identifies which JS-side handler should fire.
@@ -32,11 +37,42 @@ type wsEvent struct {
 // wsConn is one open WebSocket. Each Context owns a registry.
 type wsConn struct {
 	id     uint32
+	mu     sync.Mutex
 	conn   *websocket.Conn
 	ctx    context.Context // canceled when wsRegistry.closeAll runs
 	cancel context.CancelFunc
 	state  atomic.Int32 // 0..3
 	binary bool
+}
+
+func (c *wsConn) attach(conn *websocket.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ctx.Err() != nil || c.state.Load() == 3 {
+		_ = conn.CloseNow()
+		return false
+	}
+	c.conn = conn
+	return true
+}
+
+func (c *wsConn) current() *websocket.Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn
+}
+
+func (c *wsConn) closeNow() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.conn != nil {
+		_ = c.conn.CloseNow()
+		c.conn = nil
+	}
+	c.state.Store(3)
 }
 
 type wsRegistry struct {
@@ -112,13 +148,7 @@ func (r *wsRegistry) closeAll() {
 	r.conns = nil
 	r.mu.Unlock()
 	for _, conn := range conns {
-		if conn.cancel != nil {
-			conn.cancel()
-		}
-		if conn.conn != nil {
-			_ = conn.conn.CloseNow()
-		}
-		conn.state.Store(3) // CLOSED
+		conn.closeNow()
 	}
 }
 
@@ -185,6 +215,57 @@ func boolStr(b bool) string {
 	return "false"
 }
 
+func (c *Context) webSocketHTTPClient() *http.Client {
+	c.wsClientOnce.Do(func() {
+		if c.policy == nil {
+			return
+		}
+		policyConfig := c.policy.Config()
+		transport := &http.Transport{
+			Proxy:                 nil,
+			DialContext:           c.policy.DialContext,
+			ForceAttemptHTTP2:     false,
+			MaxIdleConns:          32,
+			MaxIdleConnsPerHost:   8,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		}
+		c.wsClient = &http.Client{
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= policyConfig.MaxRedirects {
+					return fmt.Errorf("%w: redirect_limit", network.ErrPolicyDenied)
+				}
+				return c.policy.ValidateRequest(
+					req.Context(),
+					req.URL.String(),
+					req.Method,
+					req.Header.Get("Content-Type"),
+					req.ContentLength,
+					network.TargetRedirect,
+					c.sessionID,
+				)
+			},
+		}
+	})
+	return c.wsClient
+}
+
+func (c *Context) closeWebSocketTransport() {
+	if c == nil {
+		return
+	}
+	c.wsClientOnce.Do(func() {})
+	if c.wsClient == nil {
+		return
+	}
+	if transport, ok := c.wsClient.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+}
+
 // installWebSocket installs `__ws_open`, `__ws_send`, `__ws_close` and
 // the JS-side WebSocket class.
 // wsTemplates caches the 3 WebSocket trampolines at Runtime level.
@@ -213,13 +294,26 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			id := c.ws.put(conn)
 			ws := c.ws
 			go func() {
-				wsConn, _, err := websocket.Dial(ctx, url, nil)
+				if err := c.policy.ValidateRequest(ctx, url, http.MethodGet, "", 0, network.TargetWebSocket, c.sessionID); err != nil {
+					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
+					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
+					return
+				}
+				client := c.webSocketHTTPClient()
+				if client == nil {
+					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: "network policy required"})
+					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
+					return
+				}
+				wsConn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client})
 				if err != nil {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "abnormal"})
 					return
 				}
-				conn.conn = wsConn
+				if !conn.attach(wsConn) {
+					return
+				}
 				ws.tryEvent(ctx, wsEvent{connID: id, kind: wsOpen})
 				for {
 					typ, data, err := wsConn.Read(ctx)
@@ -246,13 +340,17 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			id := uint32(args[0].Integer())
 			data := []byte(args[1].String())
 			conn := c.ws.get(id)
-			if conn == nil || conn.conn == nil {
+			if conn == nil {
+				return v8.Null(iso)
+			}
+			wsConn := conn.current()
+			if wsConn == nil {
 				return v8.Null(iso)
 			}
 			// Use the per-conn ctx so a Context.Close cancels in-flight sends.
 			ctx := conn.ctx
 			go func() {
-				_ = conn.conn.Write(ctx, websocket.MessageText, data)
+				_ = wsConn.Write(ctx, websocket.MessageText, data)
 			}()
 			return v8.Null(iso)
 		}),
@@ -276,8 +374,8 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 				return v8.Null(iso)
 			}
 			conn.state.Store(2) // CLOSING
-			if conn.conn != nil {
-				_ = conn.conn.Close(websocket.StatusCode(code), reason)
+			if wsConn := conn.current(); wsConn != nil {
+				_ = wsConn.Close(websocket.StatusCode(code), reason)
 			}
 			conn.cancel()
 			return v8.Null(iso)

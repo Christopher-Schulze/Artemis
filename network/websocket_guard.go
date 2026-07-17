@@ -1,8 +1,11 @@
 package network
 
 import (
+	"context"
 	"fmt"
-	"net/url"
+	"net"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -29,9 +32,15 @@ type WebSocketGuardConfig struct {
 	// BlockDirectConnections blocks WebSocket URLs that would connect
 	// directly to a target (bypassing the proxy).
 	BlockDirectConnections bool `json:"block_direct_connections"`
-	// AllowLocalhost allows ws://localhost and ws://127.0.0.1 for
-	// development/testing.
+	// AllowLocalhost allows explicit loopback IPs for development/testing.
+	// Canonical Policy hostname rules still deny localhost aliases; use
+	// an explicit loopback IP and AllowedPorts.
 	AllowLocalhost bool `json:"allow_localhost"`
+	// AllowedPorts are additional WebSocket target ports. The proxy
+	// port and canonical 80/443 defaults are included automatically.
+	AllowedPorts []int `json:"allowed_ports,omitempty"`
+	// SessionID correlates redacted canonical policy decisions.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // DefaultWebSocketGuardConfig returns a config with safe defaults
@@ -80,9 +89,12 @@ type WebSocketDecision struct {
 // WebSocketGuard intercepts Network.webSocketCreated events and
 // validates WebSocket URLs through the proxy (spec L4148).
 type WebSocketGuard struct {
-	mu     sync.RWMutex
-	config WebSocketGuardConfig
-	stats  WebSocketGuardStats
+	mu             sync.RWMutex
+	config         WebSocketGuardConfig
+	policy         *Policy
+	policyErr      error
+	externalPolicy bool
+	stats          WebSocketGuardStats
 }
 
 // WebSocketGuardStats tracks guard decisions for diagnostics.
@@ -95,23 +107,39 @@ type WebSocketGuardStats struct {
 
 // NewWebSocketGuard creates a new guard with the given config.
 func NewWebSocketGuard(config WebSocketGuardConfig) *WebSocketGuard {
-	return &WebSocketGuard{
-		config: config,
+	return NewWebSocketGuardWithPolicy(config, nil)
+}
+
+// NewWebSocketGuardWithPolicy creates a CDP compatibility guard that
+// delegates URL, scheme, port, DNS, and private-address decisions to
+// the canonical Policy owner. The guard retains only the stricter
+// proxy-route check and decision counters.
+func NewWebSocketGuardWithPolicy(config WebSocketGuardConfig, policy *Policy) *WebSocketGuard {
+	guard := &WebSocketGuard{config: cloneWebSocketGuardConfig(config)}
+	if policy != nil {
+		guard.policy = policy
+		guard.externalPolicy = true
+		return guard
 	}
+	guard.policy, guard.policyErr = buildWebSocketGuardPolicy(config)
+	return guard
 }
 
 // Config returns the current guard configuration.
 func (g *WebSocketGuard) Config() WebSocketGuardConfig {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.config
+	return cloneWebSocketGuardConfig(g.config)
 }
 
 // SetConfig updates the guard configuration.
 func (g *WebSocketGuard) SetConfig(config WebSocketGuardConfig) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.config = config
+	g.config = cloneWebSocketGuardConfig(config)
+	if !g.externalPolicy {
+		g.policy, g.policyErr = buildWebSocketGuardPolicy(config)
+	}
 }
 
 // Stats returns the current guard statistics.
@@ -138,91 +166,115 @@ func (g *WebSocketGuard) Evaluate(event WebSocketEvent) WebSocketDecision {
 		}
 	}
 
-	parsed, err := url.Parse(event.URL)
-	if err != nil {
+	if g.policyErr != nil {
 		g.stats.Blocked++
 		return WebSocketDecision{
 			Verdict:  WebSocketVerdictBlock,
-			Reason:   fmt.Sprintf("invalid URL: %v", err),
+			Reason:   fmt.Sprintf("invalid policy config: %v", g.policyErr),
+			Original: event.URL,
+		}
+	}
+	if err := g.policy.ValidateRequest(
+		context.Background(),
+		event.URL,
+		http.MethodGet,
+		"",
+		0,
+		TargetWebSocket,
+		g.config.SessionID,
+	); err != nil {
+		g.stats.Blocked++
+		return WebSocketDecision{
+			Verdict:  WebSocketVerdictBlock,
+			Reason:   err.Error(),
 			Original: event.URL,
 		}
 	}
 
-	// Validate scheme.
-	scheme := strings.ToLower(parsed.Scheme)
-	if !isAllowedScheme(scheme, g.config.AllowedSchemes) {
-		g.stats.Blocked++
-		return WebSocketDecision{
-			Verdict:  WebSocketVerdictBlock,
-			Reason:   fmt.Sprintf("scheme %q not allowed (expected ws/wss)", scheme),
-			Original: event.URL,
-		}
-	}
-
-	// Check if the WebSocket routes through the proxy host.
-	// This check takes priority over the localhost check, since the
-	// proxy itself may be on localhost (e.g. 127.0.0.1:8080).
 	if g.config.BlockDirectConnections && g.config.ProxyHost != "" {
-		if parsed.Host == g.config.ProxyHost {
-			g.stats.Allowed++
+		if !matchesProxyTarget(event.URL, g.config.ProxyHost) {
+			g.stats.Blocked++
 			return WebSocketDecision{
-				Verdict:  WebSocketVerdictAllow,
-				Reason:   "routes through proxy",
+				Verdict:  WebSocketVerdictBlock,
+				Reason:   fmt.Sprintf("WebSocket target bypasses proxy %s", g.config.ProxyHost),
 				Original: event.URL,
 			}
-		}
-	}
-
-	// Check localhost bypass (only for non-proxy hosts).
-	host := parsed.Hostname()
-	if isLocalhost(host) {
-		if g.config.AllowLocalhost {
-			g.stats.Allowed++
-			return WebSocketDecision{
-				Verdict:  WebSocketVerdictAllow,
-				Reason:   "localhost allowed",
-				Original: event.URL,
-			}
-		}
-		g.stats.Blocked++
-		return WebSocketDecision{
-			Verdict:  WebSocketVerdictBlock,
-			Reason:   "localhost WebSocket blocked (would bypass proxy)",
-			Original: event.URL,
-		}
-	}
-
-	// Non-localhost, non-proxy host: block if direct connections are blocked.
-	if g.config.BlockDirectConnections && g.config.ProxyHost != "" {
-		g.stats.Blocked++
-		return WebSocketDecision{
-			Verdict:  WebSocketVerdictBlock,
-			Reason:   fmt.Sprintf("WebSocket to %s bypasses proxy %s", parsed.Host, g.config.ProxyHost),
-			Original: event.URL,
 		}
 	}
 
 	g.stats.Allowed++
 	return WebSocketDecision{
 		Verdict:  WebSocketVerdictAllow,
-		Reason:   "passes proxy validation",
+		Reason:   "canonical policy and proxy validation passed",
 		Original: event.URL,
 	}
 }
 
-// isAllowedScheme checks if a scheme is in the allowed list.
-func isAllowedScheme(scheme string, allowed []string) bool {
-	for _, a := range allowed {
-		if strings.EqualFold(scheme, a) {
-			return true
-		}
-	}
-	return false
+func cloneWebSocketGuardConfig(config WebSocketGuardConfig) WebSocketGuardConfig {
+	config.AllowedSchemes = append([]string(nil), config.AllowedSchemes...)
+	config.AllowedPorts = append([]int(nil), config.AllowedPorts...)
+	return config
 }
 
-// isLocalhost checks if a host is a localhost variant.
-func isLocalhost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0"
+func buildWebSocketGuardPolicy(config WebSocketGuardConfig) (*Policy, error) {
+	schemes := append([]string(nil), config.AllowedSchemes...)
+	if len(schemes) == 0 {
+		schemes = []string{"ws", "wss"}
+	}
+	ports := append([]int{80, 443}, config.AllowedPorts...)
+	var domains []string
+	allowPrivate := config.AllowLocalhost
+	if config.BlockDirectConnections && config.ProxyHost != "" {
+		host, port, err := splitProxyTarget(config.ProxyHost)
+		if err != nil {
+			return nil, err
+		}
+		domains = []string{host}
+		ports = append(ports, port)
+		if address, ok := parsePolicyAddress(host); ok && blockedAddress(address) {
+			allowPrivate = true
+		}
+	}
+	return NewPolicy(PolicyConfig{
+		AllowedSchemes:       schemes,
+		AllowedDomains:       domains,
+		AllowedPorts:         ports,
+		AllowedMethods:       []string{http.MethodGet},
+		AllowPrivateNetworks: allowPrivate,
+	}, nil, nil)
+}
+
+func matchesProxyTarget(rawURL, proxyHost string) bool {
+	parsed, err := parsePolicyURL(rawURL)
+	if err != nil {
+		return false
+	}
+	actualHost, err := normalizePolicyHost(parsed.Hostname())
+	if err != nil {
+		return false
+	}
+	actualPort, err := policyPort(parsed)
+	if err != nil {
+		return false
+	}
+	expectedHost, expectedPort, err := splitProxyTarget(proxyHost)
+	return err == nil && actualHost == expectedHost && actualPort == expectedPort
+}
+
+func splitProxyTarget(proxyHost string) (string, int, error) {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(proxyHost))
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid proxy host %q: %w", proxyHost, err)
+	}
+	host, err = normalizePolicyHost(host)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid proxy host %q: %w", proxyHost, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("invalid proxy port %q", portText)
+	}
+	return host, port, nil
 }
 
 // ResetStats resets the guard statistics (for testing).

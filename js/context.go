@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 
 	v8 "rogchap.com/v8go"
 
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
@@ -29,6 +32,10 @@ type Context struct {
 	timers            *timerQueue
 	observers         *observerRegistry
 	ws                *wsRegistry
+	policy            *network.Policy
+	sessionID         string
+	wsClientOnce      sync.Once
+	wsClient          *http.Client
 	styleMgr          *styleManager
 	iframes           *iframeRegistry
 	bootstraps        []bootstrapEntry
@@ -133,6 +140,11 @@ type ContextOpts struct {
 	// LoadIFrame fetches the HTML for an `<iframe src=...>` element.
 	// Nil disables iframe content access.
 	LoadIFrame IFrameLoader
+	// Policy is the mandatory outbound network boundary for WebSocket
+	// handshakes. Nil fails WebSocket creation closed.
+	Policy *network.Policy
+	// SessionID correlates redacted network-policy decisions.
+	SessionID string
 }
 
 // NewContext creates a context bound to doc. When the Runtime was built
@@ -200,6 +212,8 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		asyncFetch:        opts.AsyncFetch,
 		async:             newAsyncChan(),
 		ws:                newWSRegistry(),
+		policy:            opts.Policy,
+		sessionID:         opts.SessionID,
 		styleMgr:          newStyleManager(doc, opts.LoadStylesheet),
 		bootstrapsSkipped: bootstrapsCached,
 	}
@@ -376,6 +390,7 @@ func (c *Context) Close() {
 	if c.ws != nil {
 		c.ws.closeAll()
 	}
+	c.closeWebSocketTransport()
 	// Drain async fetch in-flight: cancel pending resolutions and
 	// release reference to the resolver so the goroutine can exit
 	// cleanly without writing into a closed channel.

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestObeyRobotsBlocksDisallowed(t *testing.T) {
@@ -124,5 +125,52 @@ func TestDocumentCookieGetSet(t *testing.T) {
 	}
 	if !strings.Contains(v.String(), "extra=1") {
 		t.Errorf("cookie after JS set = %q", v.String())
+	}
+}
+
+func TestEnginePropagatesNetworkPolicyToJavaScriptWebSocket(t *testing.T) {
+	eng, err := New(Config{SessionID: "engine-ws-policy"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer eng.Close()
+	page, err := eng.Fetch(context.Background(), "https://example.test/", FetchOpts{
+		OnRequest: func(req *RequestInfo) (*ResponseInfo, error) {
+			return &ResponseInfo{
+				Status:   http.StatusOK,
+				Headers:  http.Header{"Content-Type": []string{"text/html"}},
+				Body:     []byte(`<html></html>`),
+				FinalURL: req.URL,
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	defer page.Close()
+	if _, err := page.Eval(context.Background(), `
+		var enginePolicyTrace = '';
+		const ws = new WebSocket('ws://127.0.0.1:80/socket');
+		ws.onerror = () => { enginePolicyTrace += 'error;'; };
+		ws.onclose = () => { enginePolicyTrace += 'close;'; };
+	`); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		value, err := page.Eval(context.Background(), `enginePolicyTrace`)
+		if err != nil {
+			t.Fatalf("Eval trace: %v", err)
+		}
+		if strings.Contains(value.String(), "close;") {
+			if !strings.Contains(value.String(), "error;") {
+				t.Fatalf("policy denial did not emit error: %q", value.String())
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for WebSocket denial: %q", value.String())
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

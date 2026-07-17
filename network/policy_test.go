@@ -63,6 +63,24 @@ func TestDefaultPolicyDeniesPrivateAndMetadataTargets(t *testing.T) {
 	}
 }
 
+func TestAllowPrivateNetworksStillDeniesNonDestinationAddresses(t *testing.T) {
+	config := DefaultPolicyConfig()
+	config.AllowPrivateNetworks = true
+	policy := mustPolicy(t, config, nil, nil)
+	for _, rawURL := range []string{
+		"http://0.0.0.0/",
+		"http://[::]/",
+		"http://224.0.0.1/",
+		"http://[ff02::1]/",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			if _, err := policy.ResolveURL(context.Background(), rawURL, TargetWebSocket, ""); !errors.Is(err, ErrPolicyDenied) {
+				t.Fatalf("ResolveURL(%q) error = %v, want non-destination denial", rawURL, err)
+			}
+		})
+	}
+}
+
 func TestPolicyDeniesMixedDNSAnswersAndResolutionFailure(t *testing.T) {
 	resolver := &sequenceResolver{results: []resolverResult{
 		{addresses: []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("10.0.0.1")}},

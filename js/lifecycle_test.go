@@ -6,9 +6,10 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
 )
@@ -27,19 +28,31 @@ func TestContextCloseShutsDownWSGoroutines(t *testing.T) {
 	rt := NewRuntime()
 	defer rt.Close()
 	doc, _ := parser.ParseHTML(strings.NewReader("<html></html>"), "https://e.test/")
+	targetURL := wsURL(srv)
+	policy := localWebSocketPolicy(t, targetURL, nil)
 
 	for i := 0; i < 10; i++ {
-		c, err := rt.NewContext(doc, ContextOpts{})
+		c, err := rt.NewContext(doc, ContextOpts{Policy: policy})
 		if err != nil {
 			t.Fatalf("iter %d NewContext: %v", i, err)
 		}
 		// Open a WebSocket, do not close it explicitly.
-		if _, err := c.Eval(context.Background(), `new WebSocket("`+wsURL(srv)+`")`); err != nil {
+		if _, err := c.Eval(context.Background(), `globalThis.lifecycleWS = new WebSocket("`+targetURL+`")`); err != nil {
 			t.Fatalf("iter %d open: %v", i, err)
 		}
-		// Drain the open event and let the read goroutine block on Read.
-		if err := c.WaitIdle(timeoutCtx(t, 200*time.Millisecond)); err != nil && err != context.DeadlineExceeded {
-			t.Fatalf("iter %d wait: %v", i, err)
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			state, err := c.Eval(context.Background(), `globalThis.lifecycleWS.readyState`)
+			if err != nil {
+				t.Fatalf("iter %d state: %v", i, err)
+			}
+			if state.Int64() == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("iter %d WebSocket did not reach OPEN; state=%d", i, state.Int64())
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 		c.Close()
 	}
@@ -109,10 +122,12 @@ func TestContextCloseCancelsAsyncFetch(t *testing.T) {
 func newWSEchoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simple echo via the websocket library is heavy; we just hold
-		// the connection open until the client closes. The test only
-		// needs the open event + a read that blocks.
-		w.WriteHeader(http.StatusSwitchingProtocols)
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		_, _, _ = conn.Read(r.Context())
 	}))
 	return srv
 }
@@ -127,6 +142,3 @@ func timeoutCtx(t *testing.T, d time.Duration) context.Context {
 	t.Cleanup(cancel)
 	return ctx
 }
-
-// silence unused import on builds that don't activate sync helpers
-var _ = sync.WaitGroup{}

@@ -211,6 +211,9 @@ func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind,
 		return nil, p.deny(kind, parsed, sessionID, "dns_failed")
 	}
 	for _, address := range addresses {
+		if alwaysBlockedAddress(address) {
+			return nil, p.deny(kind, parsed, sessionID, "non_destination_address")
+		}
 		if !p.config.AllowPrivateNetworks && blockedAddress(address) {
 			return nil, p.deny(kind, parsed, sessionID, "non_public_address")
 		}
@@ -238,6 +241,9 @@ func (p *Policy) DialContext(ctx context.Context, networkName, address string) (
 	}
 	var dialErrors []string
 	for _, candidate := range addresses {
+		if alwaysBlockedAddress(candidate) {
+			return nil, fmt.Errorf("%w: non_destination_address", ErrPolicyDenied)
+		}
 		if !p.config.AllowPrivateNetworks && blockedAddress(candidate) {
 			return nil, fmt.Errorf("%w: non_public_address", ErrPolicyDenied)
 		}
@@ -366,6 +372,11 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("::/128"), netip.MustParsePrefix("::1/128"),
 	netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("fc00::/7"),
 	netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("ff00::/8"),
+}
+
+func alwaysBlockedAddress(address netip.Addr) bool {
+	address = address.Unmap()
+	return !address.IsValid() || address.IsUnspecified() || address.IsMulticast()
 }
 
 func blockedAddress(address netip.Addr) bool {
