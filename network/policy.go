@@ -228,6 +228,9 @@ func (p *Policy) ValidateRequest(ctx context.Context, rawURL, method, contentTyp
 	if !containsString(p.config.AllowedMethods, strings.ToUpper(strings.TrimSpace(method))) {
 		return p.deny(kind, nil, sessionID, "method_not_allowed")
 	}
+	if contentLength < 0 {
+		return p.deny(kind, nil, sessionID, "request_body_length_unknown")
+	}
 	if contentLength > p.config.MaxRequestBodyBytes {
 		return p.deny(kind, nil, sessionID, "request_body_too_large")
 	}
@@ -460,7 +463,7 @@ func blockedAddress(address netip.Addr) bool {
 }
 
 func blockedHostname(host string) bool {
-	return host == "localhost" || host == "localhost.localdomain" || host == "metadata.google.internal" ||
+	return host == "localhost" || host == "localhost.localdomain" || host == "metadata.google.internal" || host == "metadata.goog" ||
 		strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal")
 }
 

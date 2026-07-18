@@ -98,7 +98,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 				if len(via) >= policy.Config().MaxRedirects {
 					return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
 				}
-				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetRedirect, SessionID(req.Context(), cfg.SessionID))
+				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), TargetRedirect, SessionID(req.Context(), cfg.SessionID))
 			},
 		},
 		jar: jar, robots: newRobotsCache(),
@@ -175,7 +175,7 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 			req.Header.Add(k, v)
 		}
 	}
-	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, kind, SessionID(ctx, c.cfg.SessionID)); err != nil {
+	if err := c.cfg.Policy.ValidateRequest(requestCtx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), kind, SessionID(requestCtx, c.cfg.SessionID)); err != nil {
 		return nil, fmt.Errorf("validate request: %w", err)
 	}
 
@@ -214,6 +214,13 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 		Body:       body,
 		FinalURL:   finalURL,
 	}, nil
+}
+
+func policyRequestContentLength(request *http.Request) int64 {
+	if request.Body != nil && request.Body != http.NoBody && request.ContentLength == 0 {
+		return -1
+	}
+	return request.ContentLength
 }
 
 type countingReader struct {

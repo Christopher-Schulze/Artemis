@@ -158,7 +158,10 @@ func fetchContentLength(headers map[string]any, postData string, hasPostData boo
 			return length
 		}
 	}
-	if hasPostData || postData != "" {
+	if hasPostData && postData == "" {
+		return -1
+	}
+	if postData != "" {
 		return int64(len(postData))
 	}
 	return 0

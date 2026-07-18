@@ -55,4 +55,7 @@ func TestFetchRequestMetadataIsCaseInsensitiveAndBounded(t *testing.T) {
 	if got := fetchContentLength(nil, "payload", true); got != 7 {
 		t.Fatalf("post data length=%d", got)
 	}
+	if got := fetchContentLength(nil, "", true); got != -1 {
+		t.Fatalf("unknown post data length=%d", got)
+	}
 }

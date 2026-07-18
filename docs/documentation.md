@@ -124,6 +124,7 @@ make build       # produces ./artemis
 make run         # go run ./cmd/artemis
 make test        # all tests
 make test-race   # tests with -race
+make test-security-gates # SSRF, fuzz, mutation, race, leak, and exhaustion gates
 make bench       # all benchmarks
 make snapshot    # regenerate js/snapshot.bin (after touching any js/ bootstrap source)
 make vet         # static analysis
@@ -383,6 +384,7 @@ URL-encoded form submissions are supported; multipart/file-upload bodies are not
 |---|---|
 | `engine.Config.ObeyRobots` | per-host robots.txt fetched and cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
 | `engine.Config.PolicyConfig` (zero value / `AllowPrivateNetworks: false`) | rejects loopback, RFC1918, link-local, multicast, CGNAT hosts and limits ports to 80/443 |
+| `PolicyConfig.MaxRequestBodyBytes` | rejects known oversize bodies and unknown-length/chunked bodies before transport; callers must provide a bounded materialized body |
 | `PolicyConfig.AllowedDownloadTypes` / `MaxDownloadBytes` | validates the sniffed MIME (`type/subtype`, `type/*`, or `*/*`) and per-file byte cap independently from request-body content types |
 | `network.HTTPClient.DoTarget(..., TargetDownload)` | preserves the download policy identity and applies `MaxDownloadBytes` before buffering the response |
 | JavaScript `WebSocket` | initial handshakes use `TargetWebSocket`, redirects use `TargetRedirect`, and every socket dial uses the same `network.Policy.DialContext` as Engine HTTP; nil policy fails closed |
