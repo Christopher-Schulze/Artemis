@@ -293,8 +293,9 @@ func TestWebSocketGuard_Evaluate_BlockNonWSPort(t *testing.T) {
 
 func TestWebSocketGuardDelegatesToCanonicalPolicy(t *testing.T) {
 	decisions := make(chan Decision, 1)
-	policy, err := NewPolicy(DefaultPolicyConfig(), nil, func(decision Decision) {
+	policy, err := NewPolicy(DefaultPolicyConfig(), nil, func(decision Decision) error {
 		decisions <- decision
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("NewPolicy: %v", err)

@@ -22,7 +22,9 @@ type Page struct {
 	jsCtx      *js.Context
 	download   func(string, string, []byte) (*Download, error)
 	session    *sessionBudgetController
+	sessionID  string
 	closeOnce  sync.Once
+	closeErr   error
 }
 
 // URL returns the final URL of the page after redirects.
@@ -158,10 +160,10 @@ func (p *Page) Close() error {
 			p.jsCtx = nil
 		}
 		if p.session != nil {
-			p.session.releaseTab()
+			p.closeErr = p.session.releaseTab(p.sessionID)
 		}
 	})
-	return nil
+	return p.closeErr
 }
 
 func (p *Page) sessionContext(ctx context.Context) (context.Context, context.CancelFunc) {

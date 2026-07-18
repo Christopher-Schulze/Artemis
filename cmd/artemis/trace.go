@@ -36,7 +36,12 @@ Flags:
 	if *allowPort != 0 {
 		policy.AllowedPorts = []int{*allowPort}
 	}
-	cfg := artemis.AgentConfig{PolicyConfig: policy}
+	diagnosticConfig, err := cliDiagnosticsConfig(false)
+	if err != nil {
+		errf("trace diagnostics: %v", err)
+		return 1
+	}
+	cfg := artemis.AgentConfig{PolicyConfig: policy, Diagnostics: diagnosticConfig}
 	agent, err := artemis.NewAgent(cfg)
 	if err != nil {
 		errf("trace: init agent: %v", err)

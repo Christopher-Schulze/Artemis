@@ -26,6 +26,7 @@ const (
 	TargetWebSocket   TargetKind = "websocket"
 	TargetDownload    TargetKind = "download"
 	TargetProxy       TargetKind = "proxy"
+	TargetSocket      TargetKind = "socket"
 )
 
 type DecisionAction string
@@ -36,8 +37,9 @@ const (
 )
 
 var (
-	ErrPolicyDenied = errors.New("network policy denied")
-	ErrDNSFailure   = errors.New("network policy DNS failure")
+	ErrPolicyDenied  = errors.New("network policy denied")
+	ErrDNSFailure    = errors.New("network policy DNS failure")
+	ErrDecisionAudit = errors.New("network policy decision audit failed")
 )
 
 type Decision struct {
@@ -50,7 +52,7 @@ type Decision struct {
 	SessionID string         `json:"session_id,omitempty"`
 }
 
-type DecisionSink func(Decision)
+type DecisionSink func(Decision) error
 
 type Resolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
@@ -265,35 +267,53 @@ func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind,
 			return nil, p.deny(kind, parsed, sessionID, "non_public_address")
 		}
 	}
-	p.emit(Decision{Action: DecisionAllow, Kind: kind, Scheme: parsed.Scheme, Host: host, Port: port, Reason: "policy_match", SessionID: sessionID})
+	if err := p.emit(Decision{Action: DecisionAllow, Kind: kind, Scheme: parsed.Scheme, Host: host, Port: port, Reason: "policy_match", SessionID: sessionID}); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicyDenied, err)
+	}
 	return addresses, nil
 }
 
 func (p *Policy) DialContext(ctx context.Context, networkName, address string) (net.Conn, error) {
+	return p.dialContext(ctx, networkName, address, "")
+}
+
+// DialContextFor binds redacted socket-decision evidence to one session.
+func (p *Policy) DialContextFor(sessionID string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, networkName, address string) (net.Conn, error) {
+		return p.dialContext(ctx, networkName, address, SessionID(ctx, sessionID))
+	}
+}
+
+func (p *Policy) dialContext(ctx context.Context, networkName, address, sessionID string) (net.Conn, error) {
 	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid dial address", ErrPolicyDenied)
+		return nil, p.dialDeny(networkName, "", 0, sessionID, "invalid_dial_address")
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || !containsInt(p.config.AllowedPorts, port) {
-		return nil, fmt.Errorf("%w: port_not_allowed", ErrPolicyDenied)
+		return nil, p.dialDeny(networkName, host, port, sessionID, "port_not_allowed")
 	}
 	host, err = normalizePolicyHost(host)
 	if err != nil || blockedHostname(host) || !domainAllowed(host, p.config.AllowedDomains) {
-		return nil, fmt.Errorf("%w: host_not_allowed", ErrPolicyDenied)
+		return nil, p.dialDeny(networkName, host, port, sessionID, "host_not_allowed")
 	}
 	addresses, err := p.resolveHost(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDNSFailure, err)
+		return nil, errors.Join(ErrDNSFailure, p.dialDeny(networkName, host, port, sessionID, "dns_failed"))
 	}
 	var dialErrors []string
 	for _, candidate := range addresses {
 		if alwaysBlockedAddress(candidate) {
-			return nil, fmt.Errorf("%w: non_destination_address", ErrPolicyDenied)
+			return nil, p.dialDeny(networkName, host, port, sessionID, "non_destination_address")
 		}
 		if !p.config.AllowPrivateNetworks && blockedAddress(candidate) {
-			return nil, fmt.Errorf("%w: non_public_address", ErrPolicyDenied)
+			return nil, p.dialDeny(networkName, host, port, sessionID, "non_public_address")
 		}
+	}
+	if err := p.emit(Decision{Action: DecisionAllow, Kind: TargetSocket, Scheme: strings.ToLower(networkName), Host: host, Port: port, Reason: "policy_match", SessionID: sessionID}); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicyDenied, err)
+	}
+	for _, candidate := range addresses {
 		connection, dialErr := p.dialer.DialContext(ctx, networkName, net.JoinHostPort(candidate.String(), portText))
 		if dialErr == nil {
 			return connection, nil
@@ -479,17 +499,44 @@ func (p *Policy) deny(kind TargetKind, parsed *url.URL, sessionID, reason string
 	decision := Decision{Action: DecisionDeny, Kind: kind, Reason: reason, SessionID: sessionID}
 	if parsed != nil {
 		decision.Scheme = parsed.Scheme
-		decision.Host = strings.ToLower(parsed.Hostname())
+		decision.Host = safeDecisionHost(parsed.Hostname())
 		decision.Port, _ = policyPort(parsed)
 	}
-	p.emit(decision)
-	return fmt.Errorf("%w: %s", ErrPolicyDenied, reason)
+	auditErr := p.emit(decision)
+	denied := fmt.Errorf("%w: %s", ErrPolicyDenied, reason)
+	if auditErr != nil {
+		return errors.Join(denied, auditErr)
+	}
+	return denied
 }
 
-func (p *Policy) emit(decision Decision) {
-	if p.sink != nil {
-		p.sink(decision)
+func (p *Policy) dialDeny(networkName, host string, port int, sessionID, reason string) error {
+	decision := Decision{
+		Action: DecisionDeny, Kind: TargetSocket, Scheme: strings.ToLower(networkName),
+		Host: safeDecisionHost(host), Port: port, Reason: reason, SessionID: sessionID,
 	}
+	denied := fmt.Errorf("%w: %s", ErrPolicyDenied, reason)
+	if err := p.emit(decision); err != nil {
+		return errors.Join(denied, err)
+	}
+	return denied
+}
+
+func safeDecisionHost(host string) string {
+	normalized, err := normalizePolicyHost(host)
+	if err != nil {
+		return ""
+	}
+	return normalized
+}
+
+func (p *Policy) emit(decision Decision) error {
+	if p.sink != nil {
+		if err := p.sink(decision); err != nil {
+			return fmt.Errorf("%w: %w", ErrDecisionAudit, err)
+		}
+	}
+	return nil
 }
 
 func containsString(values []string, value string) bool {

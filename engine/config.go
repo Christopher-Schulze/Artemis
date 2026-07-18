@@ -7,6 +7,7 @@ package engine
 import (
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
@@ -43,6 +44,9 @@ type Config struct {
 	// SessionID correlates redacted network-policy decisions across
 	// HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket paths.
 	SessionID string
+	// Diagnostics configures the redacted retention-bounded audit ledger.
+	// An empty path keeps the bounded ledger in memory only.
+	Diagnostics diagnostics.Config
 	// DownloadRoot owns per-session download directories. Empty resolves to
 	// ~/.omnimus/tmp/browser. Callers may override it for isolated runtimes.
 	DownloadRoot string

@@ -212,8 +212,9 @@ func TestWebSocketPolicyDeniesPrivateAndInvalidTargets(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			decisions := make(chan network.Decision, 4)
-			policy, err := network.NewPolicy(network.DefaultPolicyConfig(), nil, func(decision network.Decision) {
+			policy, err := network.NewPolicy(network.DefaultPolicyConfig(), nil, func(decision network.Decision) error {
 				decisions <- decision
+				return nil
 			})
 			if err != nil {
 				t.Fatalf("new policy: %v", err)
@@ -291,8 +292,9 @@ func TestWebSocketPolicyRevalidatesRedirect(t *testing.T) {
 	defer srv.Close()
 	wsURL := strings.Replace(srv.URL, "http://", "ws://", 1) + "/redirect"
 	decisions := make(chan network.Decision, 8)
-	policy := localWebSocketPolicy(t, wsURL, func(decision network.Decision) {
+	policy := localWebSocketPolicy(t, wsURL, func(decision network.Decision) error {
 		decisions <- decision
+		return nil
 	})
 
 	doc, _ := parser.ParseHTML(strings.NewReader(`<html></html>`), "https://e.test/")

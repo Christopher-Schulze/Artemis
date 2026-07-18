@@ -61,7 +61,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	// a small set of hosts, parallel fetches via the async-runtime.
 	transport := &http.Transport{
 		Proxy:                 nil,
-		DialContext:           policy.DialContext,
+		DialContext:           policy.DialContextFor(cfg.SessionID),
 		MaxIdleConns:          512,
 		MaxIdleConnsPerHost:   64,
 		MaxConnsPerHost:       0, // unlimited (HTTP/2 multiplex needs only one)
@@ -98,7 +98,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 				if len(via) >= policy.Config().MaxRedirects {
 					return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
 				}
-				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetRedirect, cfg.SessionID)
+				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetRedirect, SessionID(req.Context(), cfg.SessionID))
 			},
 		},
 		jar: jar, robots: newRobotsCache(),
@@ -175,7 +175,7 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 			req.Header.Add(k, v)
 		}
 	}
-	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, kind, c.cfg.SessionID); err != nil {
+	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, kind, SessionID(ctx, c.cfg.SessionID)); err != nil {
 		return nil, fmt.Errorf("validate request: %w", err)
 	}
 

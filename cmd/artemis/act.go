@@ -41,6 +41,11 @@ func cmdAct(args []string) int {
 		errf("act sandbox: %v", err)
 		return 2
 	}
+	_, policySink, resourceSink, err := newProcessDiagnostics("chromium", fmt.Sprintf("act-%d", os.Getpid()))
+	if err != nil {
+		errf("act diagnostics: %v", err)
+		return 1
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
@@ -49,6 +54,8 @@ func cmdAct(args []string) int {
 			MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile,
 			SessionTimeout: *sessionTimeout,
 		},
+		PolicyDecisionSink: policySink,
+		ResourceSink:       resourceSink,
 	})
 	if err != nil {
 		errf("act launch: %v", err)

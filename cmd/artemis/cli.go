@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/diagnostics"
+	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -79,4 +81,39 @@ func emitProcessWarnings(browser *bridge.ChromiumBrowser) {
 	for _, warning := range browser.ProcessWarnings() {
 		fmt.Fprintln(os.Stderr, "artemis: WARNING: "+warning)
 	}
+}
+
+func cliDiagnosticsConfig(persistent bool) (diagnostics.Config, error) {
+	if path := strings.TrimSpace(os.Getenv("ARTEMIS_DIAGNOSTICS_FILE")); path != "" {
+		return diagnostics.Config{Path: path}, nil
+	}
+	if !persistent {
+		return diagnostics.Config{}, nil
+	}
+	return diagnostics.DefaultPersistentConfig()
+}
+
+func newProcessDiagnostics(scope, sessionID string) (*diagnostics.Store, network.DecisionSink, browserprocess.ResourceSink, error) {
+	config, err := cliDiagnosticsConfig(true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	store, err := diagnostics.NewStore(config)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	policySink := func(decision network.Decision) error {
+		return store.AppendPolicy(diagnostics.PolicyDecision{
+			Operation: string(decision.Kind), Transport: decision.Scheme, Host: decision.Host,
+			Port: decision.Port, Result: string(decision.Action), ReasonCode: decision.Reason,
+			SessionRef: diagnostics.HashSession(sessionID),
+		})
+	}
+	resourceSink := func(usage browserprocess.ResourceUsage) error {
+		return store.AppendResource(diagnostics.ResourceUsage{
+			Scope: scope, SessionRef: diagnostics.HashSession(sessionID), CPUPercent: usage.CPUPercent,
+			MemoryBytes: usage.MemoryBytes, DiskBytes: usage.ProfileDiskBytes,
+		})
+	}
+	return store, policySink, resourceSink, nil
 }

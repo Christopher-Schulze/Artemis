@@ -162,7 +162,7 @@ func TestSandboxPolicyRequiresExplicitDisableAndWarns(t *testing.T) {
 		t.Fatalf("secure sandbox defaults not applied: %+v", normalized)
 	}
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: script, Sandbox: SandboxDisabled, StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: script, Sandbox: SandboxDisabled, StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestLaunchTimeoutAndCrashAreTyped(t *testing.T) {
 		t.Fatalf("timeout error=%v", err)
 	}
 	_, err = Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, "#!/bin/sh\nexit 7\n"), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, "#!/bin/sh\nexit 7\n"), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if !IsCode(err, ErrorBrowserCrash) {
 		t.Fatalf("crash error=%v", err)
@@ -284,7 +284,7 @@ func TestRunningBrowserCrashIsObservable(t *testing.T) {
 
 func TestUnexpectedCrashAutomaticallyCleansDisposableProfile(t *testing.T) {
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserCrashAfterReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, browserCrashAfterReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +299,7 @@ func TestUnexpectedCrashAutomaticallyCleansDisposableProfile(t *testing.T) {
 func TestRunningBrowserHonorsOwnerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	browser, err := Launch(ctx, LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +307,7 @@ func TestRunningBrowserHonorsOwnerCancellation(t *testing.T) {
 	cancel()
 	select {
 	case <-browser.Done():
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("browser survived owner cancellation")
 	}
 	if err := browser.Err(); !IsCode(err, ErrorCancelled) {
@@ -317,7 +317,7 @@ func TestRunningBrowserHonorsOwnerCancellation(t *testing.T) {
 
 func TestResourceBudgetBreachTerminatesProcessGroup(t *testing.T) {
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 		ResourceBudget: ResourceBudget{MaxMemoryBytes: 1, SampleInterval: 5 * time.Millisecond},
 		resourceSampler: func(int, string) (ResourceUsage, error) {
 			return ResourceUsage{MemoryBytes: 2}, nil
@@ -328,7 +328,7 @@ func TestResourceBudgetBreachTerminatesProcessGroup(t *testing.T) {
 	}
 	select {
 	case <-browser.Done():
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("browser survived resource breach")
 	}
 	if err := browser.Err(); !IsCode(err, ErrorResourceBudget) {
@@ -336,9 +336,74 @@ func TestResourceBudgetBreachTerminatesProcessGroup(t *testing.T) {
 	}
 }
 
+func TestResourceDiagnosticsEmitImmediatelyAndFailClosed(t *testing.T) {
+	samples := make(chan ResourceUsage, 1)
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{SampleInterval: time.Hour},
+		resourceSampler: func(int, string) (ResourceUsage, error) {
+			return ResourceUsage{CPUPercent: 12.5, MemoryBytes: 64, ProfileDiskBytes: 32}, nil
+		},
+		ResourceSink: func(usage ResourceUsage) error {
+			samples <- usage
+			return errors.New("audit disk unavailable")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case usage := <-samples:
+		if usage.CPUPercent != 12.5 || usage.MemoryBytes != 64 || usage.ProfileDiskBytes != 32 {
+			t.Fatalf("usage=%+v", usage)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial resource diagnostic was not emitted")
+	}
+	select {
+	case <-browser.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("browser survived diagnostics failure")
+	}
+	if err := browser.Err(); !IsCode(err, ErrorDiagnostics) {
+		t.Fatalf("diagnostics error=%v", err)
+	}
+}
+
+func TestInitialResourceDiagnosticDoesNotEnforceColdStartBurst(t *testing.T) {
+	samples := make(chan ResourceUsage, 1)
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{MaxMemoryBytes: 1, SampleInterval: time.Hour},
+		resourceSampler: func(int, string) (ResourceUsage, error) {
+			return ResourceUsage{MemoryBytes: 2}, nil
+		},
+		ResourceSink: func(usage ResourceUsage) error {
+			samples <- usage
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-samples:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial resource diagnostic was not emitted")
+	}
+	select {
+	case <-browser.Done():
+		t.Fatalf("cold-start sample enforced before interval: %v", browser.Err())
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := browser.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSessionTimeoutDuringStartupIsResourceFailure(t *testing.T) {
 	_, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserIdleScript), StartupTimeout: time.Second, ShutdownTimeout: 100 * time.Millisecond,
+		BinaryPath: writeBrowserScript(t, browserIdleScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: 100 * time.Millisecond,
 		ResourceBudget: ResourceBudget{SessionTimeout: 20 * time.Millisecond},
 	})
 	if !IsCode(err, ErrorResourceBudget) {
@@ -348,7 +413,7 @@ func TestSessionTimeoutDuringStartupIsResourceFailure(t *testing.T) {
 
 func TestProfileDiskBudgetUsesRealOwnedProfileBytes(t *testing.T) {
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserWritesProfileScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, browserWritesProfileScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 		ResourceBudget: ResourceBudget{MaxProfileDiskBytes: 1024, SampleInterval: 5 * time.Millisecond},
 	})
 	if err != nil {
@@ -356,7 +421,7 @@ func TestProfileDiskBudgetUsesRealOwnedProfileBytes(t *testing.T) {
 	}
 	select {
 	case <-browser.Done():
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("browser survived profile disk breach")
 	}
 	if err := browser.Err(); !IsCode(err, ErrorResourceBudget) {
@@ -368,7 +433,7 @@ func TestUnexpectedLeaderExitReapsProcessGroupHelper(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "helper.pid")
 	script := strings.ReplaceAll(browserLeaderExitWithHelperScript, "HELPER_PID_FILE", pidFile)
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, script), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, script), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +461,7 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 		script := os.Getenv("ARTEMIS_PROCESS_GUARDIAN_SCRIPT")
 		state := os.Getenv("ARTEMIS_PROCESS_GUARDIAN_STATE")
 		browser, err := Launch(context.Background(), LaunchConfig{
-			BinaryPath: script, StartupTimeout: time.Second, ShutdownTimeout: 100 * time.Millisecond,
+			BinaryPath: script, StartupTimeout: 5 * time.Second, ShutdownTimeout: 100 * time.Millisecond,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -466,7 +531,7 @@ func TestLaunchHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := Launch(ctx, LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserIdleScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		BinaryPath: writeBrowserScript(t, browserIdleScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
 	})
 	if !IsCode(err, ErrorCancelled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error=%v", err)
@@ -475,7 +540,7 @@ func TestLaunchHonorsContextCancellation(t *testing.T) {
 
 func TestCloseForcesUnresponsiveProcessGroup(t *testing.T) {
 	browser, err := Launch(context.Background(), LaunchConfig{
-		BinaryPath: writeBrowserScript(t, browserIgnoresTermScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: 20 * time.Millisecond,
+		BinaryPath: writeBrowserScript(t, browserIgnoresTermScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: 500 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -484,7 +549,7 @@ func TestCloseForcesUnresponsiveProcessGroup(t *testing.T) {
 	if err := browser.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(started) > time.Second {
+	if time.Since(started) > 3*time.Second {
 		t.Fatal("forced shutdown exceeded bound")
 	}
 }

@@ -50,6 +50,8 @@ func main() {
 		os.Exit(cmdDoctor(os.Args[2:]))
 	case "trace":
 		os.Exit(cmdTrace(os.Args[2:]))
+	case "diagnostics":
+		os.Exit(cmdDiagnostics(os.Args[2:]))
 	case "benchmark":
 		os.Exit(cmdBenchmark(os.Args[2:]))
 	default:
@@ -76,6 +78,7 @@ Commands:
   profile    manage browser profiles
   doctor     diagnose the environment and runtime readiness
   trace      fetch a URL and emit a trace of lifecycle events
+  diagnostics  read redacted policy and resource audit records
   benchmark  run the benchmark harness and emit a scorecard
   version    print version
   capabilities  print the machine-readable capability contract

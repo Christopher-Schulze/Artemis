@@ -36,6 +36,11 @@ func cmdObserve(args []string) int {
 		errf("observe sandbox: %v", err)
 		return 2
 	}
+	_, policySink, resourceSink, err := newProcessDiagnostics("chromium", fmt.Sprintf("observe-%d", os.Getpid()))
+	if err != nil {
+		errf("observe diagnostics: %v", err)
+		return 1
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
@@ -44,6 +49,8 @@ func cmdObserve(args []string) int {
 			MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile,
 			SessionTimeout: *sessionTimeout,
 		},
+		PolicyDecisionSink: policySink,
+		ResourceSink:       resourceSink,
 	})
 	if err != nil {
 		errf("observe launch: %v", err)

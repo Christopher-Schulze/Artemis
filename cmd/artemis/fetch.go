@@ -57,12 +57,19 @@ Flags:
 		errf("%v", err)
 		return 2
 	}
+	diagnosticConfig, err := cliDiagnosticsConfig(false)
+	if err != nil {
+		errf("diagnostics config: %v", err)
+		return 1
+	}
 
 	cfg := engine.Config{
 		UserAgent:    *userAgent,
 		ProxyURL:     *proxyURL,
 		Timeout:      timeout,
 		MaxBodyBytes: *maxBody,
+		SessionID:    fmt.Sprintf("cli-fetch-%d", os.Getpid()),
+		Diagnostics:  diagnosticConfig,
 		PolicyConfig: network.PolicyConfig{
 			AllowPrivateNetworks: *allowPrivate,
 		},

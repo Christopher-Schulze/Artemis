@@ -74,9 +74,15 @@ Flags:
 		}
 		policy.AllowedPorts = ports
 	}
+	diagnosticConfig, err := cliDiagnosticsConfig(true)
+	if err != nil {
+		errf("serve diagnostics: %v", err)
+		return 1
+	}
 	cfg := artemis.AgentConfig{
 		ObeyRobots:   *obeyRobots,
 		PolicyConfig: policy,
+		Diagnostics:  diagnosticConfig,
 	}
 	agent, err := artemis.NewAgent(cfg)
 	if err != nil {

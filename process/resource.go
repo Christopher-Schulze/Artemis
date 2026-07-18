@@ -33,6 +33,9 @@ type ResourceUsage struct {
 	ProfileDiskBytes int64
 }
 
+// ResourceSink persists one redacted process-group resource sample.
+type ResourceSink func(ResourceUsage) error
+
 func (b *ResourceBudget) applyDefaults() {
 	defaults := platformResourceDefaults()
 	if b.MaxCPUPercent == 0 {

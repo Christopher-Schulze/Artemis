@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 const (
@@ -46,6 +48,8 @@ type LaunchConfig struct {
 	PolicyProxyURL       string
 	Sandbox              SandboxPolicy
 	ResourceBudget       ResourceBudget
+	PolicyDecisionSink   network.DecisionSink
+	ResourceSink         ResourceSink
 	resourceSampler      resourceSampler
 }
 
@@ -319,6 +323,8 @@ func (b *Browser) supervise(ctx context.Context, config LaunchConfig) {
 	defer timeout.Stop()
 	ctxDone := ctx.Done()
 	timeoutC := timeout.C
+	readyC := (<-chan struct{})(b.ready)
+	sampleC := ticker.C
 	for {
 		select {
 		case <-b.processDone:
@@ -331,38 +337,63 @@ func (b *Browser) supervise(ctx context.Context, config LaunchConfig) {
 			b.terminateAfterFailure()
 			ctxDone = nil
 			timeoutC = nil
+			readyC = nil
+			sampleC = nil
 		case <-timeoutC:
 			b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "supervise running browser", Err: fmt.Errorf("session timeout %s exceeded", config.ResourceBudget.SessionTimeout)})
 			b.terminateAfterFailure()
 			ctxDone = nil
 			timeoutC = nil
-		case <-ticker.C:
-			select {
-			case <-b.ready:
-			default:
-				continue
-			}
-			usage, err := config.resourceSampler(b.cmd.Process.Pid, b.profileDir)
-			if err != nil {
-				select {
-				case <-b.processDone:
-					continue
-				default:
-				}
-				b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "sample browser resources", Err: err})
-				b.terminateAfterFailure()
+			readyC = nil
+			sampleC = nil
+		case <-readyC:
+			readyC = nil
+			if !b.sampleAndEnforce(config, false) {
 				ctxDone = nil
 				timeoutC = nil
+				sampleC = nil
+			}
+		case <-sampleC:
+			if readyC != nil {
 				continue
 			}
-			if err := config.ResourceBudget.exceeded(usage); err != nil {
-				b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "enforce browser resources", Err: err})
-				b.terminateAfterFailure()
+			if !b.sampleAndEnforce(config, true) {
 				ctxDone = nil
 				timeoutC = nil
+				sampleC = nil
 			}
 		}
 	}
+}
+
+func (b *Browser) sampleAndEnforce(config LaunchConfig, enforceBudget bool) bool {
+	usage, err := config.resourceSampler(b.cmd.Process.Pid, b.profileDir)
+	if err != nil {
+		select {
+		case <-b.processDone:
+			return true
+		default:
+		}
+		b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "sample browser resources", Err: err})
+		b.terminateAfterFailure()
+		return false
+	}
+	if config.ResourceSink != nil {
+		if err := config.ResourceSink(usage); err != nil {
+			b.setTerminalError(&Error{Code: ErrorDiagnostics, Op: "record browser resources", Err: err})
+			b.terminateAfterFailure()
+			return false
+		}
+	}
+	if !enforceBudget {
+		return true
+	}
+	if err := config.ResourceBudget.exceeded(usage); err != nil {
+		b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "enforce browser resources", Err: err})
+		b.terminateAfterFailure()
+		return false
+	}
+	return true
 }
 
 func (b *Browser) setTerminalError(err error) {

@@ -8,10 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
 	"github.com/Christopher-Schulze/Artemis/js"
 	"github.com/Christopher-Schulze/Artemis/network"
@@ -83,14 +85,14 @@ var ErrRobotsDisallowed = network.ErrRobotsDisallowed
 // Engine is the top-level handle for performing fetches and producing
 // pages. It is safe for concurrent use.
 type Engine struct {
-	cfg          Config
-	client       *network.HTTPClient
-	policy       *network.Policy
-	jsRT         *js.Runtime
-	downloadOnce sync.Once
-	downloads    *artemisdownload.DownloadManager
-	downloadErr  error
-	session      *sessionBudgetController
+	cfg         Config
+	client      *network.HTTPClient
+	policy      *network.Policy
+	jsRT        *js.Runtime
+	downloadMu  sync.Mutex
+	downloads   map[string]*artemisdownload.DownloadManager
+	session     *sessionBudgetController
+	diagnostics *diagnostics.Store
 }
 
 // Download is the verified metadata for a committed session download.
@@ -102,11 +104,27 @@ func New(cfg Config) (*Engine, error) {
 	if err := cfg.SessionBudget.validate(); err != nil {
 		return nil, err
 	}
-	session := newSessionBudgetController(cfg.SessionBudget)
-	policy, err := network.NewPolicy(cfg.PolicyConfig, nil, nil)
+	diagnosticStore, err := diagnostics.NewStore(cfg.Diagnostics)
 	if err != nil {
-		session.close()
-		return nil, fmt.Errorf("engine: build network policy: %w", err)
+		return nil, fmt.Errorf("engine: diagnostics: %w", err)
+	}
+	resourceSink := func(sessionID string, usage SessionUsage) error {
+		return diagnosticStore.AppendResource(diagnostics.ResourceUsage{
+			Scope: "renderless", SessionRef: diagnostics.HashSession(sessionID), Requests: usage.Requests,
+			ResponseBytes: usage.ResponseBytes, DiskBytes: usage.DiskBytes,
+			ActiveTabs: usage.ActiveTabs, Concurrent: usage.Concurrent, SessionStopped: usage.Cancelled,
+		})
+	}
+	session := newSessionBudgetController(cfg.SessionBudget, cfg.SessionID, resourceSink)
+	policy, err := network.NewPolicy(cfg.PolicyConfig, nil, func(decision network.Decision) error {
+		return diagnosticStore.AppendPolicy(diagnostics.PolicyDecision{
+			Operation: string(decision.Kind), Transport: decision.Scheme, Host: decision.Host,
+			Port: decision.Port, Result: string(decision.Action), ReasonCode: decision.Reason,
+			SessionRef: diagnostics.HashSession(decision.SessionID),
+		})
+	})
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("engine: build network policy: %w", err), session.close())
 	}
 	cfg.PolicyConfig = policy.Config()
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
@@ -119,24 +137,21 @@ func New(cfg Config) (*Engine, error) {
 		RequestLifecycle: session,
 	})
 	if err != nil {
-		session.close()
-		return nil, fmt.Errorf("engine: build http client: %w", err)
+		return nil, errors.Join(fmt.Errorf("engine: build http client: %w", err), session.close())
 	}
 	var rt *js.Runtime
 	switch {
 	case cfg.JSContextPoolSize > 0 && cfg.JSContextPoolWarm:
 		rt, err = js.NewRuntimeWithWarmPool(cfg.JSContextPoolSize)
 		if err != nil {
-			_ = client.Close()
-			session.close()
-			return nil, fmt.Errorf("engine: warm pool: %w", err)
+			return nil, errors.Join(fmt.Errorf("engine: warm pool: %w", err), client.Close(), session.close())
 		}
 	case cfg.JSContextPoolSize > 0:
 		rt = js.NewRuntimeWithPool(cfg.JSContextPoolSize)
 	default:
 		rt = js.NewRuntime()
 	}
-	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt, session: session}, nil
+	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt, session: session, diagnostics: diagnosticStore}, nil
 }
 
 // Config returns a copy of the active configuration.
@@ -148,6 +163,9 @@ func (e *Engine) HTTPClient() *network.HTTPClient { return e.client }
 
 // SessionUsage returns an atomic snapshot of the active hard-budget counters.
 func (e *Engine) SessionUsage() SessionUsage { return e.session.usage() }
+
+// Diagnostics returns a redacted snapshot of the bounded audit ledger.
+func (e *Engine) Diagnostics() ([]diagnostics.Record, error) { return e.diagnostics.Snapshot() }
 
 // Download fetches raw content under TargetDownload policy and atomically
 // commits it to this engine session's owned download directory.
@@ -167,21 +185,27 @@ func (e *Engine) Download(ctx context.Context, rawURL, filename string) (*Downlo
 	if strings.TrimSpace(filename) == "" {
 		filename = artemisdownload.SuggestedFilename(resp.FinalURL, resp.Headers.Get("Content-Disposition"))
 	}
-	manager, err := e.downloadManager()
+	sessionID := network.SessionID(ctx, e.cfg.SessionID)
+	manager, err := e.downloadManager(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	return manager.Store(filename, resp.Headers.Get("Content-Type"), resp.Body)
+	download, err := manager.Store(filename, resp.Headers.Get("Content-Type"), resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return e.recordDownload(sessionID, manager, download)
 }
 
 // Fetch performs an HTTP request on rawURL and returns a Page. The page
 // is fully fetched and parsed before return. Method defaults to GET.
-func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Page, error) {
+func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (result *Page, resultErr error) {
 	if ctx == nil {
 		return nil, errors.New("engine: fetch context required")
 	}
 	ctx, release := e.session.mergeContext(ctx)
 	defer release()
+	sessionID := network.SessionID(ctx, e.cfg.SessionID)
 	method := opts.Method
 	if method == "" {
 		method = http.MethodGet
@@ -226,13 +250,13 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 			if err := e.session.admitSynthetic(int64(len(mock.Body))); err != nil {
 				return nil, err
 			}
-			if err := e.session.acquireTab(); err != nil {
+			if err := e.session.acquireTab(sessionID); err != nil {
 				return nil, err
 			}
 			tabOwned := true
 			defer func() {
 				if tabOwned {
-					e.session.releaseTab()
+					resultErr = errors.Join(resultErr, e.session.releaseTab(sessionID))
 				}
 			}()
 			doc, err := parser.ParseHTML(bytes.NewReader(mock.Body), mock.FinalURL)
@@ -251,7 +275,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 				LoadStylesheet: e.stylesheetLoader(finalURL),
 				LoadIFrame:     e.iframeLoader(finalURL),
 				Policy:         e.policy,
-				SessionID:      e.cfg.SessionID,
+				SessionID:      sessionID,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("engine: js context: %w", err)
@@ -263,8 +287,11 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 				document:   doc,
 				rawBody:    mock.Body,
 				jsCtx:      jsCtx,
-				download:   e.storePageDownload,
-				session:    e.session,
+				download: func(filename, contentType string, content []byte) (*Download, error) {
+					return e.storePageDownload(sessionID, filename, contentType, content)
+				},
+				session:   e.session,
+				sessionID: sessionID,
 			}
 			tabOwned = false
 			if opts.RunInlineScripts || opts.RunScripts {
@@ -307,12 +334,12 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 		LoadStylesheet: e.stylesheetLoader(resp.FinalURL),
 		LoadIFrame:     e.iframeLoader(resp.FinalURL),
 		Policy:         e.policy,
-		SessionID:      e.cfg.SessionID,
+		SessionID:      sessionID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("engine: js context: %w", err)
 	}
-	if err := e.session.acquireTab(); err != nil {
+	if err := e.session.acquireTab(sessionID); err != nil {
 		jsCtx.Close()
 		return nil, err
 	}
@@ -324,8 +351,11 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 		document:   doc,
 		rawBody:    resp.Body,
 		jsCtx:      jsCtx,
-		download:   e.storePageDownload,
-		session:    e.session,
+		download: func(filename, contentType string, content []byte) (*Download, error) {
+			return e.storePageDownload(sessionID, filename, contentType, content)
+		},
+		session:   e.session,
+		sessionID: sessionID,
 	}
 
 	if opts.RunInlineScripts || opts.RunScripts {
@@ -338,29 +368,64 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 	return page, nil
 }
 
-func (e *Engine) downloadManager() (*artemisdownload.DownloadManager, error) {
-	e.downloadOnce.Do(func() {
-		if strings.TrimSpace(e.cfg.SessionID) == "" {
-			e.downloadErr = errors.New("engine: session ID required for downloads")
-			return
-		}
-		e.downloads, e.downloadErr = artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{
-			RootDir:      e.cfg.DownloadRoot,
-			SessionID:    e.cfg.SessionID,
-			MaxDiskBytes: e.cfg.MaxDownloadDiskBytes,
-			MinFreeBytes: e.cfg.MinDownloadFreeBytes,
-			Policy:       e.policy,
-		})
+func (e *Engine) downloadManager(sessionID string) (*artemisdownload.DownloadManager, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, errors.New("engine: session ID required for downloads")
+	}
+	e.downloadMu.Lock()
+	defer e.downloadMu.Unlock()
+	if manager := e.downloads[sessionID]; manager != nil {
+		return manager, nil
+	}
+	manager, err := artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{
+		RootDir:      e.cfg.DownloadRoot,
+		SessionID:    sessionID,
+		MaxDiskBytes: e.cfg.MaxDownloadDiskBytes,
+		MinFreeBytes: e.cfg.MinDownloadFreeBytes,
+		Policy:       e.policy,
 	})
-	return e.downloads, e.downloadErr
-}
-
-func (e *Engine) storePageDownload(filename, contentType string, content []byte) (*Download, error) {
-	manager, err := e.downloadManager()
 	if err != nil {
 		return nil, err
 	}
-	return manager.Store(filename, contentType, content)
+	if e.downloads == nil {
+		e.downloads = make(map[string]*artemisdownload.DownloadManager)
+	}
+	e.downloads[sessionID] = manager
+	return manager, nil
+}
+
+func (e *Engine) storePageDownload(sessionID, filename, contentType string, content []byte) (*Download, error) {
+	manager, err := e.downloadManager(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	download, err := manager.Store(filename, contentType, content)
+	if err != nil {
+		return nil, err
+	}
+	return e.recordDownload(sessionID, manager, download)
+}
+
+// ReleaseSession removes runtime-only download synchronization state after all
+// work for sessionID has stopped. Committed files remain under the owned store.
+func (e *Engine) ReleaseSession(sessionID string) {
+	e.downloadMu.Lock()
+	delete(e.downloads, sessionID)
+	e.downloadMu.Unlock()
+}
+
+func (e *Engine) recordDownload(sessionID string, manager *artemisdownload.DownloadManager, download *Download) (*Download, error) {
+	usage, err := manager.DiskUsage()
+	if err != nil {
+		removeErr := os.Remove(download.Path)
+		return nil, errors.Join(fmt.Errorf("engine: measure download disk usage: %w", err), removeErr)
+	}
+	if err := e.session.setDiskUsage(sessionID, usage); err != nil {
+		removeErr := os.Remove(download.Path)
+		return nil, errors.Join(err, removeErr)
+	}
+	return download, nil
 }
 
 // Submit performs a form submission via the engine's HTTP client and
@@ -377,13 +442,13 @@ func (e *Engine) Submit(ctx context.Context, sub agent.FormSubmission, opts Fetc
 
 // Close releases engine-held resources.
 func (e *Engine) Close() error {
-	if e.session != nil {
-		e.session.close()
-	}
 	var firstErr error
+	if e.session != nil {
+		firstErr = e.session.close()
+	}
 	if e.client != nil {
 		if err := e.client.Close(); err != nil {
-			firstErr = err
+			firstErr = errors.Join(firstErr, err)
 		}
 	}
 	if e.jsRT != nil {

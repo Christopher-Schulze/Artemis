@@ -16,6 +16,7 @@ const (
 	ErrorBrowserCrash   ErrorCode = "browser_crash"
 	ErrorCancelled      ErrorCode = "cancelled"
 	ErrorResourceBudget ErrorCode = "resource_budget_exceeded"
+	ErrorDiagnostics    ErrorCode = "diagnostics_unavailable"
 )
 
 // Error is a typed Chromium process failure.

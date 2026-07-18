@@ -163,7 +163,10 @@ func TestPolicyNormalizesIDNAAndEmitsRedactedDecision(t *testing.T) {
 	config := DefaultPolicyConfig()
 	config.AllowedDomains = []string{"xn--bcher-kva.example"}
 	var decisions []Decision
-	policy := mustPolicy(t, config, resolver, func(decision Decision) { decisions = append(decisions, decision) })
+	policy := mustPolicy(t, config, resolver, func(decision Decision) error {
+		decisions = append(decisions, decision)
+		return nil
+	})
 	if _, err := policy.ResolveURL(context.Background(), "https://bücher.example/private?token=secret", TargetNavigation, "session-a"); err != nil {
 		t.Fatalf("IDNA URL rejected: %v", err)
 	}
@@ -173,6 +176,17 @@ func TestPolicyNormalizesIDNAAndEmitsRedactedDecision(t *testing.T) {
 	encoded := decisions[0].Host + decisions[0].Reason
 	if strings.Contains(encoded, "private") || strings.Contains(encoded, "secret") {
 		t.Fatalf("decision leaked path or query: %+v", decisions[0])
+	}
+}
+
+func TestPolicyFailsClosedWhenDecisionAuditFails(t *testing.T) {
+	resolver := &sequenceResolver{results: []resolverResult{{addresses: []netip.Addr{netip.MustParseAddr("1.1.1.1")}}}}
+	policy := mustPolicy(t, PolicyConfig{}, resolver, func(Decision) error { return errors.New("ledger unavailable") })
+	if _, err := policy.ResolveURL(context.Background(), "https://example.test/", TargetNavigation, "session-a"); !errors.Is(err, ErrPolicyDenied) || !errors.Is(err, ErrDecisionAudit) {
+		t.Fatalf("allow audit failure error=%v", err)
+	}
+	if _, err := policy.ResolveURL(context.Background(), "http://127.0.0.1/", TargetNavigation, "session-a"); !errors.Is(err, ErrPolicyDenied) || !errors.Is(err, ErrDecisionAudit) {
+		t.Fatalf("deny audit failure error=%v", err)
 	}
 }
 

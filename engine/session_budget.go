@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 const (
@@ -31,6 +33,7 @@ type SessionBudget struct {
 type SessionUsage struct {
 	Requests      int
 	ResponseBytes int64
+	DiskBytes     int64
 	ActiveTabs    int
 	Concurrent    int
 	Cancelled     bool
@@ -95,23 +98,31 @@ func (b SessionBudget) validate() error {
 }
 
 type sessionBudgetController struct {
-	mu            sync.Mutex
-	limits        SessionBudget
-	ctx           context.Context
-	cancel        context.CancelCauseFunc
-	stopTimeout   func() bool
-	requests      int
-	responseBytes int64
-	activeTabs    int
-	concurrent    int
-	terminal      error
+	mu               sync.Mutex
+	limits           SessionBudget
+	ctx              context.Context
+	cancel           context.CancelCauseFunc
+	stopTimeout      func() bool
+	requests         int
+	responseBytes    int64
+	diskBytes        int64
+	activeTabs       int
+	concurrent       int
+	terminal         error
+	defaultSessionID string
+	usageSink        func(string, SessionUsage) error
 }
 
-func newSessionBudgetController(limits SessionBudget) *sessionBudgetController {
+func newSessionBudgetController(limits SessionBudget, defaultSessionID string, usageSink func(string, SessionUsage) error) *sessionBudgetController {
 	ctx, cancel := context.WithCancelCause(context.Background())
-	c := &sessionBudgetController{limits: limits, ctx: ctx, cancel: cancel}
+	c := &sessionBudgetController{limits: limits, ctx: ctx, cancel: cancel, defaultSessionID: defaultSessionID, usageSink: usageSink}
 	timer := time.AfterFunc(limits.Timeout, func() {
 		c.fail(&BudgetError{Resource: BudgetTimeout, Limit: int64(limits.Timeout), Observed: int64(limits.Timeout) + 1})
+		if err := c.recordUsage(defaultSessionID); err != nil {
+			c.mu.Lock()
+			c.terminal = errors.Join(c.terminal, err)
+			c.mu.Unlock()
+		}
 	})
 	c.stopTimeout = timer.Stop
 	return c
@@ -121,6 +132,7 @@ func (c *sessionBudgetController) BeginRequest(ctx context.Context) (context.Con
 	if ctx == nil {
 		return nil, nil, errors.New("engine: request context required")
 	}
+	sessionID := network.SessionID(ctx, c.defaultSessionID)
 	c.mu.Lock()
 	if c.terminal != nil {
 		err := c.terminal
@@ -131,13 +143,13 @@ func (c *sessionBudgetController) BeginRequest(ctx context.Context) (context.Con
 		err := &BudgetError{Resource: BudgetRequests, Limit: int64(c.limits.MaxRequests), Observed: int64(c.requests + 1)}
 		c.mu.Unlock()
 		c.fail(err)
-		return nil, nil, err
+		return nil, nil, errors.Join(err, c.recordUsage(sessionID))
 	}
 	if c.concurrent >= c.limits.MaxConcurrency {
 		err := &BudgetError{Resource: BudgetConcurrency, Limit: int64(c.limits.MaxConcurrency), Observed: int64(c.concurrent + 1)}
 		c.mu.Unlock()
 		c.fail(err)
-		return nil, nil, err
+		return nil, nil, errors.Join(err, c.recordUsage(sessionID))
 	}
 	c.requests++
 	c.concurrent++
@@ -148,14 +160,14 @@ func (c *sessionBudgetController) BeginRequest(ctx context.Context) (context.Con
 		var result error
 		once.Do(func() {
 			releaseContext()
-			result = c.finishRequest(responseBytes)
+			result = c.finishRequest(responseBytes, sessionID)
 		})
 		return result
 	}
 	return requestCtx, finish, nil
 }
 
-func (c *sessionBudgetController) finishRequest(responseBytes int64) error {
+func (c *sessionBudgetController) finishRequest(responseBytes int64, sessionID string) error {
 	if responseBytes < 0 {
 		responseBytes = 0
 	}
@@ -173,10 +185,14 @@ func (c *sessionBudgetController) finishRequest(responseBytes int64) error {
 		err := &BudgetError{Resource: BudgetResponseBytes, Limit: c.limits.MaxResponseBytes, Observed: observed}
 		c.mu.Unlock()
 		c.fail(err)
-		return err
+		return errors.Join(err, c.recordUsage(sessionID))
 	}
 	c.responseBytes = observed
 	c.mu.Unlock()
+	if err := c.recordUsage(sessionID); err != nil {
+		c.fail(err)
+		return err
+	}
 	return nil
 }
 
@@ -188,7 +204,7 @@ func (c *sessionBudgetController) admitSynthetic(responseBytes int64) error {
 	return finish(responseBytes)
 }
 
-func (c *sessionBudgetController) acquireTab() error {
+func (c *sessionBudgetController) acquireTab(sessionID string) error {
 	c.mu.Lock()
 	if c.terminal != nil {
 		err := c.terminal
@@ -199,19 +215,49 @@ func (c *sessionBudgetController) acquireTab() error {
 		err := &BudgetError{Resource: BudgetTabs, Limit: int64(c.limits.MaxTabs), Observed: int64(c.activeTabs + 1)}
 		c.mu.Unlock()
 		c.fail(err)
-		return err
+		return errors.Join(err, c.recordUsage(sessionID))
 	}
 	c.activeTabs++
 	c.mu.Unlock()
+	if err := c.recordUsage(sessionID); err != nil {
+		c.mu.Lock()
+		c.activeTabs--
+		c.mu.Unlock()
+		c.fail(err)
+		return err
+	}
 	return nil
 }
 
-func (c *sessionBudgetController) releaseTab() {
+func (c *sessionBudgetController) releaseTab(sessionID string) error {
 	c.mu.Lock()
 	if c.activeTabs > 0 {
 		c.activeTabs--
 	}
 	c.mu.Unlock()
+	if err := c.recordUsage(sessionID); err != nil {
+		c.fail(err)
+		return err
+	}
+	return nil
+}
+
+func (c *sessionBudgetController) setDiskUsage(sessionID string, bytes int64) error {
+	if bytes < 0 {
+		return errors.New("engine: disk usage cannot be negative")
+	}
+	c.mu.Lock()
+	previous := c.diskBytes
+	c.diskBytes = bytes
+	c.mu.Unlock()
+	if err := c.recordUsage(sessionID); err != nil {
+		c.mu.Lock()
+		c.diskBytes = previous
+		c.mu.Unlock()
+		c.fail(err)
+		return err
+	}
+	return nil
 }
 
 func (c *sessionBudgetController) fail(err error) {
@@ -243,7 +289,7 @@ func (c *sessionBudgetController) usage() SessionUsage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	usage := SessionUsage{
-		Requests: c.requests, ResponseBytes: c.responseBytes, ActiveTabs: c.activeTabs,
+		Requests: c.requests, ResponseBytes: c.responseBytes, DiskBytes: c.diskBytes, ActiveTabs: c.activeTabs,
 		Concurrent: c.concurrent, Cancelled: c.terminal != nil,
 	}
 	if c.terminal != nil {
@@ -252,9 +298,23 @@ func (c *sessionBudgetController) usage() SessionUsage {
 	return usage
 }
 
-func (c *sessionBudgetController) close() {
+func (c *sessionBudgetController) recordUsage(sessionID string) error {
+	if c.usageSink == nil {
+		return nil
+	}
+	if sessionID == "" {
+		sessionID = c.defaultSessionID
+	}
+	if err := c.usageSink(sessionID, c.usage()); err != nil {
+		return fmt.Errorf("engine: record resource diagnostics: %w", err)
+	}
+	return nil
+}
+
+func (c *sessionBudgetController) close() error {
 	if c.stopTimeout != nil {
 		c.stopTimeout()
 	}
 	c.fail(context.Canceled)
+	return c.recordUsage(c.defaultSessionID)
 }

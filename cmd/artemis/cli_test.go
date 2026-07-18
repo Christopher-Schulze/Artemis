@@ -2,8 +2,13 @@ package main
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/diagnostics"
+	"github.com/Christopher-Schulze/Artemis/network"
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
 func TestParseHeaderFlagsAcceptsEqualsAndColon(t *testing.T) {
@@ -73,5 +78,31 @@ func TestStringSliceFlagAppendsAndFormatsValues(t *testing.T) {
 	}
 	if got := values.String(); got != "a,b" {
 		t.Fatalf("String() = %q, want a,b", got)
+	}
+}
+
+func TestProcessDiagnosticsCorrelatePolicyAndResourceRecords(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artemis.jsonl")
+	t.Setenv("ARTEMIS_DIAGNOSTICS_FILE", path)
+	store, policySink, resourceSink, err := newProcessDiagnostics("chromium", "act-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policySink(network.Decision{
+		Action: network.DecisionAllow, Kind: network.TargetSocket, Scheme: "tcp",
+		Host: "example.test", Port: 443, Reason: "policy_match", SessionID: "proxy-internal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := resourceSink(browserprocess.ResourceUsage{CPUPercent: 1, MemoryBytes: 2, ProfileDiskBytes: 3}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := diagnostics.HashSession("act-session")
+	if len(records) != 2 || records[0].Policy == nil || records[1].Resource == nil || records[0].Policy.SessionRef != want || records[1].Resource.SessionRef != want {
+		t.Fatalf("records=%+v want session_ref=%q", records, want)
 	}
 }

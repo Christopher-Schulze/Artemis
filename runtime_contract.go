@@ -17,6 +17,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/profile"
 )
 
@@ -190,6 +191,7 @@ func (engineRuntimeFactory) Start(ctx context.Context, config AgentConfig) (Rend
 		Timeout:      config.FetchTimeout,
 		ObeyRobots:   config.ObeyRobots,
 		PolicyConfig: config.PolicyConfig,
+		Diagnostics:  config.Diagnostics,
 	})
 	if err != nil {
 		return nil, err
@@ -200,6 +202,12 @@ func (engineRuntimeFactory) Start(ctx context.Context, config AgentConfig) (Rend
 type ownedEngineRuntime struct {
 	*engine.Engine
 	closed atomic.Bool
+}
+
+func (r *ownedEngineRuntime) ReleaseSession(sessionID string) {
+	if r != nil && r.Engine != nil {
+		r.Engine.ReleaseSession(sessionID)
+	}
 }
 
 func (r *ownedEngineRuntime) Healthy() bool { return r != nil && r.Engine != nil && !r.closed.Load() }
@@ -393,15 +401,24 @@ func (a *Agent) CloseSession(id string) error {
 	if !ok || session == nil {
 		return nil
 	}
-	closed := session.deactivate()
+	closed, closeErr := session.deactivate()
 	a.sessions.Delete(id)
 	if closed {
+		a.mu.RLock()
+		runtime := a.runtime
+		a.mu.RUnlock()
+		if releaser, ok := runtime.(interface{ ReleaseSession(string) }); ok {
+			releaser.ReleaseSession(id)
+		}
 		a.telemetry.Record(AgentEvent{Type: AgentEventSessionClosed, SessionID: id, At: time.Now()})
 		if session.managed && a.profileRuntime != nil {
 			if err := a.profileRuntime.Close(context.Background(), profile.SessionID(session.id), session.userID); err != nil {
-				return classifyTaskError("close_session", err)
+				closeErr = errors.Join(closeErr, err)
 			}
 		}
+	}
+	if closeErr != nil {
+		return classifyTaskError("close_session", closeErr)
 	}
 	return nil
 }
@@ -508,11 +525,11 @@ func (s *Session) beginOperation() (context.Context, bool) {
 	return s.ctx, true
 }
 
-func (s *Session) deactivate() bool {
+func (s *Session) deactivate() (bool, error) {
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
-		return false
+		return false, nil
 	}
 	s.active = false
 	cancel := s.cancel
@@ -522,19 +539,21 @@ func (s *Session) deactivate() bool {
 	}
 	s.operations.Wait()
 	s.mu.Lock()
-	s.closeAllPagesLocked()
+	closeErr := s.closeAllPagesLocked()
 	s.mu.Unlock()
-	return true
+	return true, closeErr
 }
 
-func (s *Session) closeAllPagesLocked() {
+func (s *Session) closeAllPagesLocked() error {
+	var closeErr error
 	for id, page := range s.pages {
 		delete(s.pages, id)
 		if page != nil {
-			_ = page.Close()
+			closeErr = errors.Join(closeErr, page.Close())
 		}
 	}
 	s.tabs = 0
+	return closeErr
 }
 
 // OpenPage fetches a URL into a new page within the session.
@@ -558,6 +577,7 @@ func (s *Session) OpenPage(ctx context.Context, url string, runScripts bool) (st
 		return "", nil, err
 	}
 	execCtx, cancel := context.WithCancel(ctx)
+	execCtx = network.WithSessionID(execCtx, s.id)
 	stopSession := context.AfterFunc(sessionCtx, cancel)
 	defer func() {
 		cancel()
@@ -611,7 +631,9 @@ func (s *Session) ClosePage(id string) *TaskError {
 	}
 	s.mu.Unlock()
 	if page != nil {
-		_ = page.Close()
+		if err := page.Close(); err != nil {
+			return classifyTaskError("close_page", err)
+		}
 		return nil
 	}
 	return newTaskError(TaskErrorPageNotFound, "close_page", fmt.Errorf("page %q not found", id))

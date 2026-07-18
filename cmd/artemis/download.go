@@ -44,11 +44,17 @@ func cmdDownload(args []string) int {
 	if *allowPort != 0 {
 		policyConfig.AllowedPorts = []int{*allowPort}
 	}
+	diagnosticConfig, err := cliDiagnosticsConfig(false)
+	if err != nil {
+		errf("diagnostics config: %v", err)
+		return 1
+	}
 	eng, err := engine.New(engine.Config{
 		Timeout:              *timeout,
 		SessionID:            *sessionID,
 		MaxDownloadDiskBytes: *maxSession,
 		PolicyConfig:         policyConfig,
+		Diagnostics:          diagnosticConfig,
 	})
 	if err != nil {
 		errf("download init: %v", err)

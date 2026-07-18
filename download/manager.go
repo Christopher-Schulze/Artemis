@@ -182,6 +182,16 @@ func (s *BrowserStage) Close() error {
 // Directory returns the absolute owned directory accepted by Chromium.
 func (m *DownloadManager) Directory() string { return m.dir }
 
+// DiskUsage returns committed bytes in the session-owned download directory.
+func (m *DownloadManager) DiskUsage() (int64, error) {
+	if m == nil {
+		return 0, errors.New("download manager unavailable")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.diskUsageLocked("")
+}
+
 // ResolveTarget accepts a basename or an absolute path inside Directory.
 func (m *DownloadManager) ResolveTarget(target string) (string, error) {
 	if m == nil {

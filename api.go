@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/profile"
@@ -47,6 +48,7 @@ type AgentConfig struct {
 	UserAgent     string               `json:"userAgent"`
 	ObeyRobots    bool                 `json:"obeyRobots"`
 	PolicyConfig  network.PolicyConfig `json:"policyConfig"`
+	Diagnostics   diagnostics.Config   `json:"diagnostics"`
 }
 
 // AgentState enumerates agent lifecycle states
@@ -208,11 +210,12 @@ func (a *Agent) Stop() error {
 		cancel()
 	}
 	a.operations.Wait()
-	a.closeSessions()
+	sessionErr := a.closeSessions()
 	var closeErr error
 	if runtime != nil {
 		closeErr = runtime.Close()
 	}
+	closeErr = errors.Join(sessionErr, closeErr)
 	a.finishStop()
 	if closeErr != nil {
 		return newTaskError(TaskErrorExecutionFailed, "stop", closeErr)
@@ -233,13 +236,15 @@ func (a *Agent) beginStop() (RenderlessRuntime, context.CancelFunc, bool, error)
 	return a.runtime, a.cancel, false, nil
 }
 
-func (a *Agent) closeSessions() {
+func (a *Agent) closeSessions() error {
+	var closeErr error
 	for _, session := range a.sessions.List() {
 		if session == nil {
 			continue
 		}
-		_ = a.CloseSession(session.SessionID())
+		closeErr = errors.Join(closeErr, a.CloseSession(session.SessionID()))
 	}
+	return closeErr
 }
 
 func (a *Agent) finishStop() {
@@ -272,6 +277,21 @@ func (a *Agent) Config() AgentConfig {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.config
+}
+
+// Diagnostics returns the runtime's redacted retention-bounded audit records.
+func (a *Agent) Diagnostics() ([]diagnostics.Record, error) {
+	a.mu.RLock()
+	runtime := a.runtime
+	state := a.state
+	a.mu.RUnlock()
+	provider, ok := runtime.(interface {
+		Diagnostics() ([]diagnostics.Record, error)
+	})
+	if state != AgentStateRunning || !ok {
+		return nil, newTaskError(TaskErrorInvalidTransition, "diagnostics", fmt.Errorf("state %s", state))
+	}
+	return provider.Diagnostics()
 }
 
 // CreateSession creates a new browser session
@@ -467,7 +487,7 @@ func executionContext(parent, runCtx, sessionCtx context.Context, task Task, con
 	stopRun := context.AfterFunc(runCtx, cancel)
 	stopSession := context.AfterFunc(sessionCtx, cancel)
 	timeoutCtx, timeoutCancel := context.WithTimeout(execCtx, taskTimeout(task, config))
-	return timeoutCtx, func() {
+	return network.WithSessionID(timeoutCtx, task.SessionID), func() {
 		timeoutCancel()
 		stopSession()
 		stopRun()
@@ -540,8 +560,8 @@ func (s *Session) IsActive() bool {
 // Close closes the session
 func (s *Session) Close() error {
 	if s.owner == nil {
-		_ = s.deactivate()
-		return nil
+		_, err := s.deactivate()
+		return err
 	}
 	return s.owner.CloseSession(s.id)
 }

@@ -45,7 +45,7 @@ func newChromiumPolicyProxy(policy *network.Policy) (*chromiumPolicyProxy, error
 		policy: policy, listener: listener, done: make(chan struct{}), conns: make(map[net.Conn]struct{}),
 	}
 	proxy.transport = &http.Transport{
-		Proxy: nil, DialContext: policy.DialContext, ForceAttemptHTTP2: true,
+		Proxy: nil, DialContext: policy.DialContextFor("chromium-proxy"), ForceAttemptHTTP2: true,
 		MaxIdleConns: 32, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second,
 	}
 	proxy.server = &http.Server{
@@ -99,7 +99,7 @@ func (p *chromiumPolicyProxy) serveConnect(writer http.ResponseWriter, request *
 		http.Error(writer, "tunnel blocked by network policy", http.StatusForbidden)
 		return
 	}
-	upstream, err := p.policy.DialContext(request.Context(), "tcp", request.Host)
+	upstream, err := p.policy.DialContextFor("chromium-proxy")(request.Context(), "tcp", request.Host)
 	if err != nil {
 		http.Error(writer, "tunnel blocked by network policy", http.StatusForbidden)
 		return

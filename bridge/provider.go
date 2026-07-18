@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -58,6 +59,10 @@ type ProviderConfig struct {
 	Sandbox browserprocess.SandboxPolicy
 	// ResourceBudget contains hard owned-process limits.
 	ResourceBudget browserprocess.ResourceBudget
+	// PolicyDecisionSink persists redacted canonical egress decisions.
+	PolicyDecisionSink network.DecisionSink
+	// ResourceSink persists redacted Chromium process-group samples.
+	ResourceSink browserprocess.ResourceSink
 }
 
 // BrowserSession represents an active browser session from a provider.
@@ -192,7 +197,7 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 	if config.ProxyURL != "" {
 		return nil, fmt.Errorf("bridge: external proxy cannot preserve local browser egress enforcement")
 	}
-	if config.CDPURL != "" && (config.ChromePath != "" || config.ProfileDir != "" || len(config.ExtraArgs) != 0 || config.StartupTimeout != 0 || config.ShutdownTimeout != 0 || config.AllowPrivateNetworks || len(config.AllowedPorts) != 0 || config.Sandbox != "" || config.ResourceBudget != (browserprocess.ResourceBudget{})) {
+	if config.CDPURL != "" && (config.ChromePath != "" || config.ProfileDir != "" || len(config.ExtraArgs) != 0 || config.StartupTimeout != 0 || config.ShutdownTimeout != 0 || config.AllowPrivateNetworks || len(config.AllowedPorts) != 0 || config.Sandbox != "" || config.ResourceBudget != (browserprocess.ResourceBudget{}) || config.PolicyDecisionSink != nil || config.ResourceSink != nil) {
 		return nil, fmt.Errorf("bridge: local launch options cannot be combined with external CDP attachment")
 	}
 	var runtime *ChromiumBrowser
@@ -205,6 +210,7 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 			ExtraArgs: config.ExtraArgs, StartupTimeout: config.StartupTimeout, ShutdownTimeout: config.ShutdownTimeout,
 			AllowPrivateNetworks: config.AllowPrivateNetworks, AllowedPorts: config.AllowedPorts,
 			Sandbox: config.Sandbox, ResourceBudget: config.ResourceBudget,
+			PolicyDecisionSink: config.PolicyDecisionSink, ResourceSink: config.ResourceSink,
 		})
 	}
 	if err != nil {

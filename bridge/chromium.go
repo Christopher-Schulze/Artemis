@@ -154,7 +154,7 @@ func LaunchChromium(ctx context.Context, config browserprocess.LaunchConfig) (*C
 	cloneSweepOnce.Do(browserprocess.SweepOrphanCodeSignClones)
 	policy, err := network.NewPolicy(network.PolicyConfig{
 		AllowedPorts: config.AllowedPorts, AllowPrivateNetworks: config.AllowPrivateNetworks,
-	}, nil, nil)
+	}, nil, config.PolicyDecisionSink)
 	if err != nil {
 		return nil, fmt.Errorf("create browser network policy: %w", err)
 	}

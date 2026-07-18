@@ -86,6 +86,11 @@ Flags:
 		errf("%v", err)
 		return 2
 	}
+	diagnosticConfig, err := cliDiagnosticsConfig(false)
+	if err != nil {
+		errf("diagnostics config: %v", err)
+		return 1
+	}
 
 	// Read the script file.
 	scriptBytes, err := os.ReadFile(*scriptFile)
@@ -104,6 +109,8 @@ Flags:
 		ProxyURL:     *proxyURL,
 		Timeout:      timeout,
 		MaxBodyBytes: *maxBody,
+		SessionID:    fmt.Sprintf("cli-run-%d", os.Getpid()),
+		Diagnostics:  diagnosticConfig,
 		PolicyConfig: network.PolicyConfig{
 			AllowPrivateNetworks: *allowPrivate,
 		},
