@@ -24,6 +24,14 @@ const (
 	policyHostResolverRule = "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 )
 
+// SandboxPolicy controls whether Chromium's OS sandbox must remain enabled.
+type SandboxPolicy string
+
+const (
+	SandboxRequired SandboxPolicy = "required"
+	SandboxDisabled SandboxPolicy = "disabled"
+)
+
 // LaunchConfig configures one owned Chromium process.
 type LaunchConfig struct {
 	BinaryPath           string
@@ -36,6 +44,9 @@ type LaunchConfig struct {
 	AllowPrivateNetworks bool
 	AllowedPorts         []int
 	PolicyProxyURL       string
+	Sandbox              SandboxPolicy
+	ResourceBudget       ResourceBudget
+	resourceSampler      resourceSampler
 }
 
 // Browser owns a launched Chromium process and its disposable profile.
@@ -49,10 +60,16 @@ type Browser struct {
 	shutdown      time.Duration
 	output        *cappedOutput
 	done          chan struct{}
+	processDone   chan struct{}
+	ready         chan struct{}
 	waitErr       error
+	terminalErr   error
 	closing       bool
 	closeOnce     sync.Once
 	closeErr      error
+	cleanupOnce   sync.Once
+	cleanupErr    error
+	warnings      []string
 }
 
 // Launch starts Chromium with an isolated loopback CDP endpoint.
@@ -88,6 +105,19 @@ func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
 	if config.OutputLimit == 0 {
 		config.OutputLimit = defaultOutputLimit
 	}
+	if config.Sandbox == "" {
+		config.Sandbox = SandboxRequired
+	}
+	if config.Sandbox != SandboxRequired && config.Sandbox != SandboxDisabled {
+		return LaunchConfig{}, Binary{}, invalidConfig(fmt.Sprintf("invalid sandbox policy %q", config.Sandbox))
+	}
+	config.ResourceBudget.applyDefaults()
+	if err := config.ResourceBudget.validate(); err != nil {
+		return LaunchConfig{}, Binary{}, invalidConfig(err.Error())
+	}
+	if config.resourceSampler == nil {
+		config.resourceSampler = sampleProcessResources
+	}
 	if config.StartupTimeout < 0 || config.ShutdownTimeout < 0 || config.OutputLimit < 1024 {
 		return LaunchConfig{}, Binary{}, invalidConfig("timeouts must be positive and output limit must be at least 1024 bytes")
 	}
@@ -96,7 +126,7 @@ func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
 		switch name {
 		case "--remote-debugging-port", "--remote-debugging-address", "--remote-debugging-pipe", "--user-data-dir",
 			"--proxy-server", "--proxy-bypass-list", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server",
-			"--host-resolver-rules", "--enable-quic", "--disable-quic":
+			"--host-resolver-rules", "--enable-quic", "--disable-quic", "--no-sandbox", "--disable-setuid-sandbox":
 			return LaunchConfig{}, Binary{}, invalidConfig(fmt.Sprintf("reserved Chromium flag %q", name))
 		}
 	}
@@ -212,19 +242,24 @@ func releaseProfileLease(lease string) error {
 
 func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profileDir, profileLease string, removeProfile bool) (*Browser, error) {
 	args := chromiumArgs(config, profileDir)
-	cmd := exec.Command(binary.Path, args...)
+	cmd := newProcessCommand(binary.Path, profileDir, removeProfile, args)
+	cmd.WaitDelay = config.ShutdownTimeout
 	configureProcessGroup(cmd)
 	output := newCappedOutput(config.OutputLimit)
 	cmd.Stdout = output
 	cmd.Stderr = output
 	browser := &Browser{
 		cmd: cmd, profileDir: profileDir, profileLease: profileLease, removeProfile: removeProfile,
-		shutdown: config.ShutdownTimeout, output: output, done: make(chan struct{}),
+		shutdown: config.ShutdownTimeout, output: output, done: make(chan struct{}), processDone: make(chan struct{}), ready: make(chan struct{}),
+	}
+	if config.Sandbox == SandboxDisabled {
+		browser.warnings = []string{"Chromium sandbox is disabled by explicit policy"}
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, &Error{Code: ErrorLaunchFailed, Op: "start", Err: err}
 	}
 	go browser.wait()
+	go browser.supervise(ctx, config)
 	endpoint, err := browser.waitForEndpoint(ctx, config.StartupTimeout)
 	if err != nil {
 		_ = browser.Close()
@@ -233,6 +268,7 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 	browser.mu.Lock()
 	browser.endpoint = endpoint
 	browser.mu.Unlock()
+	close(browser.ready)
 	return browser, nil
 }
 
@@ -253,6 +289,9 @@ func chromiumArgs(config LaunchConfig, profileDir string) []string {
 	if config.Headless {
 		args = append(args, "--headless=new", "--disable-gpu")
 	}
+	if config.Sandbox == SandboxDisabled {
+		args = append(args, "--no-sandbox")
+	}
 	if config.PolicyProxyURL != "" {
 		args = append(args,
 			"--proxy-server="+config.PolicyProxyURL,
@@ -270,7 +309,85 @@ func (b *Browser) wait() {
 	b.mu.Lock()
 	b.waitErr = err
 	b.mu.Unlock()
-	close(b.done)
+	close(b.processDone)
+}
+
+func (b *Browser) supervise(ctx context.Context, config LaunchConfig) {
+	ticker := time.NewTicker(config.ResourceBudget.SampleInterval)
+	defer ticker.Stop()
+	timeout := time.NewTimer(config.ResourceBudget.SessionTimeout)
+	defer timeout.Stop()
+	ctxDone := ctx.Done()
+	timeoutC := timeout.C
+	for {
+		select {
+		case <-b.processDone:
+			b.reapHelpers()
+			b.cleanup()
+			close(b.done)
+			return
+		case <-ctxDone:
+			b.setTerminalError(&Error{Code: ErrorCancelled, Op: "supervise running browser", Err: context.Cause(ctx)})
+			b.terminateAfterFailure()
+			ctxDone = nil
+			timeoutC = nil
+		case <-timeoutC:
+			b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "supervise running browser", Err: fmt.Errorf("session timeout %s exceeded", config.ResourceBudget.SessionTimeout)})
+			b.terminateAfterFailure()
+			ctxDone = nil
+			timeoutC = nil
+		case <-ticker.C:
+			select {
+			case <-b.ready:
+			default:
+				continue
+			}
+			usage, err := config.resourceSampler(b.cmd.Process.Pid, b.profileDir)
+			if err != nil {
+				select {
+				case <-b.processDone:
+					continue
+				default:
+				}
+				b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "sample browser resources", Err: err})
+				b.terminateAfterFailure()
+				ctxDone = nil
+				timeoutC = nil
+				continue
+			}
+			if err := config.ResourceBudget.exceeded(usage); err != nil {
+				b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "enforce browser resources", Err: err})
+				b.terminateAfterFailure()
+				ctxDone = nil
+				timeoutC = nil
+			}
+		}
+	}
+}
+
+func (b *Browser) setTerminalError(err error) {
+	b.mu.Lock()
+	if b.terminalErr == nil && !b.closing {
+		b.terminalErr = err
+	}
+	b.mu.Unlock()
+}
+
+func (b *Browser) terminateAfterFailure() {
+	if err := b.terminate(); err != nil {
+		b.mu.Lock()
+		b.terminalErr = errors.Join(b.terminalErr, err)
+		b.mu.Unlock()
+	}
+}
+
+func (b *Browser) reapHelpers() {
+	b.mu.RLock()
+	closing := b.closing
+	b.mu.RUnlock()
+	if !closing {
+		_ = signalProcessGroup(b.cmd.Process, syscall.SIGKILL)
+	}
 }
 
 func (b *Browser) waitForEndpoint(ctx context.Context, timeout time.Duration) (string, error) {
@@ -285,9 +402,20 @@ func (b *Browser) waitForEndpoint(ctx context.Context, timeout time.Duration) (s
 			return endpoint, nil
 		}
 		select {
-		case <-b.done:
+		case <-b.processDone:
+			if terminal := b.terminalError(); terminal != nil {
+				return "", terminal
+			}
 			return "", &Error{Code: ErrorBrowserCrash, Op: "await readiness", Err: fmt.Errorf("process exited: %v; output: %s", b.WaitError(), b.Output())}
 		case <-waitCtx.Done():
+			select {
+			case <-b.processDone:
+				if terminal := b.terminalError(); terminal != nil {
+					return "", terminal
+				}
+				return "", &Error{Code: ErrorBrowserCrash, Op: "await readiness", Err: fmt.Errorf("process exited: %v; output: %s", b.WaitError(), b.Output())}
+			default:
+			}
 			code := ErrorLaunchTimeout
 			if ctx.Err() != nil {
 				code = ErrorCancelled
@@ -296,6 +424,12 @@ func (b *Browser) waitForEndpoint(ctx context.Context, timeout time.Duration) (s
 		case <-ticker.C:
 		}
 	}
+}
+
+func (b *Browser) terminalError() error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.terminalErr
 }
 
 func readEndpoint(path string) (string, error) {
@@ -336,6 +470,13 @@ func (b *Browser) Output() string {
 	return b.output.String()
 }
 
+// Warnings returns immutable launch-policy warnings requiring operator visibility.
+func (b *Browser) Warnings() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return append([]string(nil), b.warnings...)
+}
+
 // Done closes when Chromium exits.
 func (b *Browser) Done() <-chan struct{} {
 	return b.done
@@ -357,8 +498,12 @@ func (b *Browser) Err() error {
 	}
 	b.mu.RLock()
 	err := b.waitErr
+	terminalErr := b.terminalErr
 	closing := b.closing
 	b.mu.RUnlock()
+	if terminalErr != nil {
+		return terminalErr
+	}
 	if closing {
 		return nil
 	}
@@ -381,24 +526,37 @@ func (b *Browser) close() error {
 	b.closing = true
 	b.mu.Unlock()
 	result := b.terminate()
-	activePort := filepath.Join(b.profileDir, "DevToolsActivePort")
-	if err := os.Remove(activePort); err != nil && !errors.Is(err, os.ErrNotExist) {
-		result = errors.Join(result, fmt.Errorf("remove DevTools endpoint file: %w", err))
-	}
-	if err := releaseProfileLease(b.profileLease); err != nil {
-		result = errors.Join(result, fmt.Errorf("release profile lease: %w", err))
-	}
-	if b.removeProfile {
-		if err := os.RemoveAll(b.profileDir); err != nil {
-			result = errors.Join(result, fmt.Errorf("remove Chromium profile: %w", err))
-		}
+	select {
+	case <-b.done:
+		result = errors.Join(result, b.cleanupErr)
+	case <-time.After(b.shutdown):
+		result = errors.Join(result, fmt.Errorf("wait for Chromium cleanup: timeout"))
 	}
 	return result
 }
 
+func (b *Browser) cleanup() {
+	b.cleanupOnce.Do(func() {
+		var result error
+		activePort := filepath.Join(b.profileDir, "DevToolsActivePort")
+		if err := os.Remove(activePort); err != nil && !errors.Is(err, os.ErrNotExist) {
+			result = errors.Join(result, fmt.Errorf("remove DevTools endpoint file: %w", err))
+		}
+		if err := releaseProfileLease(b.profileLease); err != nil {
+			result = errors.Join(result, fmt.Errorf("release profile lease: %w", err))
+		}
+		if b.removeProfile {
+			if err := os.RemoveAll(b.profileDir); err != nil {
+				result = errors.Join(result, fmt.Errorf("remove Chromium profile: %w", err))
+			}
+		}
+		b.cleanupErr = result
+	})
+}
+
 func (b *Browser) terminate() error {
 	select {
-	case <-b.done:
+	case <-b.processDone:
 		return nil
 	default:
 		if err := signalProcessGroup(b.cmd.Process, syscall.SIGTERM); err != nil {
@@ -406,7 +564,7 @@ func (b *Browser) terminate() error {
 		}
 		timer := time.NewTimer(b.shutdown)
 		select {
-		case <-b.done:
+		case <-b.processDone:
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -421,14 +579,10 @@ func (b *Browser) terminate() error {
 		}
 	}
 
-	// The process group signal may not reach the leader if the Chromium
-	// main process has changed its process group. Use a direct SIGKILL to
-	// the recorded pid as a fallback, and bound the total close time so
-	// the caller never waits indefinitely.
 	timer := time.NewTimer(b.shutdown)
 	defer timer.Stop()
 	select {
-	case <-b.done:
+	case <-b.processDone:
 		return nil
 	case <-timer.C:
 		if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
@@ -439,7 +593,7 @@ func (b *Browser) terminate() error {
 	timer2 := time.NewTimer(b.shutdown)
 	defer timer2.Stop()
 	select {
-	case <-b.done:
+	case <-b.processDone:
 		return nil
 	case <-timer2.C:
 		return fmt.Errorf("Chromium process %d did not exit after SIGKILL", b.cmd.Process.Pid)

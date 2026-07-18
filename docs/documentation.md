@@ -150,6 +150,7 @@ The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedde
 | `DownloadRoot` | `~/.omnimus/tmp/browser` | root for the canonical `<session>/downloads` directory; override only for an isolated embedding or test runtime |
 | `MaxDownloadDiskBytes` | `1 GiB` | aggregate committed-download quota per session |
 | `MinDownloadFreeBytes` | `512 MiB` | disk headroom preserved after each accepted download |
+| `SessionBudget` | `8 tabs, 256 requests, 256 MiB responses, 1 GiB disk, 16 concurrent requests, 30m` | hard engine-session limits shared by navigation, robots, JavaScript fetch, iframe, stylesheet, intercepted responses, page leases, and downloads |
 | `JSContextPoolSize` | `0` (disabled) | size of the v8.Context pool. When > 0, `Page.Close` returns the underlying v8.Context to the pool and the next `Fetch(... RunScripts=true)` reuses it via JS-side `__artemis_reset(url)`. Skips ~30% of NewContext CPU cost. See [v8.Context pool](#v8context-pool) for caveats. |
 | `JSContextPoolWarm` | `false` | when paired with `JSContextPoolSize > 0`, pre-builds all N v8.Contexts at engine.New time so the first Fetch hits the pool fast path immediately. |
 
@@ -165,6 +166,8 @@ The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedde
 | `Navigator js.NavigatorConfig` | overrides `navigator.userAgent`/`language`/`languages`/`platform` for this Page |
 | `AsyncFetch bool` | route JS `fetch()` through a goroutine pool so multiple concurrent fetches run in parallel; the V8 thread drains results between scripts and during `WaitIdle` |
 | `OnRequest func(*RequestInfo) (*ResponseInfo, error)` | request interception; non-nil response short-circuits the network call with a mock |
+
+`engine.SessionBudget` is fail-closed. Admission never increments a counter beyond its limit, the first request, response-byte, tab, concurrency, or lifetime breach returns a typed `*engine.BudgetError`, and the same cause cancels all in-flight and subsequent work. `Engine.SessionUsage()` exposes an atomic counter snapshot. `SessionBudget.MaxDiskBytes` also tightens `MaxDownloadDiskBytes`, so renderless response persistence cannot bypass the session disk ceiling.
 
 ## CLI
 
@@ -183,6 +186,8 @@ artemis <command> [flags] [args]
 | `serve` | start the JSON-over-WebSocket steering server |
 | `observe` | capture a bounded Chromium DOM/accessibility snapshot as JSON |
 | `act` | execute one typed Chromium action and emit evidence as JSON |
+
+`act` and `observe` accept `--sandbox=required|disabled`, `--max-cpu-percent`, `--max-memory-bytes`, `--max-profile-bytes`, and `--session-timeout`. Sandbox disabling is never accepted through raw Chromium arguments and emits an explicit stderr warning when deliberately selected.
 | `session` | manage durable profile sessions (new, list, open, close) |
 | `profile` | manage browser profiles (list, create, get, delete) |
 | `doctor` | diagnose the environment and runtime readiness |
@@ -501,6 +506,8 @@ The `bridge/actions` package implements typed Chromium actions with stable-refer
 ## CDP Operations
 
 Support state: **kernel supported, high-level operations unavailable**. `process.Browser`, `bridge.CDPTransport`, `bridge.ChromiumBrowser`, `bridge.BrowserContext`, and `bridge.Page` behavior-prove binary discovery, isolated launch, browser identity, bounded request correlation, target events, lifecycle ownership, navigation, crash handling, and cleanup against real Chromium. The `bridge/cdpops` geometry and action shapes below remain unavailable until TASK-2351 and TASK-2352 prove real DOM/AX references and action postconditions.
+
+Owned Chromium launches are resource-contained by default: the process group has hard CPU, RSS, profile-disk, and lifetime ceilings; owner-context cancellation and budget breaches terminate the full group; unexpected leader exit reaps helpers; disposable profiles and configured-profile endpoint/lease state are cleaned after normal close or crash. On macOS and Linux a small POSIX guardian disables core dumps, watches the original Artemis owner PID, reaps the group, and removes owned profile state even if the owner process exits without running Go cleanup. Chromium's OS sandbox remains required unless `process.SandboxDisabled` is explicitly selected; direct `--no-sandbox` and `--disable-setuid-sandbox` arguments are rejected.
 
 | Symbol | Kind | Purpose |
 |---|---|---|

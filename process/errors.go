@@ -15,6 +15,7 @@ const (
 	ErrorLaunchTimeout  ErrorCode = "launch_timeout"
 	ErrorBrowserCrash   ErrorCode = "browser_crash"
 	ErrorCancelled      ErrorCode = "cancelled"
+	ErrorResourceBudget ErrorCode = "resource_budget_exceeded"
 )
 
 // Error is a typed Chromium process failure.

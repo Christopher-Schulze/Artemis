@@ -90,6 +90,7 @@ type Engine struct {
 	downloadOnce sync.Once
 	downloads    *artemisdownload.DownloadManager
 	downloadErr  error
+	session      *sessionBudgetController
 }
 
 // Download is the verified metadata for a committed session download.
@@ -98,20 +99,27 @@ type Download = artemisdownload.Download
 // New creates an Engine using cfg. The returned engine must be Closed.
 func New(cfg Config) (*Engine, error) {
 	cfg.applyDefaults()
+	if err := cfg.SessionBudget.validate(); err != nil {
+		return nil, err
+	}
+	session := newSessionBudgetController(cfg.SessionBudget)
 	policy, err := network.NewPolicy(cfg.PolicyConfig, nil, nil)
 	if err != nil {
+		session.close()
 		return nil, fmt.Errorf("engine: build network policy: %w", err)
 	}
 	cfg.PolicyConfig = policy.Config()
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
-		UserAgent:    cfg.UserAgent,
-		ProxyURL:     cfg.ProxyURL,
-		Timeout:      cfg.Timeout,
-		MaxBodyBytes: cfg.MaxBodyBytes,
-		Policy:       policy,
-		SessionID:    cfg.SessionID,
+		UserAgent:        cfg.UserAgent,
+		ProxyURL:         cfg.ProxyURL,
+		Timeout:          cfg.Timeout,
+		MaxBodyBytes:     cfg.MaxBodyBytes,
+		Policy:           policy,
+		SessionID:        cfg.SessionID,
+		RequestLifecycle: session,
 	})
 	if err != nil {
+		session.close()
 		return nil, fmt.Errorf("engine: build http client: %w", err)
 	}
 	var rt *js.Runtime
@@ -119,6 +127,8 @@ func New(cfg Config) (*Engine, error) {
 	case cfg.JSContextPoolSize > 0 && cfg.JSContextPoolWarm:
 		rt, err = js.NewRuntimeWithWarmPool(cfg.JSContextPoolSize)
 		if err != nil {
+			_ = client.Close()
+			session.close()
 			return nil, fmt.Errorf("engine: warm pool: %w", err)
 		}
 	case cfg.JSContextPoolSize > 0:
@@ -126,7 +136,7 @@ func New(cfg Config) (*Engine, error) {
 	default:
 		rt = js.NewRuntime()
 	}
-	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt}, nil
+	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt, session: session}, nil
 }
 
 // Config returns a copy of the active configuration.
@@ -136,9 +146,17 @@ func (e *Engine) Config() Config { return e.cfg }
 // use it for cookie inspection.
 func (e *Engine) HTTPClient() *network.HTTPClient { return e.client }
 
+// SessionUsage returns an atomic snapshot of the active hard-budget counters.
+func (e *Engine) SessionUsage() SessionUsage { return e.session.usage() }
+
 // Download fetches raw content under TargetDownload policy and atomically
 // commits it to this engine session's owned download directory.
 func (e *Engine) Download(ctx context.Context, rawURL, filename string) (*Download, error) {
+	if ctx == nil {
+		return nil, errors.New("engine: download context required")
+	}
+	ctx, release := e.session.mergeContext(ctx)
+	defer release()
 	resp, err := e.client.DoTarget(ctx, network.Request{Method: http.MethodGet, URL: rawURL}, network.TargetDownload)
 	if err != nil {
 		return nil, fmt.Errorf("engine: download %s: %w", rawURL, err)
@@ -159,6 +177,11 @@ func (e *Engine) Download(ctx context.Context, rawURL, filename string) (*Downlo
 // Fetch performs an HTTP request on rawURL and returns a Page. The page
 // is fully fetched and parsed before return. Method defaults to GET.
 func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Page, error) {
+	if ctx == nil {
+		return nil, errors.New("engine: fetch context required")
+	}
+	ctx, release := e.session.mergeContext(ctx)
+	defer release()
 	method := opts.Method
 	if method == "" {
 		method = http.MethodGet
@@ -200,6 +223,18 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 			return nil, fmt.Errorf("engine: OnRequest: %w", err)
 		}
 		if mock != nil {
+			if err := e.session.admitSynthetic(int64(len(mock.Body))); err != nil {
+				return nil, err
+			}
+			if err := e.session.acquireTab(); err != nil {
+				return nil, err
+			}
+			tabOwned := true
+			defer func() {
+				if tabOwned {
+					e.session.releaseTab()
+				}
+			}()
 			doc, err := parser.ParseHTML(bytes.NewReader(mock.Body), mock.FinalURL)
 			if err != nil {
 				return nil, fmt.Errorf("engine: parse mock: %w", err)
@@ -229,9 +264,14 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 				rawBody:    mock.Body,
 				jsCtx:      jsCtx,
 				download:   e.storePageDownload,
+				session:    e.session,
 			}
+			tabOwned = false
 			if opts.RunInlineScripts || opts.RunScripts {
-				e.runScripts(ctx, jsCtx, doc, finalURL)
+				if err := e.runScripts(ctx, jsCtx, doc, finalURL); err != nil {
+					_ = page.Close()
+					return nil, err
+				}
 			}
 			return page, nil
 		}
@@ -272,6 +312,10 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 	if err != nil {
 		return nil, fmt.Errorf("engine: js context: %w", err)
 	}
+	if err := e.session.acquireTab(); err != nil {
+		jsCtx.Close()
+		return nil, err
+	}
 
 	page := &Page{
 		url:        resp.FinalURL,
@@ -281,10 +325,14 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 		rawBody:    resp.Body,
 		jsCtx:      jsCtx,
 		download:   e.storePageDownload,
+		session:    e.session,
 	}
 
 	if opts.RunInlineScripts || opts.RunScripts {
-		e.runScripts(ctx, jsCtx, doc, resp.FinalURL)
+		if err := e.runScripts(ctx, jsCtx, doc, resp.FinalURL); err != nil {
+			_ = page.Close()
+			return nil, err
+		}
 	}
 
 	return page, nil
@@ -329,6 +377,9 @@ func (e *Engine) Submit(ctx context.Context, sub agent.FormSubmission, opts Fetc
 
 // Close releases engine-held resources.
 func (e *Engine) Close() error {
+	if e.session != nil {
+		e.session.close()
+	}
 	var firstErr error
 	if e.client != nil {
 		if err := e.client.Close(); err != nil {
@@ -344,14 +395,15 @@ func (e *Engine) Close() error {
 // runScripts walks the document and executes every <script> in document
 // order. External scripts (`src=...`) are fetched via the engine's HTTP
 // client, cached per URL, and executed against the same JS context.
-// Errors during script execution are logged via the page's console hook
-// but do not abort the page.
-func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.Document, baseURL string) {
+// Ordinary script errors do not abort the page; session-budget failures are
+// always propagated because they cancel the owning engine.
+func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.Document, baseURL string) error {
 	root := doc.Root()
 	if root == nil {
-		return
+		return nil
 	}
 	cache := map[string][]byte{}
+	var runErr error
 	webapi.Walk(root, func(n *webapi.Node) webapi.WalkAction {
 		if n.Type() != webapi.NodeElement || n.Tag() != "script" {
 			return webapi.WalkContinue
@@ -375,7 +427,14 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 				code = string(cached)
 			} else {
 				resp, err := e.client.Do(ctx, network.Request{Method: http.MethodGet, URL: absURL})
-				if err != nil || resp.StatusCode != 200 {
+				if err != nil {
+					if budgetErr := e.session.err(); budgetErr != nil {
+						runErr = budgetErr
+						return webapi.WalkStop
+					}
+					return webapi.WalkContinue
+				}
+				if resp.StatusCode != 200 {
 					return webapi.WalkContinue
 				}
 				cache[absURL] = resp.Body
@@ -388,8 +447,13 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 			return webapi.WalkContinue
 		}
 		_, _ = jsCtx.Eval(ctx, code)
+		if budgetErr := e.session.err(); budgetErr != nil {
+			runErr = budgetErr
+			return webapi.WalkStop
+		}
 		return webapi.WalkContinue
 	})
+	return runErr
 }
 
 // cookieGetter returns a function that serializes the cookies for

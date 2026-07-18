@@ -9,6 +9,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/bridge"
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
 type stringSliceFlag []string
@@ -62,4 +65,18 @@ func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func parseSandboxPolicy(raw string) (browserprocess.SandboxPolicy, error) {
+	policy := browserprocess.SandboxPolicy(raw)
+	if policy != browserprocess.SandboxRequired && policy != browserprocess.SandboxDisabled {
+		return "", fmt.Errorf("invalid sandbox policy %q (expected required or disabled)", raw)
+	}
+	return policy, nil
+}
+
+func emitProcessWarnings(browser *bridge.ChromiumBrowser) {
+	for _, warning := range browser.ProcessWarnings() {
+		fmt.Fprintln(os.Stderr, "artemis: WARNING: "+warning)
+	}
 }

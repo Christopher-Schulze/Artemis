@@ -33,6 +33,9 @@ type HTTPClientConfig struct {
 	Policy *Policy
 	// SessionID correlates redacted policy decisions without exposing URLs.
 	SessionID string
+	// RequestLifecycle optionally enforces session-wide request admission,
+	// cancellation, concurrency, and response-byte accounting.
+	RequestLifecycle RequestLifecycle
 }
 
 // HTTPClient performs HTTP requests on behalf of the engine.
@@ -98,7 +101,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetRedirect, cfg.SessionID)
 			},
 		},
-		jar: jar,
+		jar: jar, robots: newRobotsCache(),
 	}, nil
 }
 
@@ -141,7 +144,18 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 }
 
 // DoTarget executes a request under the policy identity of kind.
-func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (*Response, error) {
+func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (result *Response, resultErr error) {
+	requestCtx, finish, err := c.beginRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var responseBytes int64
+	defer func() {
+		if err := finish(responseBytes); err != nil && resultErr == nil {
+			result = nil
+			resultErr = err
+		}
+	}()
 	if r.URL == "" {
 		return nil, errors.New("request URL is empty")
 	}
@@ -149,7 +163,7 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	if method == "" {
 		method = http.MethodGet
 	}
-	req, err := http.NewRequestWithContext(ctx, method, r.URL, r.Body)
+	req, err := http.NewRequestWithContext(requestCtx, method, r.URL, r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -182,7 +196,9 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	if limit <= 0 || policyLimit < limit {
 		limit = policyLimit
 	}
-	body, err := readLimited(resp.Body, limit)
+	countedBody := &countingReader{reader: resp.Body}
+	body, err := readLimited(countedBody, limit)
+	responseBytes = countedBody.bytes
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +214,17 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 		Body:       body,
 		FinalURL:   finalURL,
 	}, nil
+}
+
+type countingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.bytes += int64(n)
+	return n, err
 }
 
 func readLimited(r io.Reader, limit int64) ([]byte, error) {

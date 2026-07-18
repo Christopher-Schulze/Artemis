@@ -18,6 +18,11 @@ func cmdAct(args []string) int {
 	binary := fs.String("binary", "", "Chromium binary path")
 	timeout := fs.Duration("timeout", 30*time.Second, "total action timeout")
 	requestJSON := fs.String("request", "", "typed action request JSON")
+	sandbox := fs.String("sandbox", string(browserprocess.SandboxRequired), "Chromium sandbox policy: required or disabled")
+	maxCPU := fs.Float64("max-cpu-percent", browserprocess.DefaultMaxCPUPercent, "maximum Chromium process-group CPU percent")
+	maxMemory := fs.Int64("max-memory-bytes", browserprocess.DefaultMaxMemoryBytes, "maximum Chromium process-group RSS bytes")
+	maxProfile := fs.Int64("max-profile-bytes", browserprocess.DefaultMaxProfileDiskBytes, "maximum Chromium profile bytes")
+	sessionTimeout := fs.Duration("session-timeout", browserprocess.DefaultSessionTimeout, "maximum Chromium session lifetime")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: artemis act --request JSON [flags] <url>"); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -31,13 +36,25 @@ func cmdAct(args []string) int {
 		errf("act request: %v", err)
 		return 2
 	}
+	sandboxPolicy, err := parseSandboxPolicy(*sandbox)
+	if err != nil {
+		errf("act sandbox: %v", err)
+		return 2
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: *binary, Headless: true})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: *binary, Headless: true, Sandbox: sandboxPolicy,
+		ResourceBudget: browserprocess.ResourceBudget{
+			MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile,
+			SessionTimeout: *sessionTimeout,
+		},
+	})
 	if err != nil {
 		errf("act launch: %v", err)
 		return 1
 	}
+	emitProcessWarnings(browser)
 	defer browser.Close()
 	owner, err := browser.NewContext(ctx)
 	if err != nil {

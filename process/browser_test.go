@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -131,6 +134,8 @@ func TestLaunchRejectsReservedFlagsAndActiveProfile(t *testing.T) {
 		"--host-resolver-rules=MAP * 127.0.0.1",
 		"--enable-quic",
 		"--disable-quic",
+		"--no-sandbox",
+		"--disable-setuid-sandbox",
 	} {
 		_, err := Launch(context.Background(), LaunchConfig{BinaryPath: script, ExtraArgs: []string{arg}})
 		if !IsCode(err, ErrorInvalidConfig) {
@@ -144,6 +149,29 @@ func TestLaunchRejectsReservedFlagsAndActiveProfile(t *testing.T) {
 	_, err := Launch(context.Background(), LaunchConfig{BinaryPath: script, UserDataDir: profile})
 	if !IsCode(err, ErrorInvalidConfig) {
 		t.Fatalf("active profile error=%v", err)
+	}
+}
+
+func TestSandboxPolicyRequiresExplicitDisableAndWarns(t *testing.T) {
+	script := writeBrowserScript(t, browserReadyScript)
+	normalized, _, err := normalizeLaunchConfig(LaunchConfig{BinaryPath: script})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.Sandbox != SandboxRequired || containsArg(chromiumArgs(normalized, "/tmp/profile"), "--no-sandbox") {
+		t.Fatalf("secure sandbox defaults not applied: %+v", normalized)
+	}
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: script, Sandbox: SandboxDisabled, StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warnings := browser.Warnings(); len(warnings) != 1 || !strings.Contains(warnings[0], "disabled") {
+		t.Fatalf("warnings=%v", warnings)
+	}
+	if err := browser.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -251,6 +279,170 @@ func TestRunningBrowserCrashIsObservable(t *testing.T) {
 	}
 	if err := browser.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUnexpectedCrashAutomaticallyCleansDisposableProfile(t *testing.T) {
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserCrashAfterReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := browser.ProfileDir()
+	<-browser.Done()
+	if _, err := os.Stat(profile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("crashed browser retained disposable profile: %v", err)
+	}
+}
+
+func TestRunningBrowserHonorsOwnerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	browser, err := Launch(ctx, LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case <-browser.Done():
+	case <-time.After(time.Second):
+		t.Fatal("browser survived owner cancellation")
+	}
+	if err := browser.Err(); !IsCode(err, ErrorCancelled) {
+		t.Fatalf("cancellation error=%v", err)
+	}
+}
+
+func TestResourceBudgetBreachTerminatesProcessGroup(t *testing.T) {
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{MaxMemoryBytes: 1, SampleInterval: 5 * time.Millisecond},
+		resourceSampler: func(int, string) (ResourceUsage, error) {
+			return ResourceUsage{MemoryBytes: 2}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-browser.Done():
+	case <-time.After(time.Second):
+		t.Fatal("browser survived resource breach")
+	}
+	if err := browser.Err(); !IsCode(err, ErrorResourceBudget) {
+		t.Fatalf("resource error=%v", err)
+	}
+}
+
+func TestSessionTimeoutDuringStartupIsResourceFailure(t *testing.T) {
+	_, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserIdleScript), StartupTimeout: time.Second, ShutdownTimeout: 100 * time.Millisecond,
+		ResourceBudget: ResourceBudget{SessionTimeout: 20 * time.Millisecond},
+	})
+	if !IsCode(err, ErrorResourceBudget) {
+		t.Fatalf("session timeout error=%v", err)
+	}
+}
+
+func TestProfileDiskBudgetUsesRealOwnedProfileBytes(t *testing.T) {
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserWritesProfileScript), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{MaxProfileDiskBytes: 1024, SampleInterval: 5 * time.Millisecond},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-browser.Done():
+	case <-time.After(time.Second):
+		t.Fatal("browser survived profile disk breach")
+	}
+	if err := browser.Err(); !IsCode(err, ErrorResourceBudget) {
+		t.Fatalf("profile budget error=%v", err)
+	}
+}
+
+func TestUnexpectedLeaderExitReapsProcessGroupHelper(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "helper.pid")
+	script := strings.ReplaceAll(browserLeaderExitWithHelperScript, "HELPER_PID_FILE", pidFile)
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, script), StartupTimeout: time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-browser.Done()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for processAlive(pid) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if processAlive(pid) {
+		t.Fatalf("helper process %d survived leader exit", pid)
+	}
+}
+
+func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
+	if os.Getenv("ARTEMIS_PROCESS_GUARDIAN_HELPER") == "1" {
+		script := os.Getenv("ARTEMIS_PROCESS_GUARDIAN_SCRIPT")
+		state := os.Getenv("ARTEMIS_PROCESS_GUARDIAN_STATE")
+		browser, err := Launch(context.Background(), LaunchConfig{
+			BinaryPath: script, StartupTimeout: time.Second, ShutdownTimeout: 100 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(state, []byte(browser.ProfileDir()+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(0)
+	}
+
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "browser.pid")
+	stateFile := filepath.Join(dir, "state")
+	script := strings.ReplaceAll(browserRecordsPIDScript, "BROWSER_PID_FILE", pidFile)
+	scriptPath := writeBrowserScript(t, script)
+	cmd := exec.Command(os.Args[0], "-test.run=TestProcessGuardianReapsBrowserAfterOwnerDeath")
+	cmd.Env = append(os.Environ(),
+		"ARTEMIS_PROCESS_GUARDIAN_HELPER=1",
+		"ARTEMIS_PROCESS_GUARDIAN_SCRIPT="+scriptPath,
+		"ARTEMIS_PROCESS_GUARDIAN_STATE="+stateFile,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("owner helper: %v: %s", err, output)
+	}
+	pidData, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileData, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := strings.TrimSpace(string(profileData))
+	deadline := time.Now().Add(4 * time.Second)
+	for (processAlive(pid) || pathExists(profile)) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if processAlive(pid) {
+		t.Fatalf("browser process %d survived owner death", pid)
+	}
+	if pathExists(profile) {
+		t.Fatalf("disposable profile %q survived owner death", profile)
 	}
 }
 
@@ -362,6 +554,59 @@ printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
 trap '' TERM INT
 while :; do sleep 1; done
 `
+
+const browserLeaderExitWithHelperScript = `#!/bin/sh
+profile=""
+for arg in "$@"; do
+  case "$arg" in
+    --user-data-dir=*) profile="${arg#*=}" ;;
+  esac
+done
+mkdir -p "$profile"
+sleep 300 &
+printf '%s\n' "$!" > "HELPER_PID_FILE"
+printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
+sleep 0.05
+exit 9
+`
+
+const browserWritesProfileScript = `#!/bin/sh
+profile=""
+for arg in "$@"; do
+  case "$arg" in
+    --user-data-dir=*) profile="${arg#*=}" ;;
+  esac
+done
+mkdir -p "$profile"
+printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
+dd if=/dev/zero of="$profile/large.bin" bs=2048 count=1 2>/dev/null
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+`
+
+const browserRecordsPIDScript = `#!/bin/sh
+profile=""
+for arg in "$@"; do
+  case "$arg" in
+    --user-data-dir=*) profile="${arg#*=}" ;;
+  esac
+done
+mkdir -p "$profile"
+printf '%s\n' "$$" > "BROWSER_PID_FILE"
+printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
+trap '' TERM INT
+while :; do sleep 1; done
+`
+
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !errors.Is(err, os.ErrNotExist)
+}
 
 func writeBrowserScript(t *testing.T, body string) string {
 	t.Helper()

@@ -50,6 +50,9 @@ type Config struct {
 	MaxDownloadDiskBytes int64
 	// MinDownloadFreeBytes is the free-space headroom preserved after a write.
 	MinDownloadFreeBytes int64
+	// SessionBudget contains hard limits shared by all renderless work owned
+	// by this engine unit.
+	SessionBudget SessionBudget
 	// JSContextPoolSize enables the v8.Context pool for JS execution.
 	// Pooled Contexts skip ~30% of NewContext CPU cost (install* and
 	// flushBootstraps) by reusing a previously-built v8.Context after
@@ -79,5 +82,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MinDownloadFreeBytes == 0 {
 		c.MinDownloadFreeBytes = DefaultDownloadFreeBytes
+	}
+	c.SessionBudget.applyDefaults(c.MaxDownloadDiskBytes)
+	if c.SessionBudget.MaxDiskBytes < c.MaxDownloadDiskBytes {
+		c.MaxDownloadDiskBytes = c.SessionBudget.MaxDiskBytes
 	}
 }

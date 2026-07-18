@@ -134,10 +134,7 @@ func (rc *robotsCache) put(host string, p *RobotsPolicy) {
 
 // FetchRobots fetches and caches the robots.txt for the host of u.
 // Network errors and 404s are treated as "no policy = everything allowed".
-func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (*RobotsPolicy, error) {
-	if c.robots == nil {
-		c.robots = newRobotsCache()
-	}
+func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *RobotsPolicy, resultErr error) {
 	if p, ok := c.robots.get(u.Host); ok {
 		return p, nil
 	}
@@ -145,7 +142,18 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (*RobotsPolicy
 	robotsURL.Path = "/robots.txt"
 	robotsURL.RawQuery = ""
 	robotsURL.Fragment = ""
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURL.String(), nil)
+	requestCtx, finish, err := c.beginRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var responseBytes int64
+	defer func() {
+		if err := finish(responseBytes); err != nil && resultErr == nil {
+			result = nil
+			resultErr = err
+		}
+	}()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, robotsURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build robots req: %w", err)
 	}
@@ -154,6 +162,9 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (*RobotsPolicy
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if cause := context.Cause(requestCtx); cause != nil {
+			return nil, cause
+		}
 		// Network error: treat as no policy.
 		empty := &RobotsPolicy{Groups: map[string][]RobotsRule{}}
 		c.robots.put(u.Host, empty)
@@ -165,7 +176,9 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (*RobotsPolicy
 		c.robots.put(u.Host, empty)
 		return empty, nil
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	countedBody := &countingReader{reader: resp.Body}
+	body, err := io.ReadAll(io.LimitReader(countedBody, 1<<20))
+	responseBytes = countedBody.bytes
 	if err != nil {
 		return nil, fmt.Errorf("read robots: %w", err)
 	}

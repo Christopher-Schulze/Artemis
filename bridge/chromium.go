@@ -244,6 +244,15 @@ func (b *ChromiumBrowser) ProfileDir() string {
 	return b.process.ProfileDir()
 }
 
+// ProcessWarnings returns owned-process security warnings. External CDP
+// attachments have no local process policy to report.
+func (b *ChromiumBrowser) ProcessWarnings() []string {
+	if b.process == nil {
+		return nil
+	}
+	return b.process.Warnings()
+}
+
 // Transport exposes the typed CDP transport for advanced browser-scoped calls.
 func (b *ChromiumBrowser) Transport() *CDPTransport {
 	return b.transport
