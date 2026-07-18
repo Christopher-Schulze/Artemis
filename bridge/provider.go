@@ -37,7 +37,8 @@ type ProviderConfig struct {
 	SessionName string
 	// ProfileDir is the browser profile directory for persistent identity.
 	ProfileDir string
-	// ProxyURL routes outbound traffic through the given proxy.
+	// ProxyURL requests an upstream proxy; the local provider rejects it because
+	// remote DNS resolution cannot satisfy the local dial-enforcement contract.
 	ProxyURL string
 	// ExtraArgs are additional Chrome launch flags.
 	ExtraArgs []string
@@ -47,6 +48,10 @@ type ProviderConfig struct {
 	StartupTimeout time.Duration
 	// ShutdownTimeout bounds graceful process shutdown before forced cleanup.
 	ShutdownTimeout time.Duration
+	// AllowPrivateNetworks permits private destinations for explicitly controlled workloads.
+	AllowPrivateNetworks bool
+	// AllowedPorts replaces the default browser egress port allowlist when non-empty.
+	AllowedPorts []int
 	// MaxTabs bounds live and concurrently creating targets for this runtime.
 	MaxTabs int
 }
@@ -180,7 +185,10 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 	if config.MaxTabs < 0 {
 		return nil, fmt.Errorf("bridge: max tabs cannot be negative")
 	}
-	if config.CDPURL != "" && (config.ChromePath != "" || config.ProfileDir != "" || len(config.ExtraArgs) != 0 || config.StartupTimeout != 0 || config.ShutdownTimeout != 0) {
+	if config.ProxyURL != "" {
+		return nil, fmt.Errorf("bridge: external proxy cannot preserve local browser egress enforcement")
+	}
+	if config.CDPURL != "" && (config.ChromePath != "" || config.ProfileDir != "" || len(config.ExtraArgs) != 0 || config.StartupTimeout != 0 || config.ShutdownTimeout != 0 || config.AllowPrivateNetworks || len(config.AllowedPorts) != 0) {
 		return nil, fmt.Errorf("bridge: local launch options cannot be combined with external CDP attachment")
 	}
 	var runtime *ChromiumBrowser
@@ -191,6 +199,7 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 		runtime, err = LaunchChromium(ctx, browserprocess.LaunchConfig{
 			BinaryPath: config.ChromePath, UserDataDir: config.ProfileDir, Headless: config.Headless,
 			ExtraArgs: config.ExtraArgs, StartupTimeout: config.StartupTimeout, ShutdownTimeout: config.ShutdownTimeout,
+			AllowPrivateNetworks: config.AllowPrivateNetworks, AllowedPorts: config.AllowedPorts,
 		})
 	}
 	if err != nil {

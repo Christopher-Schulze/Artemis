@@ -185,6 +185,16 @@ func TestPolicyConfigurationCopyIsImmutable(t *testing.T) {
 	}
 }
 
+func TestNewPolicyDoesNotMutateInputPorts(t *testing.T) {
+	ports := []int{443, 80}
+	if _, err := NewPolicy(PolicyConfig{AllowedPorts: ports}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ports[0] != 443 || ports[1] != 80 {
+		t.Fatalf("input ports mutated: %v", ports)
+	}
+}
+
 func FuzzPolicyNeverAllowsMalformedOrPrivateHosts(f *testing.F) {
 	for _, rawURL := range []string{
 		"http://127.0.0.1/", "http://2130706433/", "http://0x7f000001/",

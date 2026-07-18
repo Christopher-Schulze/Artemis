@@ -21,17 +21,21 @@ const (
 	defaultShutdownTimeout = 5 * time.Second
 	defaultOutputLimit     = 256 * 1024
 	profileLeaseName       = ".artemis-profile.lock"
+	policyHostResolverRule = "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 )
 
 // LaunchConfig configures one owned Chromium process.
 type LaunchConfig struct {
-	BinaryPath      string
-	UserDataDir     string
-	Headless        bool
-	ExtraArgs       []string
-	StartupTimeout  time.Duration
-	ShutdownTimeout time.Duration
-	OutputLimit     int
+	BinaryPath           string
+	UserDataDir          string
+	Headless             bool
+	ExtraArgs            []string
+	StartupTimeout       time.Duration
+	ShutdownTimeout      time.Duration
+	OutputLimit          int
+	AllowPrivateNetworks bool
+	AllowedPorts         []int
+	PolicyProxyURL       string
 }
 
 // Browser owns a launched Chromium process and its disposable profile.
@@ -90,15 +94,42 @@ func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
 	for _, arg := range config.ExtraArgs {
 		name := strings.SplitN(arg, "=", 2)[0]
 		switch name {
-		case "--remote-debugging-port", "--remote-debugging-address", "--remote-debugging-pipe", "--user-data-dir":
+		case "--remote-debugging-port", "--remote-debugging-address", "--remote-debugging-pipe", "--user-data-dir",
+			"--proxy-server", "--proxy-bypass-list", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server",
+			"--host-resolver-rules", "--enable-quic", "--disable-quic":
 			return LaunchConfig{}, Binary{}, invalidConfig(fmt.Sprintf("reserved Chromium flag %q", name))
 		}
+	}
+	for _, port := range config.AllowedPorts {
+		if port < 1 || port > 65535 {
+			return LaunchConfig{}, Binary{}, invalidConfig(fmt.Sprintf("invalid allowed port %d", port))
+		}
+	}
+	config.AllowedPorts = append([]int(nil), config.AllowedPorts...)
+	if err := validatePolicyProxyURL(config.PolicyProxyURL); err != nil {
+		return LaunchConfig{}, Binary{}, err
 	}
 	binary, err := DiscoverBinary(config.BinaryPath)
 	if err != nil {
 		return LaunchConfig{}, Binary{}, err
 	}
 	return config, binary, nil
+}
+
+func validatePolicyProxyURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return invalidConfig("policy proxy must be an origin-only loopback HTTP URL")
+	}
+	host := parsed.Hostname()
+	port, portErr := strconv.Atoi(parsed.Port())
+	if (host != "127.0.0.1" && host != "::1") || portErr != nil || port < 1 || port > 65535 {
+		return invalidConfig("policy proxy must use a loopback IP and explicit valid port")
+	}
+	return nil
 }
 
 func invalidConfig(message string) error {
@@ -221,6 +252,14 @@ func chromiumArgs(config LaunchConfig, profileDir string) []string {
 	}
 	if config.Headless {
 		args = append(args, "--headless=new", "--disable-gpu")
+	}
+	if config.PolicyProxyURL != "" {
+		args = append(args,
+			"--proxy-server="+config.PolicyProxyURL,
+			"--proxy-bypass-list=<-loopback>",
+			"--host-resolver-rules="+policyHostResolverRule,
+			"--disable-quic",
+		)
 	}
 	args = append(args, config.ExtraArgs...)
 	return append(args, "about:blank")

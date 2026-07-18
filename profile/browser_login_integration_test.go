@@ -30,7 +30,10 @@ func TestBrowserLoginExecutorRealChromiumCredentialAndPostcondition(t *testing.T
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second,
+		AllowPrivateNetworks: true, AllowedPorts: []int{profileTestURLPort(t, server.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

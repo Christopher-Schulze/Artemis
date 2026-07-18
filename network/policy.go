@@ -20,6 +20,8 @@ type TargetKind string
 const (
 	TargetNavigation  TargetKind = "navigation"
 	TargetRedirect    TargetKind = "redirect"
+	TargetSubframe    TargetKind = "subframe"
+	TargetWorker      TargetKind = "worker"
 	TargetSubresource TargetKind = "subresource"
 	TargetWebSocket   TargetKind = "websocket"
 	TargetDownload    TargetKind = "download"
@@ -128,6 +130,7 @@ func normalizePolicyConfig(config PolicyConfig) PolicyConfig {
 	config.AllowedMethods = normalizedStrings(config.AllowedMethods, strings.ToUpper)
 	config.AllowedContentTypes = normalizedStrings(config.AllowedContentTypes, strings.ToLower)
 	config.AllowedDomains = normalizedStrings(config.AllowedDomains, strings.ToLower)
+	config.AllowedPorts = append([]int(nil), config.AllowedPorts...)
 	sort.Ints(config.AllowedPorts)
 	return config
 }

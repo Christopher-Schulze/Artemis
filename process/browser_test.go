@@ -123,6 +123,14 @@ func TestLaunchRejectsReservedFlagsAndActiveProfile(t *testing.T) {
 		"--remote-debugging-address=0.0.0.0",
 		"--remote-debugging-pipe",
 		"--user-data-dir=/tmp/shared-profile",
+		"--proxy-server=http://127.0.0.1:8080",
+		"--proxy-bypass-list=*",
+		"--proxy-pac-url=http://127.0.0.1/proxy.pac",
+		"--proxy-auto-detect",
+		"--no-proxy-server",
+		"--host-resolver-rules=MAP * 127.0.0.1",
+		"--enable-quic",
+		"--disable-quic",
 	} {
 		_, err := Launch(context.Background(), LaunchConfig{BinaryPath: script, ExtraArgs: []string{arg}})
 		if !IsCode(err, ErrorInvalidConfig) {
@@ -137,6 +145,45 @@ func TestLaunchRejectsReservedFlagsAndActiveProfile(t *testing.T) {
 	if !IsCode(err, ErrorInvalidConfig) {
 		t.Fatalf("active profile error=%v", err)
 	}
+}
+
+func TestChromiumArgsPinPolicyProxyAndDNS(t *testing.T) {
+	config := LaunchConfig{Headless: true, PolicyProxyURL: "http://127.0.0.1:43123"}
+	args := chromiumArgs(config, "/tmp/artemis-profile")
+	for _, want := range []string{
+		"--proxy-server=http://127.0.0.1:43123",
+		"--proxy-bypass-list=<-loopback>",
+		"--host-resolver-rules=" + policyHostResolverRule,
+		"--disable-quic",
+	} {
+		if !containsArg(args, want) {
+			t.Fatalf("Chromium args missing %q: %v", want, args)
+		}
+	}
+}
+
+func TestNormalizeLaunchConfigRejectsInvalidPolicyProxyAndPorts(t *testing.T) {
+	script := writeBrowserScript(t, browserReadyScript)
+	for _, config := range []LaunchConfig{
+		{BinaryPath: script, PolicyProxyURL: "https://127.0.0.1:443"},
+		{BinaryPath: script, PolicyProxyURL: "http://example.com:8080"},
+		{BinaryPath: script, PolicyProxyURL: "http://127.0.0.1"},
+		{BinaryPath: script, AllowedPorts: []int{0}},
+		{BinaryPath: script, AllowedPorts: []int{65536}},
+	} {
+		if _, _, err := normalizeLaunchConfig(config); !IsCode(err, ErrorInvalidConfig) {
+			t.Fatalf("config=%+v error=%v", config, err)
+		}
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConfiguredProfileLeasePreventsParallelOwnership(t *testing.T) {

@@ -3,11 +3,13 @@ package actions
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,7 +47,10 @@ func newActionFixture(t *testing.T) *actionFixture {
 		_, _ = w.Write([]byte("verified-download"))
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
+		AllowedPorts: []int{actionTestURLPort(t, server.URL)},
+	})
 	if err != nil {
 		cancel()
 		server.Close()
@@ -242,18 +247,26 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	childListener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Fatalf("IPv6 loopback required for OOPIF fixture: %v", err)
+	}
+	child := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`))
 	}))
+	child.Listener = childListener
+	child.Start()
 	defer child.Close()
-	crossOrigin := strings.Replace(child.URL, "127.0.0.1", "localhost", 1)
 	main := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, crossOrigin)
+		fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL)
 	}))
 	defer main.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true, ExtraArgs: []string{"--site-per-process"}})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, ExtraArgs: []string{"--site-per-process"}, AllowPrivateNetworks: true,
+		AllowedPorts: []int{actionTestURLPort(t, main.URL), actionTestURLPort(t, child.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,6 +321,19 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	if out.Value != "yes" {
 		t.Fatalf("OOPIF action value=%#v", out.Value)
 	}
+}
+
+func actionTestURLPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func requireAction(t *testing.T, out Outcome) {

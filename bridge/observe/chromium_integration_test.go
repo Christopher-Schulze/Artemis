@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,7 +26,10 @@ func TestChromiumObservationFixture(t *testing.T) {
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
+		AllowedPorts: []int{observationTestURLPort(t, fixture.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +96,19 @@ func TestChromiumObservationFixture(t *testing.T) {
 	if len(frames) < 2 {
 		t.Fatalf("frame ownership missing: %#v", frames)
 	}
+}
+
+func observationTestURLPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func waitReady(t *testing.T, ctx context.Context, page *bridge.Page) {

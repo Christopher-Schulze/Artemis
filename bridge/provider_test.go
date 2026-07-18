@@ -84,6 +84,19 @@ func TestLocalChromeProviderHealthy(t *testing.T) {
 	}
 }
 
+func TestLocalChromeProviderRejectsUnenforceableProxyAndExternalPolicy(t *testing.T) {
+	provider := &LocalChromeProvider{}
+	for _, config := range []ProviderConfig{
+		{ProxyURL: "http://127.0.0.1:8080"},
+		{CDPURL: "ws://127.0.0.1:9222", AllowPrivateNetworks: true},
+		{CDPURL: "ws://127.0.0.1:9222", AllowedPorts: []int{8443}},
+	} {
+		if _, err := provider.Launch(context.Background(), config); err == nil {
+			t.Fatalf("config=%+v was accepted", config)
+		}
+	}
+}
+
 func TestCamofoxProviderLaunchNoURL(t *testing.T) {
 	p := &CamofoxProvider{}
 	_, err := p.Launch(context.Background(), ProviderConfig{

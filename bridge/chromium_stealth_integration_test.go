@@ -28,7 +28,10 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	browser, err := LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second})
+	browser, err := LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second,
+		AllowPrivateNetworks: true, AllowedPorts: []int{testURLPort(t, fixture.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +85,7 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("pre-script probes missing: %q err=%v", result.Result.Value, err)
+	t.Fatalf("pre-script probes missing: %q err=%v browser=%v", result.Result.Value, err, browser.Err())
 }
 
 func TestTargetScriptConfigIsVersionedAndImmutable(t *testing.T) {

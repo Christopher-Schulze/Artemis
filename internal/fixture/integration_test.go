@@ -212,15 +212,18 @@ func (r *bridgeRunner) name() string { return "chromium" }
 
 func (r *bridgeRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	t.Helper()
+	policyConfig := srv.PolicyConfig()
 	binary, err := browserprocess.DiscoverBinary("")
 	if err != nil {
 		t.Fatalf("Chromium discovery: %v", err)
 	}
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
-		BinaryPath:      binary.Path,
-		Headless:        true,
-		StartupTimeout:  15 * time.Second,
-		ShutdownTimeout: 5 * time.Second,
+		BinaryPath:           binary.Path,
+		Headless:             true,
+		StartupTimeout:       15 * time.Second,
+		ShutdownTimeout:      5 * time.Second,
+		AllowPrivateNetworks: policyConfig.AllowPrivateNetworks,
+		AllowedPorts:         policyConfig.AllowedPorts,
 	})
 	if err != nil {
 		t.Fatalf("LaunchChromium: %v", err)
@@ -386,8 +389,9 @@ func (r *routerRunner) name() string { return "hybrid" }
 
 func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	t.Helper()
+	policyConfig := srv.PolicyConfig()
 	eng, err := engine.New(engine.Config{
-		PolicyConfig:      srv.PolicyConfig(),
+		PolicyConfig:      policyConfig,
 		Timeout:           30 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
 		JSContextPoolSize: 4,
@@ -404,10 +408,12 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 		t.Fatalf("Chromium discovery: %v", err)
 	}
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
-		BinaryPath:      binary.Path,
-		Headless:        true,
-		StartupTimeout:  15 * time.Second,
-		ShutdownTimeout: 5 * time.Second,
+		BinaryPath:           binary.Path,
+		Headless:             true,
+		StartupTimeout:       15 * time.Second,
+		ShutdownTimeout:      5 * time.Second,
+		AllowPrivateNetworks: policyConfig.AllowPrivateNetworks,
+		AllowedPorts:         policyConfig.AllowedPorts,
 	})
 	if err != nil {
 		eng.Close()
@@ -830,16 +836,19 @@ func (r *omnimusRunner) canRun(sc Scenario) (bool, string) { return Check("omnim
 func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	if r.session == "" {
+		policyConfig := srv.PolicyConfig()
 		sess, err := r.runtime.Open(ctx, profile.OpenSessionRequest{
 			ProfileID:    "fixture-omnimus",
 			OwnerUserRef: "owner",
 			Class:        profile.ProfileEphemeral,
 			Lifetime:     5 * time.Minute,
 		}, browserprocess.LaunchConfig{
-			BinaryPath:      r.binary.Path,
-			Headless:        true,
-			StartupTimeout:  15 * time.Second,
-			ShutdownTimeout: 5 * time.Second,
+			BinaryPath:           r.binary.Path,
+			Headless:             true,
+			StartupTimeout:       15 * time.Second,
+			ShutdownTimeout:      5 * time.Second,
+			AllowPrivateNetworks: policyConfig.AllowPrivateNetworks,
+			AllowedPorts:         policyConfig.AllowedPorts,
 		})
 		if err != nil {
 			t.Fatalf("BrowserRuntime.Open: %v", err)

@@ -1,0 +1,212 @@
+package bridge
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
+)
+
+func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer backend.Close()
+	policy := newProxyTestPolicy(t, backend.URL, true)
+	proxy, err := newChromiumPolicyProxy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := proxy.Close(); err != nil {
+			t.Errorf("close policy proxy: %v", err)
+		}
+	})
+	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+}
+
+func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer backend.Close()
+	policy := newProxyTestPolicy(t, backend.URL, false)
+	proxy, err := newChromiumPolicyProxy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := proxy.Close(); err != nil {
+			t.Errorf("close policy proxy: %v", err)
+		}
+	})
+	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+}
+
+func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	policy := newProxyTestPolicy(t, "http://"+listener.Addr().String(), false)
+	proxy, err := newChromiumPolicyProxy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := proxy.Close(); err != nil {
+			t.Errorf("close policy proxy: %v", err)
+		}
+	})
+	connection, err := net.DialTimeout("tcp", strings.TrimPrefix(proxy.URL(), "http://"), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", listener.Addr(), listener.Addr()); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+}
+
+func newProxyTestPolicy(t *testing.T, target string, allowPrivate bool) *network.Policy {
+	t.Helper()
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := network.NewPolicy(network.PolicyConfig{
+		AllowedPorts: []int{port}, AllowPrivateNetworks: allowPrivate,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return policy
+}
+
+func proxyHTTPClient(t *testing.T, rawProxyURL string) *http.Client {
+	t.Helper()
+	proxyURL, err := url.Parse(rawProxyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &http.Client{
+		Transport: transport,
+		Timeout:   2 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func TestChromiumPolicyProxyClosesActiveTunnel(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- connection
+		}
+	}()
+	policy := newProxyTestPolicy(t, "http://"+listener.Addr().String(), true)
+	proxy, err := newChromiumPolicyProxy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := openProxyTunnel(t, proxy.URL(), listener.Addr().String())
+	defer connection.Close()
+	upstream := <-accepted
+	defer upstream.Close()
+	if _, err := connection.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if err := upstream.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 4)
+	if _, err := io.ReadFull(upstream, buffer); err != nil || string(buffer) != "ping" {
+		t.Fatalf("tunnel payload=%q err=%v", buffer, err)
+	}
+	if err := proxy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := io.ReadAll(connection); err != nil {
+		if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+			t.Fatal("active tunnel survived proxy close")
+		}
+	}
+}
+
+func openProxyTunnel(t *testing.T, rawProxyURL, target string) net.Conn {
+	t.Helper()
+	connection, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", strings.TrimPrefix(rawProxyURL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+		connection.Close()
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	status, err := reader.ReadString('\n')
+	if err != nil {
+		connection.Close()
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, " 200 ") {
+		connection.Close()
+		t.Fatalf("status=%q", strings.TrimSpace(status))
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			connection.Close()
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	return connection
+}

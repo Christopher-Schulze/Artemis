@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,7 +26,10 @@ func TestChromiumExecutorAgainstRealChromiumFixture(t *testing.T) {
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
+		AllowedPorts: []int{chromiumTestURLPort(t, fixture.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +67,10 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	defer cancel()
 	eng := testEngineConfig(t, time.Second, fixture)
 	defer eng.Close()
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true})
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
+		AllowedPorts: []int{chromiumTestURLPort(t, fixture.URL)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,4 +104,17 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	if staticResult.Output.Title != chromiumResult.Output.Title || staticResult.Output.Text != chromiumResult.Output.Text {
 		t.Fatalf("parity mismatch static=%+v chromium=%+v", staticResult.Output, chromiumResult.Output)
 	}
+}
+
+func chromiumTestURLPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }

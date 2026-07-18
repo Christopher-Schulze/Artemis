@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -124,6 +125,8 @@ type ChromiumBrowser struct {
 	maxPages      int
 	pageSlots     int
 	monitor       *CDPSubscription
+	policy        *network.Policy
+	policyProxy   *chromiumPolicyProxy
 	targetScripts TargetScriptConfig
 	closed        bool
 	terminal      error
@@ -133,7 +136,11 @@ type ChromiumBrowser struct {
 
 // ConnectChromium validates an external browser endpoint without taking process ownership.
 func ConnectChromium(ctx context.Context, endpoint string) (*ChromiumBrowser, error) {
-	return connectChromium(ctx, endpoint, nil)
+	policy, err := network.NewPolicy(network.PolicyConfig{}, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create browser network policy: %w", err)
+	}
+	return connectChromium(ctx, endpoint, nil, policy, nil)
 }
 
 // cloneSweepOnce runs the macOS code-sign clone janitor a single time per
@@ -145,19 +152,35 @@ var cloneSweepOnce sync.Once
 // LaunchChromium launches and validates an owned Chromium process.
 func LaunchChromium(ctx context.Context, config browserprocess.LaunchConfig) (*ChromiumBrowser, error) {
 	cloneSweepOnce.Do(browserprocess.SweepOrphanCodeSignClones)
-	processOwner, err := browserprocess.Launch(ctx, config)
+	policy, err := network.NewPolicy(network.PolicyConfig{
+		AllowedPorts: config.AllowedPorts, AllowPrivateNetworks: config.AllowPrivateNetworks,
+	}, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create browser network policy: %w", err)
+	}
+	proxy, err := newChromiumPolicyProxy(policy)
 	if err != nil {
 		return nil, err
 	}
-	browser, err := connectChromium(ctx, processOwner.Endpoint(), processOwner)
+	config.PolicyProxyURL = proxy.URL()
+	processOwner, err := browserprocess.Launch(ctx, config)
+	if err != nil {
+		_ = proxy.Close()
+		return nil, err
+	}
+	browser, err := connectChromium(ctx, processOwner.Endpoint(), processOwner, policy, proxy)
 	if err != nil {
 		_ = processOwner.Close()
+		_ = proxy.Close()
 		return nil, err
 	}
 	return browser, nil
 }
 
-func connectChromium(ctx context.Context, endpoint string, processOwner *browserprocess.Browser) (*ChromiumBrowser, error) {
+func connectChromium(ctx context.Context, endpoint string, processOwner *browserprocess.Browser, policy *network.Policy, proxy *chromiumPolicyProxy) (*ChromiumBrowser, error) {
+	if policy == nil {
+		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "connect browser", Err: fmt.Errorf("network policy required")}
+	}
 	transport, err := DialCDPTransport(ctx, CDPTransportConfig{URL: endpoint})
 	if err != nil {
 		return nil, err
@@ -165,7 +188,7 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 	browser := &ChromiumBrowser{
 		transport: transport, process: processOwner, endpoint: endpoint, owned: processOwner != nil,
 		contexts: make(map[string]*BrowserContext), pages: make(map[string]*Page), sessionMap: make(map[string]*Page),
-		maxPages: defaultChromiumMaxPages,
+		maxPages: defaultChromiumMaxPages, policy: policy, policyProxy: proxy,
 	}
 	if err := transport.Call(ctx, "Browser.getVersion", nil, &browser.version); err != nil {
 		_ = transport.Close()
@@ -350,6 +373,9 @@ func (b *ChromiumBrowser) monitorProcess(processOwner *browserprocess.Browser) {
 	b.mu.Unlock()
 	if terminal != nil {
 		_ = b.transport.Close()
+		if b.policyProxy != nil {
+			_ = b.policyProxy.Close()
+		}
 	}
 }
 
@@ -507,6 +533,9 @@ func (b *ChromiumBrowser) close() error {
 	if b.process != nil {
 		result = errors.Join(result, b.process.Close())
 	}
+	if b.policyProxy != nil {
+		result = errors.Join(result, b.policyProxy.Close())
+	}
 	return result
 }
 
@@ -625,7 +654,10 @@ func (c *BrowserContext) attachTarget(ctx context.Context, targetID string) (str
 }
 
 func (c *BrowserContext) registerPage(targetID, sessionID string, scripts TargetScriptConfig) (*Page, error) {
-	page := &Page{targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached, frameSessions: make(map[string]string), targetScripts: scripts}
+	page := &Page{
+		targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached,
+		frameSessions: make(map[string]string), childSessions: make(map[string]string), targetScripts: scripts,
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -687,6 +719,7 @@ type Page struct {
 	removed         bool
 	frameMu         sync.RWMutex
 	frameSessions   map[string]string
+	childSessions   map[string]string
 	frameSub        *CDPSubscription
 	targetScripts   TargetScriptConfig
 }
@@ -835,8 +868,11 @@ func (p *Page) enableFrameRouting(ctx context.Context) error {
 	p.frameMu.Lock()
 	p.frameSub = sub
 	p.frameMu.Unlock()
-	config := p.targetScripts
-	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": config.WorkerScript != "" || config.PageScript != "", "flatten": true}
+	if err := p.enableSessionPolicy(ctx, p.sessionID); err != nil {
+		sub.Close()
+		return fmt.Errorf("enable page network policy: %w", err)
+	}
+	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}
 	if err := p.Call(ctx, "Target.setAutoAttach", params, &struct{}{}); err != nil {
 		sub.Close()
 		return fmt.Errorf("enable iframe auto-attach: %w", err)
@@ -846,11 +882,33 @@ func (p *Page) enableFrameRouting(ctx context.Context) error {
 }
 
 func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
+	jobs := make(chan fetchRequestJob, policyRequestQueue)
+	var workers sync.WaitGroup
+	for range policyRequestWorkers {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			p.runPolicyRequestWorker(jobs)
+		}()
+	}
+	defer func() {
+		close(jobs)
+		workers.Wait()
+	}()
 	for {
 		select {
 		case event, ok := <-sub.Events:
 			if !ok {
 				return
+			}
+			if !p.handleFetchEvent(event, jobs) {
+				return
+			}
+			if event.Method != "Target.attachedToTarget" && event.Method != "Target.detachedFromTarget" {
+				continue
+			}
+			if !p.ownsPolicySession(event.SessionID) {
+				continue
 			}
 			var payload struct {
 				SessionID  string `json:"sessionId"`
@@ -865,6 +923,9 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 			switch event.Method {
 			case "Target.attachedToTarget":
 				p.frameMu.Lock()
+				if payload.SessionID != "" {
+					p.childSessions[payload.SessionID] = payload.TargetInfo.Type
+				}
 				if payload.TargetInfo.Type == "iframe" && payload.TargetInfo.TargetID != "" && payload.SessionID != "" {
 					p.frameSessions[payload.TargetInfo.TargetID] = payload.SessionID
 				}
@@ -872,6 +933,7 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 				p.initializeAttachedTarget(payload.SessionID, payload.TargetInfo.Type)
 			case "Target.detachedFromTarget":
 				p.frameMu.Lock()
+				delete(p.childSessions, payload.SessionID)
 				for frameID, sessionID := range p.frameSessions {
 					if sessionID == payload.SessionID {
 						delete(p.frameSessions, frameID)
@@ -879,10 +941,11 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 				}
 				p.frameMu.Unlock()
 			}
-		case _, ok := <-sub.Errors:
+		case err, ok := <-sub.Errors:
 			if !ok {
 				return
 			}
+			p.failNetworkEnforcement(fmt.Errorf("frame target subscription: %w", err))
 			return
 		}
 	}
@@ -892,14 +955,25 @@ func (p *Page) initializeAttachedTarget(sessionID, targetType string) {
 	if sessionID == "" {
 		return
 	}
-	config := p.targetScripts
-	if config.PageScript == "" && config.WorkerScript == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), policyRequestTimeout)
 	defer cancel()
+	workerTarget := strings.Contains(targetType, "worker")
+	if !workerTarget {
+		if err := p.enableSessionPolicy(ctx, sessionID); err != nil {
+			p.failNetworkEnforcement(fmt.Errorf("initialize %s target policy: %w", targetType, err))
+			return
+		}
+	}
+	if targetType == "iframe" {
+		params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}
+		if err := p.owner.browser.transport.CallSession(ctx, sessionID, "Target.setAutoAttach", params, nil); err != nil {
+			p.failNetworkEnforcement(fmt.Errorf("initialize nested target policy: %w", err))
+			return
+		}
+	}
+	config := p.targetScripts
 	script := config.PageScript
-	if strings.Contains(targetType, "worker") {
+	if workerTarget {
 		script = config.WorkerScript
 	}
 	if script != "" {
@@ -952,8 +1026,14 @@ func (p *Page) CallFrame(ctx context.Context, frameID, method string, params, re
 
 // Navigate loads url and returns CDP frame/loader identity.
 func (p *Page) Navigate(ctx context.Context, targetURL string) (frameID, loaderID string, err error) {
+	if ctx == nil {
+		return "", "", &CDPError{Code: CDPErrorInvalidConfig, Op: "navigate", Err: fmt.Errorf("context required")}
+	}
 	if targetURL == "" {
 		return "", "", fmt.Errorf("navigate: URL required")
+	}
+	if err := p.owner.browser.policy.ValidateRequest(ctx, targetURL, "GET", "", 0, network.TargetNavigation, p.sessionID); err != nil {
+		return "", "", fmt.Errorf("navigate: %w", err)
 	}
 	var result struct {
 		FrameID  string `json:"frameId"`
@@ -994,6 +1074,7 @@ func (p *Page) close(remote bool) error {
 		p.frameSub = nil
 	}
 	p.frameSessions = make(map[string]string)
+	p.childSessions = make(map[string]string)
 	p.frameMu.Unlock()
 	var err error
 	if remote && previous == TargetStateAttached {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,7 +37,10 @@ func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := OpenSessionRequest{ProfileID: "persistent-fixture", OwnerUserRef: "owner", Class: ProfilePersistent, Lifetime: time.Hour}
-	launch := browserprocess.LaunchConfig{Headless: true, StartupTimeout: 15 * time.Second, ShutdownTimeout: 5 * time.Second}
+	launch := browserprocess.LaunchConfig{
+		Headless: true, StartupTimeout: 15 * time.Second, ShutdownTimeout: 5 * time.Second,
+		AllowPrivateNetworks: true, AllowedPorts: []int{profileTestURLPort(t, server.URL)},
+	}
 	first, err := runtime.Open(context.Background(), request, launch)
 	if err != nil {
 		t.Fatalf("launch Chromium: %v", err)
@@ -80,6 +85,19 @@ func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 	if result.Result.Value != "authenticated|retained" {
 		t.Fatalf("persistent state lost: %q", result.Result.Value)
 	}
+}
+
+func profileTestURLPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func TestMeasureEnvironmentUsesChromiumValues(t *testing.T) {

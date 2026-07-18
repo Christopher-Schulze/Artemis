@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -26,6 +28,7 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 	defer cancel()
 	browser, err := LaunchChromium(ctx, browserprocess.LaunchConfig{
 		BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second, ShutdownTimeout: 3 * time.Second,
+		AllowPrivateNetworks: true, AllowedPorts: []int{testURLPort(t, fixture.URL)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -111,6 +114,19 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 	if _, err := os.Stat(profile); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("owned profile survived shutdown: %v", err)
 	}
+}
+
+func testURLPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func TestChromiumExternalAttachDoesNotTerminateBrowser(t *testing.T) {
@@ -239,7 +255,7 @@ func waitForDocumentTitle(t *testing.T, ctx context.Context, page *Page, want st
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("document title did not become %q: last=%q err=%v", want, evaluation.Result.Value, err)
+			t.Fatalf("document title did not become %q: last=%q err=%v browser=%v", want, evaluation.Result.Value, err, page.owner.browser.Err())
 		case <-ticker.C:
 		}
 	}
