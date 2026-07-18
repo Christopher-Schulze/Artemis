@@ -103,15 +103,18 @@ const (
 
 // --- Typed parameter structs ---
 
-// SessionNewParams has no parameters; session.new creates a fresh
-// session with server-assigned IDs.
+// SessionNewParams creates a fresh session with server-assigned identity.
+// OwnerUserRef is retained for wire compatibility and, when supplied, must
+// equal the authenticated client's server-issued owner reference.
 type SessionNewParams struct {
 	ProfileID    string `json:"profileId"`
 	OwnerUserRef string `json:"ownerUserRef"`
 	Class        string `json:"class"`
 }
 
-// SessionCloseParams closes an open session and all its pages.
+// SessionCloseParams closes an owned session and all its pages. OwnerUserRef is
+// retained for wire compatibility; ownership is derived from the authenticated
+// client capability rather than trusted from this field.
 type SessionCloseParams struct {
 	SessionID    string `json:"sessionId"`
 	OwnerUserRef string `json:"ownerUserRef"`

@@ -1,0 +1,272 @@
+package serve
+
+import (
+	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+
+	artemis "github.com/Christopher-Schulze/Artemis"
+)
+
+func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
+	t.Helper()
+	agent, err := artemis.NewAgent(testAgentConfig())
+	if err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := agent.Start(ctx); err != nil {
+		cancel()
+		t.Fatalf("agent start: %v", err)
+	}
+	server := New(agent, opts)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		cancel()
+		t.Fatalf("listen: %v", err)
+	}
+	httpServer := &http.Server{Handler: http.HandlerFunc(server.handleWS)}
+	go func() { _ = httpServer.Serve(listener) }()
+	cleanup := func() {
+		_ = httpServer.Close()
+		_ = listener.Close()
+		cancel()
+		_ = agent.Stop()
+	}
+	return listener.Addr().String(), server, cleanup
+}
+
+func dialSecurityClient(t *testing.T, addr, token, clientID, origin string) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	if clientID != "" {
+		header.Set(ClientIDHeader, clientID)
+	}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	return websocket.Dial(context.Background(), "ws://"+addr+"/", &websocket.DialOptions{HTTPHeader: header})
+}
+
+func TestServeFailsClosedWithoutAuthenticationToken(t *testing.T) {
+	agent, err := artemis.NewAgent(testAgentConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(agent, Opts{})
+	if err := server.ListenAndServe(context.Background(), "127.0.0.1:0"); err == nil || !strings.Contains(err.Error(), "authentication token required") {
+		t.Fatalf("ListenAndServe error = %v, want authentication requirement", err)
+	}
+}
+
+func TestServeRejectsNonLoopbackBindAndHost(t *testing.T) {
+	for _, address := range []string{"0.0.0.0:9333", "[::]:9333", "example.com:9333", ":9333"} {
+		if err := validateLoopbackAddress(address); err == nil {
+			t.Errorf("validateLoopbackAddress(%q) accepted external bind", address)
+		}
+	}
+	for _, address := range []string{"127.0.0.1:9333", "127.0.0.2:0", "[::1]:9333"} {
+		if err := validateLoopbackAddress(address); err != nil {
+			t.Errorf("validateLoopbackAddress(%q): %v", address, err)
+		}
+	}
+
+	_, server, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
+	defer cleanup()
+	request := httptest.NewRequest(http.MethodGet, "http://evil.example/", nil)
+	request.Host = "evil.example"
+	recorder := httptest.NewRecorder()
+	server.handleWS(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("host rejection status = %d, want 403", recorder.Code)
+	}
+}
+
+func TestServeRejectsQueryCredentials(t *testing.T) {
+	_, server, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
+	defer cleanup()
+	for _, key := range []string{"token", "auth_token", "access_token", "session_token", "sessionToken", "csrf_token", "csrfToken"} {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/?"+key+"=secret", nil)
+		recorder := httptest.NewRecorder()
+		server.handleWS(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("query credential %q status = %d, want 400", key, recorder.Code)
+		}
+	}
+}
+
+func TestServeOriginRestriction(t *testing.T) {
+	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
+	defer cleanup()
+
+	if connection, response, err := dialSecurityClient(t, addr, testAuthToken, "", "https://evil.example"); err == nil {
+		_ = connection.CloseNow()
+		t.Fatal("disallowed browser origin connected")
+	} else if response == nil || response.StatusCode != http.StatusForbidden {
+		t.Fatalf("disallowed origin status = %v, err = %v", response, err)
+	}
+
+	connection, _, err := dialSecurityClient(t, addr, testAuthToken, "", "http://"+addr)
+	if err != nil {
+		t.Fatalf("loopback origin rejected: %v", err)
+	}
+	_ = connection.CloseNow()
+	_, port, _ := net.SplitHostPort(addr)
+	connection, _, err = dialSecurityClient(t, addr, testAuthToken, "", "http://localhost:"+port)
+	if err != nil {
+		t.Fatalf("configured localhost origin rejected: %v", err)
+	}
+	_ = connection.CloseNow()
+}
+
+func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
+	addr, server, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
+	defer cleanup()
+
+	owner, ownerResponse, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientID := ownerResponse.Header.Get(ClientIDHeader)
+	if !validateClientID(clientID, server.clientSigningKey) {
+		t.Fatalf("server returned invalid client capability %q", clientID)
+	}
+	replacement := "0"
+	if strings.HasSuffix(clientID, replacement) {
+		replacement = "1"
+	}
+	tampered := clientID[:len(clientID)-1] + replacement
+	if invalid, response, err := dialSecurityClient(t, addr, testAuthToken, tampered, ""); err == nil {
+		_ = invalid.CloseNow()
+		t.Fatal("tampered client capability connected")
+	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("tampered client response = %+v, err = %v", response, err)
+	}
+	created := roundTrip(t, owner, Request{ID: "new", Cmd: string(CmdSessionNew)})
+	if !created.OK {
+		t.Fatalf("session.new: %+v", created.Error)
+	}
+	var session SessionNewResult
+	if err := DecodeTypedResult(&created, &session); err != nil {
+		t.Fatal(err)
+	}
+
+	other, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(PageDumpParams{SessionID: session.SessionID, PageID: "unknown", Format: string(DumpText)})
+	denied := roundTrip(t, other, Request{ID: "cross", Cmd: string(CmdPageDump), Params: params})
+	if denied.OK || denied.Error == nil || denied.Error.Code != string(ErrOwnershipDenied) {
+		t.Fatalf("cross-client session access = %+v, want ownership_denied", denied)
+	}
+	listed := roundTrip(t, other, Request{ID: "list", Cmd: string(CmdSessionList)})
+	var list SessionListResult
+	if err := DecodeTypedResult(&listed, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Sessions) != 0 {
+		t.Fatalf("other client listed owned sessions: %+v", list.Sessions)
+	}
+	_ = other.CloseNow()
+	_ = owner.CloseNow()
+
+	resumed, _, err := dialSecurityClient(t, addr, testAuthToken, clientID, "")
+	if err != nil {
+		t.Fatalf("resume with issued client capability: %v", err)
+	}
+	defer resumed.CloseNow()
+	listed = roundTrip(t, resumed, Request{ID: "resume-list", Cmd: string(CmdSessionList)})
+	if err := DecodeTypedResult(&listed, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].SessionID != session.SessionID {
+		t.Fatalf("resumed client sessions = %+v", list.Sessions)
+	}
+}
+
+func TestServeRateLimitUsesNormalizedClientAcrossReconnects(t *testing.T) {
+	config := RateLimit{
+		RequestsPerSecond: 100, Burst: 100,
+		ClientRequestsPerMinute: 1, ClientBurst: 1, ClientBucketTTL: time.Hour,
+	}
+	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: config})
+	defer cleanup()
+
+	first, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if err != nil {
+		t.Fatalf("first connection: %v", err)
+	}
+	defer first.CloseNow()
+	second, response, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if err == nil {
+		_ = second.CloseNow()
+		t.Fatal("reconnect bypassed normalized-client rate limit")
+	}
+	if response == nil || response.StatusCode != http.StatusTooManyRequests || response.Header.Get("Retry-After") == "" {
+		t.Fatalf("rate response = %+v, err = %v", response, err)
+	}
+}
+
+func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
+	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
+	defer cleanup()
+	connection, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := roundTrip(t, connection, Request{ID: "new", Cmd: string(CmdSessionNew)})
+	if !created.OK {
+		t.Fatalf("session.new: %+v", created.Error)
+	}
+	rotated := roundTrip(t, connection, Request{ID: "rotate", Cmd: string(CmdTokenRotate)})
+	var result TokenRotateResult
+	if err := DecodeTypedResult(&rotated, &result); err != nil {
+		t.Fatalf("token.rotate: %v", err)
+	}
+	if result.Token == "" || result.Token == testAuthToken {
+		t.Fatalf("rotated token = %q", result.Token)
+	}
+	_ = connection.CloseNow()
+
+	if oldConnection, response, err := dialSecurityClient(t, addr, testAuthToken, "", ""); err == nil {
+		_ = oldConnection.CloseNow()
+		t.Fatal("old token remained valid after rotation")
+	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old token response = %+v, err = %v", response, err)
+	}
+	newConnection, _, err := dialSecurityClient(t, addr, result.Token, "", "")
+	if err != nil {
+		t.Fatalf("new token rejected: %v", err)
+	}
+	defer newConnection.CloseNow()
+	listed := roundTrip(t, newConnection, Request{ID: "list", Cmd: string(CmdSessionList)})
+	var sessions SessionListResult
+	if err := DecodeTypedResult(&listed, &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 0 {
+		t.Fatalf("rotation retained prior authenticated sessions: %+v", sessions.Sessions)
+	}
+}
+
+func TestNormalizeClientAddressUnmapsAndStripsPort(t *testing.T) {
+	cases := map[string]string{
+		"127.0.0.1:51000":       "127.0.0.1",
+		"127.0.0.1:51001":       "127.0.0.1",
+		"[::ffff:127.0.0.1]:80": "127.0.0.1",
+		"[::1]:9333":            "::1",
+	}
+	for input, want := range cases {
+		if got := normalizeClientAddress(input); got != want {
+			t.Errorf("normalizeClientAddress(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

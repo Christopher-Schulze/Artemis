@@ -16,6 +16,9 @@ import (
 // loopback, and shuts down cleanly. This is the clean-install serve startup
 // proof required by TASK-2361.
 func TestServeStartupAndShutdown(t *testing.T) {
+	if defaultServeHost != "127.0.0.1" {
+		t.Fatalf("default serve host = %q, want numeric loopback", defaultServeHost)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -67,6 +70,14 @@ func TestServeStartupAndShutdown(t *testing.T) {
 
 	cancel()
 	<-done
+}
+
+func TestServeRejectsDisabledSecurityLimits(t *testing.T) {
+	for _, args := range [][]string{{"--rate", "0"}, {"--burst", "0"}, {"--client-rate", "0"}, {"--client-burst", "0"}, {"--origin", ""}, {"--origin", "*"}, {"--origin", "https://*"}} {
+		if code := cmdServe(args); code != 2 {
+			t.Errorf("cmdServe(%v) = %d, want argument error 2", args, code)
+		}
+	}
 }
 
 // TestDoctorVerifiesPlatform proves the doctor command reports the correct

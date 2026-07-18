@@ -27,37 +27,50 @@ type Opts struct {
 	Logger *slog.Logger
 	// AcceptOptions tunes the websocket Accept handshake.
 	AcceptOptions *websocket.AcceptOptions
-	// AuthToken is the optional bearer token required for every connection.
-	// If empty, no authentication is enforced.
+	// AuthToken is the bearer token required for every connection.
+	// An empty token makes the server fail closed.
 	AuthToken string
-	// OriginPatterns lists allowed WebSocket origins. Empty means the
-	// websocket Accept default (same-origin / no cross-origin).
+	// OriginPatterns lists allowed WebSocket origins. Empty selects the
+	// loopback Omnimus defaults.
 	OriginPatterns []string
-	// InsecureSkipOrigin disables origin verification.
-	InsecureSkipOrigin bool
-	// RateLimit is the optional per-connection request rate limit.
+	// RateLimit configures per-connection and normalized-client limits.
+	// Zero fields receive secure defaults.
 	RateLimit RateLimit
 }
 
-// RateLimit configures per-connection request throttling.
+// RateLimit configures per-connection and normalized-client throttling.
 type RateLimit struct {
-	RequestsPerSecond int
-	Burst             int
+	RequestsPerSecond       int
+	Burst                   int
+	ClientRequestsPerMinute int
+	ClientBurst             int
+	ClientBucketTTL         time.Duration
 }
 
 // Server is a single Agent WebSocket steering server. Multiple concurrent
 // sessions can be active per server.
 type Server struct {
-	agent       *artemis.Agent
-	opts        Opts
-	mu          sync.Mutex
-	writeMu     sync.Mutex
-	nextSeq     atomic.Uint64
-	srv         *http.Server
-	authTokenMu sync.RWMutex
-	authToken   string
-	inflight    map[string]context.CancelFunc
-	outbox      map[string]*streamOutbox
+	agent            *artemis.Agent
+	opts             Opts
+	mu               sync.Mutex
+	writeMu          sync.Mutex
+	nextSeq          atomic.Uint64
+	srv              *http.Server
+	authTokenMu      sync.RWMutex
+	authToken        string
+	clientSigningKey []byte
+	authStateMu      sync.RWMutex
+	authGeneration   atomic.Uint64
+	inflight         map[requestKey]context.CancelFunc
+	outbox           map[string]*streamOutbox
+	sessionOwner     map[string]string
+	clientLimiter    *clientRateLimiter
+	connections      map[*websocket.Conn]uint64
+}
+
+type requestKey struct {
+	clientID  string
+	requestID string
 }
 
 // streamOutbox stores ordered events and a terminal response for a stream so
@@ -69,6 +82,7 @@ type streamOutbox struct {
 	closed   bool
 	seq      uint64
 	reqID    string
+	ownerID  string
 }
 
 type streamEvent struct {
@@ -83,25 +97,43 @@ func New(agent *artemis.Agent, opts Opts) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	if opts.AcceptOptions == nil {
-		opts.AcceptOptions = &websocket.AcceptOptions{}
+	acceptOptions := websocket.AcceptOptions{}
+	if opts.AcceptOptions != nil {
+		acceptOptions = *opts.AcceptOptions
 	}
-	if len(opts.OriginPatterns) > 0 {
-		opts.AcceptOptions.OriginPatterns = opts.OriginPatterns
+	if len(opts.OriginPatterns) == 0 {
+		opts.OriginPatterns = append([]string(nil), defaultOriginPatterns...)
+	} else if err := ValidateOriginPatterns(opts.OriginPatterns); err != nil {
+		opts.Logger.Warn("invalid origin allowlist; using secure defaults", "err", err)
+		opts.OriginPatterns = append([]string(nil), defaultOriginPatterns...)
 	}
-	opts.AcceptOptions.InsecureSkipVerify = opts.InsecureSkipOrigin
+	acceptOptions.OriginPatterns = append([]string(nil), opts.OriginPatterns...)
+	acceptOptions.InsecureSkipVerify = false
+	opts.AcceptOptions = &acceptOptions
+	opts.RateLimit = normalizeRateLimit(opts.RateLimit)
 	s := &Server{
-		agent:     agent,
-		opts:      opts,
-		authToken: opts.AuthToken,
-		inflight:  make(map[string]context.CancelFunc),
-		outbox:    make(map[string]*streamOutbox),
+		agent:            agent,
+		opts:             opts,
+		authToken:        opts.AuthToken,
+		clientSigningKey: []byte(rand.Text()),
+		inflight:         make(map[requestKey]context.CancelFunc),
+		outbox:           make(map[string]*streamOutbox),
+		sessionOwner:     make(map[string]string),
+		clientLimiter:    newClientRateLimiter(opts.RateLimit),
+		connections:      make(map[*websocket.Conn]uint64),
 	}
+	s.authGeneration.Store(1)
 	return s
 }
 
 // ListenAndServe blocks while serving on addr until ctx is cancelled.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	if s.getAuthToken() == "" {
+		return fmt.Errorf("serve authentication token required")
+	}
+	if err := validateLoopbackAddress(addr); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -139,13 +171,39 @@ func (s *Server) HandleWSForTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	if token := s.getAuthToken(); token != "" {
-		auth := r.Header.Get("Authorization")
-		if auth != "Bearer "+token {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if hasQueryCredential(r) {
+		http.Error(w, "credentials are not accepted in the URL", http.StatusBadRequest)
+		return
+	}
+	if !validateRequestHost(r) {
+		http.Error(w, "forbidden host", http.StatusForbidden)
+		return
+	}
+	rateKey := normalizeClientAddress(r.RemoteAddr)
+	if !s.clientLimiter.allow(rateKey) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	authGeneration, authenticated := s.authenticateRequestToken(r.Header.Get("Authorization"))
+	if !authenticated {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	clientID := strings.TrimSpace(r.Header.Get(ClientIDHeader))
+	if clientID == "" {
+		var err error
+		clientID, err = issueClientID(s.clientSigningKey)
+		if err != nil {
+			s.opts.Logger.Error("issue client identity", "err", err)
+			http.Error(w, "client identity unavailable", http.StatusInternalServerError)
 			return
 		}
+	} else if !validateClientID(clientID, s.clientSigningKey) {
+		http.Error(w, "invalid client identity", http.StatusUnauthorized)
+		return
 	}
+	w.Header().Set(ClientIDHeader, clientID)
 
 	c, err := websocket.Accept(w, r, s.opts.AcceptOptions)
 	if err != nil {
@@ -153,56 +211,77 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
+	s.trackConnection(c, authGeneration, true)
+	defer s.trackConnection(c, authGeneration, false)
 	// Page dumps (especially HTML) can easily exceed the default 32KB
 	// read limit. Allow up to 8MB per message.
 	c.SetReadLimit(8 << 20)
 
 	ctx := r.Context()
 	var wg sync.WaitGroup
-	rl := newRateLimiter(s.opts.RateLimit)
+	client := clientIdentity{id: clientID, ownerRef: clientOwnerRef(clientID), rateKey: rateKey, authGeneration: authGeneration}
+	connectionLimiter := newTokenBucket(s.opts.RateLimit.RequestsPerSecond, time.Second, s.opts.RateLimit.Burst, time.Now())
+	consecutiveRateHits := 0
 
 	for {
 		_, data, err := c.Read(ctx)
 		if err != nil {
 			break
 		}
+		if !connectionLimiter.allow(time.Now()) || !s.clientLimiter.allow(client.rateKey) {
+			consecutiveRateHits++
+			s.writeResp(ctx, c, errResp("", string(ErrRateExceeded), "rate limit exceeded"))
+			if consecutiveRateHits >= 10 {
+				_ = c.Close(websocket.StatusPolicyViolation, "rate limit exceeded")
+				break
+			}
+			continue
+		}
+		consecutiveRateHits = 0
 		var req Request
 		if err := json.Unmarshal(data, &req); err != nil {
-			wg.Add(1)
-			go func(req Request) {
-				defer wg.Done()
-				s.writeResp(ctx, c, &Response{
-					ID: req.ID, OK: false,
-					Error: &Err{Code: string(ErrBadRequest), Message: err.Error()},
-				})
-			}(req)
+			s.writeResp(ctx, c, &Response{
+				ID: req.ID, OK: false,
+				Error: &Err{Code: string(ErrBadRequest), Message: err.Error()},
+			})
 			continue
 		}
 		wg.Add(1)
-		go s.handleRequest(ctx, c, &req, &wg, rl)
+		go s.handleRequest(ctx, c, client, &req, &wg)
 	}
 	wg.Wait()
 }
 
-func (s *Server) handleRequest(ctx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup, rl *rateLimiter) {
+func (s *Server) handleRequest(ctx context.Context, c *websocket.Conn, client clientIdentity, req *Request, wg *sync.WaitGroup) {
 	defer wg.Done()
-	if rl != nil && !rl.Allow() {
-		s.writeResp(ctx, c, errResp(req.ID, string(ErrRateExceeded), "rate limit exceeded"))
-		return
-	}
 	if verr := s.checkVersion(req); verr != nil {
 		s.writeResp(ctx, c, verr)
 		return
 	}
 	dispatchCtx, cancel := context.WithCancel(ctx)
-	s.registerInflight(req.ID, cancel)
+	s.registerInflight(client.id, req.ID, cancel)
 	defer func() {
 		cancel()
-		s.unregisterInflight(req.ID)
+		s.unregisterInflight(client.id, req.ID)
 	}()
-	resp := s.dispatch(dispatchCtx, ctx, c, req, wg)
+	if req.Cmd == string(CmdTokenRotate) {
+		s.cancelOtherInflight(client.id, req.ID)
+		s.authStateMu.Lock()
+		defer s.authStateMu.Unlock()
+	} else {
+		s.authStateMu.RLock()
+		defer s.authStateMu.RUnlock()
+	}
+	if client.authGeneration != s.authGeneration.Load() {
+		s.writeResp(ctx, c, errResp(req.ID, string(ErrOwnershipDenied), "authentication generation expired"))
+		return
+	}
+	resp := s.dispatch(dispatchCtx, ctx, c, client, req, wg)
 	if resp != nil {
 		s.writeResp(ctx, c, resp)
+	}
+	if req.Cmd == string(CmdTokenRotate) && resp != nil && resp.OK {
+		s.invalidateAuthenticatedState()
 	}
 }
 
@@ -236,7 +315,7 @@ func (s *Server) writeEvent(ctx context.Context, c *websocket.Conn, ev *Event) {
 	}
 }
 
-func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup) *Response {
+func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, client clientIdentity, req *Request, wg *sync.WaitGroup) *Response {
 	switch req.Cmd {
 	case string(CmdVersion):
 		return s.cmdVersion(req)
@@ -245,33 +324,33 @@ func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, req *
 	case string(CmdHeartbeat):
 		return s.cmdHeartbeat(req)
 	case string(CmdSessionNew):
-		return s.cmdSessionNew(ctx, req)
+		return s.cmdSessionNew(ctx, client, req)
 	case string(CmdSessionClose):
-		return s.cmdSessionClose(req)
+		return s.cmdSessionClose(client, req)
 	case string(CmdSessionList):
-		return s.cmdSessionList(req)
+		return s.cmdSessionList(client, req)
 	case string(CmdPageOpen):
-		return s.cmdPageOpen(ctx, req)
+		return s.cmdPageOpen(ctx, client, req)
 	case string(CmdPageClose):
-		return s.cmdPageClose(req)
+		return s.cmdPageClose(client, req)
 	case string(CmdPageEval):
-		return s.cmdPageEval(ctx, req)
+		return s.cmdPageEval(ctx, client, req)
 	case string(CmdPageDump):
-		return s.cmdPageDump(req)
+		return s.cmdPageDump(client, req)
 	case string(CmdPageClickByText):
-		return s.cmdPageClickByText(ctx, req)
+		return s.cmdPageClickByText(ctx, client, req)
 	case string(CmdPageType):
-		return s.cmdPageType(req)
+		return s.cmdPageType(client, req)
 	case string(CmdPageWaitIdle):
-		return s.cmdPageWaitIdle(ctx, req)
+		return s.cmdPageWaitIdle(ctx, client, req)
 	case string(CmdPageAssert):
-		return s.cmdPageAssert(ctx, req)
+		return s.cmdPageAssert(ctx, client, req)
 	case string(CmdChromiumAct):
-		return s.cmdChromiumAct(ctx, req)
+		return s.cmdChromiumAct(ctx, client, req)
 	case string(CmdStream):
-		return s.cmdStream(ctx, connCtx, c, req, wg)
+		return s.cmdStream(ctx, connCtx, c, client, req, wg)
 	case string(CmdCancel):
-		return s.cmdCancel(req)
+		return s.cmdCancel(client, req)
 	case string(CmdTokenRotate):
 		return s.cmdTokenRotate(req)
 	default:
@@ -279,26 +358,79 @@ func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, req *
 	}
 }
 
-func (s *Server) registerInflight(id string, cancel context.CancelFunc) {
+func (s *Server) registerInflight(clientID, id string, cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.inflight[id] = cancel
+	s.inflight[requestKey{clientID: clientID, requestID: id}] = cancel
 }
 
-func (s *Server) unregisterInflight(id string) {
+func (s *Server) unregisterInflight(clientID, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.inflight, id)
+	delete(s.inflight, requestKey{clientID: clientID, requestID: id})
 }
 
-func (s *Server) cancelRequest(id string) bool {
+func (s *Server) cancelRequest(clientID, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fn, ok := s.inflight[id]
+	fn, ok := s.inflight[requestKey{clientID: clientID, requestID: id}]
 	if ok && fn != nil {
 		fn()
 	}
 	return ok
+}
+
+func (s *Server) cancelOtherInflight(clientID, requestID string) {
+	current := requestKey{clientID: clientID, requestID: requestID}
+	s.mu.Lock()
+	cancellations := make([]context.CancelFunc, 0, len(s.inflight))
+	for key, cancel := range s.inflight {
+		if key != current && cancel != nil {
+			cancellations = append(cancellations, cancel)
+		}
+	}
+	s.mu.Unlock()
+	for _, cancel := range cancellations {
+		cancel()
+	}
+}
+
+func (s *Server) trackConnection(connection *websocket.Conn, generation uint64, add bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if add {
+		s.connections[connection] = generation
+		return
+	}
+	delete(s.connections, connection)
+}
+
+func (s *Server) invalidateAuthenticatedState() {
+	s.mu.Lock()
+	connections := make([]*websocket.Conn, 0, len(s.connections))
+	currentGeneration := s.authGeneration.Load()
+	for connection, generation := range s.connections {
+		if generation != currentGeneration {
+			connections = append(connections, connection)
+		}
+	}
+	for _, cancel := range s.inflight {
+		cancel()
+	}
+	s.inflight = make(map[requestKey]context.CancelFunc)
+	s.outbox = make(map[string]*streamOutbox)
+	sessionIDs := make([]string, 0, len(s.sessionOwner))
+	for sessionID := range s.sessionOwner {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	s.sessionOwner = make(map[string]string)
+	s.mu.Unlock()
+	for _, sessionID := range sessionIDs {
+		_ = s.agent.CloseSession(sessionID)
+	}
+	for _, connection := range connections {
+		_ = connection.CloseNow()
+	}
 }
 
 func (s *Server) getAuthToken() string {
@@ -307,10 +439,17 @@ func (s *Server) getAuthToken() string {
 	return s.authToken
 }
 
-func (s *Server) setAuthToken(token string) {
+func (s *Server) authenticateRequestToken(header string) (uint64, bool) {
+	s.authTokenMu.RLock()
+	defer s.authTokenMu.RUnlock()
+	return s.authGeneration.Load(), authenticateBearer(header, s.authToken)
+}
+
+func (s *Server) rotateAuthToken(token string) {
 	s.authTokenMu.Lock()
 	defer s.authTokenMu.Unlock()
 	s.authToken = token
+	s.authGeneration.Add(1)
 }
 
 func (s *Server) checkVersion(req *Request) *Response {
@@ -390,17 +529,52 @@ func (s *Server) cmdHeartbeat(req *Request) *Response {
 	return okResp(req.ID, HeartbeatResult{Now: time.Now().UnixMilli()})
 }
 
-func (s *Server) cmdSessionNew(ctx context.Context, req *Request) *Response {
+func (s *Server) ownedSession(clientID, sessionID string) (*artemis.Session, *Response) {
+	session, ok := s.agent.Session(sessionID)
+	if !ok {
+		s.forgetSession(sessionID)
+		return nil, errResp("", string(ErrNoSession), "unknown sessionId")
+	}
+	s.mu.Lock()
+	ownerID, tracked := s.sessionOwner[sessionID]
+	s.mu.Unlock()
+	if !tracked {
+		return nil, errResp("", string(ErrNoSession), "unknown sessionId")
+	}
+	if ownerID != clientID {
+		return nil, errResp("", string(ErrOwnershipDenied), "session ownership denied")
+	}
+	return session, nil
+}
+
+func (s *Server) trackSession(sessionID, clientID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionOwner[sessionID] = clientID
+}
+
+func (s *Server) forgetSession(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessionOwner, sessionID)
+}
+
+func sessionError(req *Request, response *Response) *Response {
+	response.ID = req.ID
+	return response
+}
+
+func (s *Server) cmdSessionNew(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params SessionNewParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return errResp(req.ID, string(ErrBadParams), err.Error())
 		}
 	}
-	owner := params.OwnerUserRef
-	if owner == "" {
-		owner = "anonymous"
+	if params.OwnerUserRef != "" && params.OwnerUserRef != client.ownerRef {
+		return errResp(req.ID, string(ErrOwnershipDenied), "ownerUserRef is assigned by the authenticated server")
 	}
+	owner := client.ownerRef
 	class := profile.ProfileClass(params.Class)
 	if class == "" {
 		class = profile.ProfileEphemeral
@@ -419,10 +593,11 @@ func (s *Server) cmdSessionNew(ctx context.Context, req *Request) *Response {
 	if err != nil {
 		return s.taskErrorResponse(req, err, ErrBadParams)
 	}
+	s.trackSession(session.SessionID(), client.id)
 	return okResp(req.ID, SessionNewResult{SessionID: session.SessionID(), OwnerUserRef: session.UserID()})
 }
 
-func (s *Server) cmdSessionClose(req *Request) *Response {
+func (s *Server) cmdSessionClose(client clientIdentity, req *Request) *Response {
 	var params SessionCloseParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -432,19 +607,30 @@ func (s *Server) cmdSessionClose(req *Request) *Response {
 	if params.SessionID == "" {
 		return errResp(req.ID, string(ErrBadParams), "sessionId required")
 	}
-	if params.OwnerUserRef == "" {
-		return errResp(req.ID, string(ErrBadParams), "ownerUserRef required")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
-	if err := s.agent.CloseSessionForOwner(params.SessionID, params.OwnerUserRef); err != nil {
+	if params.OwnerUserRef != "" && params.OwnerUserRef != session.UserID() {
+		return errResp(req.ID, string(ErrOwnershipDenied), "ownerUserRef does not match authenticated client")
+	}
+	if err := s.agent.CloseSessionForOwner(params.SessionID, session.UserID()); err != nil {
 		return s.taskErrorResponse(req, err, ErrNoSession)
 	}
+	s.forgetSession(params.SessionID)
 	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) cmdSessionList(req *Request) *Response {
+func (s *Server) cmdSessionList(client clientIdentity, req *Request) *Response {
 	sessions := s.agent.ListSessions()
 	result := SessionListResult{Sessions: make([]SessionInfo, 0, len(sessions))}
 	for _, session := range sessions {
+		s.mu.Lock()
+		ownerID := s.sessionOwner[session.SessionID()]
+		s.mu.Unlock()
+		if ownerID != client.id {
+			continue
+		}
 		result.Sessions = append(result.Sessions, SessionInfo{
 			SessionID:    session.SessionID(),
 			OwnerUserRef: session.UserID(),
@@ -455,14 +641,14 @@ func (s *Server) cmdSessionList(req *Request) *Response {
 	return okResp(req.ID, result)
 }
 
-func (s *Server) cmdPageOpen(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdPageOpen(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageOpenParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "unknown sessionId")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts)
 	if err != nil {
@@ -476,14 +662,14 @@ func (s *Server) cmdPageOpen(ctx context.Context, req *Request) *Response {
 	})
 }
 
-func (s *Server) cmdPageClose(req *Request) *Response {
+func (s *Server) cmdPageClose(client clientIdentity, req *Request) *Response {
 	var params PageCloseParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	if err := session.ClosePage(params.PageID); err != nil {
 		return s.taskErrorResponse(req, err, ErrNoPage)
@@ -491,14 +677,14 @@ func (s *Server) cmdPageClose(req *Request) *Response {
 	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) cmdPageEval(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdPageEval(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageEvalParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	v, err := session.Eval(ctx, params.PageID, params.Expr)
 	if err != nil {
@@ -507,7 +693,7 @@ func (s *Server) cmdPageEval(ctx context.Context, req *Request) *Response {
 	return okResp(req.ID, PageEvalResult{Value: v.String()})
 }
 
-func (s *Server) cmdPageDump(req *Request) *Response {
+func (s *Server) cmdPageDump(client clientIdentity, req *Request) *Response {
 	var params PageDumpParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
@@ -515,9 +701,9 @@ func (s *Server) cmdPageDump(req *Request) *Response {
 	if params.Format == "" {
 		params.Format = string(DumpMarkdown)
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	data, err := session.Dump(params.PageID, params.Format)
 	if err != nil {
@@ -530,14 +716,14 @@ func (s *Server) cmdPageDump(req *Request) *Response {
 	return okResp(req.ID, PageDumpResult{Data: data})
 }
 
-func (s *Server) cmdPageClickByText(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdPageClickByText(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageClickByTextParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	if err := session.ClickByText(ctx, params.PageID, params.Text); err != nil {
 		return s.taskErrorResponse(req, err, ErrClickFailed)
@@ -545,14 +731,14 @@ func (s *Server) cmdPageClickByText(ctx context.Context, req *Request) *Response
 	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) cmdPageType(req *Request) *Response {
+func (s *Server) cmdPageType(client clientIdentity, req *Request) *Response {
 	var params PageTypeParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	if err := session.Type(params.PageID, params.Selector, params.Text); err != nil {
 		return s.taskErrorResponse(req, err, ErrTypeFailed)
@@ -560,14 +746,14 @@ func (s *Server) cmdPageType(req *Request) *Response {
 	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) cmdPageWaitIdle(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdPageWaitIdle(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageWaitIdleParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	if err := session.WaitIdle(ctx, params.PageID); err != nil {
 		return s.taskErrorResponse(req, err, ErrWaitFailed)
@@ -575,14 +761,14 @@ func (s *Server) cmdPageWaitIdle(ctx context.Context, req *Request) *Response {
 	return okResp(req.ID, EmptyResult{})
 }
 
-func (s *Server) cmdPageAssert(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdPageAssert(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageAssertParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	result, err := session.Assert(ctx, params.PageID, params.Mode, params.Selector, params.Substring, params.Expr, params.Status, params.Want)
 	if err != nil {
@@ -595,14 +781,14 @@ func (s *Server) cmdPageAssert(ctx context.Context, req *Request) *Response {
 	return okResp(req.ID, AssertResult{Pass: result.Pass, Got: result.Got})
 }
 
-func (s *Server) cmdChromiumAct(ctx context.Context, req *Request) *Response {
+func (s *Server) cmdChromiumAct(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params ChromiumActParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
 	outcome, err := session.ChromiumAct(ctx, params.Request)
 	if err != nil {
@@ -614,22 +800,22 @@ func (s *Server) cmdChromiumAct(ctx context.Context, req *Request) *Response {
 	return okResp(req.ID, ChromiumActResult{Outcome: outcome})
 }
 
-func (s *Server) cmdStream(ctx, connCtx context.Context, c *websocket.Conn, req *Request, wg *sync.WaitGroup) *Response {
+func (s *Server) cmdStream(ctx, connCtx context.Context, c *websocket.Conn, client clientIdentity, req *Request, wg *sync.WaitGroup) *Response {
 	var params StreamParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
 
 	if params.StreamID != "" {
-		return s.resumeStream(connCtx, c, req, params.StreamID, params.ResumeFrom)
+		return s.resumeStream(connCtx, c, client, req, params.StreamID, params.ResumeFrom)
 	}
 
 	streamID := newStreamID()
-	session, ok := s.agent.Session(params.SessionID)
-	if !ok {
-		return errResp(req.ID, string(ErrNoSession), "")
+	session, sessionErr := s.ownedSession(client.id, params.SessionID)
+	if sessionErr != nil {
+		return sessionError(req, sessionErr)
 	}
-	outbox := &streamOutbox{reqID: req.ID}
+	outbox := &streamOutbox{reqID: req.ID, ownerID: client.id}
 	s.mu.Lock()
 	s.outbox[streamID] = outbox
 	s.mu.Unlock()
@@ -643,12 +829,15 @@ func (s *Server) cmdStream(ctx, connCtx context.Context, c *websocket.Conn, req 
 	return okResp(req.ID, StreamResult{StreamID: streamID})
 }
 
-func (s *Server) resumeStream(ctx context.Context, c *websocket.Conn, req *Request, streamID string, resumeFrom int64) *Response {
+func (s *Server) resumeStream(ctx context.Context, c *websocket.Conn, client clientIdentity, req *Request, streamID string, resumeFrom int64) *Response {
 	s.mu.Lock()
 	outbox, ok := s.outbox[streamID]
 	s.mu.Unlock()
 	if !ok {
 		return errResp(req.ID, string(ErrNotFound), "unknown streamId")
+	}
+	if outbox.ownerID != client.id {
+		return errResp(req.ID, string(ErrOwnershipDenied), "stream ownership denied")
 	}
 	events := outbox.eventsSince(resumeFrom)
 	for _, ev := range events {
@@ -701,12 +890,12 @@ func (s *Server) streamOpen(ctx context.Context, c *websocket.Conn, session *art
 	s.writeResp(ctx, c, resp)
 }
 
-func (s *Server) cmdCancel(req *Request) *Response {
+func (s *Server) cmdCancel(client clientIdentity, req *Request) *Response {
 	var params CancelParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
 	}
-	if s.cancelRequest(params.RequestID) {
+	if s.cancelRequest(client.id, params.RequestID) {
 		return okResp(req.ID, CancelResult{Cancelled: true})
 	}
 	return errResp(req.ID, string(ErrNotFound), "request not found")
@@ -721,7 +910,7 @@ func (s *Server) cmdTokenRotate(req *Request) *Response {
 		return errResp(req.ID, string(ErrExecutionFailed), err.Error())
 	}
 	token := hex.EncodeToString(b)
-	s.setAuthToken(token)
+	s.rotateAuthToken(token)
 	return okResp(req.ID, TokenRotateResult{Token: token})
 }
 
@@ -789,45 +978,4 @@ func okResp(id string, value any) *Response {
 
 func errResp(id, code, msg string) *Response {
 	return &Response{ID: id, OK: false, Error: &Err{Code: code, Message: msg}}
-}
-
-type rateLimiter struct {
-	limit  int
-	burst  int
-	tokens float64
-	last   time.Time
-	mu     sync.Mutex
-}
-
-func newRateLimiter(r RateLimit) *rateLimiter {
-	if r.RequestsPerSecond <= 0 {
-		return nil
-	}
-	burst := r.Burst
-	if burst <= 0 {
-		burst = r.RequestsPerSecond
-	}
-	if burst < 1 {
-		burst = 1
-	}
-	return &rateLimiter{limit: r.RequestsPerSecond, burst: burst, tokens: float64(burst), last: time.Now()}
-}
-
-func (r *rateLimiter) Allow() bool {
-	if r == nil {
-		return true
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := time.Now()
-	r.tokens += now.Sub(r.last).Seconds() * float64(r.limit)
-	if r.tokens > float64(r.burst) {
-		r.tokens = float64(r.burst)
-	}
-	if r.tokens >= 1 {
-		r.tokens--
-		r.last = now
-		return true
-	}
-	return false
 }

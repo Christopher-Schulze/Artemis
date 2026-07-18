@@ -17,6 +17,8 @@ import (
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
+const testAuthToken = "artemis-test-token"
+
 func testAgentConfig() artemis.AgentConfig {
 	return artemis.AgentConfig{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
 }
@@ -40,7 +42,7 @@ func startServer(t *testing.T) (string, func()) {
 		cancel()
 		t.Fatalf("agent start: %v", err)
 	}
-	srv := New(agent, Opts{})
+	srv := New(agent, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
@@ -60,7 +62,8 @@ func startServer(t *testing.T) (string, func()) {
 
 func dial(t *testing.T, addr string) *websocket.Conn {
 	t.Helper()
-	c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", nil)
+	opts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + testAuthToken}}}
+	c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", opts)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -68,6 +71,10 @@ func dial(t *testing.T, addr string) *websocket.Conn {
 	// hit the default 32KB client-side limit.
 	c.SetReadLimit(8 << 20)
 	return c
+}
+
+func testRateLimit() RateLimit {
+	return RateLimit{RequestsPerSecond: 1000, Burst: 1000, ClientRequestsPerMinute: 60000, ClientBurst: 1000, ClientBucketTTL: time.Hour}
 }
 
 // startServerWithAuth mirrors startServer but enforces a bearer AuthToken on
@@ -83,7 +90,7 @@ func startServerWithAuth(t *testing.T, token string) (string, func()) {
 		cancel()
 		t.Fatalf("agent start: %v", err)
 	}
-	srv := New(agent, Opts{AuthToken: token})
+	srv := New(agent, Opts{AuthToken: token, RateLimit: testRateLimit()})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
@@ -160,8 +167,7 @@ func TestSessionOpenEvalDump(t *testing.T) {
 	c := dial(t, addr)
 	defer c.CloseNow()
 
-	newP, _ := json.Marshal(SessionNewParams{OwnerUserRef: "test"})
-	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new", Params: newP})
+	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
 	if !resp.OK {
 		t.Fatalf("session.new: %+v", resp)
 	}
@@ -203,7 +209,7 @@ func TestSessionOpenEvalDump(t *testing.T) {
 		t.Errorf("page.close: %+v", r)
 	}
 
-	closeS, _ := json.Marshal(SessionCloseParams{SessionID: sid, OwnerUserRef: "test"})
+	closeS, _ := json.Marshal(SessionCloseParams{SessionID: sid})
 	if r := roundTrip(t, c, Request{ID: "6", Cmd: "session.close", Params: closeS}); !r.OK {
 		t.Errorf("session.close: %+v", r)
 	}
@@ -229,7 +235,7 @@ func TestServerLifecycleListenAndShutdown(t *testing.T) {
 		t.Fatalf("agent start: %v", err)
 	}
 	defer agent.Stop()
-	srv := New(agent, Opts{})
+	srv := New(agent, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -245,8 +251,7 @@ func TestServerLifecycleListenAndShutdown(t *testing.T) {
 func openSessionPage(t *testing.T, addr string, pageURL string) (sid, pid string, c *websocket.Conn) {
 	t.Helper()
 	c = dial(t, addr)
-	newP, _ := json.Marshal(SessionNewParams{OwnerUserRef: "test"})
-	resp := roundTrip(t, c, Request{ID: "s", Cmd: "session.new", Params: newP})
+	resp := roundTrip(t, c, Request{ID: "s", Cmd: "session.new"})
 	if !resp.OK {
 		t.Fatalf("session.new: %+v", resp)
 	}

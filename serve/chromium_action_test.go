@@ -41,9 +41,11 @@ func TestChromiumActDispatchesCanonicalRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	server := &Server{agent: agent, opts: Opts{}}
+	server := New(agent, Opts{AuthToken: testAuthToken})
+	client := clientIdentity{id: "client.test", ownerRef: "test", rateKey: "127.0.0.1"}
+	server.trackSession(session.SessionID(), client.id)
 	params, _ := json.Marshal(ChromiumActParams{SessionID: session.SessionID(), Request: actions.Request{Kind: actions.KindScreenshot}})
-	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
+	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), client, &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
 	if !response.OK {
 		t.Fatalf("response=%#v", response)
 	}
@@ -61,9 +63,11 @@ func TestChromiumActFailsClosedWithoutRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	server := &Server{agent: agent, opts: Opts{}}
+	server := New(agent, Opts{AuthToken: testAuthToken})
+	client := clientIdentity{id: "client.test", ownerRef: "test", rateKey: "127.0.0.1"}
+	server.trackSession(session.SessionID(), client.id)
 	params, _ := json.Marshal(ChromiumActParams{SessionID: session.SessionID(), Request: actions.Request{Kind: actions.KindScreenshot}})
-	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
+	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), client, &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
 	if response.OK || response.Error == nil || response.Error.Code != "capability_unavailable" {
 		t.Fatalf("response=%#v", response)
 	}

@@ -15,6 +15,8 @@ import (
 	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
+const smokeTestToken = "artemis-smoke-test-token"
+
 func allTestPorts() []int {
 	ports := make([]int, 65535)
 	for i := range ports {
@@ -32,7 +34,7 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	if err := agent.Start(context.Background()); err != nil {
 		t.Fatalf("agent start: %v", err)
 	}
-	srv := serve.New(agent, serve.Opts{})
+	srv := serve.New(agent, serve.Opts{AuthToken: smokeTestToken})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -69,6 +71,7 @@ func TestRunnerScenarioAgainstLocalServer(t *testing.T) {
 		StepTimeout:    10 * time.Second,
 		Host:           host,
 		Port:           port,
+		AuthToken:      smokeTestToken,
 	})
 
 	scenario := Scenario{
@@ -127,6 +130,7 @@ func TestRunnerScenarioAssertFailureFailsScenario(t *testing.T) {
 		StepTimeout:    10 * time.Second,
 		Host:           host,
 		Port:           port,
+		AuthToken:      smokeTestToken,
 	})
 
 	scenario := Scenario{
@@ -164,6 +168,7 @@ func TestRunnerScenarioNetworkFailureTolerant(t *testing.T) {
 		StepTimeout:    10 * time.Second,
 		Host:           host,
 		Port:           port,
+		AuthToken:      smokeTestToken,
 	})
 
 	// Use a port that is almost certainly closed to force a fetch error.

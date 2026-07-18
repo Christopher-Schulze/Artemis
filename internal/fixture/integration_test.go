@@ -25,6 +25,8 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
+const serveFixtureToken = "artemis-fixture-test-token"
+
 // runner is a cross-adapter fixture surface. Each concrete implementation
 // executes the same deterministic fixture scenarios through a single
 // Artemis path: engine, Chromium bridge, hybrid router, serve, Agent API, or
@@ -542,6 +544,7 @@ type serveRunner struct {
 	httpServer *http.Server
 	addr       string
 	sessID     string
+	clientID   string
 }
 
 func (r *serveRunner) name() string { return "serve" }
@@ -556,7 +559,13 @@ func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 		t.Fatalf("agent.Start: %v", err)
 	}
 	r.agent = agent
-	r.server = serve.New(agent, serve.Opts{})
+	r.server = serve.New(agent, serve.Opts{
+		AuthToken: serveFixtureToken,
+		RateLimit: serve.RateLimit{
+			RequestsPerSecond: 1000, Burst: 1000,
+			ClientRequestsPerMinute: 60000, ClientBurst: 1000, ClientBucketTTL: time.Hour,
+		},
+	})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -592,10 +601,16 @@ func (r *serveRunner) canRun(sc Scenario) (bool, string) { return Check("serve",
 
 func (r *serveRunner) dial(t *testing.T) *websocket.Conn {
 	t.Helper()
-	c, _, err := websocket.Dial(context.Background(), "ws://"+r.addr+"/", nil)
+	header := http.Header{"Authorization": []string{"Bearer " + serveFixtureToken}}
+	if r.clientID != "" {
+		header.Set(serve.ClientIDHeader, r.clientID)
+	}
+	dialOptions := &websocket.DialOptions{HTTPHeader: header}
+	c, response, err := websocket.Dial(context.Background(), "ws://"+r.addr+"/", dialOptions)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	r.clientID = response.Header.Get(serve.ClientIDHeader)
 	c.SetReadLimit(8 << 20)
 	return c
 }

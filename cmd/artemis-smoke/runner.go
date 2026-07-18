@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,7 @@ type RunnerConfig struct {
 	StepTimeout    time.Duration // default per-step timeout
 	Host           string        // serve host
 	Port           int           // serve port
+	AuthToken      string        // bearer token for the serve control plane
 	Logger         *slog.Logger
 }
 
@@ -85,6 +88,9 @@ func NewRunner(cfg RunnerConfig) *Runner {
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 9344
+	}
+	if cfg.AuthToken == "" {
+		cfg.AuthToken = rand.Text()
 	}
 	return &Runner{cfg: cfg, logger: cfg.Logger}
 }
@@ -212,6 +218,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		addr = fmt.Sprintf("%s:%d", r.cfg.Host, r.cfg.Port)
 		artemisProc := exec.CommandContext(srvCtx, r.binPath, "serve",
 			"--host", r.cfg.Host, "--port", fmt.Sprintf("%d", r.cfg.Port))
+		artemisProc.Env = append(os.Environ(), "ARTEMIS_SERVE_TOKEN="+r.cfg.AuthToken)
 		var srvLog bytes.Buffer
 		artemisProc.Stdout = &srvLog
 		artemisProc.Stderr = &srvLog
@@ -239,7 +246,8 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 
 	// Connect WS.
 	wsURL := "ws://" + addr + "/"
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	dialOptions := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + r.cfg.AuthToken}}}
+	conn, _, err := websocket.Dial(ctx, wsURL, dialOptions)
 	if err != nil {
 		res.Pass = false
 		res.Steps = append(res.Steps, StepResult{

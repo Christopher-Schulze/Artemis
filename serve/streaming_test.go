@@ -2,6 +2,7 @@ package serve
 
 import (
 	"encoding/json"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -135,6 +136,9 @@ func TestStartBindsPort(t *testing.T) {
 	defer s.Stop()
 	if s.Port() != port {
 		t.Fatalf("Port()=%d", s.Port())
+	}
+	if address := s.listener.Addr().(*net.TCPAddr).IP; !address.IsLoopback() {
+		t.Fatalf("streaming listener bound externally: %s", address)
 	}
 }
 

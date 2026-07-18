@@ -189,7 +189,7 @@ func (s *StreamingServer) Start() (int, error) {
 	var lastErr error
 	for attempt := 0; attempt <= max; attempt++ {
 		port := base + attempt
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			lastErr = err
 			continue
