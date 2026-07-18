@@ -32,6 +32,8 @@ func main() {
 		}
 	case "fetch":
 		os.Exit(cmdFetch(os.Args[2:]))
+	case "download":
+		os.Exit(cmdDownload(os.Args[2:]))
 	case "run":
 		os.Exit(cmdRun(os.Args[2:]))
 	case "serve":
@@ -65,6 +67,7 @@ Usage:
 
 Commands:
   fetch      fetch a URL and dump html / markdown / text / title / links / structured / semantic
+  download   fetch into the session-owned, policy-checked download store
   run        load a JavaScript file and execute it in the page context (--script FILE <url>)
   serve      run the JSON-over-WebSocket steering server
   observe    capture a bounded Chromium DOM/accessibility snapshot as JSON

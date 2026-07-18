@@ -64,6 +64,44 @@ func TestTraceEmitsJSON(t *testing.T) {
 	}
 }
 
+func TestDownloadEmitsVerifiedOwnedMetadata(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Disposition", `attachment; filename="cli-proof.txt"`)
+		_, _ = w.Write([]byte("cli-download"))
+	}))
+	defer server.Close()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	oldStdout := os.Stdout
+	os.Stdout = w
+	code := cmdDownload([]string{"--session-id", "cli-test", "--allow-private-networks", "--allow-port", portOf(server.URL), server.URL})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	if code != 0 {
+		t.Fatalf("download exit code = %d, want 0", code)
+	}
+	var result struct {
+		Path   string `json:"path"`
+		MIME   string `json:"mime"`
+		Size   int64  `json:"size"`
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.NewDecoder(r).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.MIME != "text/plain" || result.Size != int64(len("cli-download")) || len(result.SHA256) != 64 {
+		t.Fatalf("result=%#v", result)
+	}
+	if !strings.HasSuffix(result.Path, filepath.Join("cli-test", "downloads", "cli-proof.txt")) {
+		t.Fatalf("path=%s", result.Path)
+	}
+}
+
 func TestProfileCRUD(t *testing.T) {
 	root := t.TempDir()
 	name := "testprofile"

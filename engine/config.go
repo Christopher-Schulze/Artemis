@@ -12,9 +12,11 @@ import (
 
 // Default values used when a Config field is left at its zero value.
 const (
-	DefaultUserAgent    = "Artemis/0.1.0-alpha.1 (+https://github.com/Christopher-Schulze/Artemis) AppleWebKit/537.36"
-	DefaultTimeout      = 30 * time.Second
-	DefaultMaxBodyBytes = int64(50 * 1024 * 1024)
+	DefaultUserAgent         = "Artemis/0.1.0-alpha.1 (+https://github.com/Christopher-Schulze/Artemis) AppleWebKit/537.36"
+	DefaultTimeout           = 30 * time.Second
+	DefaultMaxBodyBytes      = int64(50 * 1024 * 1024)
+	DefaultDownloadDiskBytes = int64(1024 * 1024 * 1024)
+	DefaultDownloadFreeBytes = int64(512 * 1024 * 1024)
 )
 
 // Config configures engine behavior. The zero value is usable; defaults
@@ -41,6 +43,13 @@ type Config struct {
 	// SessionID correlates redacted network-policy decisions across
 	// HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket paths.
 	SessionID string
+	// DownloadRoot owns per-session download directories. Empty resolves to
+	// ~/.omnimus/tmp/browser. Callers may override it for isolated runtimes.
+	DownloadRoot string
+	// MaxDownloadDiskBytes caps all committed downloads in one session.
+	MaxDownloadDiskBytes int64
+	// MinDownloadFreeBytes is the free-space headroom preserved after a write.
+	MinDownloadFreeBytes int64
 	// JSContextPoolSize enables the v8.Context pool for JS execution.
 	// Pooled Contexts skip ~30% of NewContext CPU cost (install* and
 	// flushBootstraps) by reusing a previously-built v8.Context after
@@ -64,5 +73,11 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MaxBodyBytes == 0 {
 		c.MaxBodyBytes = DefaultMaxBodyBytes
+	}
+	if c.MaxDownloadDiskBytes == 0 {
+		c.MaxDownloadDiskBytes = DefaultDownloadDiskBytes
+	}
+	if c.MinDownloadFreeBytes == 0 {
+		c.MinDownloadFreeBytes = DefaultDownloadFreeBytes
 	}
 }

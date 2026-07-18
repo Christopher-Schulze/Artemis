@@ -19,6 +19,7 @@ type Page struct {
 	document   *webapi.Document
 	rawBody    []byte
 	jsCtx      *js.Context
+	download   func(string, string, []byte) (*Download, error)
 }
 
 // URL returns the final URL of the page after redirects.
@@ -35,6 +36,15 @@ func (p *Page) Document() *webapi.Document { return p.document }
 
 // RawBody returns the raw response body as fetched, before parsing.
 func (p *Page) RawBody() []byte { return p.rawBody }
+
+// SaveDownload atomically stores this response body in the owning engine
+// session's download directory. The target must be a filename, not a path.
+func (p *Page) SaveDownload(filename string) (*Download, error) {
+	if p.download == nil {
+		return nil, errors.New("page has no download owner")
+	}
+	return p.download(filename, p.headers.Get("Content-Type"), p.rawBody)
+}
 
 // HTML returns the page as serialized HTML.
 func (p *Page) HTML() string { return agent.HTML(p.document) }

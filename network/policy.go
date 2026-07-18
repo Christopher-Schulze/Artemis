@@ -62,9 +62,11 @@ type PolicyConfig struct {
 	AllowedPorts         []int
 	AllowedMethods       []string
 	AllowedContentTypes  []string
+	AllowedDownloadTypes []string
 	AllowPrivateNetworks bool
 	MaxRequestBodyBytes  int64
 	MaxResponseBodyBytes int64
+	MaxDownloadBytes     int64
 	MaxRedirects         int
 	DialTimeout          time.Duration
 }
@@ -75,8 +77,10 @@ func DefaultPolicyConfig() PolicyConfig {
 		AllowedPorts:         []int{80, 443},
 		AllowedMethods:       []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedContentTypes:  []string{"application/json", "application/x-www-form-urlencoded", "multipart/form-data", "text/plain"},
+		AllowedDownloadTypes: []string{"*/*"},
 		MaxRequestBodyBytes:  16 << 20,
 		MaxResponseBodyBytes: 50 << 20,
+		MaxDownloadBytes:     50 << 20,
 		MaxRedirects:         10,
 		DialTimeout:          10 * time.Second,
 	}
@@ -114,11 +118,17 @@ func normalizePolicyConfig(config PolicyConfig) PolicyConfig {
 	if len(config.AllowedContentTypes) == 0 {
 		config.AllowedContentTypes = defaults.AllowedContentTypes
 	}
+	if len(config.AllowedDownloadTypes) == 0 {
+		config.AllowedDownloadTypes = defaults.AllowedDownloadTypes
+	}
 	if config.MaxRequestBodyBytes <= 0 {
 		config.MaxRequestBodyBytes = defaults.MaxRequestBodyBytes
 	}
 	if config.MaxResponseBodyBytes <= 0 {
 		config.MaxResponseBodyBytes = defaults.MaxResponseBodyBytes
+	}
+	if config.MaxDownloadBytes <= 0 {
+		config.MaxDownloadBytes = defaults.MaxDownloadBytes
 	}
 	if config.MaxRedirects <= 0 {
 		config.MaxRedirects = defaults.MaxRedirects
@@ -129,6 +139,7 @@ func normalizePolicyConfig(config PolicyConfig) PolicyConfig {
 	config.AllowedSchemes = normalizedStrings(config.AllowedSchemes, strings.ToLower)
 	config.AllowedMethods = normalizedStrings(config.AllowedMethods, strings.ToUpper)
 	config.AllowedContentTypes = normalizedStrings(config.AllowedContentTypes, strings.ToLower)
+	config.AllowedDownloadTypes = normalizedStrings(config.AllowedDownloadTypes, strings.ToLower)
 	config.AllowedDomains = normalizedStrings(config.AllowedDomains, strings.ToLower)
 	config.AllowedPorts = append([]int(nil), config.AllowedPorts...)
 	sort.Ints(config.AllowedPorts)
@@ -144,6 +155,11 @@ func validatePolicyConfig(config PolicyConfig) error {
 	for _, pattern := range config.AllowedDomains {
 		if pattern == "*" || pattern == "*." || strings.ContainsAny(pattern, "/:@") {
 			return fmt.Errorf("network policy: invalid domain pattern %q", pattern)
+		}
+	}
+	for _, pattern := range config.AllowedDownloadTypes {
+		if !validMediaTypePattern(pattern) {
+			return fmt.Errorf("network policy: invalid download content type %q", pattern)
 		}
 	}
 	return nil
@@ -172,7 +188,35 @@ func (p *Policy) Config() PolicyConfig {
 	config.AllowedPorts = append([]int(nil), config.AllowedPorts...)
 	config.AllowedMethods = append([]string(nil), config.AllowedMethods...)
 	config.AllowedContentTypes = append([]string(nil), config.AllowedContentTypes...)
+	config.AllowedDownloadTypes = append([]string(nil), config.AllowedDownloadTypes...)
 	return config
+}
+
+// ValidateDownload enforces the download-specific content and size policy.
+// Content type must be a normalized sniffed media type, not a server claim.
+func (p *Policy) ValidateDownload(contentType string, size int64, sessionID string) error {
+	if err := p.ValidateDownloadSize(size, sessionID); err != nil {
+		return err
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	if mediaType == "" || !mediaTypeAllowed(p.config.AllowedDownloadTypes, mediaType) {
+		return p.deny(TargetDownload, nil, sessionID, "download_content_type_not_allowed")
+	}
+	return nil
+}
+
+// ValidateDownloadSize enforces limits before a browser download has a MIME.
+func (p *Policy) ValidateDownloadSize(size int64, sessionID string) error {
+	if p == nil {
+		return fmt.Errorf("%w: policy required", ErrPolicyDenied)
+	}
+	if size <= 0 {
+		return p.deny(TargetDownload, nil, sessionID, "invalid_download_size")
+	}
+	if size > p.config.MaxDownloadBytes {
+		return p.deny(TargetDownload, nil, sessionID, "download_too_large")
+	}
+	return nil
 }
 
 func (p *Policy) ValidateRequest(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
@@ -456,4 +500,41 @@ func containsString(values []string, value string) bool {
 func containsInt(values []int, value int) bool {
 	index := sort.SearchInts(values, value)
 	return index < len(values) && values[index] == value
+}
+
+func validMediaTypePattern(pattern string) bool {
+	parts := strings.Split(pattern, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	if parts[0] == "*" {
+		return parts[1] == "*"
+	}
+	return validMediaToken(parts[0]) && (parts[1] == "*" || validMediaToken(parts[1]))
+}
+
+func validMediaToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || strings.ContainsRune("!#$%&'+-.^_`|~", char) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func mediaTypeAllowed(patterns []string, mediaType string) bool {
+	parts := strings.Split(mediaType, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		if pattern == "*/*" || pattern == mediaType || strings.HasSuffix(pattern, "/*") && strings.TrimSuffix(pattern, "/*") == parts[0] {
+			return true
+		}
+	}
+	return false
 }

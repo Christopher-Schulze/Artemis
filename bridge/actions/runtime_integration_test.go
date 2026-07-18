@@ -15,6 +15,8 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
+	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -79,7 +81,15 @@ func newActionFixture(t *testing.T) *actionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := NewRuntime(page, observer, nil)
+	downloadPolicy, err := network.NewPolicy(network.DefaultPolicyConfig(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downloads, err := artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{RootDir: t.TempDir(), SessionID: "integration", Policy: downloadPolicy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +144,9 @@ func TestRuntimeRealChromiumInteractionMatrix(t *testing.T) {
 	}
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindUpload, Ref: refs["Upload"], Files: []string{upload}}))
 	assertValue(t, f.runtime, `document.querySelector('[aria-label="Upload"]').files[0].text().then(v=>v==='upload-proof')`)
-	download := f.runtime.Execute(ctx, Request{Kind: KindDownload, Ref: refs["Download"], DownloadDir: t.TempDir(), Timeout: 5 * time.Second})
+	download := f.runtime.Execute(ctx, Request{Kind: KindDownload, Ref: refs["Download"], Timeout: 5 * time.Second})
 	requireAction(t, download)
-	if download.Download == nil || download.Download.Size != int64(len("verified-download")) {
+	if download.Download == nil || download.Download.Size != int64(len("verified-download")) || download.Download.SHA256 == "" {
 		t.Fatalf("download=%#v", download.Download)
 	}
 	raw, err := os.ReadFile(download.Download.Path)

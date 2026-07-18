@@ -137,6 +137,11 @@ var ErrBodyTooLarge = errors.New("response body exceeds configured limit")
 // Do executes a Request and returns the Response. The body is fully read
 // up to MaxBodyBytes before return.
 func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
+	return c.DoTarget(ctx, r, TargetNavigation)
+}
+
+// DoTarget executes a request under the policy identity of kind.
+func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (*Response, error) {
 	if r.URL == "" {
 		return nil, errors.New("request URL is empty")
 	}
@@ -156,7 +161,7 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 			req.Header.Add(k, v)
 		}
 	}
-	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, TargetNavigation, c.cfg.SessionID); err != nil {
+	if err := c.cfg.Policy.ValidateRequest(ctx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), req.ContentLength, kind, c.cfg.SessionID); err != nil {
 		return nil, fmt.Errorf("validate request: %w", err)
 	}
 
@@ -171,6 +176,9 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 		limit = c.cfg.MaxBodyBytes
 	}
 	policyLimit := c.cfg.Policy.Config().MaxResponseBodyBytes
+	if kind == TargetDownload {
+		policyLimit = c.cfg.Policy.Config().MaxDownloadBytes
+	}
 	if limit <= 0 || policyLimit < limit {
 		limit = policyLimit
 	}

@@ -3,19 +3,20 @@ package actions
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
-	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
 )
 
 type Kind string
@@ -129,24 +130,38 @@ type Download struct {
 	Filename string `json:"filename"`
 	MIME     string `json:"mime"`
 	Size     int64  `json:"size"`
+	SHA256   string `json:"sha256"`
 }
 type Policy func(context.Context, Request) error
 
 type Runtime struct {
-	page     *bridge.Page
-	observer *bridgeobserve.Collector
-	policy   Policy
-	now      func() time.Time
+	page         *bridge.Page
+	observer     *bridgeobserve.Collector
+	policy       Policy
+	now          func() time.Time
+	downloads    *artemisdownload.DownloadManager
+	downloadOnce sync.Once
+	downloadErr  error
+}
+
+// RuntimeConfig injects lifecycle owners used by action execution.
+type RuntimeConfig struct {
+	Downloads *artemisdownload.DownloadManager
 }
 
 func NewRuntime(page *bridge.Page, observer *bridgeobserve.Collector, policy Policy) (*Runtime, error) {
+	return NewRuntimeWithConfig(page, observer, policy, RuntimeConfig{})
+}
+
+// NewRuntimeWithConfig creates a runtime with explicit lifecycle owners.
+func NewRuntimeWithConfig(page *bridge.Page, observer *bridgeobserve.Collector, policy Policy, config RuntimeConfig) (*Runtime, error) {
 	if page == nil {
 		return nil, errors.New("actions runtime: page required")
 	}
 	if observer == nil {
 		return nil, errors.New("actions runtime: observer required")
 	}
-	return &Runtime{page: page, observer: observer, policy: policy, now: time.Now}, nil
+	return &Runtime{page: page, observer: observer, policy: policy, now: time.Now, downloads: config.Downloads}, nil
 }
 
 func (r *Runtime) Execute(ctx context.Context, request Request) Outcome {
@@ -346,8 +361,8 @@ func validateRequest(q Request) error {
 	if q.Kind == KindUpload && len(q.Files) == 0 {
 		return errors.New("action: upload files required")
 	}
-	if q.Kind == KindDownload && q.DownloadDir == "" {
-		return errors.New("action: download directory required")
+	if q.Kind == KindDownload && q.DownloadDir != "" {
+		return errors.New("action: downloadDir is forbidden; downloads use the session-owned directory")
 	}
 	if q.Kind == KindDrag && q.TargetRef == "" {
 		return errors.New("action: drag target ref required")
@@ -624,52 +639,128 @@ func (r *Runtime) upload(ctx context.Context, n bridgeobserve.Node, q Request, e
 	return Outcome{Success: true, Value: value, Evidence: e}
 }
 func (r *Runtime) download(ctx context.Context, n bridgeobserve.Node, q Request, e Evidence) Outcome {
-	if err := os.MkdirAll(q.DownloadDir, 0o700); err != nil {
+	manager, err := r.downloadManager()
+	if err != nil {
 		return failedNow(e, FailureValidation, err.Error())
 	}
-	before, _ := os.ReadDir(q.DownloadDir)
-	params := map[string]any{"behavior": "allow", "downloadPath": q.DownloadDir, "eventsEnabled": true}
+	stage, err := manager.NewBrowserStage()
+	if err != nil {
+		return failedNow(e, FailureValidation, err.Error())
+	}
+	defer stage.Close()
+	subscription, err := r.page.SubscribeBrowserEvents(64)
+	if err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
+	}
+	defer subscription.Close()
+	params := map[string]any{"behavior": "allow", "downloadPath": stage.Directory(), "eventsEnabled": true}
 	if id := r.page.BrowserContextID(); id != "" {
 		params["browserContextId"] = id
 	}
 	if err := r.page.CallBrowser(ctx, "Browser.setDownloadBehavior", params, &struct{}{}); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
+	defer r.disableDownloads()
 	if out := r.click(ctx, n, e); !out.Success {
 		return out
 	}
-	known := map[string]bool{}
-	for _, entry := range before {
-		known[entry.Name()] = true
-	}
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
+	var guid, filename string
 	for {
-		entries, _ := os.ReadDir(q.DownloadDir)
-		for _, entry := range entries {
-			if known[entry.Name()] || entry.IsDir() || strings.HasSuffix(entry.Name(), ".crdownload") {
-				continue
-			}
-			path := filepath.Join(q.DownloadDir, entry.Name())
-			info, err := entry.Info()
-			if err != nil || info.Size() == 0 {
-				continue
-			}
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			mime := http.DetectContentType(raw)
-			download := &Download{Path: path, Filename: entry.Name(), MIME: mime, Size: info.Size()}
-			e.Postcondition = Postcondition{Type: "download_complete", Expected: ">0 bytes", Actual: info.Size(), Passed: true}
-			return Outcome{Success: true, Download: download, Evidence: e}
-		}
 		select {
 		case <-ctx.Done():
+			r.cancelDownload(guid)
 			return failedNow(e, classifyContext(ctx, FailureTimeout), "download did not complete: "+ctx.Err().Error())
-		case <-ticker.C:
+		case event, ok := <-subscription.Events:
+			if !ok {
+				return failedNow(e, FailureProtocol, "download event stream closed")
+			}
+			switch event.Method {
+			case "Browser.downloadWillBegin":
+				var started struct {
+					GUID              string `json:"guid"`
+					SuggestedFilename string `json:"suggestedFilename"`
+				}
+				if json.Unmarshal(event.Params, &started) == nil && started.GUID != "" {
+					guid, filename = started.GUID, started.SuggestedFilename
+				}
+			case "Browser.downloadProgress":
+				var progress struct {
+					GUID          string  `json:"guid"`
+					State         string  `json:"state"`
+					ReceivedBytes float64 `json:"receivedBytes"`
+				}
+				if json.Unmarshal(event.Params, &progress) != nil || progress.GUID == "" || guid != "" && progress.GUID != guid {
+					continue
+				}
+				if guid == "" {
+					guid = progress.GUID
+				}
+				if err := manager.ValidatePending(int64(progress.ReceivedBytes)); err != nil {
+					r.cancelDownload(guid)
+					return failedNow(e, FailurePolicy, err.Error())
+				}
+				if progress.State == "canceled" {
+					return failedNow(e, FailureProtocol, "download canceled by browser")
+				}
+				if progress.State != "completed" {
+					continue
+				}
+				download, err := stage.Adopt(filename, "")
+				if err != nil {
+					return failedNow(e, FailurePolicy, err.Error())
+				}
+				e.Postcondition = Postcondition{Type: "download_complete", Expected: ">0 bytes", Actual: download.Size, Passed: download.Size > 0}
+				return Outcome{Success: true, Download: &Download{Path: download.Path, Filename: download.Filename, MIME: download.MIME, Size: download.Size, SHA256: download.SHA256}, Evidence: e}
+			}
+		case err, ok := <-subscription.Errors:
+			if !ok || err == nil {
+				return failedNow(e, FailureProtocol, "download event stream failed")
+			}
+			return failedNow(e, FailureProtocol, err.Error())
 		}
 	}
+}
+
+func (r *Runtime) downloadManager() (*artemisdownload.DownloadManager, error) {
+	r.downloadOnce.Do(func() {
+		if r.downloads != nil {
+			return
+		}
+		policy, err := r.page.NetworkPolicy()
+		if err != nil {
+			r.downloadErr = err
+			return
+		}
+		sessionID := r.page.BrowserContextID()
+		if sessionID == "" {
+			sessionID = "default-" + r.page.TargetID()
+		}
+		r.downloads, r.downloadErr = artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{SessionID: sessionID, Policy: policy})
+	})
+	return r.downloads, r.downloadErr
+}
+
+func (r *Runtime) cancelDownload(guid string) {
+	if guid == "" {
+		return
+	}
+	params := map[string]any{"guid": guid}
+	if id := r.page.BrowserContextID(); id != "" {
+		params["browserContextId"] = id
+	}
+	cancelCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = r.page.CallBrowser(cancelCtx, "Browser.cancelDownload", params, &struct{}{})
+}
+
+func (r *Runtime) disableDownloads() {
+	params := map[string]any{"behavior": "deny", "eventsEnabled": false}
+	if id := r.page.BrowserContextID(); id != "" {
+		params["browserContextId"] = id
+	}
+	disableCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = r.page.CallBrowser(disableCtx, "Browser.setDownloadBehavior", params, &struct{}{})
 }
 
 func (r *Runtime) screenshot(ctx context.Context, q Request, e Evidence) Outcome {

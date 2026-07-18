@@ -3,13 +3,16 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
+	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
 	"github.com/Christopher-Schulze/Artemis/js"
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/parser"
@@ -80,11 +83,17 @@ var ErrRobotsDisallowed = network.ErrRobotsDisallowed
 // Engine is the top-level handle for performing fetches and producing
 // pages. It is safe for concurrent use.
 type Engine struct {
-	cfg    Config
-	client *network.HTTPClient
-	policy *network.Policy
-	jsRT   *js.Runtime
+	cfg          Config
+	client       *network.HTTPClient
+	policy       *network.Policy
+	jsRT         *js.Runtime
+	downloadOnce sync.Once
+	downloads    *artemisdownload.DownloadManager
+	downloadErr  error
 }
+
+// Download is the verified metadata for a committed session download.
+type Download = artemisdownload.Download
 
 // New creates an Engine using cfg. The returned engine must be Closed.
 func New(cfg Config) (*Engine, error) {
@@ -126,6 +135,26 @@ func (e *Engine) Config() Config { return e.cfg }
 // HTTPClient exposes the underlying network client. Phase 1 callers
 // use it for cookie inspection.
 func (e *Engine) HTTPClient() *network.HTTPClient { return e.client }
+
+// Download fetches raw content under TargetDownload policy and atomically
+// commits it to this engine session's owned download directory.
+func (e *Engine) Download(ctx context.Context, rawURL, filename string) (*Download, error) {
+	resp, err := e.client.DoTarget(ctx, network.Request{Method: http.MethodGet, URL: rawURL}, network.TargetDownload)
+	if err != nil {
+		return nil, fmt.Errorf("engine: download %s: %w", rawURL, err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("engine: download %s: status %d", rawURL, resp.StatusCode)
+	}
+	if strings.TrimSpace(filename) == "" {
+		filename = artemisdownload.SuggestedFilename(resp.FinalURL, resp.Headers.Get("Content-Disposition"))
+	}
+	manager, err := e.downloadManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.Store(filename, resp.Headers.Get("Content-Type"), resp.Body)
+}
 
 // Fetch performs an HTTP request on rawURL and returns a Page. The page
 // is fully fetched and parsed before return. Method defaults to GET.
@@ -199,6 +228,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 				document:   doc,
 				rawBody:    mock.Body,
 				jsCtx:      jsCtx,
+				download:   e.storePageDownload,
 			}
 			if opts.RunInlineScripts || opts.RunScripts {
 				e.runScripts(ctx, jsCtx, doc, finalURL)
@@ -250,6 +280,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 		document:   doc,
 		rawBody:    resp.Body,
 		jsCtx:      jsCtx,
+		download:   e.storePageDownload,
 	}
 
 	if opts.RunInlineScripts || opts.RunScripts {
@@ -257,6 +288,31 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (*Pag
 	}
 
 	return page, nil
+}
+
+func (e *Engine) downloadManager() (*artemisdownload.DownloadManager, error) {
+	e.downloadOnce.Do(func() {
+		if strings.TrimSpace(e.cfg.SessionID) == "" {
+			e.downloadErr = errors.New("engine: session ID required for downloads")
+			return
+		}
+		e.downloads, e.downloadErr = artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{
+			RootDir:      e.cfg.DownloadRoot,
+			SessionID:    e.cfg.SessionID,
+			MaxDiskBytes: e.cfg.MaxDownloadDiskBytes,
+			MinFreeBytes: e.cfg.MinDownloadFreeBytes,
+			Policy:       e.policy,
+		})
+	})
+	return e.downloads, e.downloadErr
+}
+
+func (e *Engine) storePageDownload(filename, contentType string, content []byte) (*Download, error) {
+	manager, err := e.downloadManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.Store(filename, contentType, content)
 }
 
 // Submit performs a form submission via the engine's HTTP client and
