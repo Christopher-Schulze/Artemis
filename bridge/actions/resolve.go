@@ -28,7 +28,7 @@ const (
 )
 
 // SelectorPrefixes maps selector prefixes to their kinds
-// (spec L4231: 5 selector types with prefix syntax).
+// (spec L4220: 5 selector types with prefix syntax).
 var SelectorPrefixes = map[string]SelectorKind{
 	"css:":   SelectorKindCSS,
 	"xpath:": SelectorKindXPath,
@@ -45,7 +45,7 @@ type ResolvedSelector struct {
 }
 
 // ResolveSelector resolves a selector string to its kind and canonical
-// form (spec L4020: unified selector resolution, spec L4231: 5 types).
+// form (spec L4020: unified selector resolution, spec L4220: 5 types).
 // Prefixed syntax: "css:...", "xpath:...", "text:...", "find:..."
 // - "e123" -> ref kind, canonical = "e123"
 // - "css:#submit" -> css kind
@@ -61,7 +61,7 @@ func ResolveSelector(selector string) (ResolvedSelector, error) {
 		return ResolvedSelector{}, fmt.Errorf("resolve: empty selector")
 	}
 
-	// Check for explicit prefixes first (spec L4231: prefix syntax)
+	// Check for explicit prefixes first (spec L4220: prefix syntax)
 	for prefix, kind := range SelectorPrefixes {
 		if strings.HasPrefix(selector, prefix) {
 			rest := strings.TrimSpace(selector[len(prefix):])
@@ -153,7 +153,7 @@ func ResolveAndValidate(ctx context.Context, selector string) (ResolvedSelector,
 }
 
 // IsValidSelectorKind reports whether a selector kind is valid
-// (spec L4020: unified selector resolution, spec L4231: 5 types).
+// (spec L4020: unified selector resolution, spec L4220: 5 types).
 func IsValidSelectorKind(kind SelectorKind) bool {
 	switch kind {
 	case SelectorKindRef, SelectorKindCSS, SelectorKindXPath, SelectorKindText, SelectorKindSemantic:
@@ -163,7 +163,7 @@ func IsValidSelectorKind(kind SelectorKind) bool {
 }
 
 // SelectorPriority returns the resolution priority of a selector kind
-// (spec L4231: Resolution priority: Ref > CSS > XPath > Text > Semantic).
+// (spec L4220: Resolution priority: Ref > CSS > XPath > Text > Semantic).
 // Lower number = higher priority.
 func SelectorPriority(kind SelectorKind) int {
 	switch kind {
@@ -183,7 +183,7 @@ func SelectorPriority(kind SelectorKind) int {
 
 // CompareSelectorPriority compares two selector kinds by resolution
 // priority. Returns -1 if a has higher priority than b, 1 if lower,
-// 0 if equal (spec L4231: Ref > CSS > XPath > Text > Semantic).
+// 0 if equal (spec L4220: Ref > CSS > XPath > Text > Semantic).
 func CompareSelectorPriority(a, b SelectorKind) int {
 	pa := SelectorPriority(a)
 	pb := SelectorPriority(b)
@@ -198,7 +198,7 @@ func CompareSelectorPriority(a, b SelectorKind) int {
 
 // SortSelectorsByPriority sorts a slice of resolved selectors by
 // resolution priority (highest priority first)
-// (spec L4231: Ref > CSS > XPath > Text > Semantic).
+// (spec L4220: Ref > CSS > XPath > Text > Semantic).
 func SortSelectorsByPriority(selectors []ResolvedSelector) []ResolvedSelector {
 	out := make([]ResolvedSelector, len(selectors))
 	copy(out, selectors)
