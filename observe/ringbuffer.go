@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-// Spec-mandated defaults (spec L4183: network ring buffer).
+// Spec-mandated defaults (spec L4186: network ring buffer).
 const (
 	// DefaultNetworkRingCapacity is the default per-tab ring buffer size.
 	DefaultNetworkRingCapacity = 100
 	// MaxNetworkRingCapacity is the upper clamp for the ring buffer size.
 	MaxNetworkRingCapacity = 10000
 
-	// Sanitization limits (spec L4184).
+	// Sanitization limits (spec L4186).
 	MaxURLLen         = 8 * 1024  // 8KB
 	MaxPostDataLen    = 64 * 1024 // 64KB
 	MaxHeaderValLen   = 4 * 1024  // 4KB per header value
@@ -21,7 +21,7 @@ const (
 )
 
 // NetworkEvent is one captured network observation.
-// Normalized per spec L4183: URL, method, status, resourceType,
+// Normalized per spec L4186: URL, method, status, resourceType,
 // mimeType, headers (truncated 4KB each), postData (max 64KB),
 // timing (start/end/duration_ms).
 type NetworkEvent struct {
@@ -40,7 +40,7 @@ type NetworkEvent struct {
 }
 
 // NetworkRingBuffer stores the last N network events with O(1)
-// lookup by requestId (spec L4183: circular buffer default 100/tab,
+// lookup by requestId (spec L4186: circular buffer default 100/tab,
 // clamped at 10000, O(1) lookup by requestId).
 type NetworkRingBuffer struct {
 	mu   sync.Mutex
@@ -52,7 +52,7 @@ type NetworkRingBuffer struct {
 }
 
 // NewNetworkRingBuffer creates a ring buffer with the given capacity.
-// Default is 100, clamped at 10000 (spec L4183).
+// Default is 100, clamped at 10000 (spec L4186).
 func NewNetworkRingBuffer(capacity int) *NetworkRingBuffer {
 	if capacity <= 0 {
 		capacity = DefaultNetworkRingCapacity
@@ -69,7 +69,7 @@ func NewNetworkRingBuffer(capacity int) *NetworkRingBuffer {
 
 // Push adds a network event to the ring buffer, overwriting the
 // oldest entry if full. Maintains the requestId index for O(1)
-// lookup (spec L4183).
+// lookup (spec L4186).
 func (r *NetworkRingBuffer) Push(ev NetworkEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -116,7 +116,7 @@ func (r *NetworkRingBuffer) Len() int {
 }
 
 // Lookup retrieves an event by requestId in O(1)
-// (spec L4183: O(1) lookup by requestId).
+// (spec L4186: O(1) lookup by requestId).
 func (r *NetworkRingBuffer) Lookup(requestID string) (NetworkEvent, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -135,7 +135,7 @@ func (r *NetworkRingBuffer) Capacity() int {
 }
 
 // sanitizeEvent applies the spec-mandated sanitization limits
-// (spec L4184: URL 8KB, postData 64KB, header value 4KB, header total 32KB).
+// (spec L4186: URL 8KB, postData 64KB, header value 4KB, header total 32KB).
 func sanitizeEvent(ev NetworkEvent) NetworkEvent {
 	if len(ev.URL) > MaxURLLen {
 		ev.URL = ev.URL[:MaxURLLen]

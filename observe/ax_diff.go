@@ -6,7 +6,7 @@ import (
 )
 
 // AXNode is a simplified accessibility tree node for diffing.
-// Extended per spec L4180: compact A11yNode with ref IDs (e5, e6...)
+// Extended per spec L4182: compact A11yNode with ref IDs (e5, e6...)
 // + backend DOM node IDs, interactive roles, pierce support.
 type AXNode struct {
 	ID            string   `json:"id"` // ref ID (e5, e6...)
@@ -23,19 +23,19 @@ type AXNode struct {
 }
 
 // AXSnapshotConfig controls AX tree snapshot extraction
-// (spec L4180: Accessibility.getFullAXTree with pierce:true).
+// (spec L4182: Accessibility.getFullAXTree with pierce:true).
 type AXSnapshotConfig struct {
-	// Pierce penetrates iframes and Shadow DOM (spec L4180).
+	// Pierce penetrates iframes and Shadow DOM (spec L4182).
 	Pierce bool `json:"pierce"`
 	// MaxDepth limits the tree depth (0 = unlimited). Controls
-	// response token size (spec L4181: depth limiting configurable).
+	// response token size (spec L4184: depth limiting configurable).
 	MaxDepth int `json:"maxDepth,omitempty"`
 	// FilterByRole filters to only the given roles (empty = all).
 	FilterByRole []string `json:"filterByRole,omitempty"`
 	// FilterByVisibility filters to only visible nodes when true.
 	FilterByVisibility bool `json:"filterByVisibility,omitempty"`
 	// BackendNodeFilter extracts only nodes matching the given
-	// backend DOM node IDs (spec L4181: optional scoped subtree).
+	// backend DOM node IDs (spec L4184: optional scoped subtree).
 	BackendNodeFilter []int64 `json:"backendNodeFilter,omitempty"`
 }
 
@@ -48,7 +48,7 @@ func DefaultAXSnapshotConfig() AXSnapshotConfig {
 	}
 }
 
-// InteractiveAXRoles are the interactive roles per spec L4180.
+// InteractiveAXRoles are the interactive roles per spec L4182.
 var InteractiveAXRoles = map[string]bool{
 	"button":   true,
 	"link":     true,
@@ -62,13 +62,13 @@ var InteractiveAXRoles = map[string]bool{
 }
 
 // IsInteractiveRole reports whether a role is interactive
-// (spec L4180: interactive roles).
+// (spec L4182: interactive roles).
 func IsInteractiveRole(role string) bool {
 	return InteractiveAXRoles[role]
 }
 
 // FilterAXSnapshot filters an AX snapshot by depth, role, and visibility
-// (spec L4180: filter by depth/role/visibility).
+// (spec L4182: filter by depth/role/visibility).
 func FilterAXSnapshot(nodes []AXNode, cfg AXSnapshotConfig) []AXNode {
 	out := make([]AXNode, 0, len(nodes))
 	roleFilter := make(map[string]bool, len(cfg.FilterByRole))
@@ -98,7 +98,7 @@ func FilterAXSnapshot(nodes []AXNode, cfg AXSnapshotConfig) []AXNode {
 }
 
 // MergeAXFrames merges AX trees from multiple frames into a single
-// tree (spec L4180: multi-frame merge). Nodes from child frames are
+// tree (spec L4182: multi-frame merge). Nodes from child frames are
 // appended after the parent frame's nodes.
 func MergeAXFrames(frames [][]AXNode) []AXNode {
 	total := 0
@@ -113,7 +113,7 @@ func MergeAXFrames(frames [][]AXNode) []AXNode {
 }
 
 // DedupKey returns the dedup key for an AX node
-// (spec L4180: dedup via (role:name:nodeId) key).
+// (spec L4182: dedup via (role:name:nodeId) key).
 func DedupKey(n AXNode) string {
 	return n.Role + ":" + n.Name + ":" + n.ID
 }
@@ -358,7 +358,7 @@ func DedupRoleSnapshot(nodes []AXNode) []AXNode {
 }
 
 // AXDiffSnapshot is the result of comparing two AX snapshots
-// (spec L4181: DiffSnapshot: added, changed, removed).
+// (spec L4184: DiffSnapshot: added, changed, removed).
 type AXDiffSnapshot struct {
 	Added   []AXNode `json:"added"`
 	Changed []AXNode `json:"changed"`
@@ -367,7 +367,7 @@ type AXDiffSnapshot struct {
 
 // DiffAXSnapshots compares prev/curr by (role:name:nodeId) and
 // returns added, changed (value/focus/disabled), and removed nodes
-// (spec L4181: Compare prev/curr, return added/changed/removed).
+// (spec L4184: Compare prev/curr, return added/changed/removed).
 // Agent processes only CHANGES.
 func DiffAXSnapshots(prev, curr []AXNode) AXDiffSnapshot {
 	prevMap := make(map[string]AXNode, len(prev))

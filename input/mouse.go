@@ -40,7 +40,7 @@ type MouseMoveConfig struct {
 }
 
 // DefaultMouseMoveConfig returns the default mouse move config
-// (spec L4189: cubic Bezier, 4 control points, 100ms base + 200ms
+// (spec L4192: cubic Bezier, 4 control points, 100ms base + 200ms
 // per 2000px, 5-30 steps, +-1.0px jitter, 16-23ms frame timing,
 // +-50px control point offsets).
 func DefaultMouseMoveConfig() MouseMoveConfig {
@@ -65,7 +65,7 @@ func BezierCurve(p0, p1, p2 MousePoint, t float64) MousePoint {
 }
 
 // CubicBezierCurve computes a point on a cubic Bezier curve with 4
-// control points (spec L4189: 4 control points, cubic interpolation).
+// control points (spec L4192: 4 control points, cubic interpolation).
 // p0 is start, p1/p2 are control points, p3 is end.
 // t is the parameter (0 <= t <= 1).
 func CubicBezierCurve(p0, p1, p2, p3 MousePoint, t float64) MousePoint {
@@ -80,13 +80,13 @@ func CubicBezierCurve(p0, p1, p2, p3 MousePoint, t float64) MousePoint {
 }
 
 // GenerateMousePath generates a cubic Bezier curve mouse path from
-// start to end with jitter (spec L4189: 4 control points, cubic
+// start to end with jitter (spec L4192: 4 control points, cubic
 // interpolation, 5-30 steps, +-1.0px jitter, +-50px control offsets).
 func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Rand) MousePath {
 	if cfg.Steps <= 0 {
 		cfg.Steps = 25
 	}
-	// Clamp steps to spec range 5-30 (spec L4189).
+	// Clamp steps to spec range 5-30 (spec L4192).
 	if cfg.Steps < 5 {
 		cfg.Steps = 5
 	}
@@ -102,7 +102,7 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 	distance := math.Sqrt(dx*dx + dy*dy)
 
 	// Compute two control points for cubic Bezier with +-50px
-	// random offsets (spec L4189: random control point offsets +-50px).
+	// random offsets (spec L4192: random control point offsets +-50px).
 	perpX := -dy * cfg.CurveBias
 	perpY := dx * cfg.CurveBias
 
@@ -132,7 +132,7 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 	for i := 0; i < cfg.Steps; i++ {
 		t := float64(i) / float64(cfg.Steps-1)
 		pt := CubicBezierCurve(start, cp1, cp2, end, t)
-		// Add per-step jitter (spec L4189: +-1.0px per-step jitter)
+		// Add per-step jitter (spec L4192: +-1.0px per-step jitter)
 		if cfg.Jitter > 0 && rng != nil {
 			pt.X += (rng.Float64() - 0.5) * 2 * cfg.Jitter
 			pt.Y += (rng.Float64() - 0.5) * 2 * cfg.Jitter
@@ -143,7 +143,7 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 	points[cfg.Steps-1] = end
 
 	// Compute duration: 100ms base + 200ms per 2000px
-	// (spec L4189: Duration 100ms base + 200ms per 2000px).
+	// (spec L4192: Duration 100ms base + 200ms per 2000px).
 	duration := computeCubicDuration(distance, cfg)
 
 	return MousePath{
@@ -152,7 +152,7 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 	}
 }
 
-// computeCubicDuration computes duration per spec L4189:
+// computeCubicDuration computes duration per spec L4192:
 // 100ms base + 200ms per 2000px distance.
 func computeCubicDuration(distance float64, cfg MouseMoveConfig) time.Duration {
 	base := 100 * time.Millisecond
@@ -169,12 +169,12 @@ func computeCubicDuration(distance float64, cfg MouseMoveConfig) time.Duration {
 }
 
 // FrameInterval returns the frame timing for mouse movement
-// (spec L4189: 16-23ms frame timing).
+// (spec L4192: 16-23ms frame timing).
 func FrameInterval(rng *rand.Rand) time.Duration {
 	if rng == nil {
 		return 16 * time.Millisecond
 	}
-	// Random 16-23ms (spec L4189)
+	// Random 16-23ms (spec L4192)
 	ms := 16 + rng.Intn(8) // 16..23
 	return time.Duration(ms) * time.Millisecond
 }

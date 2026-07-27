@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// EasyList auto-update system (spec L4207-L4211).
+// EasyList auto-update system (spec L4206).
 // Layer 1: embedded base blocklist + EasyList/EasyPrivacy auto-update
 // every 24h from easylist.to. Update security: HTTPS only with
 // certificate pinning on easylist.to + SHA256 checksum from separate
@@ -22,7 +22,7 @@ import (
 // rollback if >5 breakages/1h.
 
 // EasyListSources are the official EasyList download URLs
-// (spec L4210: Sources: easylist.to + easylist-downloads.adblockplus.org).
+// (spec L4206: Sources: easylist.to + easylist-downloads.adblockplus.org).
 var EasyListSources = []string{
 	"https://easylist.to/easylist/easylist.txt",
 	"https://easylist-downloads.adblockplus.org/easylist.txt",
@@ -35,7 +35,7 @@ var EasyPrivacySources = []string{
 }
 
 // EasyListUpdateConfig configures the EasyList auto-update
-// (spec L4207-L4211).
+// (spec L4206).
 type EasyListUpdateConfig struct {
 	// UpdateInterval is the time between update checks (default 24h).
 	UpdateInterval time.Duration
@@ -82,7 +82,7 @@ func DefaultEasyListUpdateConfig() EasyListUpdateConfig {
 }
 
 // EasyListUpdater manages the EasyList auto-update lifecycle
-// (spec L4207-L4211).
+// (spec L4206).
 type EasyListUpdater struct {
 	mu         sync.Mutex
 	cfg        EasyListUpdateConfig
@@ -115,7 +115,7 @@ func NewEasyListUpdater(cfg EasyListUpdateConfig) *EasyListUpdater {
 
 // DownloadAndVerify downloads a blocklist from the given URL,
 // computes its SHA256 checksum, and verifies size sanity
-// (spec L4209: HTTPS only, SHA256 checksum, size sanity <2x old list).
+// (spec L4206: HTTPS only, SHA256 checksum, size sanity <2x old list).
 func (u *EasyListUpdater) DownloadAndVerify(url string, oldSize int) (*EasyListVersion, error) {
 	resp, err := u.httpClient.Get(url)
 	if err != nil {
@@ -132,12 +132,12 @@ func (u *EasyListUpdater) DownloadAndVerify(url string, oldSize int) (*EasyListV
 	}
 
 	// Size sanity: new list must be < 2x old list size
-	// (spec L4209: size sanity <2x old list).
+	// (spec L4206: size sanity <2x old list).
 	if oldSize > 0 && len(data) > int(float64(oldSize)*u.cfg.MaxSizeMultiplier) {
 		return nil, fmt.Errorf("size sanity failed: new %d > %.1fx old %d", len(data), u.cfg.MaxSizeMultiplier, oldSize)
 	}
 
-	// Compute SHA256 checksum (spec L4209: SHA256 checksum).
+	// Compute SHA256 checksum (spec L4206: SHA256 checksum).
 	hash := sha256.Sum256(data)
 	checksum := hex.EncodeToString(hash[:])
 
@@ -182,7 +182,7 @@ func parseABPRules(content string) []string {
 }
 
 // pruneOldVersions removes old blocklist files, keeping only the
-// most recent MaxVersions (spec L4210: max 3 versions).
+// most recent MaxVersions (spec L4206: max 3 versions).
 func (u *EasyListUpdater) pruneOldVersions() {
 	entries, err := os.ReadDir(u.cfg.StorageDir)
 	if err != nil {
@@ -220,7 +220,7 @@ func (u *EasyListUpdater) pruneOldVersions() {
 }
 
 // RecordBreakage records a breakage event for rollback detection
-// (spec L4210: rollback if >5 breakages/1h).
+// (spec L4206: rollback if >5 breakages/1h).
 func (u *EasyListUpdater) RecordBreakage() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -238,7 +238,7 @@ func (u *EasyListUpdater) RecordBreakage() {
 }
 
 // ShouldRollback reports whether the breakage count in the last hour
-// exceeds the threshold (spec L4210: >5 breakages/1h).
+// exceeds the threshold (spec L4206: >5 breakages/1h).
 func (u *EasyListUpdater) ShouldRollback() bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -261,7 +261,7 @@ func (u *EasyListUpdater) SetCurrent(v *EasyListVersion) {
 }
 
 // Rollback reverts to the cached/previous version
-// (spec L4210: fallback to cached + rollback).
+// (spec L4206: fallback to cached + rollback).
 func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -312,7 +312,7 @@ func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
 }
 
 // UpdateIfNeeded checks if an update is needed and downloads a new
-// version if the update interval has elapsed (spec L4207: every 24h).
+// version if the update interval has elapsed (spec L4206: every 24h).
 func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
 	u.mu.Lock()
 	current := u.current
@@ -327,7 +327,7 @@ func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
 		oldSize = current.Size
 	}
 
-	// Try each source until one succeeds (spec L4210: multiple sources)
+	// Try each source until one succeeds (spec L4206: multiple sources)
 	var lastErr error
 	for _, src := range u.cfg.Sources {
 		v, err := u.DownloadAndVerify(src, oldSize)
@@ -339,7 +339,7 @@ func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
 		return v, nil
 	}
 
-	// All sources failed: fallback to cached (spec L4210: fallback)
+	// All sources failed: fallback to cached (spec L4206: fallback)
 	if current != nil {
 		return current, nil
 	}
@@ -347,7 +347,7 @@ func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
 }
 
 // GradualRolloutReady reports whether the gradual rollout has reached
-// 100% (spec L4209: 50% immediate, 100% after 1h if no errors).
+// 100% (spec L4206: 50% immediate, 100% after 1h if no errors).
 func (u *EasyListUpdater) GradualRolloutReady(version *EasyListVersion) bool {
 	if version == nil {
 		return false
@@ -360,7 +360,7 @@ func (u *EasyListUpdater) GradualRolloutReady(version *EasyListVersion) bool {
 }
 
 // ShouldApplyNow reports whether a new version should be applied now
-// based on the gradual rollout policy (spec L4209: 50% immediate,
+// based on the gradual rollout policy (spec L4206: 50% immediate,
 // 100% after 1h if no errors).
 func (u *EasyListUpdater) ShouldApplyNow(version *EasyListVersion, rollPercent int) bool {
 	if version == nil {

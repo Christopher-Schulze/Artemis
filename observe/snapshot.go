@@ -23,7 +23,7 @@ func DiffAXTrees(before, after []AXTreeNode) int {
 
 // DiffAXSnapshotTrees computes the full diff between two AX snapshots
 // and returns added/changed/removed nodes
-// (spec L4181: DiffSnapshot with added/changed/removed).
+// (spec L4184: DiffSnapshot with added/changed/removed).
 func DiffAXSnapshotTrees(prev, curr []AXTreeNode) AXDiffSnapshot {
 	return DiffAXSnapshots(prev, curr)
 }

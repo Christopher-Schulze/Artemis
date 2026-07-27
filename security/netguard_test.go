@@ -6,7 +6,7 @@ import (
 )
 
 func TestIsPrivateIP198_18(t *testing.T) {
-	// 198.18.0.0/15 (benchmark testing range, spec L4199)
+	// 198.18.0.0/15 (benchmark testing range, spec L4200)
 	cases := []struct {
 		ip   string
 		want bool
