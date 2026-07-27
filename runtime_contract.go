@@ -26,6 +26,10 @@ type ActionKind string
 
 const ActionFetch ActionKind = "fetch"
 
+// defaultProfileCloseTimeout bounds how long the profile runtime is given to close
+// a managed session during teardown or rollback before we report a timeout.
+const defaultProfileCloseTimeout = 10 * time.Second
+
 // Action is implemented only by Artemis action values.
 type Action interface {
 	Kind() ActionKind
@@ -172,6 +176,13 @@ type RenderlessRuntime interface {
 	Fetch(context.Context, string, engine.FetchOpts) (*engine.Page, error)
 	Healthy() bool
 	Close() error
+}
+
+// profileRuntime abstracts the optional profile manager so tests can inject
+// fakes without spinning up an on-disk profile store.
+type profileRuntime interface {
+	Open(context.Context, profile.OpenSessionRequest) (*profile.RuntimeSession, error)
+	Close(context.Context, profile.SessionID, string) error
 }
 
 // RuntimeFactory creates the owned runtime and may return a partial runtime
@@ -412,7 +423,9 @@ func (a *Agent) CloseSession(id string) error {
 		}
 		a.telemetry.Record(AgentEvent{Type: AgentEventSessionClosed, SessionID: id, At: time.Now()})
 		if session.managed && a.profileRuntime != nil {
-			if err := a.profileRuntime.Close(context.Background(), profile.SessionID(session.id), session.userID); err != nil {
+			closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
+			defer cancel()
+			if err := a.profileRuntime.Close(closeCtx, profile.SessionID(session.id), session.userID); err != nil {
 				closeErr = errors.Join(closeErr, err)
 			}
 		}
@@ -497,9 +510,18 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 	a.mu.Lock()
 	if err := a.sessions.PutIfBelow(session, maxSessions); err != nil {
 		a.mu.Unlock()
-		_ = profileRuntime.Close(context.Background(), rs.ID, req.OwnerUserRef)
+		closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
+		closeErr := profileRuntime.Close(closeCtx, rs.ID, req.OwnerUserRef)
+		cancel()
 		sessionCancel()
-		return nil, classifyTaskError("create_session", err)
+		if closeErr == nil {
+			return nil, classifyTaskError("create_session", err)
+		}
+		var stored *TaskError
+		if errors.As(err, &stored) {
+			return nil, newTaskError(stored.Code, stored.Op, errors.Join(err, closeErr))
+		}
+		return nil, classifyTaskError("create_session", errors.Join(err, closeErr))
 	}
 	a.mu.Unlock()
 	a.telemetry.Record(AgentEvent{Type: AgentEventSessionCreated, SessionID: session.id, At: now})

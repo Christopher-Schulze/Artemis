@@ -10,7 +10,6 @@ import (
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/network"
-	"github.com/Christopher-Schulze/Artemis/profile"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
@@ -36,7 +35,7 @@ type Agent struct {
 	operations      sync.WaitGroup
 	sessionSeq      uint64
 	chromiumActions ChromiumActions
-	profileRuntime  *profile.RuntimeManager
+	profileRuntime  profileRuntime
 }
 
 // AgentConfig configures the artemis agent

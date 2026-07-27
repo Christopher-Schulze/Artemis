@@ -18,6 +18,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/profile"
 )
 
 type contractRuntime struct {
@@ -733,4 +734,100 @@ func taskErrorCode(err error) TaskErrorCode {
 		return taskErr.Code
 	}
 	return ""
+}
+
+type fakeProfileRuntime struct {
+	openID    profile.SessionID
+	openOwner string
+	closeErr  error
+	closed    atomic.Int64
+}
+
+func (f *fakeProfileRuntime) Open(_ context.Context, req profile.OpenSessionRequest) (*profile.RuntimeSession, error) {
+	return &profile.RuntimeSession{ID: f.openID, OwnerUserRef: req.OwnerUserRef, ProfileID: req.ProfileID, Class: req.Class}, nil
+}
+
+func (f *fakeProfileRuntime) Close(ctx context.Context, id profile.SessionID, owner string) error {
+	f.closed.Add(1)
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("profile close received unbounded context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if f.closeErr != nil {
+		return f.closeErr
+	}
+	if string(id) != string(f.openID) || owner != f.openOwner {
+		return errors.New("profile close received wrong id or owner")
+	}
+	return nil
+}
+
+func startProfileAgent(t *testing.T, cfg AgentConfig) (*Agent, *fakeProfileRuntime) {
+	t.Helper()
+	agent, err := NewAgentWithDependencies(cfg, Dependencies{
+		RuntimeFactory: contractFactory{runtime: &contractRuntime{}},
+		Dispatcher:     renderlessDispatcher{},
+		SessionStore:   newMemorySessionStore(),
+		Telemetry:      &contractTelemetry{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeProfileRuntime{openID: "profile-session-1", openOwner: "owner-1"}
+	agent.profileRuntime = fake
+	return agent, fake
+}
+
+func TestProfileCloseUsesBoundedContext(t *testing.T) {
+	agent, fake := startProfileAgent(t, AgentConfig{})
+	defer agent.Stop()
+
+	session, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+		ProfileID:    "profile-1",
+		OwnerUserRef: fake.openOwner,
+		Class:        profile.ProfileEphemeral,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := agent.CloseSession(session.id); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+	if fake.closed.Load() != 1 {
+		t.Fatalf("profile close not called, got %d calls", fake.closed.Load())
+	}
+}
+
+func TestCreateSessionRollbackReportsCloseError(t *testing.T) {
+	agent, fake := startProfileAgent(t, AgentConfig{MaxSessions: 1})
+	defer agent.Stop()
+
+	_, _ = agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+		ProfileID:    "profile-1",
+		OwnerUserRef: fake.openOwner,
+		Class:        profile.ProfileEphemeral,
+	})
+	fake.closeErr = errors.New("profile close failed")
+	_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+		ProfileID:    "profile-2",
+		OwnerUserRef: fake.openOwner,
+		Class:        profile.ProfileEphemeral,
+	})
+	if err == nil {
+		t.Fatal("expected error for second session over limit")
+	}
+	if !strings.Contains(err.Error(), "profile close failed") {
+		t.Fatalf("rollback close error not surfaced: %v", err)
+	}
+	if !strings.Contains(err.Error(), "maximum 1 active sessions") {
+		t.Fatalf("original store error not surfaced: %v", err)
+	}
+	if fake.closed.Load() != 1 {
+		t.Fatalf("rollback close not called, got %d calls", fake.closed.Load())
+	}
 }

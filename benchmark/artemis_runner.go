@@ -175,11 +175,12 @@ func (r *ArtemisRunner) RunScenarioBench(b *testing.B, s Scenario) {
 	b.Helper()
 	scenarioURL := r.server.URL("/" + s.ID)
 	runScripts := s.ScriptCount > 0
-	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		page, err := r.engine.Fetch(ctx, scenarioURL, engine.FetchOpts{RunScripts: runScripts})
+		cancel()
 		if err != nil {
 			b.Fatalf("fetch %s: %v", s.ID, err)
 		}
