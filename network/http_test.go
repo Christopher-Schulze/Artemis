@@ -134,6 +134,37 @@ func TestDoRejectsRedirectToPrivateTarget(t *testing.T) {
 	}
 }
 
+func TestDoRejectsCrossOriginBodyRedirect(t *testing.T) {
+	client := newTestClient(t, HTTPClientConfig{})
+	previous, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://source.example/login", strings.NewReader("password=secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	redirect, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://target.example/collect", strings.NewReader("password=secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.client.CheckRedirect(redirect, []*http.Request{previous})
+	if !errors.Is(err, ErrPolicyDenied) || !strings.Contains(err.Error(), "cross_origin_body_redirect") {
+		t.Fatalf("redirect error=%v", err)
+	}
+}
+
+func TestDoAllowsSameOriginBodyRedirect(t *testing.T) {
+	client := newTestClient(t, HTTPClientConfig{})
+	previous, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://127.0.0.1:12345/login", strings.NewReader("credential=value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	redirect, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://127.0.0.1:12345/session", strings.NewReader("credential=value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.client.CheckRedirect(redirect, []*http.Request{previous}); err != nil {
+		t.Fatalf("same-origin redirect denied: %v", err)
+	}
+}
+
 func TestDoMaxBodyBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, strings.Repeat("x", 1024))

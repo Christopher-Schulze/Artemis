@@ -28,7 +28,7 @@ func TestUnavailableCapabilities(t *testing.T) {
 			t.Fatalf("unavailable capability %q exposes tools %v", capability.ID, capability.OmnimusTools)
 		}
 	}
-	for _, name := range []string{"browser_navigate", "browser_extract", "snapshot", "click", "type", "fill_form", "select", "upload", "login", "screenshot", "evidence", "browser_diff", "browser_switch_profile", "browser_session_status", "browser_console", "browser_network", "browser_scroll", "browser_press_key"} {
+	for _, name := range []string{"browser_navigate", "browser_extract", "snapshot", "click", "type", "fill_form", "select", "upload", "screenshot", "evidence", "browser_diff", "browser_switch_profile", "browser_session_status", "browser_console", "browser_network", "browser_scroll", "browser_press_key"} {
 		if OmnimusToolSupported(name) {
 			t.Fatalf("tool %q must remain unavailable until it has a persistent runtime owner and behavior proof", name)
 		}
@@ -36,7 +36,7 @@ func TestUnavailableCapabilities(t *testing.T) {
 }
 
 func TestSupportedOmnimusToolsAreExplicit(t *testing.T) {
-	for _, name := range []string{"scrape", "scrape_static", "scrape_batch"} {
+	for _, name := range []string{"scrape", "scrape_static", "scrape_batch", "login"} {
 		if !OmnimusToolSupported(name) {
 			t.Fatalf("supported tool %q missing from capability registry", name)
 		}

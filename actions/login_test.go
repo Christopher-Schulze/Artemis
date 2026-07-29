@@ -84,6 +84,25 @@ func TestDetectLoginFormGermanLabels(t *testing.T) {
 	}
 }
 
+func TestDetectLoginFormUsernameFromAssociatedLabel(t *testing.T) {
+	page := LoginPage{
+		Forms: []LoginForm{{
+			Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "employee", Label: "Benutzername"},
+				{Tag: "input", Type: "password", Name: "secret"},
+				{Tag: "button", Type: "submit", Text: "Anmelden"},
+			},
+		}},
+	}
+	dec, err := DetectLoginForm(context.Background(), page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dec.Found || dec.UsernameFieldIdx != 0 {
+		t.Fatalf("label-only username field not detected: %+v", dec)
+	}
+}
+
 func TestDetectLoginFormSubmitButtonOutsideFields(t *testing.T) {
 	page := LoginPage{
 		URL: "https://app.example.com/login",

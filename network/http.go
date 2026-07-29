@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -98,11 +99,25 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 				if len(via) >= policy.Config().MaxRedirects {
 					return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
 				}
+				if len(via) > 0 && requestCanCarrySecretBody(req) && !sameOrigin(via[0].URL, req.URL) {
+					return fmt.Errorf("%w: cross_origin_body_redirect", ErrPolicyDenied)
+				}
 				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), TargetRedirect, SessionID(req.Context(), cfg.SessionID))
 			},
 		},
 		jar: jar, robots: newRobotsCache(),
 	}, nil
+}
+
+func requestCanCarrySecretBody(req *http.Request) bool {
+	return req != nil && req.Method != http.MethodGet && req.Method != http.MethodHead
+}
+
+func sameOrigin(first, next *url.URL) bool {
+	if first == nil || next == nil {
+		return false
+	}
+	return strings.EqualFold(first.Scheme, next.Scheme) && strings.EqualFold(first.Host, next.Host)
 }
 
 // Close releases resources. It is safe to call multiple times.

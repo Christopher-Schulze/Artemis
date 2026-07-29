@@ -16,6 +16,7 @@ type LoginField struct {
 	ID           string
 	Autocomplete string
 	Placeholder  string
+	Label        string
 	AriaLabel    string
 	Text         string // for button elements
 	Role         string // ARIA role
@@ -150,7 +151,7 @@ func isUsernameCandidate(f LoginField) bool {
 	if t != "email" && t != "text" && t != "" {
 		return false
 	}
-	combined := lower(f.Name + " " + f.ID + " " + f.Placeholder + " " + f.AriaLabel)
+	combined := lower(f.Name + " " + f.ID + " " + f.Placeholder + " " + f.Label + " " + f.AriaLabel)
 	if containsAny(combined, usernameKeywords) {
 		return true
 	}

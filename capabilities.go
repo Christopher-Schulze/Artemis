@@ -54,6 +54,11 @@ var capabilityRegistry = []Capability{
 		BehaviorTest: "agent.TestMarkdownHeadings", OmnimusTools: []string{"scrape", "scrape_static", "scrape_batch"},
 	},
 	{
+		ID: "renderless.login", Description: "Detect, fill, submit, and verify a credential-backed login form", Mode: ModeRenderless,
+		State: SupportSupported, Since: Version, Entrypoint: "actions.DetectLoginForm/agent.(*Form).Submit", Owner: "actions/agent/engine",
+		BehaviorTest: "browser.TestSessionLoginDetectsResolvesSubmitsAndVerifiesPersistence", OmnimusTools: []string{"login"},
+	},
+	{
 		ID: "renderless.steering", Description: "Drive persistent renderless sessions over JSON WebSocket commands", Mode: ModeRenderless,
 		State: SupportSupported, Since: Version, Entrypoint: "serve.(*Server).ListenAndServe", Owner: "serve.Server/session",
 		BehaviorTest: "serve.TestSessionOpenEvalDump",
