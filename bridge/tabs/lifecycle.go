@@ -6,7 +6,7 @@ import (
 )
 
 // ProcessSpecKind enumerates the process spec kinds for tabs
-// (spec L4225: ProcessSpec kind = stream or short-lived).
+// (spec L4216: ProcessSpec kind = stream or short-lived).
 type ProcessSpecKind string
 
 const (
@@ -15,7 +15,7 @@ const (
 )
 
 // OwnerRef enumerates the possible tab owners
-// (spec L4224: owner_ref=turn|subagent|connector|ui).
+// (spec L4216: owner_ref=turn|subagent|connector|ui).
 type OwnerRef string
 
 const (
@@ -26,7 +26,7 @@ const (
 )
 
 // ProcessSpec is the process spec under which each active tab registers
-// (spec L4225: ProcessSpec{kind, parent=browser_engine,
+// (spec L4216: ProcessSpec{kind, parent=browser_engine,
 // priority_lane, mailbox_cap=32, cancel_receiver=browser_tab_cancel,
 // resource_budget=BrowserPool}).
 type ProcessSpec struct {
@@ -39,7 +39,7 @@ type ProcessSpec struct {
 }
 
 // DefaultProcessSpec returns the default ProcessSpec for a new tab
-// (spec L4225).
+// (spec L4216).
 func DefaultProcessSpec(kind ProcessSpecKind, priorityLane string) ProcessSpec {
 	return ProcessSpec{
 		Kind:           kind,
@@ -52,7 +52,7 @@ func DefaultProcessSpec(kind ProcessSpecKind, priorityLane string) ProcessSpec {
 }
 
 // TabLifecycleState enumerates the tab lifecycle states
-// (spec L4226: ACTIVE|IDLE|SUSPENDED|CLOSED|LOST).
+// (spec L4216: ACTIVE|IDLE|SUSPENDED|CLOSED|LOST).
 type TabLifecycleState string
 
 const (
@@ -64,7 +64,7 @@ const (
 )
 
 // TabLifecycle manages the lifecycle state transitions for a tab
-// (spec L4226: maps ACTIVE|IDLE|SUSPENDED|CLOSED|LOST to
+// (spec L4216: maps ACTIVE|IDLE|SUSPENDED|CLOSED|LOST to
 // StateTransitionRegistry, sends DownSignal to owner on tab crash/CDP loss).
 type TabLifecycle struct {
 	mu     sync.Mutex
@@ -94,7 +94,7 @@ func (l *TabLifecycle) State() TabLifecycleState {
 }
 
 // Transition transitions to a new state. Returns an error if the
-// transition is invalid (spec L4226).
+// transition is invalid (spec L4216).
 func (l *TabLifecycle) Transition(newstate TabLifecycleState) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -118,13 +118,13 @@ func (l *TabLifecycle) Transition(newstate TabLifecycleState) error {
 }
 
 // DownSignal returns a channel that is closed when a DownSignal is
-// sent (on tab crash/CDP loss, spec L4226).
+// sent (on tab crash/CDP loss, spec L4216).
 func (l *TabLifecycle) DownSignal() <-chan struct{} {
 	return l.downCh
 }
 
 // isValidTransition checks if a state transition is valid
-// (spec L4226: ACTIVE|IDLE|SUSPENDED|CLOSED|LOST).
+// (spec L4216: ACTIVE|IDLE|SUSPENDED|CLOSED|LOST).
 func isValidTransition(from, to TabLifecycleState) bool {
 	switch from {
 	case TabLifecycleActive:
@@ -153,7 +153,7 @@ func (e ErrInvalidTransition) Error() string {
 }
 
 // PopupBlocker auto-closes popup tabs via target.EventTargetCreated
-// (spec L4227: Popup blocking: auto-close via target.EventTargetCreated).
+// (spec L4216: Popup blocking: auto-close via target.EventTargetCreated).
 type PopupBlocker struct {
 	mu      sync.Mutex
 	enabled bool
@@ -166,7 +166,7 @@ func NewPopupBlocker(enabled bool) *PopupBlocker {
 }
 
 // ShouldBlock reports whether a new target (tab) should be blocked
-// as a popup (spec L4227).
+// as a popup (spec L4216).
 func (p *PopupBlocker) ShouldBlock(openerTabID string, isPopup bool) bool {
 	if !p.enabled {
 		return false

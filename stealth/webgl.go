@@ -9,7 +9,7 @@ import (
 )
 
 // GPUInfo describes the real GPU detected on the system
-// (spec L4089: MEASURE-FIRST pattern. Real GPU via system_profiler
+// (spec L4091: MEASURE-FIRST pattern. Real GPU via system_profiler
 // (macOS) / lspci (Linux)).
 type GPUInfo struct {
 	Vendor   string
@@ -19,7 +19,7 @@ type GPUInfo struct {
 }
 
 // WebGLOverride is the WebGL renderer override configuration
-// (spec L4089: Override headless "SwiftShader" with REAL GPU name).
+// (spec L4091: Override headless "SwiftShader" with REAL GPU name).
 type WebGLOverride struct {
 	mu                 sync.RWMutex
 	gpu                GPUInfo
@@ -29,13 +29,13 @@ type WebGLOverride struct {
 }
 
 // NewWebGLOverride creates a new WebGL override instance
-// (spec L4089: MEASURE-FIRST pattern).
+// (spec L4091: MEASURE-FIRST pattern).
 func NewWebGLOverride() *WebGLOverride {
 	return &WebGLOverride{enabled: false}
 }
 
 // DetectGPU detects the real GPU on the system
-// (spec L4089: Real GPU via system_profiler SPDisplaysDataType (macOS)
+// (spec L4091: Real GPU via system_profiler SPDisplaysDataType (macOS)
 // / lspci | grep VGA (Linux)).
 func DetectGPU() GPUInfo {
 	switch runtime.GOOS {
@@ -49,7 +49,7 @@ func DetectGPU() GPUInfo {
 }
 
 // detectGPUMacOS detects GPU on macOS via system_profiler
-// (spec L4089: system_profiler SPDisplaysDataType).
+// (spec L4091: system_profiler SPDisplaysDataType).
 func detectGPUMacOS() GPUInfo {
 	cmd := exec.Command("system_profiler", "SPDisplaysDataType", "-detailLevel", "mini")
 	output, err := cmd.Output()
@@ -94,7 +94,7 @@ func detectGPUMacOS() GPUInfo {
 }
 
 // detectGPULinux detects GPU on Linux via lspci
-// (spec L4089: lspci | grep VGA).
+// (spec L4091: lspci | grep VGA).
 func detectGPULinux() GPUInfo {
 	cmd := exec.Command("lspci")
 	output, err := cmd.Output()
@@ -137,7 +137,7 @@ func extractVendor(gpuName string) string {
 
 // MeasureAndOverride performs the MEASURE-FIRST pattern: detect the
 // real GPU, then override SwiftShader if detected
-// (spec L4089: MEASURE-FIRST. Override headless "SwiftShader" with
+// (spec L4091: MEASURE-FIRST. Override headless "SwiftShader" with
 // REAL GPU name. Fallback: GPU undetectable -> DON'T spoof).
 func (w *WebGLOverride) MeasureAndOverride() bool {
 	if w == nil {
@@ -148,15 +148,15 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 	defer w.mu.Unlock()
 	w.gpu = gpu
 	if !gpu.Detected {
-		// GPU undetectable -> DON'T spoof (spec L4089: honest > fake).
+		// GPU undetectable -> DON'T spoof (spec L4091: honest > fake).
 		w.enabled = false
 		return false
 	}
-	// Check consistency (spec L4089: WebGL extensions must match GPU).
+	// Check consistency (spec L4091: WebGL extensions must match GPU).
 	w.consistencyOK = checkConsistency(gpu)
 	w.consistencyChecked = true
 	if !w.consistencyOK {
-		// Mismatch -> disable + warn (spec L4089).
+		// Mismatch -> disable + warn (spec L4091).
 		w.enabled = false
 		return false
 	}
@@ -165,7 +165,7 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 }
 
 // checkConsistency checks that WebGL extensions match the GPU
-// (spec L4089: Consistency check: WebGL extensions must match GPU
+// (spec L4091: Consistency check: WebGL extensions must match GPU
 // (lookup table, build-time). Mismatch -> disable + warn).
 func checkConsistency(gpu GPUInfo) bool {
 	// In a real implementation, this would check a build-time lookup
@@ -195,7 +195,7 @@ func (w *WebGLOverride) GPU() GPUInfo {
 }
 
 // IsSwiftShader reports whether the given renderer string is the
-// headless SwiftShader (spec L4089: Override headless "SwiftShader").
+// headless SwiftShader (spec L4091: Override headless "SwiftShader").
 func IsSwiftShader(renderer string) bool {
 	r := strings.ToLower(renderer)
 	return strings.Contains(r, "swiftshader")
@@ -203,7 +203,7 @@ func IsSwiftShader(renderer string) bool {
 
 // OverrideSwiftShader returns the real GPU renderer to replace
 // SwiftShader, or empty string if no override is available
-// (spec L4089).
+// (spec L4091).
 func (w *WebGLOverride) OverrideSwiftShader(currentRenderer string) string {
 	if w == nil || !w.IsEnabled() {
 		return ""

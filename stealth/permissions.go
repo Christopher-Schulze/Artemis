@@ -6,7 +6,7 @@ import (
 )
 
 // PermissionState enumerates the permission states
-// (spec L4091: PASSIVE-ONLY override. permissions.query() -> "prompt"
+// (spec L4094: PASSIVE-ONLY override. permissions.query() -> "prompt"
 // (passive, safe). requestPermission() NOT touched. Real requests ->
 // "denied" (headless can't ask = natural)).
 type PermissionState string
@@ -14,11 +14,11 @@ type PermissionState string
 const (
 	// PermissionStatePrompt is the "prompt" state (passive, safe).
 	// Returned by permissions.query() for all permissions
-	// (spec L4091).
+	// (spec L4094).
 	PermissionStatePrompt PermissionState = "prompt"
 	// PermissionStateDenied is the "denied" state. Returned by
 	// requestPermission() (headless can't ask = natural)
-	// (spec L4091).
+	// (spec L4094).
 	PermissionStateDenied PermissionState = "denied"
 	// PermissionStateGranted is the "granted" state (NOT used in
 	// headless stealth mode).
@@ -26,7 +26,7 @@ const (
 )
 
 // PermissionName is the name of a browser permission
-// (spec L4091: permissions.query() accepts a name).
+// (spec L4094: permissions.query() accepts a name).
 type PermissionName string
 
 const (
@@ -39,7 +39,7 @@ const (
 )
 
 // PermissionQueryResult is the result of permissions.query()
-// (spec L4091: PASSIVE-ONLY override).
+// (spec L4094: PASSIVE-ONLY override).
 type PermissionQueryResult struct {
 	State    PermissionState `json:"state"`
 	Name     PermissionName  `json:"name"`
@@ -47,7 +47,7 @@ type PermissionQueryResult struct {
 }
 
 // PermissionAPI implements the PASSIVE-ONLY Permission API override
-// (spec L4091: permissions.query() -> "prompt" (passive, safe).
+// (spec L4094: permissions.query() -> "prompt" (passive, safe).
 // requestPermission() NOT touched. Real requests -> "denied"
 // (headless can't ask = natural). Activation: StealthStealth (Patch 7)).
 type PermissionAPI struct {
@@ -56,13 +56,13 @@ type PermissionAPI struct {
 }
 
 // NewPermissionAPI creates a new Permission API override instance
-// (spec L4091).
+// (spec L4094).
 func NewPermissionAPI() *PermissionAPI {
 	return &PermissionAPI{active: false}
 }
 
 // Activate enables the PASSIVE-ONLY override
-// (spec L4091: Activation: StealthStealth (Patch 7)).
+// (spec L4094: Activation: StealthStealth (Patch 7)).
 func (p *PermissionAPI) Activate() {
 	if p == nil {
 		return
@@ -93,7 +93,7 @@ func (p *PermissionAPI) IsActive() bool {
 }
 
 // Query implements permissions.query() -> "prompt" (passive, safe)
-// (spec L4091: PASSIVE-ONLY override. permissions.query() -> "prompt").
+// (spec L4094: PASSIVE-ONLY override. permissions.query() -> "prompt").
 // When the override is NOT active, returns "denied" (natural headless).
 func (p *PermissionAPI) Query(name PermissionName) PermissionQueryResult {
 	if p == nil {
@@ -116,17 +116,17 @@ func (p *PermissionAPI) Query(name PermissionName) PermissionQueryResult {
 }
 
 // Request implements requestPermission() -> "denied"
-// (spec L4091: requestPermission() NOT touched. Real requests ->
+// (spec L4094: requestPermission() NOT touched. Real requests ->
 // "denied" (headless can't ask = natural)).
 // This is NOT an override - it's the natural headless behavior.
 func (p *PermissionAPI) Request(name PermissionName) PermissionState {
 	// Always returns "denied" regardless of active state
-	// (spec L4091: headless can't ask = natural).
+	// (spec L4094: headless can't ask = natural).
 	return PermissionStateDenied
 }
 
 // QueryAll queries all known permissions and returns their states
-// (spec L4091).
+// (spec L4094).
 func (p *PermissionAPI) QueryAll() map[PermissionName]PermissionState {
 	if p == nil {
 		return nil
@@ -147,7 +147,7 @@ func (p *PermissionAPI) QueryAll() map[PermissionName]PermissionState {
 }
 
 // IsPassiveOnly reports whether the override is PASSIVE-ONLY
-// (spec L4091: PASSIVE-ONLY override). Always true - requestPermission
+// (spec L4094: PASSIVE-ONLY override). Always true - requestPermission
 // is never overridden.
 func (p *PermissionAPI) IsPassiveOnly() bool {
 	return true
