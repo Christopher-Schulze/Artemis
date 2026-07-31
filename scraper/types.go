@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-// types.go (spec L4028: scraper/types.go - result types
+// types.go (spec L4029: scraper/types.go - result types
 // (text/markdown/semantic_tree/structured_data/links/forms/tables/
 // images)).
 //
 // Web scraping engine: result types for extracted page content.
 
 // ExtractedPage is the unified result of a scraping operation
-// (spec L4028: one SourceSnapshot -> ExtractedPage facade for
+// (spec L4029: one SourceSnapshot -> ExtractedPage facade for
 // static_fetch, renderless_js, chromium_cdp, stealth, scrape).
 type ExtractedPage struct {
 	URL            string             `json:"url"`
@@ -32,7 +32,7 @@ type ExtractedPage struct {
 }
 
 // SourceSnapshot is the input to the scraping pipeline
-// (spec L4028: one SourceSnapshot -> ExtractedPage facade).
+// (spec L4029: one SourceSnapshot -> ExtractedPage facade).
 // Output contract per ss28.3a: render_mode, fallback_reason?,
 // unsupported_features[], renderless_webapi_hits[], script_timeout?,
 // request_intercepts[].
@@ -59,14 +59,14 @@ type RequestIntercept struct {
 }
 
 // ExtractedLink is a hyperlink extracted from a page
-// (spec L4028: result types - links).
+// (spec L4029: result types - links).
 type ExtractedLink struct {
 	Href string `json:"href"`
 	Text string `json:"text"`
 }
 
 // ExtractedForm is a form extracted from a page
-// (spec L4028: result types - forms).
+// (spec L4029: result types - forms).
 type ExtractedForm struct {
 	Action string           `json:"action"`
 	Method string           `json:"method"`
@@ -74,7 +74,7 @@ type ExtractedForm struct {
 }
 
 // ExtractedField is a form field
-// (spec L4028: result types - forms).
+// (spec L4029: result types - forms).
 type ExtractedField struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
@@ -82,14 +82,14 @@ type ExtractedField struct {
 }
 
 // ExtractedTable is a table extracted from a page
-// (spec L4028: result types - tables).
+// (spec L4029: result types - tables).
 type ExtractedTable struct {
 	Headers []string   `json:"headers"`
 	Rows    [][]string `json:"rows"`
 }
 
 // ExtractedImage is an image extracted from a page
-// (spec L4028: result types - images).
+// (spec L4029: result types - images).
 type ExtractedImage struct {
 	Src    string `json:"src"`
 	Alt    string `json:"alt"`
@@ -98,7 +98,7 @@ type ExtractedImage struct {
 }
 
 // ExtractionMode enumerates the scraping modes
-// (spec L4028: static_fetch, renderless_js, chromium_cdp, stealth,
+// (spec L4029: static_fetch, renderless_js, chromium_cdp, stealth,
 // scrape).
 type ExtractionMode string
 
@@ -137,7 +137,7 @@ func (s SourceSnapshot) String() string {
 }
 
 // IsValidExtractionMode reports whether a mode is valid
-// (spec L4028: static_fetch, renderless_js, chromium_cdp, stealth,
+// (spec L4029: static_fetch, renderless_js, chromium_cdp, stealth,
 // scrape).
 func IsValidExtractionMode(mode string) bool {
 	switch ExtractionMode(mode) {

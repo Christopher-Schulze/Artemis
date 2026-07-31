@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// translator.go (spec L4028: scraper/translator.go - CSS -> XPath
+// translator.go (spec L4029: scraper/translator.go - CSS -> XPath
 // translation).
 //
 // Web scraping engine: CSS -> XPath translation. This translator
@@ -14,7 +14,7 @@ import (
 // descendant, attribute, and text matching.
 
 // CSSToXPath translates a CSS selector to an XPath expression
-// (spec L4028: CSS -> XPath translation).
+// (spec L4029: CSS -> XPath translation).
 // Supports: tag, .class, #id, [attr], [attr='val'], descendant (space),
 // and > (child) combinators.
 func CSSToXPath(css string) (string, error) {
@@ -52,7 +52,7 @@ func CSSToXPath(css string) (string, error) {
 }
 
 // cssPartToXPath converts a single CSS selector part to XPath
-// (spec L4028: CSS -> XPath translation).
+// (spec L4029: CSS -> XPath translation).
 func cssPartToXPath(part string) (string, error) {
 	if part == "" {
 		return "", fmt.Errorf("translator: empty CSS part")
@@ -128,7 +128,7 @@ func cssPartToXPath(part string) (string, error) {
 }
 
 // translateAttrSelector translates a CSS attribute selector to XPath
-// (spec L4028: CSS -> XPath translation).
+// (spec L4029: CSS -> XPath translation).
 func translateAttrSelector(attr string) string {
 	// [attr='value'] -> @attr='value'
 	// [attr] -> @attr
@@ -143,21 +143,21 @@ func translateAttrSelector(attr string) string {
 }
 
 // IsXPath reports whether a selector string looks like an XPath
-// expression (spec L4028: CSS -> XPath translation).
+// expression (spec L4029: CSS -> XPath translation).
 func IsXPath(selector string) bool {
 	return strings.HasPrefix(strings.TrimSpace(selector), "//") ||
 		strings.HasPrefix(strings.TrimSpace(selector), "/")
 }
 
 // IsCSS reports whether a selector string looks like a CSS selector
-// (spec L4028: CSS -> XPath translation).
+// (spec L4029: CSS -> XPath translation).
 func IsCSS(selector string) bool {
 	return !IsXPath(selector) && selector != ""
 }
 
 // TranslateSelector auto-detects whether a selector is CSS or XPath
 // and returns the XPath equivalent
-// (spec L4028: CSS -> XPath translation).
+// (spec L4029: CSS -> XPath translation).
 func TranslateSelector(selector string) (string, error) {
 	selector = strings.TrimSpace(selector)
 	if selector == "" {

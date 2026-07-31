@@ -1,6 +1,6 @@
 package prompts
 
-// download.go (spec L4029: prompts/download.go - file download
+// download.go (spec L4030: prompts/download.go - file download
 // system prompt).
 //
 // LLM prompt templates: file download system prompt that provides
@@ -11,19 +11,19 @@ package prompts
 // build_in_prompt/browser_agent_file_download_sys_prompt.md:1-8
 
 // FileDownloadPrompt returns the file download system prompt
-// (spec L4029: download.go - file download).
+// (spec L4030: download.go - file download).
 func FileDownloadPrompt() string {
 	return fileDownloadPrompt
 }
 
 // FileDownloadPromptType returns the PromptType for file download
-// (spec L4029: download.go).
+// (spec L4030: download.go).
 func FileDownloadPromptType() PromptType {
 	return PromptFileDownload
 }
 
 // FileDownloadPromptTemplate returns the file download prompt as a
-// PromptTemplate (spec L4029: download.go - file download).
+// PromptTemplate (spec L4030: download.go - file download).
 func FileDownloadPromptTemplate() PromptTemplate {
 	return PromptTemplate{
 		Name:     "file_download",

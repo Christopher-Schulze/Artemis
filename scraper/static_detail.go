@@ -23,7 +23,7 @@ import (
 //  3. Decode the body to UTF-8 text for downstream parsing.
 
 // CookieJar is a simple thread-safe cookie store for the static fetcher
-// (spec L4400: cookie persistence via session/client).
+// (spec L4398: cookie persistence via session/client).
 type CookieJar struct {
 	mu      sync.Mutex
 	cookies map[string][]*http.Cookie // keyed by host

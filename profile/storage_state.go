@@ -17,7 +17,7 @@ import (
 // localStorage, sessionStorage, and indexedDB origins into a single
 // exportable/importable document. This is the Go equivalent of Playwright's
 // `storageState` and the Vercel Agent-Browser `auth.rs` storage-state
-// persistence (spec 28.7: Storage State Persistence).
+// persistence (spec L4262: Storage State Persistence).
 //
 // JSON schema:
 //

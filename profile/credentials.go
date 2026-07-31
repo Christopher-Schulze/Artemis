@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// LoginSelectors are CSS selectors / ARIA refs for auto-login (spec L4553).
+// LoginSelectors are CSS selectors / ARIA refs for auto-login (spec L4575).
 type LoginSelectors struct {
 	UsernameField string `json:"username_field"`
 	PasswordField string `json:"password_field"`
@@ -30,7 +30,7 @@ type LoginSelectors struct {
 	MFAField      string `json:"mfa_field"`
 }
 
-// StoredCredential is one encrypted credential entry (spec L4553).
+// StoredCredential is one encrypted credential entry (spec L4575).
 type StoredCredential struct {
 	ID          string         `json:"id"`
 	ProfileName string         `json:"profile_name"`
@@ -256,7 +256,7 @@ func (s *CredentialStore) decryptPassword(ct, nonce []byte) (string, error) {
 }
 
 // StoreCredential encrypts and persists a new credential, returning its ID
-// (spec L4553 API).
+// (spec L4579 API).
 func (s *CredentialStore) StoreCredential(profileName, domain, username, password string, selectors LoginSelectors) (string, error) {
 	if strings.TrimSpace(profileName) == "" || strings.TrimSpace(domain) == "" || strings.TrimSpace(username) == "" {
 		return "", errors.New("credential store: profile, domain, username required")
@@ -289,7 +289,7 @@ func (s *CredentialStore) StoreCredential(profileName, domain, username, passwor
 }
 
 // GetCredential returns the decrypted credential for (profile, domain)
-// (spec L4553 API).
+// (spec L4579 API).
 func (s *CredentialStore) GetCredential(profileName, domain string) (*StoredCredential, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,7 +327,7 @@ func (s *CredentialStore) AcquireCredential(profileName, domain string) (*Creden
 }
 
 // ListCredentials returns password-less summaries, optionally filtered by
-// profile (spec L4553 API: NO password).
+// profile (spec L4579 API: NO password).
 func (s *CredentialStore) ListCredentials(profileName string) []CredentialSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -350,7 +350,7 @@ func (s *CredentialStore) ListCredentials(profileName string) []CredentialSummar
 	return out
 }
 
-// DeleteCredential removes a credential by ID (spec L4553 API).
+// DeleteCredential removes a credential by ID (spec L4579 API).
 func (s *CredentialStore) DeleteCredential(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,7 +367,7 @@ func (s *CredentialStore) DeleteCredential(id string) error {
 }
 
 // UpdateLastUsed marks a credential as used at now, auto on login success
-// (spec L4553 API).
+// (spec L4579 API).
 func (s *CredentialStore) UpdateLastUsed(id string, loginOK bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

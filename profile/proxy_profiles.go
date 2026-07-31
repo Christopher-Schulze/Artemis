@@ -298,7 +298,7 @@ func ResolveSessionProxy(input SessionProfileInput, store *ProxyProfileStore, se
 
 // ContextHash computes a deterministic SHA-256 hash (first 8 hex chars)
 // for session-isolation across different proxy profiles per-user
-// (spec L4028: contextHash(opts)=sha256(canonical_json){:8}).
+// (spec L4023: contextHash(opts)=sha256(canonical_json){:8}).
 func ContextHash(proxy *ResolvedProxyConfig, geoMode GeoMode) string {
 	canonical := struct {
 		Proxy   *ResolvedProxyConfig `json:"proxy"`

@@ -32,7 +32,7 @@ const (
 // Tab represents a browser tab in the registry
 // (spec L4021: tab registry + lifecycle).
 // TabEntry is the spec-mandated tab entry with full lifecycle fields
-// (spec L4224: TabEntry: context + cancelFunc + CDPID + timestamps +
+// (spec L4216: TabEntry: context + cancelFunc + CDPID + timestamps +
 // policy state + process_id + owner_ref=turn|subagent|connector|ui).
 type Tab struct {
 	ID         string    `json:"id"`
@@ -43,7 +43,7 @@ type Tab struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	LastActive time.Time `json:"lastActive"`
 	Index      int       `json:"index"`
-	// ProcessSpec lifecycle fields (spec L4224-L4226)
+	// ProcessSpec lifecycle fields (spec L4216)
 	CDPID        string `json:"cdpId,omitempty"`        // CDP target ID
 	ProcessID    string `json:"processId,omitempty"`    // ProcessSpec ID
 	OwnerRef     string `json:"ownerRef,omitempty"`     // turn|subagent|connector|ui

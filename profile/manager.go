@@ -16,7 +16,7 @@ import (
 var profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 var ownerRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$`)
 
-// ShareScope controls profile sharing (spec L4583).
+// ShareScope controls profile sharing (spec L4585).
 type ShareScope string
 
 const (
@@ -47,14 +47,14 @@ type BrowserProfile struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
-// AccessDecision is the outcome of BrowserProfileAccessGate (spec L4583).
+// AccessDecision is the outcome of BrowserProfileAccessGate (spec L4585).
 type AccessDecision struct {
 	Allowed bool
 	Reason  string
 }
 
 // BrowserProfileAccessGate enforces caller permission before profile use
-// (spec L4583: private only owner, operator_shared owner+operators,
+// (spec L4585: private only owner, operator_shared owner+operators,
 // workspace_shared listed users).
 type BrowserProfileAccessGate struct {
 	// IsOperator reports whether the caller user ref is an operator for the
@@ -316,7 +316,7 @@ func (m *ProfileManager) Delete(name, callerUserRef string) error {
 }
 
 // SwitchProfile activates one profile and deactivates all others owned by
-// the same user (spec L4583: user-context switch closes/evicts active
+// the same user (spec L4587: user-context switch closes/evicts active
 // tabs for the previous user).
 func (m *ProfileManager) SwitchProfile(name, callerUserRef string) (*BrowserProfile, error) {
 	if m == nil {

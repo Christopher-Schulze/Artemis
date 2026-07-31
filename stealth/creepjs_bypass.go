@@ -1,6 +1,6 @@
 package stealth
 
-// creepjs_bypass.go (spec L4364: CreepJS Dark Mode Bypass).
+// creepjs_bypass.go (spec L4368: CreepJS Dark Mode Bypass).
 //
 // CreepJS flags sessions whose prefers-color-scheme media query
 // resolves to light while the OS reports dark mode (and vice versa).
@@ -20,7 +20,7 @@ import (
 )
 
 // CreepJSBypass configures a browser context to bypass CreepJS
-// prefersLightColor and related device-metric checks (spec L4364).
+// prefersLightColor and related device-metric checks (spec L4368).
 type CreepJSBypass struct {
 	// ColorScheme forces the prefers-color-scheme media query.
 	// "dark" bypasses the prefersLightColor check in CreepJS.
@@ -54,7 +54,7 @@ type CreepJSBypass struct {
 }
 
 // DefaultCreepJSBypass returns the CreepJS-bypassing configuration
-// matching Scrapling's StealthySessionMixin defaults (spec L4364):
+// matching Scrapling's StealthySessionMixin defaults (spec L4368):
 // dark color scheme, device scale factor 2, 1920x1080 screen and
 // viewport, desktop (no touch), service workers allowed, HTTPS
 // errors ignored, geolocation + notifications granted.
@@ -114,7 +114,7 @@ func (c CreepJSBypass) ApplyToContext(options map[string]interface{}) map[string
 }
 
 // Validate checks the bypass configuration for internal consistency
-// (spec L4364): ColorScheme must be "dark" or "light", screen
+// (spec L4368): ColorScheme must be "dark" or "light", screen
 // dimensions and device scale factor must be positive.
 func (c CreepJSBypass) Validate() error {
 	if c.ColorScheme != "dark" && c.ColorScheme != "light" {

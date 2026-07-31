@@ -204,7 +204,7 @@ func NewMouseClick(point MousePoint, button string) MouseClick {
 }
 
 // ClickSequenceConfig configures the full human-like click sequence
-// (spec L4190: Click Sequence).
+// (spec L4194: Click Sequence).
 type ClickSequenceConfig struct {
 	// StartOffsetRange is the max random offset from target center
 	// per axis (spec: -50..150px). The actual offset is random in
@@ -232,7 +232,7 @@ type ClickSequenceConfig struct {
 }
 
 // DefaultClickSequenceConfig returns the spec-mandated click sequence
-// config (spec L4190).
+// config (spec L4194).
 func DefaultClickSequenceConfig() ClickSequenceConfig {
 	return ClickSequenceConfig{
 		StartOffsetMinX:  -50,
@@ -250,7 +250,7 @@ func DefaultClickSequenceConfig() ClickSequenceConfig {
 }
 
 // ClickSequence is the full human-like click sequence
-// (spec L4190: random start offset -> smooth move -> pre-click delay
+// (spec L4194: random start offset -> smooth move -> pre-click delay
 // -> MousePressed -> hold -> MouseReleased with jitter).
 type ClickSequence struct {
 	StartPoint    MousePoint    `json:"startPoint"`         // with random offset
@@ -264,11 +264,11 @@ type ClickSequence struct {
 
 // GenerateClickSequence generates a full human-like click sequence
 // from a current mouse position to a target element center
-// (spec L4190: Click Sequence).
+// (spec L4194: Click Sequence).
 // boxCenter is the element center from dom.GetBoxModel.
 func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceConfig, rng *rand.Rand) ClickSequence {
 	// 1. Random start offset from target center (-50..150px per axis)
-	// (spec L4190: Random start offset -50..150px per axis from target)
+	// (spec L4194: Random start offset -50..150px per axis from target)
 	startOffsetX := cfg.StartOffsetMinX
 	startOffsetY := cfg.StartOffsetMinY
 	if rng != nil {
@@ -281,7 +281,7 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 	}
 
 	// 2. Target point: element center + +-5px offset
-	// (spec L4190: center + +-5px offset)
+	// (spec L4194: center + +-5px offset)
 	var targetOffX, targetOffY float64
 	if rng != nil {
 		targetOffX = (rng.Float64() - 0.5) * 2 * cfg.TargetOffsetMax
@@ -300,21 +300,21 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 		movePath = &path
 	}
 
-	// 4. Pre-click delay 50-199ms (spec L4190)
+	// 4. Pre-click delay 50-199ms (spec L4194)
 	preClickDelay := cfg.PreClickDelayMin
 	if rng != nil && cfg.PreClickDelayMax > cfg.PreClickDelayMin {
 		rangeMs := int((cfg.PreClickDelayMax - cfg.PreClickDelayMin) / time.Millisecond)
 		preClickDelay = cfg.PreClickDelayMin + time.Duration(rng.Intn(rangeMs))*time.Millisecond
 	}
 
-	// 5. Hold duration 30-119ms (spec L4190)
+	// 5. Hold duration 30-119ms (spec L4194)
 	holdDuration := cfg.HoldDurationMin
 	if rng != nil && cfg.HoldDurationMax > cfg.HoldDurationMin {
 		rangeMs := int((cfg.HoldDurationMax - cfg.HoldDurationMin) / time.Millisecond)
 		holdDuration = cfg.HoldDurationMin + time.Duration(rng.Intn(rangeMs))*time.Millisecond
 	}
 
-	// 6. Release point: target + +-1.0px jitter (spec L4190)
+	// 6. Release point: target + +-1.0px jitter (spec L4194)
 	releasePoint := targetPoint
 	if rng != nil && cfg.ReleaseJitter > 0 {
 		releasePoint.X += (rng.Float64() - 0.5) * 2 * cfg.ReleaseJitter
@@ -333,7 +333,7 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 }
 
 // BoxModel represents the box model of a DOM element from
-// dom.GetBoxModel (spec L4190: backend DOM node ID -> dom.GetBoxModel).
+// dom.GetBoxModel (spec L4194: backend DOM node ID -> dom.GetBoxModel).
 type BoxModel struct {
 	BackendNodeID int64 `json:"backendNodeId"`
 	// Quad is the content box quad [x1,y1, x2,y2, x3,y3, x4,y4]
@@ -342,7 +342,7 @@ type BoxModel struct {
 }
 
 // BoxCenter computes the center point of a box model
-// (spec L4190: center + +-5px offset).
+// (spec L4194: center + +-5px offset).
 func (b BoxModel) Center() MousePoint {
 	if len(b.Quad) < 4 {
 		return MousePoint{}
@@ -355,7 +355,7 @@ func (b BoxModel) Center() MousePoint {
 }
 
 // GenerateClickSequenceFromBox generates a click sequence from a
-// box model (spec L4190: element-based: backend DOM node ID ->
+// box model (spec L4194: element-based: backend DOM node ID ->
 // dom.GetBoxModel -> center + +-5px offset).
 func GenerateClickSequenceFromBox(currentPos MousePoint, box BoxModel, cfg ClickSequenceConfig, rng *rand.Rand) ClickSequence {
 	return GenerateClickSequence(currentPos, box.Center(), cfg, rng)

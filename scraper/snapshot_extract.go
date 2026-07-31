@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// snapshot_extract.go (spec L4028: scraper/snapshot_extract.go -
+// snapshot_extract.go (spec L4029: scraper/snapshot_extract.go -
 // renderless DOM snapshot, CDP live-DOM snapshot).
 //
 // Web scraping engine: snapshot extraction from DOM snapshots.
@@ -15,7 +15,7 @@ import (
 // a SourceSnapshot into an ExtractedPage.
 
 // SnapshotExtractor extracts structured data from DOM snapshots
-// (spec L4028: snapshot_extract.go - renderless DOM snapshot, CDP
+// (spec L4029: snapshot_extract.go - renderless DOM snapshot, CDP
 // live-DOM snapshot).
 type SnapshotExtractor struct {
 	mode      ExtractionMode
@@ -23,13 +23,13 @@ type SnapshotExtractor struct {
 }
 
 // NewSnapshotExtractor creates a new SnapshotExtractor for the given
-// extraction mode (spec L4028: snapshot_extract.go).
+// extraction mode (spec L4029: snapshot_extract.go).
 func NewSnapshotExtractor(mode ExtractionMode) *SnapshotExtractor {
 	return &SnapshotExtractor{mode: mode, parsePool: NewParseWorkerPool(0)}
 }
 
 // Extract extracts an ExtractedPage from a SourceSnapshot
-// (spec L4028: one SourceSnapshot -> ExtractedPage facade).
+// (spec L4029: one SourceSnapshot -> ExtractedPage facade).
 func (e *SnapshotExtractor) Extract(snap SourceSnapshot) (ExtractedPage, error) {
 	if e == nil {
 		return ExtractedPage{}, fmt.Errorf("snapshot_extract: nil extractor")
@@ -71,7 +71,7 @@ func (e *SnapshotExtractor) Extract(snap SourceSnapshot) (ExtractedPage, error) 
 }
 
 // extractTitle extracts the <title> from HTML
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func extractTitle(html string) string {
 	start := strings.Index(strings.ToLower(html), "<title>")
 	if start < 0 {
@@ -86,7 +86,7 @@ func extractTitle(html string) string {
 }
 
 // extractText extracts visible text from HTML (simplified)
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func extractText(html string) string {
 	// Remove script and style tags
 	lower := strings.ToLower(html)
@@ -124,7 +124,7 @@ func extractText(html string) string {
 }
 
 // extractLinks extracts hyperlinks from HTML
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func extractLinks(html string) []ExtractedLink {
 	var links []ExtractedLink
 	lower := strings.ToLower(html)
@@ -157,7 +157,7 @@ func extractLinks(html string) []ExtractedLink {
 }
 
 // extractImages extracts image sources from HTML
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func extractImages(html string) []ExtractedImage {
 	var images []ExtractedImage
 	lower := strings.ToLower(html)
@@ -184,7 +184,7 @@ func extractImages(html string) []ExtractedImage {
 }
 
 // extractAttr extracts an attribute value from an HTML tag
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func extractAttr(tag, attr string) string {
 	lower := strings.ToLower(tag)
 	key := attr + "=\""
@@ -205,7 +205,7 @@ func extractAttr(tag, attr string) string {
 }
 
 // Mode returns the extraction mode
-// (spec L4028: snapshot_extract.go).
+// (spec L4029: snapshot_extract.go).
 func (e *SnapshotExtractor) Mode() ExtractionMode {
 	if e == nil {
 		return ""

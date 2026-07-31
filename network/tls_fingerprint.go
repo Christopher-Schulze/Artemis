@@ -1,6 +1,6 @@
 package network
 
-// tls_fingerprint.go (spec L4369: TLS Fingerprint Spoofing).
+// tls_fingerprint.go (spec L4373: TLS Fingerprint Spoofing).
 //
 // Scrapling relies on curl_cffi browser impersonation to match the
 // real Chrome TLS fingerprint (JA3, HTTP/2 SETTINGS, HTTP/3). The Go
@@ -20,7 +20,7 @@ import (
 )
 
 // TLSFingerprint describes a browser TLS fingerprint for spoofing
-// (spec L4369: utls JA3/HTTP2/HTTP3 parity).
+// (spec L4373: utls JA3/HTTP2/HTTP3 parity).
 type TLSFingerprint struct {
 	// Browser is the browser family (e.g. "chrome").
 	Browser string
@@ -47,7 +47,7 @@ type TLSFingerprint struct {
 }
 
 // Chrome145Fingerprint returns a realistic Chrome 145 TLS
-// fingerprint (spec L4369). The JA3 string, cipher suite order,
+// fingerprint (spec L4373). The JA3 string, cipher suite order,
 // curves, and signature algorithms mirror Chrome 145's ClientHello
 // as captured by utls's HelloChrome_Auto / HelloChrome_120 specs.
 func Chrome145Fingerprint() TLSFingerprint {
@@ -94,7 +94,7 @@ func Chrome145Fingerprint() TLSFingerprint {
 }
 
 // VerifyJA3 reports whether the actual JA3 string (or JA3 hash)
-// matches this fingerprint (spec L4369). The actual value may be
+// matches this fingerprint (spec L4373). The actual value may be
 // either a full JA3 string or a JA3 hash; both are compared.
 func (f TLSFingerprint) VerifyJA3(actual string) bool {
 	if actual == "" {
@@ -110,7 +110,7 @@ func (f TLSFingerprint) VerifyJA3(actual string) bool {
 }
 
 // VerifyHTTP2 reports whether the actual HTTP/2 fingerprint string
-// matches this fingerprint (spec L4369).
+// matches this fingerprint (spec L4373).
 func (f TLSFingerprint) VerifyHTTP2(actual string) bool {
 	if actual == "" || f.HTTP2Fingerprint == "" {
 		return false
@@ -119,7 +119,7 @@ func (f TLSFingerprint) VerifyHTTP2(actual string) bool {
 }
 
 // VerifyHTTP3 reports whether the actual HTTP/3 fingerprint string
-// matches this fingerprint (spec L4369).
+// matches this fingerprint (spec L4373).
 func (f TLSFingerprint) VerifyHTTP3(actual string) bool {
 	if actual == "" || f.HTTP3Fingerprint == "" {
 		return false
@@ -128,7 +128,7 @@ func (f TLSFingerprint) VerifyHTTP3(actual string) bool {
 }
 
 // HasParity reports whether all fingerprint components (JA3, JA3
-// hash, HTTP/2, HTTP/3) are set and non-empty (spec L4369: full
+// hash, HTTP/2, HTTP/3) are set and non-empty (spec L4373: full
 // parity requires every fingerprint populated).
 func (f TLSFingerprint) HasParity() bool {
 	return f.JA3 != "" &&
@@ -138,7 +138,7 @@ func (f TLSFingerprint) HasParity() bool {
 }
 
 // ToTLSConfig returns a stdlib *tls.Config projected from the
-// fingerprint's cipher suites, curves, and ALPN list (spec L4369).
+// fingerprint's cipher suites, curves, and ALPN list (spec L4373).
 // The returned config is suitable as a base for a utls transport;
 // the JA3/HTTP2/HTTP3 strings themselves are consumed by the utls
 // ClientHelloSpec at the bridge/ layer.
@@ -161,7 +161,7 @@ func (f TLSFingerprint) ToTLSConfig() *tls.Config {
 }
 
 // MatchScore returns the percentage (0-100) of fingerprint
-// components that match the actual values (spec L4369). Each of the
+// components that match the actual values (spec L4373). Each of the
 // three fingerprints (JA3, HTTP/2, HTTP/3) contributes equally; a
 // missing actual value counts as a mismatch.
 func (f TLSFingerprint) MatchScore(actualJA3, actualHTTP2, actualHTTP3 string) int {

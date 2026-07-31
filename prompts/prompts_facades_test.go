@@ -8,7 +8,7 @@ import (
 // ==================== system.go tests ====================
 
 // TestTASK2251_SystemPrompt verifies system prompt content
-// (spec L4029: system.go - base behavior).
+// (spec L4030: system.go - base behavior).
 func TestTASK2251_SystemPrompt(t *testing.T) {
 	p := SystemPrompt()
 	if p == "" {
@@ -20,7 +20,7 @@ func TestTASK2251_SystemPrompt(t *testing.T) {
 }
 
 // TestTASK2251_SystemPromptType verifies prompt type
-// (spec L4029: system.go).
+// (spec L4030: system.go).
 func TestTASK2251_SystemPromptType(t *testing.T) {
 	if SystemPromptType() != PromptSystem {
 		t.Error("system prompt type should be PromptSystem")
@@ -28,7 +28,7 @@ func TestTASK2251_SystemPromptType(t *testing.T) {
 }
 
 // TestTASK2251_SystemPromptTemplate verifies template
-// (spec L4029: system.go - base behavior).
+// (spec L4030: system.go - base behavior).
 func TestTASK2251_SystemPromptTemplate(t *testing.T) {
 	tmpl := SystemPromptTemplate()
 	if tmpl.Name != "system" {
@@ -45,7 +45,7 @@ func TestTASK2251_SystemPromptTemplate(t *testing.T) {
 // ==================== decompose.go tests ====================
 
 // TestTASK2251_DecomposePrompt verifies decomposition prompt
-// (spec L4029: decompose.go - task decomposition).
+// (spec L4030: decompose.go - task decomposition).
 func TestTASK2251_DecomposePrompt(t *testing.T) {
 	p := DecomposePrompt()
 	if p == "" {
@@ -57,7 +57,7 @@ func TestTASK2251_DecomposePrompt(t *testing.T) {
 }
 
 // TestTASK2251_DecomposePromptType verifies prompt type
-// (spec L4029: decompose.go).
+// (spec L4030: decompose.go).
 func TestTASK2251_DecomposePromptType(t *testing.T) {
 	if DecomposePromptType() != PromptTaskDecomposition {
 		t.Error("decompose prompt type should be PromptTaskDecomposition")
@@ -65,7 +65,7 @@ func TestTASK2251_DecomposePromptType(t *testing.T) {
 }
 
 // TestTASK2251_DecomposePromptTemplate verifies template
-// (spec L4029: decompose.go - task decomposition).
+// (spec L4030: decompose.go - task decomposition).
 func TestTASK2251_DecomposePromptTemplate(t *testing.T) {
 	tmpl := DecomposePromptTemplate()
 	if tmpl.Name != "task_decomposition" {
@@ -77,7 +77,7 @@ func TestTASK2251_DecomposePromptTemplate(t *testing.T) {
 }
 
 // TestTASK2251_DecomposeReflectionPrompt verifies reflection prompt
-// (spec L4029: decompose.go - task decomposition).
+// (spec L4030: decompose.go - task decomposition).
 func TestTASK2251_DecomposeReflectionPrompt(t *testing.T) {
 	p := DecomposeReflectionPrompt()
 	if p == "" {
@@ -103,7 +103,7 @@ func TestTASK2251_DecomposeReflectionPromptTemplate(t *testing.T) {
 // ==================== observe.go tests ====================
 
 // TestTASK2251_ObservePrompt verifies observation prompt
-// (spec L4029: observe.go - chunked observation).
+// (spec L4030: observe.go - chunked observation).
 func TestTASK2251_ObservePrompt(t *testing.T) {
 	p := ObservePrompt()
 	if p == "" {
@@ -115,7 +115,7 @@ func TestTASK2251_ObservePrompt(t *testing.T) {
 }
 
 // TestTASK2251_ObservePromptType verifies prompt type
-// (spec L4029: observe.go).
+// (spec L4030: observe.go).
 func TestTASK2251_ObservePromptType(t *testing.T) {
 	if ObservePromptType() != PromptObserveReasoning {
 		t.Error("observe prompt type should be PromptObserveReasoning")
@@ -123,7 +123,7 @@ func TestTASK2251_ObservePromptType(t *testing.T) {
 }
 
 // TestTASK2251_ObservePromptTemplate verifies template
-// (spec L4029: observe.go - chunked observation).
+// (spec L4030: observe.go - chunked observation).
 func TestTASK2251_ObservePromptTemplate(t *testing.T) {
 	tmpl := ObservePromptTemplate()
 	if tmpl.Name != "observe_reasoning" {
@@ -135,7 +135,7 @@ func TestTASK2251_ObservePromptTemplate(t *testing.T) {
 }
 
 // TestTASK2251_PureReasoningPrompt verifies pure reasoning prompt
-// (spec L4029: observe.go - chunked observation).
+// (spec L4030: observe.go - chunked observation).
 func TestTASK2251_PureReasoningPrompt(t *testing.T) {
 	p := PureReasoningPrompt()
 	if p == "" {
@@ -161,7 +161,7 @@ func TestTASK2251_PureReasoningPromptTemplate(t *testing.T) {
 // ==================== forms.go tests ====================
 
 // TestTASK2251_FormFillingPrompt verifies form filling prompt
-// (spec L4029: forms.go - form filling).
+// (spec L4030: forms.go - form filling).
 func TestTASK2251_FormFillingPrompt(t *testing.T) {
 	p := FormFillingPrompt()
 	if p == "" {
@@ -173,7 +173,7 @@ func TestTASK2251_FormFillingPrompt(t *testing.T) {
 }
 
 // TestTASK2251_FormFillingPromptType verifies prompt type
-// (spec L4029: forms.go).
+// (spec L4030: forms.go).
 func TestTASK2251_FormFillingPromptType(t *testing.T) {
 	if FormFillingPromptType() != PromptFormFilling {
 		t.Error("form filling type should be PromptFormFilling")
@@ -181,7 +181,7 @@ func TestTASK2251_FormFillingPromptType(t *testing.T) {
 }
 
 // TestTASK2251_FormFillingPromptTemplate verifies template
-// (spec L4029: forms.go - form filling).
+// (spec L4030: forms.go - form filling).
 func TestTASK2251_FormFillingPromptTemplate(t *testing.T) {
 	tmpl := FormFillingPromptTemplate()
 	if tmpl.Name != "form_filling" {
@@ -195,7 +195,7 @@ func TestTASK2251_FormFillingPromptTemplate(t *testing.T) {
 // ==================== download.go tests ====================
 
 // TestTASK2251_FileDownloadPrompt verifies file download prompt
-// (spec L4029: download.go - file download).
+// (spec L4030: download.go - file download).
 func TestTASK2251_FileDownloadPrompt(t *testing.T) {
 	p := FileDownloadPrompt()
 	if p == "" {
@@ -204,7 +204,7 @@ func TestTASK2251_FileDownloadPrompt(t *testing.T) {
 }
 
 // TestTASK2251_FileDownloadPromptType verifies prompt type
-// (spec L4029: download.go).
+// (spec L4030: download.go).
 func TestTASK2251_FileDownloadPromptType(t *testing.T) {
 	if FileDownloadPromptType() != PromptFileDownload {
 		t.Error("file download type should be PromptFileDownload")
@@ -212,7 +212,7 @@ func TestTASK2251_FileDownloadPromptType(t *testing.T) {
 }
 
 // TestTASK2251_FileDownloadPromptTemplate verifies template
-// (spec L4029: download.go - file download).
+// (spec L4030: download.go - file download).
 func TestTASK2251_FileDownloadPromptTemplate(t *testing.T) {
 	tmpl := FileDownloadPromptTemplate()
 	if tmpl.Name != "file_download" {
@@ -226,7 +226,7 @@ func TestTASK2251_FileDownloadPromptTemplate(t *testing.T) {
 // ==================== summarize.go tests ====================
 
 // TestTASK2251_SummarizePrompt verifies summarize prompt
-// (spec L4029: summarize.go - task summarization).
+// (spec L4030: summarize.go - task summarization).
 func TestTASK2251_SummarizePrompt(t *testing.T) {
 	p := SummarizePrompt()
 	if p == "" {
@@ -235,7 +235,7 @@ func TestTASK2251_SummarizePrompt(t *testing.T) {
 }
 
 // TestTASK2251_SummarizePromptType verifies prompt type
-// (spec L4029: summarize.go).
+// (spec L4030: summarize.go).
 func TestTASK2251_SummarizePromptType(t *testing.T) {
 	if SummarizePromptType() != PromptSummarizeTask {
 		t.Error("summarize type should be PromptSummarizeTask")
@@ -243,7 +243,7 @@ func TestTASK2251_SummarizePromptType(t *testing.T) {
 }
 
 // TestTASK2251_SummarizePromptTemplate verifies template
-// (spec L4029: summarize.go - task summarization).
+// (spec L4030: summarize.go - task summarization).
 func TestTASK2251_SummarizePromptTemplate(t *testing.T) {
 	tmpl := SummarizePromptTemplate()
 	if tmpl.Name != "summarize_task" {
@@ -257,7 +257,7 @@ func TestTASK2251_SummarizePromptTemplate(t *testing.T) {
 // ==================== full spec parity test ====================
 
 // TestTASK2251_FullSpecParity verifies all 6 spec-mandated files
-// (spec L4029: system.go, decompose.go, observe.go, forms.go,
+// (spec L4030: system.go, decompose.go, observe.go, forms.go,
 // download.go, summarize.go).
 func TestTASK2251_FullSpecParity(t *testing.T) {
 	// 1. system.go - base behavior

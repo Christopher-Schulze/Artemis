@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// DomainRateLimiter enforces per-host request spacing with impact halving (spec L4398).
+// DomainRateLimiter enforces per-host request spacing with impact halving (spec L4438).
 type DomainRateLimiter struct {
 	mu       sync.Mutex
 	interval map[string]time.Duration

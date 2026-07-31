@@ -16,7 +16,7 @@ func TestTASK2243_NewWebGLOverride(t *testing.T) {
 }
 
 // TestTASK2243_IsSwiftShader verifies SwiftShader detection
-// (spec L4089: Override headless "SwiftShader").
+// (spec L4091: Override headless "SwiftShader").
 func TestTASK2243_IsSwiftShader(t *testing.T) {
 	cases := []struct {
 		renderer string
@@ -37,7 +37,7 @@ func TestTASK2243_IsSwiftShader(t *testing.T) {
 }
 
 // TestTASK2243_DetectGPU verifies DetectGPU returns a GPUInfo
-// (spec L4089: MEASURE-FIRST pattern).
+// (spec L4091: MEASURE-FIRST pattern).
 func TestTASK2243_DetectGPU(t *testing.T) {
 	gpu := DetectGPU()
 	// On any OS, DetectGPU should return a GPUInfo (may or may not be detected).
@@ -47,7 +47,7 @@ func TestTASK2243_DetectGPU(t *testing.T) {
 }
 
 // TestTASK2243_MeasureAndOverride verifies the MEASURE-FIRST pattern
-// (spec L4089: MEASURE-FIRST. Override headless "SwiftShader" with
+// (spec L4091: MEASURE-FIRST. Override headless "SwiftShader" with
 // REAL GPU name. Fallback: GPU undetectable -> DON'T spoof).
 func TestTASK2243_MeasureAndOverride(t *testing.T) {
 	w := NewWebGLOverride()
@@ -107,7 +107,7 @@ func TestTASK2243_OverrideSwiftShaderNotSwiftShader(t *testing.T) {
 }
 
 // TestTASK2243_OverrideSwiftShaderDisabled verifies no override when
-// disabled (spec L4089: GPU undetectable -> DON'T spoof).
+// disabled (spec L4091: GPU undetectable -> DON'T spoof).
 func TestTASK2243_OverrideSwiftShaderDisabled(t *testing.T) {
 	w := NewWebGLOverride()
 	override := w.OverrideSwiftShader("SwiftShader")
@@ -185,7 +185,7 @@ func TestTASK2243_ExtractVendor(t *testing.T) {
 // ==================== permissions.go tests ====================
 
 // TestTASK2243_PermissionStateConstants verifies the state constants
-// (spec L4091).
+// (spec L4094).
 func TestTASK2243_PermissionStateConstants(t *testing.T) {
 	if PermissionStatePrompt != "prompt" {
 		t.Error("PermissionStatePrompt mismatch")
@@ -199,7 +199,7 @@ func TestTASK2243_PermissionStateConstants(t *testing.T) {
 }
 
 // TestTASK2243_PermissionNameConstants verifies the permission name
-// constants (spec L4091).
+// constants (spec L4094).
 func TestTASK2243_PermissionNameConstants(t *testing.T) {
 	if PermissionGeolocation != "geolocation" {
 		t.Error("PermissionGeolocation mismatch")
@@ -210,7 +210,7 @@ func TestTASK2243_PermissionNameConstants(t *testing.T) {
 }
 
 // TestTASK2243_NewPermissionAPI verifies creation with defaults
-// (spec L4091).
+// (spec L4094).
 func TestTASK2243_NewPermissionAPI(t *testing.T) {
 	p := NewPermissionAPI()
 	if p.IsActive() {
@@ -223,7 +223,7 @@ func TestTASK2243_NewPermissionAPI(t *testing.T) {
 
 // TestTASK2243_PermissionQueryInactive verifies that when inactive,
 // query returns "denied" (natural headless behavior)
-// (spec L4091: Real requests -> "denied").
+// (spec L4094: Real requests -> "denied").
 func TestTASK2243_PermissionQueryInactive(t *testing.T) {
 	p := NewPermissionAPI()
 	result := p.Query(PermissionGeolocation)
@@ -234,7 +234,7 @@ func TestTASK2243_PermissionQueryInactive(t *testing.T) {
 
 // TestTASK2243_PermissionQueryActive verifies that when active,
 // query returns "prompt" (PASSIVE-ONLY, safe)
-// (spec L4091: permissions.query() -> "prompt" (passive, safe)).
+// (spec L4094: permissions.query() -> "prompt" (passive, safe)).
 func TestTASK2243_PermissionQueryActive(t *testing.T) {
 	p := NewPermissionAPI()
 	p.Activate()
@@ -257,7 +257,7 @@ func TestTASK2243_PermissionQueryName(t *testing.T) {
 
 // TestTASK2243_PermissionRequestAlwaysDenied verifies that
 // requestPermission() always returns "denied"
-// (spec L4091: requestPermission() NOT touched. Real requests ->
+// (spec L4094: requestPermission() NOT touched. Real requests ->
 // "denied" (headless can't ask = natural)).
 func TestTASK2243_PermissionRequestAlwaysDenied(t *testing.T) {
 	p := NewPermissionAPI()
@@ -281,7 +281,7 @@ func TestTASK2243_PermissionRequestInactive(t *testing.T) {
 }
 
 // TestTASK2243_PermissionActivateDeactivate verifies activate/deactivate
-// cycle (spec L4091: Activation: StealthStealth (Patch 7)).
+// cycle (spec L4094: Activation: StealthStealth (Patch 7)).
 func TestTASK2243_PermissionActivateDeactivate(t *testing.T) {
 	p := NewPermissionAPI()
 	if p.IsActive() {
@@ -326,7 +326,7 @@ func TestTASK2243_PermissionQueryAllInactive(t *testing.T) {
 }
 
 // TestTASK2243_PermissionIsPassiveOnly verifies IsPassiveOnly is
-// always true (spec L4091: PASSIVE-ONLY override).
+// always true (spec L4094: PASSIVE-ONLY override).
 func TestTASK2243_PermissionIsPassiveOnly(t *testing.T) {
 	p := NewPermissionAPI()
 	if !p.IsPassiveOnly() {
@@ -380,8 +380,8 @@ func TestTASK2243_PermissionNilString(t *testing.T) {
 
 // ==================== full spec parity test ====================
 
-// TestTASK2243_FullSpecParity verifies full spec parity for L4089+L4091
-// (spec L4089: WebGL MEASURE-FIRST, L4091: Permission API PASSIVE-ONLY).
+// TestTASK2243_FullSpecParity verifies full spec parity for L4091+L4094
+// (spec L4091: WebGL MEASURE-FIRST, L4094: Permission API PASSIVE-ONLY).
 func TestTASK2243_FullSpecParity(t *testing.T) {
 	// 1. WebGL override
 	w := NewWebGLOverride()

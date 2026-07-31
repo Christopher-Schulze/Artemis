@@ -1,6 +1,6 @@
 package network
 
-// resource_block.go (spec L4368: Resource Blocking).
+// resource_block.go (spec L4372: Resource Blocking).
 //
 // Scrapling blocks a fixed set of resource types (EXTRA_RESOURCES in
 // scrapling/engines/constants.py) to speed up page loads and avoid
@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// ResourceType identifies a CDP/Playwright resource type (spec L4368).
+// ResourceType identifies a CDP/Playwright resource type (spec L4372).
 type ResourceType string
 
 const (
@@ -40,7 +40,7 @@ const (
 )
 
 // allBlockedResourceTypes is the full set of resource types blocked
-// by default (spec L4368 / Scrapling EXTRA_RESOURCES).
+// by default (spec L4372 / Scrapling EXTRA_RESOURCES).
 var allBlockedResourceTypes = []ResourceType{
 	ResourceFont,
 	ResourceImage,
@@ -55,7 +55,7 @@ var allBlockedResourceTypes = []ResourceType{
 }
 
 // BlockedResources configures resource-type and domain blocking
-// (spec L4368). ResourceTypes is the set of blocked types; domains
+// (spec L4372). ResourceTypes is the set of blocked types; domains
 // in BlockedDomains are blocked with automatic subdomain matching;
 // AllowedDomains overrides domain blocking for specific hosts.
 type BlockedResources struct {
@@ -74,7 +74,7 @@ type BlockedResources struct {
 
 // DefaultBlockedResources returns a configuration with all 10
 // EXTRA_RESOURCES resource types blocked and no domain rules
-// (spec L4368).
+// (spec L4372).
 func DefaultBlockedResources() BlockedResources {
 	types := make(map[ResourceType]bool, len(allBlockedResourceTypes))
 	for _, rt := range allBlockedResourceTypes {
@@ -88,7 +88,7 @@ func DefaultBlockedResources() BlockedResources {
 }
 
 // domainMatches reports whether candidate matches pattern or is a
-// subdomain of pattern (spec L4368: auto-match subdomains). Matching
+// subdomain of pattern (spec L4372: auto-match subdomains). Matching
 // is case-insensitive. "example.com" matches "example.com",
 // "sub.example.com", and "a.b.example.com" but not "notexample.com".
 func domainMatches(candidate, pattern string) bool {
@@ -105,7 +105,7 @@ func domainMatches(candidate, pattern string) bool {
 
 // IsDomainBlocked reports whether domain matches any BlockedDomains
 // pattern (with automatic subdomain matching) and is not in the
-// AllowedDomains allowlist (spec L4368).
+// AllowedDomains allowlist (spec L4372).
 func (b BlockedResources) IsDomainBlocked(domain string) bool {
 	if domain == "" {
 		return false
@@ -125,7 +125,7 @@ func (b BlockedResources) IsDomainBlocked(domain string) bool {
 }
 
 // IsBlocked reports whether a request for the given resource type
-// from the given domain should be blocked (spec L4368). A request is
+// from the given domain should be blocked (spec L4372). A request is
 // blocked when:
 //   - its resource type is in the blocked set, AND
 //   - its domain is not in the allowlist, AND
@@ -185,7 +185,7 @@ func (b *BlockedResources) AddAllowedDomain(domain string) bool {
 }
 
 // ToCDPPattern returns the URL patterns for CDP
-// Network.setBlockedURLs (spec L4368). For domain blocking it emits
+// Network.setBlockedURLs (spec L4372). For domain blocking it emits
 // wildcard patterns of the form "*://*.<domain>/*" which match the
 // domain and all subdomains over any scheme. When no domains are
 // configured it returns an empty slice (type-based blocking is

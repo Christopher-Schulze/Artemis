@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// StorageKind enumerates Chromium storage locations (spec L4577).
+// StorageKind enumerates Chromium storage locations (spec L4593).
 type StorageKind string
 
 const (
@@ -22,7 +22,7 @@ const (
 	StorageCache          StorageKind = "cache"
 )
 
-// LocalStorageEntry is one localStorage key/value (spec L4577).
+// LocalStorageEntry is one localStorage key/value (spec L4593).
 type LocalStorageEntry struct {
 	Domain string `json:"domain"`
 	Key    string `json:"key"`
@@ -30,7 +30,7 @@ type LocalStorageEntry struct {
 }
 
 // DataLocation is one enumerated storage location for
-// RightsProcessor.FindAllData (spec L4577).
+// RightsProcessor.FindAllData (spec L4593).
 type DataLocation struct {
 	Kind      StorageKind `json:"kind"`
 	Path      string      `json:"path"`
@@ -39,7 +39,7 @@ type DataLocation struct {
 }
 
 // StorageManager handles localStorage listing, storage size and data
-// location enumeration (spec L4577).
+// location enumeration (spec L4593).
 type StorageManager struct {
 	mu         sync.Mutex
 	ls         map[string]*LocalStorageEntry // keyed by domain|key
@@ -66,7 +66,7 @@ func (s *StorageManager) AddLocalStorage(e *LocalStorageEntry) {
 }
 
 // ListLocalStorage returns all localStorage entries, optionally filtered
-// by domain (spec L4577).
+// by domain (spec L4593).
 func (s *StorageManager) ListLocalStorage(domain string) []LocalStorageEntry {
 	if s == nil {
 		return nil
@@ -90,7 +90,7 @@ func (s *StorageManager) ListLocalStorage(domain string) []LocalStorageEntry {
 }
 
 // ClearLocalStorage removes all localStorage entries for a domain
-// (spec L4577: Art.17 calls ClearDomain when no retention block exists).
+// (spec L4593: Art.17 calls ClearDomain when no retention block exists).
 func (s *StorageManager) ClearLocalStorage(domain string) int {
 	if s == nil {
 		return 0
@@ -107,7 +107,7 @@ func (s *StorageManager) ClearLocalStorage(domain string) int {
 	return removed
 }
 
-// ClearAllLocalStorage removes all localStorage entries (spec L4577).
+// ClearAllLocalStorage removes all localStorage entries (spec L4593).
 func (s *StorageManager) ClearAllLocalStorage() int {
 	if s == nil {
 		return 0
@@ -120,7 +120,7 @@ func (s *StorageManager) ClearAllLocalStorage() int {
 }
 
 // GetStorageSize returns the total bytes used by all storage locations on
-// disk for the profile (spec L4577). Walks the profile dir recursively.
+// disk for the profile (spec L4593). Walks the profile dir recursively.
 func (s *StorageManager) GetStorageSize() (int64, error) {
 	if s == nil {
 		return 0, errors.New("storage: nil manager")
@@ -148,7 +148,7 @@ func (s *StorageManager) GetStorageSize() (int64, error) {
 }
 
 // DataLocations enumerates all storage locations for the profile
-// (spec L4577: RightsProcessor.FindAllData). Returns one DataLocation per
+// (spec L4593: RightsProcessor.FindAllData). Returns one DataLocation per
 // known Chromium storage subdir that exists on disk.
 func (s *StorageManager) DataLocations() ([]DataLocation, error) {
 	if s == nil {
@@ -187,7 +187,7 @@ func (s *StorageManager) DataLocations() ([]DataLocation, error) {
 }
 
 // PurgeAll removes the entire profile data dir from disk
-// (spec L4577: Art.17 profile purge). Caller must have passed the access
+// (spec L4593: Art.17 profile purge). Caller must have passed the access
 // gate. Returns total bytes freed.
 func (s *StorageManager) PurgeAll() (int64, error) {
 	if s == nil {
