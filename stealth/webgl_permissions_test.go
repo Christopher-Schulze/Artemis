@@ -81,7 +81,7 @@ func TestTASK2243_OverrideSwiftShaderWhenEnabled(t *testing.T) {
 		Detected: true,
 	}
 	w.consistencyChecked = true
-	w.consistencyOK = true
+	w.consistencyResult = ConsistencyResult{Status: ConsistencyValid, Reason: "test"}
 	w.enabled = true
 	w.mu.Unlock()
 
@@ -179,6 +179,144 @@ func TestTASK2243_ExtractVendor(t *testing.T) {
 		if extractVendor(c.gpuName) != c.expected {
 			t.Errorf("extractVendor(%q): got %s, want %s", c.gpuName, extractVendor(c.gpuName), c.expected)
 		}
+	}
+}
+
+// ==================== TASK-2581: consistency validation tests ====================
+
+func TestTASK2581_CheckConsistencyValidApple(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "Apple", Renderer: "Apple M1 Pro", Source: "test", Detected: true})
+	if result.Status != ConsistencyValid {
+		t.Errorf("Apple M1 Pro: got status %s, want valid; reason: %s", result.Status, result.Reason)
+	}
+}
+
+func TestTASK2581_CheckConsistencyValidNVIDIA(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "NVIDIA", Renderer: "NVIDIA GeForce RTX 4090", Source: "test", Detected: true})
+	if result.Status != ConsistencyValid {
+		t.Errorf("RTX 4090: got status %s, want valid; reason: %s", result.Status, result.Reason)
+	}
+}
+
+func TestTASK2581_CheckConsistencyValidIntel(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "Intel", Renderer: "Intel Iris OpenGL Engine", Source: "test", Detected: true})
+	if result.Status != ConsistencyValid {
+		t.Errorf("Intel Iris: got status %s, want valid; reason: %s", result.Status, result.Reason)
+	}
+}
+
+func TestTASK2581_CheckConsistencyValidAMD(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "AMD", Renderer: "AMD Radeon RX 7900 XTX", Source: "test", Detected: true})
+	if result.Status != ConsistencyValid {
+		t.Errorf("Radeon: got status %s, want valid; reason: %s", result.Status, result.Reason)
+	}
+}
+
+func TestTASK2581_CheckConsistencyUnknownGPUFailsClosed(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "Qualcomm", Renderer: "Adreno 730", Source: "test", Detected: true})
+	if result.Status != ConsistencyUnknownGPU {
+		t.Errorf("unknown GPU: got status %s, want unknown_gpu; reason: %s", result.Status, result.Reason)
+	}
+	if result.Reason == "" {
+		t.Error("unknown GPU must have a diagnostic reason")
+	}
+}
+
+func TestTASK2581_CheckConsistencyMismatch(t *testing.T) {
+	result := checkConsistency(GPUInfo{Vendor: "NVIDIA", Renderer: "Some Unknown Board", Source: "test", Detected: true})
+	if result.Status != ConsistencyMismatch {
+		t.Errorf("mismatch: got status %s, want mismatch; reason: %s", result.Status, result.Reason)
+	}
+}
+
+func TestTASK2581_CheckConsistencyUndetectable(t *testing.T) {
+	result := checkConsistency(GPUInfo{Detected: false, Source: "test"})
+	if result.Status != ConsistencyUndetectable {
+		t.Errorf("undetectable: got status %s, want undetectable", result.Status)
+	}
+}
+
+func TestTASK2581_MeasureAndOverrideDisablesOnUnknownGPU(t *testing.T) {
+	w := NewWebGLOverride()
+	w.mu.Lock()
+	w.gpu = GPUInfo{Vendor: "Qualcomm", Renderer: "Adreno 730", Source: "test", Detected: true}
+	w.mu.Unlock()
+	result := checkConsistency(w.GPU())
+	if result.Status == ConsistencyValid {
+		t.Error("unknown GPU must not pass consistency")
+	}
+}
+
+func TestTASK2581_ConsistencyDiagnosticNilSafe(t *testing.T) {
+	var w *WebGLOverride
+	diag := w.ConsistencyDiagnostic()
+	if diag.Status != ConsistencyNotChecked {
+		t.Errorf("nil diagnostic: got %s, want not_checked", diag.Status)
+	}
+}
+
+func TestTASK2581_ConsistencyDiagnosticBeforeCheck(t *testing.T) {
+	w := NewWebGLOverride()
+	diag := w.ConsistencyDiagnostic()
+	if diag.Status != ConsistencyNotChecked {
+		t.Errorf("before check: got %s, want not_checked", diag.Status)
+	}
+}
+
+func TestTASK2581_ConsistencyDiagnosticAfterMeasure(t *testing.T) {
+	w := NewWebGLOverride()
+	w.MeasureAndOverride()
+	diag := w.ConsistencyDiagnostic()
+	if diag.Status == ConsistencyNotChecked {
+		t.Error("after MeasureAndOverride, diagnostic must not be not_checked")
+	}
+	if diag.Reason == "" {
+		t.Error("diagnostic must carry a reason after check")
+	}
+}
+
+func TestTASK2581_ExpectedWebGLVendor(t *testing.T) {
+	cases := []struct {
+		gpu  GPUInfo
+		want string
+	}{
+		{GPUInfo{Vendor: "Apple", Renderer: "Apple M2 Ultra", Detected: true}, "Apple"},
+		{GPUInfo{Vendor: "NVIDIA", Renderer: "NVIDIA GeForce RTX 3080", Detected: true}, "NVIDIA Corporation"},
+		{GPUInfo{Vendor: "Intel", Renderer: "Intel UHD Graphics 630", Detected: true}, "Intel Inc."},
+		{GPUInfo{Vendor: "AMD", Renderer: "AMD Radeon Pro W6800", Detected: true}, "ATI Technologies Inc."},
+		{GPUInfo{Vendor: "Qualcomm", Renderer: "Adreno 730", Detected: true}, ""},
+	}
+	for _, c := range cases {
+		got := ExpectedWebGLVendor(c.gpu)
+		if got != c.want {
+			t.Errorf("ExpectedWebGLVendor(%s/%s): got %q, want %q", c.gpu.Vendor, c.gpu.Renderer, got, c.want)
+		}
+	}
+}
+
+func TestTASK2581_ConcurrentMeasureAndRead(t *testing.T) {
+	w := NewWebGLOverride()
+	w.MeasureAndOverride()
+	done := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 200; j++ {
+				_ = w.IsEnabled()
+				_ = w.ConsistencyOK()
+				_ = w.ConsistencyChecked()
+				_ = w.ConsistencyDiagnostic()
+				_ = w.GPU()
+				_ = w.String()
+				_ = w.OverrideSwiftShader("SwiftShader")
+				w.mu.Lock()
+				w.consistencyResult = ConsistencyResult{Status: ConsistencyValid, Reason: "concurrent"}
+				w.mu.Unlock()
+			}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		<-done
 	}
 }
 

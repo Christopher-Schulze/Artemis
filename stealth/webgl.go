@@ -18,6 +18,51 @@ type GPUInfo struct {
 	Detected bool
 }
 
+// ConsistencyStatus is the outcome of a WebGL consistency validation.
+type ConsistencyStatus string
+
+const (
+	ConsistencyValid       ConsistencyStatus = "valid"
+	ConsistencyMismatch    ConsistencyStatus = "mismatch"
+	ConsistencyUnknownGPU  ConsistencyStatus = "unknown_gpu"
+	ConsistencyNotChecked  ConsistencyStatus = "not_checked"
+	ConsistencyUndetectable ConsistencyStatus = "undetectable"
+)
+
+// ConsistencyResult carries the full diagnostic truth of a consistency
+// check (spec L4091: Mismatch -> disable + warn; honest > fake).
+type ConsistencyResult struct {
+	Status ConsistencyStatus
+	Reason string
+}
+
+// gpuFamily is a build-time known GPU family with its expected WebGL
+// vendor string and renderer pattern (spec L4091: lookup table, build-time).
+type gpuFamily struct {
+	VendorPattern  string
+	RendererPattern string
+	WebGLVendor    string
+}
+
+// gpuLookupTable is the build-time GPU-to-WebGL consistency table.
+// Only GPUs in this table are eligible for override; unknown GPUs
+// fail closed (spec L4091: Mismatch -> disable + warn).
+var gpuLookupTable = []gpuFamily{
+	{VendorPattern: "apple", RendererPattern: "apple", WebGLVendor: "Apple"},
+	{VendorPattern: "apple", RendererPattern: "apple m", WebGLVendor: "Apple"},
+	{VendorPattern: "intel", RendererPattern: "intel", WebGLVendor: "Intel Inc."},
+	{VendorPattern: "intel", RendererPattern: "iris", WebGLVendor: "Intel Inc."},
+	{VendorPattern: "intel", RendererPattern: "uhd", WebGLVendor: "Intel Inc."},
+	{VendorPattern: "intel", RendererPattern: "hd graphics", WebGLVendor: "Intel Inc."},
+	{VendorPattern: "nvidia", RendererPattern: "geforce", WebGLVendor: "NVIDIA Corporation"},
+	{VendorPattern: "nvidia", RendererPattern: "quadro", WebGLVendor: "NVIDIA Corporation"},
+	{VendorPattern: "nvidia", RendererPattern: "tesla", WebGLVendor: "NVIDIA Corporation"},
+	{VendorPattern: "nvidia", RendererPattern: "nvidia", WebGLVendor: "NVIDIA Corporation"},
+	{VendorPattern: "amd", RendererPattern: "radeon", WebGLVendor: "ATI Technologies Inc."},
+	{VendorPattern: "amd", RendererPattern: "firepro", WebGLVendor: "ATI Technologies Inc."},
+	{VendorPattern: "amd", RendererPattern: "amd", WebGLVendor: "ATI Technologies Inc."},
+}
+
 // WebGLOverride is the WebGL renderer override configuration
 // (spec L4091: Override headless "SwiftShader" with REAL GPU name).
 type WebGLOverride struct {
@@ -25,7 +70,7 @@ type WebGLOverride struct {
 	gpu                GPUInfo
 	enabled            bool
 	consistencyChecked bool
-	consistencyOK      bool
+	consistencyResult  ConsistencyResult
 }
 
 // NewWebGLOverride creates a new WebGL override instance
@@ -148,15 +193,18 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 	defer w.mu.Unlock()
 	w.gpu = gpu
 	if !gpu.Detected {
-		// GPU undetectable -> DON'T spoof (spec L4091: honest > fake).
 		w.enabled = false
+		w.consistencyChecked = true
+		w.consistencyResult = ConsistencyResult{
+			Status: ConsistencyUndetectable,
+			Reason: "GPU undetectable; override disabled (honest > fake)",
+		}
 		return false
 	}
-	// Check consistency (spec L4091: WebGL extensions must match GPU).
-	w.consistencyOK = checkConsistency(gpu)
+	result := checkConsistency(gpu)
+	w.consistencyResult = result
 	w.consistencyChecked = true
-	if !w.consistencyOK {
-		// Mismatch -> disable + warn (spec L4091).
+	if result.Status != ConsistencyValid {
 		w.enabled = false
 		return false
 	}
@@ -164,14 +212,54 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 	return true
 }
 
-// checkConsistency checks that WebGL extensions match the GPU
-// (spec L4091: Consistency check: WebGL extensions must match GPU
-// (lookup table, build-time). Mismatch -> disable + warn).
-func checkConsistency(gpu GPUInfo) bool {
-	// In a real implementation, this would check a build-time lookup
-	// table of GPU -> expected extensions. For now, we accept any
-	// detected GPU as consistent (the detection itself is the measure).
-	return gpu.Detected
+// checkConsistency validates the detected GPU against the build-time
+// lookup table (spec L4091: Consistency check: WebGL extensions must
+// match GPU (lookup table, build-time). Mismatch -> disable + warn).
+// Unknown GPUs fail closed.
+func checkConsistency(gpu GPUInfo) ConsistencyResult {
+	if !gpu.Detected {
+		return ConsistencyResult{
+			Status: ConsistencyUndetectable,
+			Reason: "GPU not detected",
+		}
+	}
+	vendor := strings.ToLower(gpu.Vendor)
+	renderer := strings.ToLower(gpu.Renderer)
+	for _, family := range gpuLookupTable {
+		if !strings.Contains(vendor, family.VendorPattern) && !strings.Contains(renderer, family.VendorPattern) {
+			continue
+		}
+		if strings.Contains(renderer, family.RendererPattern) {
+			return ConsistencyResult{
+				Status: ConsistencyValid,
+				Reason: fmt.Sprintf("GPU %q matches known family %q (WebGL vendor: %s)", gpu.Renderer, family.RendererPattern, family.WebGLVendor),
+			}
+		}
+		return ConsistencyResult{
+			Status: ConsistencyMismatch,
+			Reason: fmt.Sprintf("vendor %q matches family %q but renderer %q does not match expected pattern %q", gpu.Vendor, family.VendorPattern, gpu.Renderer, family.RendererPattern),
+		}
+	}
+	return ConsistencyResult{
+		Status: ConsistencyUnknownGPU,
+		Reason: fmt.Sprintf("GPU %q (vendor %q) not in build-time lookup table; fail closed", gpu.Renderer, gpu.Vendor),
+	}
+}
+
+// ExpectedWebGLVendor returns the WebGL vendor string for the detected
+// GPU based on the lookup table, or empty if unknown.
+func ExpectedWebGLVendor(gpu GPUInfo) string {
+	vendor := strings.ToLower(gpu.Vendor)
+	renderer := strings.ToLower(gpu.Renderer)
+	for _, family := range gpuLookupTable {
+		if !strings.Contains(vendor, family.VendorPattern) && !strings.Contains(renderer, family.VendorPattern) {
+			continue
+		}
+		if strings.Contains(renderer, family.RendererPattern) {
+			return family.WebGLVendor
+		}
+	}
+	return ""
 }
 
 // IsEnabled reports whether the WebGL override is active.
@@ -233,7 +321,21 @@ func (w *WebGLOverride) ConsistencyOK() bool {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return w.consistencyOK
+	return w.consistencyResult.Status == ConsistencyValid
+}
+
+// ConsistencyDiagnostic returns the full consistency result for
+// truthful reporting (spec L4091: honest > fake).
+func (w *WebGLOverride) ConsistencyDiagnostic() ConsistencyResult {
+	if w == nil {
+		return ConsistencyResult{Status: ConsistencyNotChecked, Reason: "nil override"}
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if !w.consistencyChecked {
+		return ConsistencyResult{Status: ConsistencyNotChecked, Reason: "check not yet performed"}
+	}
+	return w.consistencyResult
 }
 
 // String returns a diagnostic summary.
@@ -243,6 +345,6 @@ func (w *WebGLOverride) String() string {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return fmt.Sprintf("WebGLOverride{enabled:%v gpu:%s/%s source:%s detected:%v consistency:%v}",
-		w.enabled, w.gpu.Vendor, w.gpu.Renderer, w.gpu.Source, w.gpu.Detected, w.consistencyOK)
+	return fmt.Sprintf("WebGLOverride{enabled:%v gpu:%s/%s source:%s detected:%v consistency:%s reason:%q}",
+		w.enabled, w.gpu.Vendor, w.gpu.Renderer, w.gpu.Source, w.gpu.Detected, w.consistencyResult.Status, w.consistencyResult.Reason)
 }
