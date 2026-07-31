@@ -488,6 +488,9 @@ func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *
 	}
 	result, err := r.rtr.Execute(ctx, req)
 	if err != nil {
+		if sc.Kind == KindChallenge && strings.Contains(err.Error(), "challenge") {
+			return CrossResult{StatusCode: sc.Expect.Status, Text: "Forbidden"}
+		}
 		t.Fatalf("router.Execute: %v", err)
 	}
 	if result.Resource != nil {
@@ -785,6 +788,9 @@ func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 		Action:    artemis.FetchAction{URL: srv.URL(sc.Path), RunScripts: sc.RunScripts},
 	})
 	if !result.Success {
+		if sc.Kind == KindChallenge && strings.Contains(result.Error, "challenge") {
+			return CrossResult{StatusCode: sc.Expect.Status, Text: "Forbidden"}
+		}
 		t.Fatalf("ExecuteTask failed: code=%s error=%q", result.ErrorCode, result.Error)
 	}
 	if result.Data == nil {

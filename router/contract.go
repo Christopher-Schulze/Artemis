@@ -13,6 +13,8 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/solver"
 )
 
 // Mode is the execution engine selected for one browser operation.
@@ -252,12 +254,31 @@ type PageOutput struct {
 // ExecutionOutput is a verified engine result. Verified must be true; an
 // engine that only attempted an operation cannot be presented as success.
 type ExecutionOutput struct {
-	Page     PageOutput
-	State    BrowserState
-	Resource Resource
-	CostUnit int64
-	Quality  string
-	Verified bool
+	Page        PageOutput
+	State       BrowserState
+	Resource    Resource
+	Observation *observe.ObservationEvidence
+	CostUnit    int64
+	Quality     string
+	Verified    bool
+}
+
+// ChallengeDetector is the route boundary for deterministic challenge
+// detection. The solver package provides the production implementation.
+type ChallengeDetector interface {
+	Detect(context.Context, solver.PageSignals) (*solver.ChallengeInfo, error)
+}
+
+// ChallengeResolver is the route boundary for policy-governed challenge
+// handling. A resolver must verify the postcondition before returning solved.
+type ChallengeResolver interface {
+	Resolve(context.Context, solver.ChallengeInfo) (solver.ChallengeOutcome, error)
+}
+
+// ObservationProvider supplies bounded live evidence for a Chromium result.
+// observe.LiveCollector is the canonical implementation.
+type ObservationProvider interface {
+	CaptureEvidence(context.Context) (observe.ObservationEvidence, error)
 }
 
 const (
@@ -318,6 +339,8 @@ const (
 	ErrorResourceBudget = "resource_budget"
 	ErrorExecution      = "execution_failed"
 	ErrorCancelled      = "cancelled"
+	ErrorChallenge      = "challenge_detected"
+	ErrorChallengeSolve = "challenge_unresolved"
 )
 
 func (e *RouteError) Error() string {
@@ -340,6 +363,8 @@ func (e *RouteError) Unwrap() error {
 var (
 	ErrAuthSemanticDowngrade      = errors.New("route would change authentication semantics")
 	ErrCapabilityEscalationNeeded = errors.New("route requires a higher capability mode")
+	ErrChallengeDetected          = errors.New("route output contains a detected challenge")
+	ErrChallengeUnresolved        = errors.New("route challenge was not resolved and verified")
 )
 
 // RouteEvidence is intentionally secret-free and suitable for telemetry.
@@ -357,8 +382,35 @@ type RouteEvidence struct {
 	CostUnit      int64                `json:"cost_unit"`
 	ResultQuality string               `json:"result_quality,omitempty"`
 	State         StateEvidence        `json:"state"`
+	Observation   *ObservationSummary  `json:"observation,omitempty"`
+	Challenge     *ChallengeEvidence   `json:"challenge,omitempty"`
 	StartedAt     time.Time            `json:"started_at"`
 	Duration      time.Duration        `json:"duration_ns"`
+}
+
+// ObservationSummary is the secret-free route projection of bounded live
+// evidence. Full evidence remains attached to RouteResult for the consumer.
+type ObservationSummary struct {
+	Schema            string `json:"schema"`
+	SnapshotEpoch     uint64 `json:"snapshot_epoch"`
+	SnapshotNodes     int    `json:"snapshot_nodes"`
+	SnapshotTruncated bool   `json:"snapshot_truncated"`
+	NetworkCount      int    `json:"network_count"`
+	ConsoleCount      int    `json:"console_count"`
+	RequestCount      int    `json:"request_count"`
+	Truncated         bool   `json:"truncated"`
+}
+
+// ChallengeEvidence records only bounded, non-secret challenge state.
+type ChallengeEvidence struct {
+	Type        solver.ChallengeType          `json:"type"`
+	Status      solver.ChallengeOutcomeStatus `json:"status"`
+	Strategy    solver.SolverStrategy         `json:"strategy,omitempty"`
+	Attempts    int                           `json:"attempts"`
+	Confidence  float64                       `json:"confidence"`
+	SignalCount int                           `json:"signal_count"`
+	DomainHash  string                        `json:"domain_hash,omitempty"`
+	Reason      string                        `json:"reason"`
 }
 
 type FallbackEvidence struct {

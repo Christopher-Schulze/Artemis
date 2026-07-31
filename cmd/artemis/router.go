@@ -9,6 +9,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/js"
 	"github.com/Christopher-Schulze/Artemis/renderless"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
+	"github.com/Christopher-Schulze/Artemis/solver"
 )
 
 func routePage(ctx context.Context, eng *engine.Engine, targetURL string, runScripts bool, headers http.Header, console js.Console, action artemisrouter.Action) (*artemisrouter.RouteResult, error) {
@@ -16,10 +17,13 @@ func routePage(ctx context.Context, eng *engine.Engine, targetURL string, runScr
 		return nil, fmt.Errorf("router: engine is required")
 	}
 	executor := artemisrouter.RenderlessExecutor{Engine: eng, Console: console}
-	hybrid, err := artemisrouter.New(artemisrouter.Config{Executors: map[artemisrouter.Mode]artemisrouter.Executor{
-		artemisrouter.ModeStaticFetch:  executor,
-		artemisrouter.ModeRenderlessJS: executor,
-	}})
+	hybrid, err := artemisrouter.New(artemisrouter.Config{
+		Executors: map[artemisrouter.Mode]artemisrouter.Executor{
+			artemisrouter.ModeStaticFetch:  executor,
+			artemisrouter.ModeRenderlessJS: executor,
+		},
+		ChallengeDetector: solver.NewChallengeDetector(),
+	})
 	if err != nil {
 		return nil, err
 	}

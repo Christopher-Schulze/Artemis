@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/solver"
 )
 
 // Telemetry receives redacted route evidence after every completed attempt.
@@ -22,9 +25,11 @@ func (discardTelemetry) Record(RouteEvidence) {}
 
 // Config constructs one immutable router with its executor seams.
 type Config struct {
-	Executors map[Mode]Executor
-	Telemetry Telemetry
-	Now       func() time.Time
+	Executors         map[Mode]Executor
+	Telemetry         Telemetry
+	Now               func() time.Time
+	ChallengeDetector ChallengeDetector
+	ChallengeResolver ChallengeResolver
 }
 
 // HybridRouter owns deterministic selection, state lineage, fallback, and
@@ -35,6 +40,8 @@ type HybridRouter struct {
 	breakers  map[Mode]*circuitBreaker
 	telemetry Telemetry
 	now       func() time.Time
+	detector  ChallengeDetector
+	resolver  ChallengeResolver
 	mu        sync.RWMutex
 }
 
@@ -58,6 +65,10 @@ func New(config Config) (*HybridRouter, error) {
 	if now == nil {
 		now = time.Now
 	}
+	detector := config.ChallengeDetector
+	if detector == nil {
+		detector = solver.NewChallengeDetector()
+	}
 	executors := make(map[Mode]Executor, len(config.Executors))
 	for mode, executor := range config.Executors {
 		executors[mode] = executor
@@ -65,6 +76,7 @@ func New(config Config) (*HybridRouter, error) {
 	return &HybridRouter{
 		selector: bridge.NewFullExecutionRouter(), executors: executors,
 		breakers: make(map[Mode]*circuitBreaker), telemetry: telemetry, now: now,
+		detector: detector, resolver: config.ChallengeResolver,
 	}, nil
 }
 
@@ -269,6 +281,31 @@ func (r *HybridRouter) Execute(ctx context.Context, request RouteRequest) (Route
 				closeResource(output.Resource)
 				return r.finishFailure(evidence, mode, ErrorResourceBudget, fmt.Errorf("route cost budget exceeded"))
 			}
+			if output.Observation != nil {
+				evidence.Observation = observationSummary(*output.Observation)
+			}
+			challenge, detectErr := r.detectChallenge(ctx, output)
+			if detectErr != nil {
+				closeResource(output.Resource)
+				return r.finishFailure(evidence, mode, ErrorChallenge, detectErr)
+			}
+			if challenge != nil && challenge.Type != solver.TypeNone {
+				evidence.Challenge = challengeEvidence(*challenge, solver.ChallengeOutcome{Type: challenge.Type, Status: solver.ChallengeStatusFailed, Confidence: challenge.Confidence, SignalCount: len(challenge.Signals), Reason: "challenge_detected"})
+				if r.resolver == nil {
+					closeResource(output.Resource)
+					return r.finishFailure(evidence, mode, ErrorChallenge, ErrChallengeDetected)
+				}
+				outcome, resolveErr := r.resolver.Resolve(ctx, *challenge)
+				evidence.Challenge = challengeEvidence(*challenge, outcome)
+				if resolveErr != nil {
+					closeResource(output.Resource)
+					return r.finishFailure(evidence, mode, ErrorChallengeSolve, fmt.Errorf("%w: %v", ErrChallengeUnresolved, resolveErr))
+				}
+				if outcome.Status != solver.ChallengeStatusSolved || outcome.Reason != "verified_challenge_postcondition" {
+					closeResource(output.Resource)
+					return r.finishFailure(evidence, mode, ErrorChallengeSolve, ErrChallengeUnresolved)
+				}
+			}
 		}
 		if executeErr != nil {
 			closeResource(output.Resource)
@@ -280,7 +317,7 @@ func (r *HybridRouter) Execute(ctx context.Context, request RouteRequest) (Route
 			evidence.CostUnit += output.CostUnit
 			evidence.ResultQuality = output.Quality
 			evidence.State = stateEvidence(state, req.Auth)
-			return r.finishSuccess(evidence, output.Page, output.Resource)
+			return r.finishSuccess(evidence, output.Page, output.Resource, output.Observation)
 		}
 		breaker.failure(r.now())
 		failure := classifyFailure(executeErr)
@@ -314,10 +351,10 @@ func (r *HybridRouter) baseEvidence(req RouteRequest, started time.Time) RouteEv
 	}
 }
 
-func (r *HybridRouter) finishSuccess(evidence RouteEvidence, output PageOutput, resource Resource) (RouteResult, error) {
+func (r *HybridRouter) finishSuccess(evidence RouteEvidence, output PageOutput, resource Resource, observation *observe.ObservationEvidence) (RouteResult, error) {
 	evidence.Duration = r.now().Sub(evidence.StartedAt)
 	r.telemetry.Record(evidence)
-	return RouteResult{Success: true, Output: output, Evidence: evidence, Resource: resource}, nil
+	return RouteResult{Success: true, Output: output, Evidence: evidence, Observation: observation, Resource: resource}, nil
 }
 
 func (r *HybridRouter) finishFailure(evidence RouteEvidence, mode Mode, code string, err error) (RouteResult, error) {
@@ -325,6 +362,72 @@ func (r *HybridRouter) finishFailure(evidence RouteEvidence, mode Mode, code str
 	evidence.Duration = r.now().Sub(evidence.StartedAt)
 	r.telemetry.Record(evidence)
 	return RouteResult{Evidence: evidence}, &RouteError{Code: code, Mode: mode, Cause: err}
+}
+
+func (r *HybridRouter) detectChallenge(ctx context.Context, output ExecutionOutput) (*solver.ChallengeInfo, error) {
+	if r.detector == nil {
+		return (*solver.ChallengeInfo)(nil), nil
+	}
+	challenge, err := r.detector.Detect(ctx, pageSignals(output))
+	if err != nil {
+		return nil, fmt.Errorf("challenge detection: %w", err)
+	}
+	return challenge, nil
+}
+
+func pageSignals(output ExecutionOutput) solver.PageSignals {
+	page := output.Page
+	signals := solver.PageSignals{
+		Title: page.Title, HTML: page.HTML, URL: page.URL, StatusCode: page.StatusCode,
+		VisualText: page.Text, ResponseHeaders: headerValues(page.Headers), ObservedAt: time.Now().UTC(),
+	}
+	if output.Observation == nil {
+		return signals
+	}
+	for _, event := range output.Observation.Network {
+		if event.URL != "" {
+			signals.NetworkURLs = append(signals.NetworkURLs, event.URL)
+		}
+	}
+	for _, node := range output.Observation.Snapshot.Nodes {
+		for _, marker := range []string{node.Role, node.Name, node.Tag} {
+			if strings.TrimSpace(marker) != "" {
+				signals.ElementMarkers = append(signals.ElementMarkers, marker)
+			}
+		}
+	}
+	return signals
+}
+
+func headerValues(headers http.Header) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
+			continue
+		}
+		result[key] = strings.Join(values, ",")
+	}
+	return result
+}
+
+func observationSummary(evidence observe.ObservationEvidence) *ObservationSummary {
+	return &ObservationSummary{
+		Schema: evidence.Schema, SnapshotEpoch: evidence.Snapshot.Epoch,
+		SnapshotNodes: len(evidence.Snapshot.Nodes), SnapshotTruncated: evidence.Snapshot.Truncated,
+		NetworkCount: len(evidence.Network), ConsoleCount: len(evidence.Console),
+		RequestCount: evidence.Metrics.RequestCount, Truncated: evidence.Truncated,
+	}
+}
+
+func challengeEvidence(challenge solver.ChallengeInfo, outcome solver.ChallengeOutcome) *ChallengeEvidence {
+	return &ChallengeEvidence{
+		Type: challenge.Type, Status: outcome.Status, Strategy: outcome.Strategy,
+		Attempts: outcome.Attempts, Confidence: challenge.Confidence,
+		SignalCount: len(challenge.Signals), DomainHash: hashURL(challenge.Domain), Reason: outcome.Reason,
+	}
 }
 
 func closeResource(resource Resource) {
@@ -339,6 +442,11 @@ func validateOutput(output ExecutionOutput, req RouteRequest, previous BrowserSt
 	}
 	if output.Page.URL == "" || output.Page.StatusCode < 100 || output.Page.StatusCode > 599 {
 		return fmt.Errorf("executor returned incomplete page evidence")
+	}
+	if output.Observation != nil {
+		if err := output.Observation.Validate(); err != nil {
+			return fmt.Errorf("observation evidence: %w", err)
+		}
 	}
 	if err := normalizedState(output.State, previous, req.Auth, output.Page.URL).validate(req.Auth); err != nil {
 		return fmt.Errorf("state transfer: %w", err)
@@ -407,10 +515,11 @@ func failureCode(failure RouteFailure) string {
 
 // RouteResult is the public typed result and redacted evidence pair.
 type RouteResult struct {
-	Success  bool
-	Output   PageOutput
-	Evidence RouteEvidence
-	Resource Resource
+	Success     bool
+	Output      PageOutput
+	Evidence    RouteEvidence
+	Observation *observe.ObservationEvidence
+	Resource    Resource
 }
 
 // Close releases a transferred engine resource and is idempotent per result.

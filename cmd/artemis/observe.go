@@ -9,6 +9,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemisobserve "github.com/Christopher-Schulze/Artemis/observe"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -64,34 +65,41 @@ func cmdObserve(args []string) int {
 		return 1
 	}
 	defer browserContext.Close()
-	page, err := browserContext.NewPage(ctx, fs.Arg(0))
+	page, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {
 		errf("observe page: %v", err)
+		return 1
+	}
+	config := bridgeobserve.DefaultConfig()
+	config.MaxNodes = *maxNodes
+	liveConfig := artemisobserve.DefaultLiveConfig()
+	liveConfig.Observation = config
+	collector, err := artemisobserve.NewLiveCollector(page, page, liveConfig)
+	if err != nil {
+		errf("observe collector: %v", err)
+		return 1
+	}
+	defer collector.Close()
+	if _, _, err = page.Navigate(ctx, fs.Arg(0)); err != nil {
+		errf("observe navigation: %v", err)
 		return 1
 	}
 	if err = waitDocumentReady(ctx, page); err != nil {
 		errf("observe readiness: %v", err)
 		return 1
 	}
-	config := bridgeobserve.DefaultConfig()
-	config.MaxNodes = *maxNodes
-	collector, err := bridgeobserve.NewCollector(page, config)
-	if err != nil {
-		errf("observe collector: %v", err)
-		return 1
-	}
 	mode := bridgeobserve.ModeFull
 	if *interactive {
 		mode = bridgeobserve.ModeInteractive
 	}
-	snapshot, err := collector.Capture(ctx, mode, "")
+	evidence, err := collector.Capture(ctx, mode, "")
 	if err != nil {
 		errf("observe capture: %v", err)
 		return 1
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	if err = encoder.Encode(snapshot); err != nil {
+	if err = encoder.Encode(evidence); err != nil {
 		errf("observe output: %v", err)
 		return 1
 	}

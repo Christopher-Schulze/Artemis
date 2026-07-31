@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemisobserve "github.com/Christopher-Schulze/Artemis/observe"
 )
 
 func TestObservationEventCanonicalSchema(t *testing.T) {
@@ -24,5 +25,25 @@ func TestObservationEventCanonicalSchema(t *testing.T) {
 func TestObservationEventRejectsSchemaDrift(t *testing.T) {
 	if _, err := ObservationEvent(bridgeobserve.Snapshot{Schema: "other"}); err == nil {
 		t.Fatal("schema drift accepted")
+	}
+}
+
+func TestObservationEvidenceEventCarriesCompleteProjection(t *testing.T) {
+	evidence := artemisobserve.ObservationEvidence{
+		Schema:   bridgeobserve.Schema,
+		Snapshot: bridgeobserve.Snapshot{Schema: bridgeobserve.Schema},
+		Network:  []artemisobserve.NetworkEvent{{URL: "https://fixture.test"}},
+		Metrics:  artemisobserve.PerformanceMetrics{RequestCount: 1},
+	}
+	event, err := ObservationEvidenceEvent(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded artemisobserve.ObservationEvidence
+	if err := json.Unmarshal(event.Data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Network) != 1 || decoded.Metrics.RequestCount != 1 {
+		t.Fatalf("decoded=%+v", decoded)
 	}
 }

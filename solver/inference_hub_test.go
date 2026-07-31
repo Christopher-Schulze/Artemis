@@ -13,6 +13,16 @@ type mockInferenceHub struct {
 	calls int
 }
 
+type requestRecordingHub struct {
+	response InferenceHubResponse
+	request  InferenceHubRequest
+}
+
+func (h *requestRecordingHub) SolveCAPTCHA(_ context.Context, request InferenceHubRequest) (InferenceHubResponse, error) {
+	h.request = request
+	return h.response, nil
+}
+
 func (m *mockInferenceHub) SolveCAPTCHA(ctx context.Context, req InferenceHubRequest) (InferenceHubResponse, error) {
 	m.calls++
 	if m.err != nil {
@@ -80,6 +90,30 @@ func TestInferenceHubHook_RemoteUsed(t *testing.T) {
 	hook.Solve(context.Background(), InferenceHubRequest{})
 	if hook.Stats().RemoteUsed != 1 {
 		t.Errorf("expected remote_used=1, got %d", hook.Stats().RemoteUsed)
+	}
+}
+
+func TestInferenceHubHook_RejectsRemoteWhenLocalOnly(t *testing.T) {
+	hub := &mockInferenceHub{resp: InferenceHubResponse{Solved: true, Answer: "X", Local: false}}
+	hook := NewInferenceHubHook(hub)
+	_, err := hook.Solve(context.Background(), InferenceHubRequest{LocalOnly: true})
+	if err == nil {
+		t.Fatal("remote response passed local-only policy")
+	}
+	if hook.Stats().RemoteUsed != 1 || hook.Stats().Solved != 0 || hook.Stats().Failed != 1 {
+		t.Fatalf("stats=%+v", hook.Stats())
+	}
+}
+
+func TestVisionSolverForcesLocalOnlyInference(t *testing.T) {
+	hub := &requestRecordingHub{response: InferenceHubResponse{Solved: true, Answer: "click", Local: true}}
+	solver := NewVisionSolver(hub)
+	result, err := solver.Solve(context.Background(), ChallengeInfo{Type: TypeRecaptcha}, []byte("image"))
+	if err != nil || !result.Solved {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if !hub.request.LocalOnly {
+		t.Fatal("vision request did not require local-only inference")
 	}
 }
 

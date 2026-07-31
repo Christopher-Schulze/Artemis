@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	artemisobserve "github.com/Christopher-Schulze/Artemis/observe"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -44,12 +45,20 @@ func TestChromiumExecutorAgainstRealChromiumFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer page.Close()
-	output, err := (ChromiumExecutor{Page: page}).Execute(ctx, ExecutionRequest{URL: fixture.URL})
+	observer, err := artemisobserve.NewLiveCollector(page, page, artemisobserve.DefaultLiveConfig())
+	if err != nil {
+		t.Fatalf("live observer: %v", err)
+	}
+	defer observer.Close()
+	output, err := (ChromiumExecutor{Page: page, Observer: observer}).Execute(ctx, ExecutionRequest{URL: fixture.URL})
 	if err != nil {
 		t.Fatalf("ChromiumExecutor.Execute: %v", err)
 	}
 	if !output.Verified || output.Page.Title != "Hybrid Fixture" || output.Page.HTML == "" || output.Page.Text == "" {
 		t.Fatalf("output=%+v", output)
+	}
+	if output.Observation == nil || output.Observation.Snapshot.Schema != "artemis.observation.v1" {
+		t.Fatalf("observation=%+v", output.Observation)
 	}
 }
 

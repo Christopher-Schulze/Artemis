@@ -57,6 +57,15 @@ func (d *ChallengeDetector) Detect(ctx context.Context, page PageSignals) (*Chal
 		add(SignalNetwork, "recaptcha", 5, strings.Contains(lower, "recaptcha"))
 		add(SignalNetwork, "hcaptcha", 5, strings.Contains(lower, "hcaptcha"))
 	}
+	networkCloudflare := false
+	networkHCaptcha := false
+	networkRecaptcha := false
+	for _, networkURL := range page.NetworkURLs {
+		lower := strings.ToLower(networkURL)
+		networkCloudflare = networkCloudflare || strings.Contains(lower, "challenges.cloudflare.com")
+		networkHCaptcha = networkHCaptcha || strings.Contains(lower, "hcaptcha")
+		networkRecaptcha = networkRecaptcha || strings.Contains(lower, "recaptcha")
+	}
 	headerNames := make([]string, 0, len(page.ResponseHeaders))
 	for name := range page.ResponseHeaders {
 		headerNames = append(headerNames, name)
@@ -86,6 +95,15 @@ func (d *ChallengeDetector) Detect(ctx context.Context, page PageSignals) (*Chal
 	if strings.Contains(html, "g-recaptcha") || strings.Contains(html, "recaptcha") {
 		return &ChallengeInfo{Type: TypeRecaptcha, Confidence: 0.9, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
 	}
+	if networkCloudflare {
+		return &ChallengeInfo{Type: TypeCloudflare, Confidence: 0.85, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
+	}
+	if networkHCaptcha {
+		return &ChallengeInfo{Type: TypeHCaptcha, Confidence: 0.85, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
+	}
+	if networkRecaptcha {
+		return &ChallengeInfo{Type: TypeRecaptcha, Confidence: 0.85, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
+	}
 	titleMarkers := []string{"just a moment", "verify", "checking your browser", "access denied", "bot detected", "verification required", "attention required", "unusual traffic", "are you a robot", "please verify"}
 	for _, m := range titleMarkers {
 		if strings.Contains(title, m) {
@@ -93,7 +111,8 @@ func (d *ChallengeDetector) Detect(ctx context.Context, page PageSignals) (*Chal
 		}
 	}
 	if strings.Contains(html, `class="captcha"`) || strings.Contains(html, `class='captcha'`) ||
-		strings.Contains(html, `class*="challenge"`) || page.StatusCode == 403 || page.StatusCode == 429 {
+		strings.Contains(html, `class*="challenge"`) || strings.Contains(html, "checking your browser") ||
+		strings.Contains(html, "verify you are human") || page.StatusCode == 403 || page.StatusCode == 429 {
 		return &ChallengeInfo{Type: TypeGeneric, Confidence: 0.7, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
 	}
 	return &ChallengeInfo{Type: TypeNone, Confidence: 1.0, PageTitle: page.Title, Domain: domain, Signals: signals}, nil

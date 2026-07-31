@@ -97,16 +97,23 @@ func (h *InferenceHubHook) Solve(ctx context.Context, req InferenceHubRequest) (
 		}, err
 	}
 
-	if resp.Solved {
-		h.stats.Solved++
-	} else {
-		h.stats.Failed++
-	}
-
 	if resp.Local {
 		h.stats.LocalUsed++
 	} else {
 		h.stats.RemoteUsed++
+		if req.LocalOnly {
+			h.stats.Failed++
+			return InferenceHubResponse{Error: "remote inference rejected by local-only policy"}, fmt.Errorf("local-only CAPTCHA inference received a remote response")
+		}
+	}
+	if err := ValidateResponse(resp); err != nil {
+		h.stats.Failed++
+		return InferenceHubResponse{Error: err.Error()}, err
+	}
+	if resp.Solved {
+		h.stats.Solved++
+	} else {
+		h.stats.Failed++
 	}
 
 	return resp, nil

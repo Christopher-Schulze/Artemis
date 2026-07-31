@@ -59,6 +59,7 @@ func TestTASK2247_PipelineSolveVisionSuccess(t *testing.T) {
 			Solved: true,
 			Answer: "click button",
 			Model:  "qwen3.6-vision",
+			Local:  true,
 		},
 	}
 	v := NewVisionSolver(hub)
@@ -148,7 +149,7 @@ func TestTASK2247_PipelineSetMaxAttempts(t *testing.T) {
 // (spec L4025: challenge success tracking).
 func TestTASK2247_PipelineStats(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "solve"},
+		response: InferenceHubResponse{Solved: true, Answer: "solve", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)
@@ -167,7 +168,7 @@ func TestTASK2247_PipelineStats(t *testing.T) {
 // TestTASK2247_PipelineStatsFallback verifies fallback stats.
 func TestTASK2247_PipelineStatsFallback(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: false, Error: "fail"},
+		response: InferenceHubResponse{Solved: false, Error: "fail", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)
@@ -243,6 +244,7 @@ func TestTASK2247_VisionSolveSuccess(t *testing.T) {
 			Solved: true,
 			Answer: "click the checkbox",
 			Model:  "qwen3.6-vision",
+			Local:  true,
 		},
 	}
 	v := NewVisionSolver(hub)
@@ -268,6 +270,7 @@ func TestTASK2247_VisionSolveFail(t *testing.T) {
 		response: InferenceHubResponse{
 			Solved: false,
 			Error:  "cannot solve this challenge",
+			Local:  true,
 		},
 	}
 	v := NewVisionSolver(hub)
@@ -332,7 +335,7 @@ func TestTASK2247_VisionIsAvailable(t *testing.T) {
 // (spec L4025: challenge success tracking).
 func TestTASK2247_VisionStats(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "solve"},
+		response: InferenceHubResponse{Solved: true, Answer: "solve", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
@@ -377,7 +380,7 @@ func TestTASK2247_VisionResultString(t *testing.T) {
 func TestTASK2247_FullSpecParity(t *testing.T) {
 	// 1. Vision solver exists
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "click", Model: "qwen3.6-vision"},
+		response: InferenceHubResponse{Solved: true, Answer: "click", Model: "qwen3.6-vision", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	if !v.IsAvailable() {
@@ -404,7 +407,7 @@ func TestTASK2247_FullSpecParity(t *testing.T) {
 
 	// 5. Pipeline fallback when vision fails
 	hub2 := &task2247MockHub{
-		response: InferenceHubResponse{Solved: false, Error: "fail"},
+		response: InferenceHubResponse{Solved: false, Error: "fail", Local: true},
 	}
 	v2 := NewVisionSolver(hub2)
 	p2 := NewSolverPipeline(v2)
@@ -576,7 +579,7 @@ func TestTASK2344_SetUserEscalationHookNilReceiver(t *testing.T) {
 // challenge records a metric row with stage_solved=0 (vision).
 func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "click"},
+		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)
@@ -688,7 +691,7 @@ func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
 // store does not cause a panic.
 func TestTASK2344_MetricsStoreNilStoreNoPanic(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "click"},
+		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)
@@ -705,7 +708,7 @@ func TestTASK2344_MetricsStoreNilStoreNoPanic(t *testing.T) {
 // is recorded as "unknown".
 func TestTASK2344_MetricsStoreDefaultDomain(t *testing.T) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "click"},
+		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)

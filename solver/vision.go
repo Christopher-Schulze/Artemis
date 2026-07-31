@@ -108,7 +108,7 @@ func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, scree
 		ChallengeType: string(challenge.Type),
 		ImageData:     encodeScreenshot(screenshot),
 		Prompt:        buildVisionPrompt(challenge),
-		LocalOnly:     false,
+		LocalOnly:     true,
 	}
 
 	resp, err := v.hub.SolveCAPTCHA(ctx, req)
@@ -120,6 +120,21 @@ func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, scree
 			Duration: time.Since(start),
 			Error:    err.Error(),
 		}, err
+	}
+	if !resp.Local {
+		err := fmt.Errorf("local-only CAPTCHA inference received a remote response")
+		v.mu.Lock()
+		v.stats.Failures++
+		v.stats.TotalDuration += time.Since(start)
+		v.mu.Unlock()
+		return VisionResult{Duration: time.Since(start), Error: err.Error()}, err
+	}
+	if err := ValidateResponse(resp); err != nil {
+		v.mu.Lock()
+		v.stats.Failures++
+		v.stats.TotalDuration += time.Since(start)
+		v.mu.Unlock()
+		return VisionResult{Duration: time.Since(start), Error: err.Error()}, err
 	}
 
 	result := VisionResult{

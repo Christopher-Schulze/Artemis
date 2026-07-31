@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/observe"
 )
 
 // ChromiumPage is the minimal owned CDP page surface required by the hybrid
@@ -20,8 +21,9 @@ type ChromiumPage interface {
 // DOM through Runtime.evaluate. A caller owns page lifecycle and profile
 // isolation; this executor owns only the operation.
 type ChromiumExecutor struct {
-	Page    ChromiumPage
-	Prepare func(context.Context, ExecutionRequest) error
+	Page     ChromiumPage
+	Prepare  func(context.Context, ExecutionRequest) error
+	Observer ObservationProvider
 }
 
 type evaluateParams struct {
@@ -77,13 +79,21 @@ func (e ChromiumExecutor) Execute(ctx context.Context, request ExecutionRequest)
 	if pageURL == "" {
 		pageURL = request.URL
 	}
+	var observation *observe.ObservationEvidence
+	if e.Observer != nil {
+		evidence, err := e.Observer.CaptureEvidence(ctx)
+		if err != nil {
+			return ExecutionOutput{}, &RouteFailure{Reason: "chromium_observation_failed", Retryable: false, Cause: err}
+		}
+		observation = &evidence
+	}
 	return ExecutionOutput{
 		Page: PageOutput{
 			URL: pageURL, StatusCode: 200, HTML: response.Result.Value.HTML,
 			Text: response.Result.Value.Text, Markdown: response.Result.Value.Markdown,
 			Title: response.Result.Value.Title, Links: response.Result.Value.Links,
 		},
-		State: request.State.Clone(), Quality: ResultQualityVerified, Verified: true,
+		State: request.State.Clone(), Observation: observation, Quality: ResultQualityVerified, Verified: true,
 	}, nil
 }
 
