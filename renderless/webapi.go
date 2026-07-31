@@ -2,6 +2,7 @@ package renderless
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -24,9 +25,10 @@ type WebAPIRegistry struct {
 // WebAPIGlobal represents a DOM/WebAPI global
 // (spec L4022: DOM/WebAPI globals).
 type WebAPIGlobal struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"` // "function", "object", "constructor"
-	Implemented bool   `json:"implemented"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"` // "function", "object", "constructor"
+	Implemented bool               `json:"implemented"`
+	Category    CapabilityCategory `json:"category,omitempty"`
 }
 
 // NewWebAPIRegistry creates a new WebAPIRegistry with standard globals
@@ -38,36 +40,32 @@ func NewWebAPIRegistry() *WebAPIRegistry {
 }
 
 func (r *WebAPIRegistry) registerStandard() {
-	standards := []WebAPIGlobal{
-		{Name: "window", Type: "object", Implemented: true},
-		{Name: "document", Type: "object", Implemented: true},
-		{Name: "navigator", Type: "object", Implemented: true},
-		{Name: "location", Type: "object", Implemented: true},
-		{Name: "fetch", Type: "function", Implemented: true},
-		{Name: "XMLHttpRequest", Type: "constructor", Implemented: true},
-		{Name: "localStorage", Type: "object", Implemented: true},
-		{Name: "sessionStorage", Type: "object", Implemented: true},
-		{Name: "console", Type: "object", Implemented: true},
-		{Name: "setTimeout", Type: "function", Implemented: true},
-		{Name: "setInterval", Type: "function", Implemented: true},
-		{Name: "clearTimeout", Type: "function", Implemented: true},
-		{Name: "clearInterval", Type: "function", Implemented: true},
-		{Name: "URL", Type: "constructor", Implemented: true},
-		{Name: "URLSearchParams", Type: "constructor", Implemented: true},
-		{Name: "Headers", Type: "constructor", Implemented: true},
-		{Name: "Request", Type: "constructor", Implemented: true},
-		{Name: "Response", Type: "constructor", Implemented: true},
-		{Name: "Event", Type: "constructor", Implemented: true},
-		{Name: "CustomEvent", Type: "constructor", Implemented: true},
-		{Name: "Element", Type: "constructor", Implemented: true},
-		{Name: "HTMLElement", Type: "constructor", Implemented: true},
-		{Name: "Node", Type: "constructor", Implemented: true},
-		{Name: "Document", Type: "constructor", Implemented: true},
+	standards := make([]WebAPIGlobal, 0, len(defaultSupportedReal())+len(defaultStubCompatible()))
+	for _, name := range defaultSupportedReal() {
+		standards = append(standards, WebAPIGlobal{
+			Name: name, Type: webAPIType(name), Implemented: true, Category: CategorySupportedReal,
+		})
+	}
+	for _, name := range defaultStubCompatible() {
+		standards = append(standards, WebAPIGlobal{
+			Name: name, Type: webAPIType(name), Implemented: true, Category: CategoryStubCompatible,
+		})
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, g := range standards {
 		r.globals[g.Name] = g
+	}
+}
+
+func webAPIType(name string) string {
+	switch name {
+	case "addEventListener", "removeEventListener", "dispatchEvent", "setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame", "queueMicrotask", "fetch", "getComputedStyle", "getElementById", "getElementsByClassName", "getElementsByTagName", "querySelector", "querySelectorAll":
+		return "function"
+	case "Element", "HTMLElement", "Node", "Document", "FormData", "Headers", "Request", "Response", "Event", "CustomEvent", "URL", "URLSearchParams", "SubtleCrypto", "MutationObserver", "WebSocket", "ReadableStream", "WritableStream", "BroadcastChannel", "HTMLIFrameElement", "HTMLFormElement", "Range", "Selection", "CSSStyleSheet", "CSSStyleDeclaration":
+		return "constructor"
+	default:
+		return "object"
 	}
 }
 
@@ -83,6 +81,13 @@ func (r *WebAPIRegistry) Get(name string) (WebAPIGlobal, bool) {
 // Register registers a new global
 // (spec L4022: DOM/WebAPI globals).
 func (r *WebAPIRegistry) Register(g WebAPIGlobal) {
+	if g.Category == "" {
+		if g.Implemented {
+			g.Category = CategorySupportedReal
+		} else {
+			g.Category = CategoryUnsupportedEscalate
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.globals[g.Name] = g
@@ -97,6 +102,7 @@ func (r *WebAPIRegistry) All() []WebAPIGlobal {
 	for _, g := range r.globals {
 		result = append(result, g)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 
@@ -140,6 +146,7 @@ func (r *WebAPIRegistry) Names() []string {
 	for name := range r.globals {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -153,9 +160,9 @@ func (r *WebAPIRegistry) String() string {
 func (r *WebAPIRegistry) FormatGlobals() string {
 	var sb strings.Builder
 	for _, g := range r.All() {
-		status := "stub"
-		if g.Implemented {
-			status = "implemented"
+		status := string(g.Category)
+		if status == "" {
+			status = string(CategoryUnsupportedEscalate)
 		}
 		sb.WriteString(fmt.Sprintf("%s (%s): %s\n", g.Name, g.Type, status))
 	}

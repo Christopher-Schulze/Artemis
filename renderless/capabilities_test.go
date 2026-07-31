@@ -1,6 +1,10 @@
 package renderless
 
-import "testing"
+import (
+	"testing"
+
+	artemisengine "github.com/Christopher-Schulze/Artemis/engine"
+)
 
 func TestCapabilityCategories(t *testing.T) {
 	// Verify the 3 categories exist and have correct values
@@ -179,5 +183,39 @@ func TestGenerateCapabilityProfileHasCategories(t *testing.T) {
 	}
 	if !found {
 		t.Error("fetch not in SupportedReal")
+	}
+}
+
+func TestCapabilityProfileForEngineUsesProductionAuthority(t *testing.T) {
+	backend, err := artemisengine.New(artemisengine.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	profile := CapabilityProfileForEngine(backend)
+	if !profile.FetchSupport || !profile.SupportsWebAPI("document") {
+		t.Fatalf("production profile=%+v", profile)
+	}
+	if profile.CacheSupport {
+		t.Fatal("production engine must not claim an owned cache")
+	}
+	if profile.CapabilityCategoryName("fetch") != string(CategorySupportedReal) {
+		t.Fatalf("fetch category=%q", profile.CapabilityCategoryName("fetch"))
+	}
+	if profile.CapabilityCategoryName("canvas") != string(CategoryStubCompatible) {
+		t.Fatalf("canvas category=%q", profile.CapabilityCategoryName("canvas"))
+	}
+	if !profile.RequiresEscalation("getBoundingClientRect", false) {
+		t.Fatal("layout API must escalate")
+	}
+}
+
+func TestCapabilityProfileNilEngineFailsClosed(t *testing.T) {
+	profile := CapabilityProfileForEngine(nil)
+	if profile.IsCapable() || profile.FetchSupport || profile.DeterministicWait {
+		t.Fatalf("nil engine produced capable profile=%+v", profile)
+	}
+	if !profile.RequiresEscalation("unknown", false) {
+		t.Fatal("unknown capability must escalate")
 	}
 }

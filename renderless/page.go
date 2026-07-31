@@ -1,9 +1,15 @@
 package renderless
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
+
+	artemisengine "github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 // page.go (spec L4022: renderless/page.go - shared Page extraction
@@ -24,9 +30,13 @@ type Page struct {
 	RawBody    []byte
 	FetchedAt  time.Time
 	Engine     *Engine
+	backend    *artemisengine.Page
+	closeOnce  sync.Once
+	closeErr   error
 }
 
-// NewPage creates a new Page
+// NewPage creates a detached page value for extraction/status helpers. It is
+// not an execution owner; fetched pages are created only by Engine.Fetch.
 // (spec L4022: shared Page extraction surface).
 func NewPage(url string, statusCode int, body []byte) *Page {
 	return &Page{
@@ -36,6 +46,58 @@ func NewPage(url string, statusCode int, body []byte) *Page {
 		RawBody:    body,
 		FetchedAt:  time.Now(),
 	}
+}
+
+func newPageFromEngine(owner *Engine, page *artemisengine.Page) *Page {
+	if page == nil {
+		return nil
+	}
+	return &Page{
+		URL:        page.URL(),
+		StatusCode: page.StatusCode(),
+		Headers:    page.Headers().Clone(),
+		RawBody:    append([]byte(nil), page.RawBody()...),
+		FetchedAt:  time.Now(),
+		Engine:     owner,
+		backend:    page,
+	}
+}
+
+// RealPage returns the production engine page owned by this facade.
+func (p *Page) RealPage() *artemisengine.Page {
+	if p == nil {
+		return nil
+	}
+	return p.backend
+}
+
+// Eval executes JavaScript against the fetched page's real DOM context.
+func (p *Page) Eval(ctx context.Context, expr string) (*js.Value, error) {
+	if p == nil || p.backend == nil {
+		return nil, errors.New("renderless: page has no production execution owner")
+	}
+	ctx, cancel := p.Engine.withScriptTimeout(ctx)
+	defer cancel()
+	return p.backend.Eval(ctx, expr)
+}
+
+// WaitIdle waits for all asynchronous fetch work owned by the page.
+func (p *Page) WaitIdle(ctx context.Context) error {
+	if p == nil || p.backend == nil {
+		return errors.New("renderless: page has no production execution owner")
+	}
+	ctx, cancel := p.Engine.withScriptTimeout(ctx)
+	defer cancel()
+	return p.backend.WaitIdle(ctx)
+}
+
+// Close releases the production page and its JavaScript context.
+func (p *Page) Close() error {
+	if p == nil || p.backend == nil {
+		return nil
+	}
+	p.closeOnce.Do(func() { p.closeErr = p.backend.Close() })
+	return p.closeErr
 }
 
 // ContentLength returns the content length in bytes

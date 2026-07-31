@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,19 @@ func (f executorFunc) Execute(ctx context.Context, request ExecutionRequest) (Ex
 type telemetryFunc func(RouteEvidence)
 
 func (f telemetryFunc) Record(evidence RouteEvidence) { f(evidence) }
+
+type capabilityAuthorityFunc struct{}
+
+func (capabilityAuthorityFunc) RequiresEscalation(api string, _ bool) bool {
+	return api == "getBoundingClientRect" || api == "unknown"
+}
+
+func (capabilityAuthorityFunc) CapabilityCategoryName(api string) string {
+	if api == "getBoundingClientRect" {
+		return "unsupported_escalate"
+	}
+	return "supported_real"
+}
 
 type chromiumPageFunc struct {
 	navigate func(context.Context, string) error
@@ -84,6 +98,89 @@ func TestHybridRouterStaticUsesRealRenderlessExecutor(t *testing.T) {
 	}
 	if len(result.Evidence.Fallbacks) != 0 || result.Evidence.ResultQuality != ResultQualityVerified {
 		t.Fatalf("evidence=%+v", result.Evidence)
+	}
+}
+
+func TestHybridRouterCapabilityAuthorityEscalatesAndRecordsEvidence(t *testing.T) {
+	r, err := New(Config{Executors: map[Mode]Executor{
+		ModeChromiumCDP: executorFunc(func(_ context.Context, request ExecutionRequest) (ExecutionOutput, error) {
+			return verifiedOutput(request, "<html>layout</html>"), nil
+		}),
+	}})
+	if err != nil {
+		t.Fatalf("router.New: %v", err)
+	}
+	request := RouteRequest{
+		URL: "https://fixture.test/layout", Signals: Signals{IsHTML: true},
+		RequiredWebAPIs: []string{"getBoundingClientRect"}, Capabilities: capabilityAuthorityFunc{},
+	}
+	decision, err := r.Decide(request)
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if decision.Mode != ModeChromiumCDP || decision.Reason != "layout_or_render_required" {
+		t.Fatalf("decision=%+v", decision)
+	}
+	if len(decision.Capabilities) != 1 || !decision.Capabilities[0].Escalate || decision.Capabilities[0].Category != "unsupported_escalate" {
+		t.Fatalf("capability decision=%+v", decision.Capabilities)
+	}
+	result, err := r.Execute(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(result.Evidence.Capabilities) != 1 || !result.Evidence.Capabilities[0].Escalate {
+		t.Fatalf("evidence=%+v", result.Evidence)
+	}
+}
+
+func TestHybridRouterRequiredRealCapabilitySelectsRenderless(t *testing.T) {
+	r, err := New(Config{Executors: map[Mode]Executor{ModeRenderlessJS: executorFunc(func(_ context.Context, request ExecutionRequest) (ExecutionOutput, error) {
+		return verifiedOutput(request, "<html>dynamic</html>"), nil
+	})}})
+	if err != nil {
+		t.Fatalf("router.New: %v", err)
+	}
+	decision, err := r.Decide(RouteRequest{
+		URL: "https://fixture.test/dynamic", Signals: Signals{IsHTML: true},
+		RequiredWebAPIs: []string{"fetch"}, Capabilities: capabilityAuthorityFunc{},
+	})
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if decision.Mode != ModeRenderlessJS {
+		t.Fatalf("decision=%+v", decision)
+	}
+}
+
+func TestHybridRouterRejectsForcedLowerModeForUnsupportedCapability(t *testing.T) {
+	r, err := New(Config{Executors: map[Mode]Executor{ModeRenderlessJS: executorFunc(func(_ context.Context, request ExecutionRequest) (ExecutionOutput, error) {
+		return verifiedOutput(request, "<html>wrong</html>"), nil
+	})}})
+	if err != nil {
+		t.Fatalf("router.New: %v", err)
+	}
+	_, err = r.Decide(RouteRequest{
+		URL: "https://fixture.test/layout", ForceMode: ModeRenderlessJS,
+		RequiredWebAPIs: []string{"unknown"}, Capabilities: capabilityAuthorityFunc{},
+	})
+	if !errors.Is(err, ErrCapabilityEscalationNeeded) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestHybridRouterRejectsForcedStaticForRequiredCapability(t *testing.T) {
+	r, err := New(Config{Executors: map[Mode]Executor{ModeStaticFetch: executorFunc(func(_ context.Context, request ExecutionRequest) (ExecutionOutput, error) {
+		return verifiedOutput(request, "<html>wrong</html>"), nil
+	})}})
+	if err != nil {
+		t.Fatalf("router.New: %v", err)
+	}
+	_, err = r.Decide(RouteRequest{
+		URL: "https://fixture.test/dynamic", ForceMode: ModeStaticFetch,
+		RequiredWebAPIs: []string{"fetch"}, Capabilities: capabilityAuthorityFunc{},
+	})
+	if !errors.Is(err, ErrCapabilityEscalationNeeded) {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -279,7 +376,7 @@ func TestHybridRouterDecisionIsStable(t *testing.T) {
 	}
 	for i := 0; i < 20; i++ {
 		got, decideErr := r.Decide(request)
-		if decideErr != nil || got != first {
+		if decideErr != nil || !reflect.DeepEqual(got, first) {
 			t.Fatalf("decision %d=%+v err=%v first=%+v", i, got, decideErr, first)
 		}
 	}

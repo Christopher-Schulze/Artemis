@@ -3,14 +3,15 @@ package renderless
 import (
 	"fmt"
 	"strings"
+
+	artemisengine "github.com/Christopher-Schulze/Artemis/engine"
 )
 
-// capabilities.go (spec L4022: renderless/capabilities.go - generated
+// capabilities.go (spec L4022: renderless/capabilities.go - production
 // RenderlessCapabilityProfile).
 //
-// In-process no-render JS browser path: generated
-// RenderlessCapabilityProfile that describes which DOM/WebAPI
-// features are available in the renderless engine.
+// In-process no-render JS browser path: RenderlessCapabilityProfile describes
+// which DOM/WebAPI features are available in the production engine.
 
 // CapabilityCategory classifies a WebAPI by its renderless support
 // level (spec L3992: supported_real | synthetic_compatible | unsupported_escalate).
@@ -29,7 +30,7 @@ const (
 )
 
 // RenderlessCapabilityProfile describes the capabilities of the
-// renderless engine (spec L4022: generated
+// production-backed renderless engine (spec L4022:
 // RenderlessCapabilityProfile). Uses the 3-category model from
 // ss28.3a: supported_real | synthetic_compatible | unsupported_escalate.
 type RenderlessCapabilityProfile struct {
@@ -52,48 +53,83 @@ type RenderlessCapabilityProfile struct {
 
 // GenerateCapabilityProfile generates a capability profile from the
 // engine config and WebAPI registry
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (spec L4022: production-derived RenderlessCapabilityProfile).
 func GenerateCapabilityProfile(cfg EngineConfig, registry *WebAPIRegistry) RenderlessCapabilityProfile {
 	profile := RenderlessCapabilityProfile{
-		Version:           "1.0",
-		FetchSupport:      registry.IsImplemented("fetch"),
-		XHRSupport:        registry.IsImplemented("XMLHttpRequest"),
-		CookieJar:         true,
-		InterceptSupport:  true,
-		CacheSupport:      true,
-		RobotsGuard:       cfg.EnableRobots,
-		PrivateIPGuard:    cfg.PrivateIPBlock,
-		DeterministicWait: true,
+		Version:          "1.0",
+		CookieJar:        registry != nil,
+		InterceptSupport: registry != nil,
+		// The production engine exposes OnRequest interception, but it does
+		// not own a cache. Cache semantics remain caller-owned and are not
+		// published as a renderless engine capability.
+		CacheSupport:        false,
+		RobotsGuard:         cfg.EnableRobots,
+		PrivateIPGuard:      cfg.PrivateIPBlock,
+		DeterministicWait:   true,
+		UnsupportedEscalate: defaultUnsupportedEscalate(),
 	}
+	if registry == nil {
+		return failClosedProfile(profile)
+	}
+	profile.FetchSupport = registry.IsImplemented("fetch")
+	profile.XHRSupport = registry.IsImplemented("XMLHttpRequest")
 	for _, api := range registry.All() {
-		if api.Implemented {
-			profile.WebAPIs = append(profile.WebAPIs, api.Name)
+		if !api.Implemented {
+			continue
+		}
+		profile.WebAPIs = append(profile.WebAPIs, api.Name)
+		category := api.Category
+		if category == "" {
+			category = CategorySupportedReal
+		}
+		switch category {
+		case CategorySupportedReal:
+			profile.SupportedReal = append(profile.SupportedReal, api.Name)
+		case CategoryStubCompatible:
+			profile.StubCompatible = append(profile.StubCompatible, api.Name)
+		default:
+			profile.UnsupportedEscalate = append(profile.UnsupportedEscalate, api.Name)
 		}
 	}
 	profile.CSSSupport = []string{"selectors", "cascade", "computed-style"}
-	profile.ScriptTypes = []string{"inline", "external", "module", "classic"}
-
-	// 3-category model per spec ss28.3a (L3992):
-	// supported_real: fully implemented with real semantics
-	// synthetic_compatible: page scripts don't break; escalation
-	//   required when a task needs real semantics from a synthetic
-	// unsupported_escalate: absent; any use requires escalation
-	profile.SupportedReal = defaultSupportedReal()
-	profile.StubCompatible = defaultStubCompatible()
-	profile.UnsupportedEscalate = defaultUnsupportedEscalate()
+	// The production engine evaluates inline, classic and external scripts.
+	// Module code is accepted as classic code but has no module loader/import
+	// semantics, so it stays explicitly synthetic-compatible.
+	profile.ScriptTypes = []string{"inline", "external", "classic"}
 	return profile
+}
+
+func failClosedProfile(profile RenderlessCapabilityProfile) RenderlessCapabilityProfile {
+	profile.DeterministicWait = false
+	profile.UnsupportedEscalate = append(profile.UnsupportedEscalate, "unknown")
+	return profile
+}
+
+// CapabilityProfileForEngine is the single capability authority for the
+// production Artemis engine. A nil engine yields a non-capable profile.
+func CapabilityProfileForEngine(backend *artemisengine.Engine) RenderlessCapabilityProfile {
+	if backend == nil {
+		return failClosedProfile(RenderlessCapabilityProfile{Version: "1.0"})
+	}
+	config := backend.Config()
+	return GenerateCapabilityProfile(EngineConfig{
+		UserAgent:      config.UserAgent,
+		FetchTimeout:   config.Timeout,
+		EnableRobots:   config.ObeyRobots,
+		PrivateIPBlock: !config.PolicyConfig.AllowPrivateNetworks,
+	}, NewWebAPIRegistry())
 }
 
 // defaultSupportedReal returns the WebAPIs that are fully implemented
 // in the renderless engine with real semantics (spec L3992).
 func defaultSupportedReal() []string {
 	return []string{
-		"document", "element", "querySelector", "querySelectorAll",
+		"window", "document", "navigator", "console", "element", "Element", "HTMLElement", "Node", "Document", "querySelector", "querySelectorAll",
 		"getElementById", "getElementsByClassName", "getElementsByTagName",
 		"addEventListener", "removeEventListener", "dispatchEvent",
 		"setTimeout", "setInterval", "clearTimeout", "clearInterval",
 		"requestAnimationFrame", "Promise", "queueMicrotask",
-		"fetch", "XMLHttpRequest", "FormData", "Headers", "URL", "URLSearchParams",
+		"fetch", "XMLHttpRequest", "FormData", "Headers", "Request", "Response", "Event", "CustomEvent", "URL", "URLSearchParams",
 		"cookie", "localStorage", "sessionStorage",
 		"history", "location",
 		"SubtleCrypto", "crypto",
@@ -178,8 +214,14 @@ func (p RenderlessCapabilityProfile) RequiresEscalation(api string, needsRealSem
 	return false
 }
 
+// CapabilityCategoryName exposes the profile category to the router without
+// coupling the router package to renderless types.
+func (p RenderlessCapabilityProfile) CapabilityCategoryName(api string) string {
+	return string(p.CapabilityMatch(api))
+}
+
 // SupportsWebAPI reports whether the profile supports a WebAPI
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (spec L4022: production-derived RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) SupportsWebAPI(name string) bool {
 	for _, api := range p.WebAPIs {
 		if strings.EqualFold(api, name) {

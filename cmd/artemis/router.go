@@ -7,6 +7,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/renderless"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
@@ -28,7 +29,8 @@ func routePage(ctx context.Context, eng *engine.Engine, targetURL string, runScr
 	}
 	result, err := hybrid.Execute(ctx, artemisrouter.RouteRequest{
 		URL: targetURL, Headers: headers, Action: action, Signals: signals,
-		TraceID: "cli", EvidenceID: "cli",
+		Capabilities: renderless.CapabilityProfileForEngine(eng),
+		TraceID:      "cli", EvidenceID: "cli",
 	})
 	if err != nil {
 		return nil, err

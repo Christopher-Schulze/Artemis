@@ -1,9 +1,44 @@
 package renderless
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
+
+func renderlessFixture(t *testing.T, body string) (*Engine, *httptest.Server) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		server.Close()
+		t.Fatalf("parse fixture URL: %v", err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		server.Close()
+		t.Fatalf("fixture port: %v", err)
+	}
+	engine, err := NewEngine(EngineConfig{AllowPrivateNetworks: true, AllowedPorts: []int{port}, FetchTimeout: time.Second})
+	if err != nil {
+		server.Close()
+		t.Fatalf("NewEngine: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = engine.Close()
+		server.Close()
+	})
+	return engine, server
+}
 
 // ==================== engine.go tests ====================
 
@@ -35,20 +70,37 @@ func TestTASK2255_EngineConfigDefaults(t *testing.T) {
 // TestTASK2255_EngineFetch verifies fetch
 // (spec L4022: V8/v8go isolate snapshot engine).
 func TestTASK2255_EngineFetch(t *testing.T) {
-	e, _ := NewEngine(EngineConfig{})
-	page, err := e.Fetch(nil, "https://example.com")
+	e, server := renderlessFixture(t, "<!doctype html><title>fixture</title><p>real</p>")
+	page, err := e.Fetch(context.Background(), server.URL)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if page.URL != "https://example.com" {
+	defer page.Close()
+	if page.URL != server.URL {
 		t.Error("URL mismatch")
+	}
+	if !strings.Contains(string(page.RawBody), "real") {
+		t.Error("fetch did not retain the real response body")
+	}
+}
+
+func TestTASK2569_EngineFetchExecutesAgainstProductionPage(t *testing.T) {
+	e, server := renderlessFixture(t, "<!doctype html><body><p id='value'>before</p><script>document.getElementById('value').textContent = 'after'</script></body>")
+	page, err := e.FetchWithOptions(context.Background(), server.URL, FetchOptions{RunScripts: true})
+	if err != nil {
+		t.Fatalf("FetchWithOptions: %v", err)
+	}
+	defer page.Close()
+	if !strings.Contains(page.RealPage().Text(), "after") {
+		t.Fatalf("production page did not reflect script mutation: %q", page.RealPage().Text())
 	}
 }
 
 // TestTASK2255_EngineFetchEmpty verifies empty URL fails.
 func TestTASK2255_EngineFetchEmpty(t *testing.T) {
 	e, _ := NewEngine(EngineConfig{})
-	_, err := e.Fetch(nil, "")
+	defer e.Close()
+	_, err := e.Fetch(context.Background(), "")
 	if err == nil {
 		t.Error("empty URL should error")
 	}
@@ -61,7 +113,7 @@ func TestTASK2255_EngineClose(t *testing.T) {
 	if !e.IsClosed() {
 		t.Error("should be closed")
 	}
-	_, err := e.Fetch(nil, "https://example.com")
+	_, err := e.Fetch(context.Background(), "https://example.com")
 	if err == nil {
 		t.Error("closed engine should error on fetch")
 	}
@@ -234,6 +286,23 @@ func TestTASK2255_WebAPIRegistryRegister(t *testing.T) {
 	}
 }
 
+func TestTASK2569_WebAPIRegistryPreservesGlobalKinds(t *testing.T) {
+	r := NewWebAPIRegistry()
+	for _, test := range []struct {
+		name string
+		kind string
+	}{
+		{name: "fetch", kind: "function"},
+		{name: "URL", kind: "constructor"},
+		{name: "window", kind: "object"},
+	} {
+		global, ok := r.Get(test.name)
+		if !ok || global.Type != test.kind {
+			t.Fatalf("global %q = %+v, want kind %q", test.name, global, test.kind)
+		}
+	}
+}
+
 // TestTASK2255_WebAPIRegistryNames verifies names.
 func TestTASK2255_WebAPIRegistryNames(t *testing.T) {
 	r := NewWebAPIRegistry()
@@ -303,8 +372,8 @@ func TestTASK2255_PageHeaders(t *testing.T) {
 func TestTASK2255_ScriptRouterInline(t *testing.T) {
 	r := NewScriptRouter()
 	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: "code"})
-	if !result.Success {
-		t.Error("inline should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("inline without a production page executor must fail closed")
 	}
 }
 
@@ -313,8 +382,28 @@ func TestTASK2255_ScriptRouterInline(t *testing.T) {
 func TestTASK2255_ScriptRouterExternal(t *testing.T) {
 	r := NewScriptRouter()
 	result := r.Execute(ScriptRequest{Type: ScriptTypeExternal, Source: "https://example.com/script.js"})
-	if !result.Success {
-		t.Error("external should succeed")
+	if result.Success || result.Error == "" {
+		t.Error("external without a production page executor must fail closed")
+	}
+}
+
+func TestTASK2569_ScriptRouterAllowsCallerBackedHandler(t *testing.T) {
+	r := NewScriptRouter()
+	r.RegisterHandler(ScriptTypeInline, func(req ScriptRequest) ScriptResult {
+		return ScriptResult{Success: true, Output: req.Source}
+	})
+	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: "real"})
+	if !result.Success || result.Output != "real" {
+		t.Fatalf("caller-backed handler result=%+v", result)
+	}
+}
+
+func TestTASK2569_ScriptRouterNilHandlerFailsClosed(t *testing.T) {
+	r := NewScriptRouter()
+	r.RegisterHandler(ScriptTypeInline, nil)
+	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: "real"})
+	if result.Success || result.Error == "" {
+		t.Fatalf("nil handler must fail closed: %+v", result)
 	}
 }
 

@@ -1,6 +1,12 @@
 package renderless
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 )
 
@@ -88,8 +94,8 @@ func TestConformanceScriptRouter(t *testing.T) {
 	r := NewScriptRouter()
 	req := ScriptRequest{Type: ScriptTypeInline, Source: "console.log('hello')"}
 	result := r.Execute(req)
-	if !result.Success {
-		t.Error("conformance: inline script should execute")
+	if result.Success || result.Error == "" {
+		t.Error("conformance: unbound script router must fail closed")
 	}
 }
 
@@ -153,11 +159,26 @@ func TestConformancePage(t *testing.T) {
 // (spec L4022: conformance test).
 func TestConformanceFullEngineFlow(t *testing.T) {
 	// 1. Create engine
-	e, _ := NewEngine(EngineConfig{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "<html><body>fixture</body></html>")
+	}))
+	defer server.Close()
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine(EngineConfig{AllowPrivateNetworks: true, AllowedPorts: []int{port}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer e.Close()
 
 	// 2. Fetch a page
-	page, err := e.Fetch(nil, "https://example.com")
+	page, err := e.Fetch(context.Background(), server.URL)
 	if err != nil {
 		t.Fatalf("conformance: fetch: %v", err)
 	}

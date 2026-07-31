@@ -2,17 +2,15 @@ package renderless
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 )
 
 // router.go (spec L4022: renderless/router.go - inline+external
 // script execution router).
 //
-// In-process no-render JS browser path: inline+external script
-// execution router. Routes script execution requests to the
-// appropriate handler based on script type (inline, external,
-// module, classic).
+// In-process no-render JS browser path: inline+external script dispatch. The
+// production engine owns execution; this router only dispatches caller-backed
+// handlers and fails closed when no handler is bound.
 
 // ScriptType enumerates script types
 // (spec L4022: inline+external script execution).
@@ -51,7 +49,7 @@ type ScriptRouter struct {
 	handlers map[ScriptType]func(req ScriptRequest) ScriptResult
 }
 
-// NewScriptRouter creates a new ScriptRouter with default handlers
+// NewScriptRouter creates a new ScriptRouter with fail-closed default handlers
 // (spec L4022: inline+external script execution).
 func NewScriptRouter() *ScriptRouter {
 	r := &ScriptRouter{handlers: make(map[ScriptType]func(req ScriptRequest) ScriptResult)}
@@ -67,6 +65,10 @@ func NewScriptRouter() *ScriptRouter {
 func (r *ScriptRouter) RegisterHandler(t ScriptType, handler func(req ScriptRequest) ScriptResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if handler == nil {
+		delete(r.handlers, t)
+		return
+	}
 	r.handlers[t] = handler
 }
 
@@ -86,34 +88,26 @@ func (r *ScriptRouter) Execute(req ScriptRequest) ScriptResult {
 }
 
 func (r *ScriptRouter) defaultInlineHandler(req ScriptRequest) ScriptResult {
-	if req.Source == "" {
-		return ScriptResult{Success: false, Error: "inline script: empty source"}
-	}
-	return ScriptResult{Success: true, Output: req.Source}
+	return unavailableScriptResult(req, "inline")
 }
 
 func (r *ScriptRouter) defaultExternalHandler(req ScriptRequest) ScriptResult {
-	if req.Source == "" {
-		return ScriptResult{Success: false, Error: "external script: empty URL"}
-	}
-	if !strings.HasPrefix(req.Source, "http") {
-		return ScriptResult{Success: false, Error: "external script: invalid URL"}
-	}
-	return ScriptResult{Success: true, Output: "fetched:" + req.Source}
+	return unavailableScriptResult(req, "external")
 }
 
 func (r *ScriptRouter) defaultModuleHandler(req ScriptRequest) ScriptResult {
-	if req.Source == "" {
-		return ScriptResult{Success: false, Error: "module script: empty source"}
-	}
-	return ScriptResult{Success: true, Output: "module:" + req.Source}
+	return unavailableScriptResult(req, "module")
 }
 
 func (r *ScriptRouter) defaultClassicHandler(req ScriptRequest) ScriptResult {
+	return unavailableScriptResult(req, "classic")
+}
+
+func unavailableScriptResult(req ScriptRequest, kind string) ScriptResult {
 	if req.Source == "" {
-		return ScriptResult{Success: false, Error: "classic script: empty source"}
+		return ScriptResult{Success: false, Error: kind + " script: empty source"}
 	}
-	return ScriptResult{Success: true, Output: "classic:" + req.Source}
+	return ScriptResult{Success: false, Error: "renderless: production page executor required"}
 }
 
 // IsValidScriptType reports whether a script type is valid

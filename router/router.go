@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,44 +79,100 @@ func (r *HybridRouter) Decide(req RouteRequest) (Decision, error) {
 
 // Decision is the redacted first routing decision.
 type Decision struct {
-	Mode    Mode
-	Reason  string
-	URLHash string
-	Policy  string
+	Mode         Mode
+	Reason       string
+	URLHash      string
+	Policy       string
+	Capabilities []CapabilityEvidence
 }
 
 func (r *HybridRouter) decide(req RouteRequest) (Decision, error) {
+	capabilities := evaluateCapabilities(req)
 	if req.ForceMode != "" {
+		if req.ForceMode == ModeStaticFetch && len(capabilities) > 0 {
+			return Decision{}, &RouteError{Code: ErrorPolicyDenied, Mode: req.ForceMode, Cause: ErrCapabilityEscalationNeeded}
+		}
+		if isLowerMode(req.ForceMode) && capabilityEscalationRequired(capabilities) {
+			return Decision{}, &RouteError{Code: ErrorPolicyDenied, Mode: req.ForceMode, Cause: ErrCapabilityEscalationNeeded}
+		}
 		if req.Auth.browserRequired() && isLowerMode(req.ForceMode) {
 			return Decision{}, &RouteError{Code: ErrorPolicyDenied, Mode: req.ForceMode, Cause: ErrAuthSemanticDowngrade}
 		}
 		if !req.Policy.allows(req.ForceMode) {
 			return Decision{}, &RouteError{Code: ErrorPolicyDenied, Mode: req.ForceMode, Cause: fmt.Errorf("forced mode is not admitted by policy")}
 		}
-		return Decision{Mode: req.ForceMode, Reason: "caller_override", URLHash: hashURL(req.URL), Policy: "allow"}, nil
+		return Decision{Mode: req.ForceMode, Reason: "caller_override", URLHash: hashURL(req.URL), Policy: "allow", Capabilities: capabilities}, nil
 	}
 	signals := req.Signals
 	if req.Auth.browserRequired() {
 		signals.NeedsAuthProfile = true
 	}
-	for _, api := range req.RequiredWebAPIs {
-		if req.Capabilities != nil && req.Capabilities.RequiresEscalation(api, req.NeedsRealSemantics) {
+	if len(capabilities) > 0 && signals.ScriptCount == 0 {
+		signals.ScriptCount = 1
+	}
+	for _, capability := range capabilities {
+		if capability.Escalate {
 			signals.NeedsLayout = true
 		}
 	}
 	selected := r.selector.Route(signals)
+	reason := selected.Reason
+	if selected.Mode == ModeStaticFetch || selected.Mode == ModeRenderlessJS {
+		for _, capability := range capabilities {
+			if capability.Escalate {
+				reason = "capability_escalation:" + capability.API
+				break
+			}
+		}
+	}
 	if req.Policy.allows(selected.Mode) {
-		return Decision{Mode: selected.Mode, Reason: selected.Reason, URLHash: hashURL(req.URL), Policy: "allow"}, nil
+		return Decision{Mode: selected.Mode, Reason: reason, URLHash: hashURL(req.URL), Policy: "allow", Capabilities: capabilities}, nil
 	}
 	for next := nextMode(selected.Mode); next != ""; next = nextMode(next) {
 		if req.Auth.browserRequired() && isLowerMode(next) {
 			continue
 		}
 		if req.Policy.allows(next) {
-			return Decision{Mode: next, Reason: "policy_escalation:" + selected.Reason, URLHash: hashURL(req.URL), Policy: "allow"}, nil
+			return Decision{Mode: next, Reason: "policy_escalation:" + reason, URLHash: hashURL(req.URL), Policy: "allow", Capabilities: capabilities}, nil
 		}
 	}
 	return Decision{}, &RouteError{Code: ErrorPolicyDenied, Mode: selected.Mode, Cause: fmt.Errorf("selected mode %s is not admitted and no higher mode is allowed", selected.Mode)}
+}
+
+func evaluateCapabilities(req RouteRequest) []CapabilityEvidence {
+	if len(req.RequiredWebAPIs) == 0 {
+		return nil
+	}
+	result := make([]CapabilityEvidence, 0, len(req.RequiredWebAPIs))
+	for _, api := range req.RequiredWebAPIs {
+		if strings.TrimSpace(api) == "" {
+			continue
+		}
+		category := "unknown"
+		shouldEscalate := false
+		if req.Capabilities != nil {
+			shouldEscalate = req.Capabilities.RequiresEscalation(api, req.NeedsRealSemantics)
+			if authority, ok := req.Capabilities.(CapabilityAuthority); ok {
+				category = authority.CapabilityCategoryName(api)
+			}
+		}
+		if req.Capabilities == nil {
+			shouldEscalate = true
+		}
+		result = append(result, CapabilityEvidence{
+			API: api, Category: category, NeedsRealSemantics: req.NeedsRealSemantics, Escalate: shouldEscalate,
+		})
+	}
+	return result
+}
+
+func capabilityEscalationRequired(capabilities []CapabilityEvidence) bool {
+	for _, capability := range capabilities {
+		if capability.Escalate {
+			return true
+		}
+	}
+	return false
 }
 
 func isLowerMode(mode Mode) bool {
@@ -164,6 +221,7 @@ func (r *HybridRouter) Execute(ctx context.Context, request RouteRequest) (Route
 	evidence := r.baseEvidence(req, started)
 	evidence.InitialMode = decision.Mode
 	evidence.Decision = decision.Reason
+	evidence.Capabilities = append([]CapabilityEvidence(nil), decision.Capabilities...)
 	mode := decision.Mode
 	state := req.State.Clone()
 	for attempt := 1; attempt <= req.Policy.MaxAttempts; attempt++ {

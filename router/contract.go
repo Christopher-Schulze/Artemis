@@ -133,10 +133,26 @@ func (s BrowserState) validate(auth AuthState) error {
 	return nil
 }
 
-// CapabilityResolver allows the renderless generated capability profile to
+// CapabilityResolver allows the production-derived renderless capability profile to
 // participate without coupling this package to its concrete implementation.
 type CapabilityResolver interface {
 	RequiresEscalation(api string, needsRealSemantics bool) bool
+}
+
+// CapabilityAuthority optionally exposes the measured renderless category so
+// route decisions and redacted evidence use the same fail-closed authority.
+type CapabilityAuthority interface {
+	CapabilityResolver
+	CapabilityCategoryName(api string) string
+}
+
+// CapabilityEvidence records one required WebAPI decision without page data
+// or credentials.
+type CapabilityEvidence struct {
+	API                string `json:"api"`
+	Category           string `json:"category"`
+	NeedsRealSemantics bool   `json:"needs_real_semantics"`
+	Escalate           bool   `json:"escalate"`
 }
 
 // RouteRequest is the complete deterministic input to one route execution.
@@ -321,24 +337,28 @@ func (e *RouteError) Unwrap() error {
 	return e.Cause
 }
 
-var ErrAuthSemanticDowngrade = errors.New("route would change authentication semantics")
+var (
+	ErrAuthSemanticDowngrade      = errors.New("route would change authentication semantics")
+	ErrCapabilityEscalationNeeded = errors.New("route requires a higher capability mode")
+)
 
 // RouteEvidence is intentionally secret-free and suitable for telemetry.
 type RouteEvidence struct {
-	TraceID       string             `json:"trace_id,omitempty"`
-	EvidenceID    string             `json:"evidence_id,omitempty"`
-	URLHash       string             `json:"url_hash"`
-	InitialMode   Mode               `json:"initial_mode"`
-	FinalMode     Mode               `json:"final_mode"`
-	Decision      string             `json:"decision"`
-	Policy        string             `json:"policy"`
-	Fallbacks     []FallbackEvidence `json:"fallbacks,omitempty"`
-	Attempts      int                `json:"attempts"`
-	CostUnit      int64              `json:"cost_unit"`
-	ResultQuality string             `json:"result_quality,omitempty"`
-	State         StateEvidence      `json:"state"`
-	StartedAt     time.Time          `json:"started_at"`
-	Duration      time.Duration      `json:"duration_ns"`
+	TraceID       string               `json:"trace_id,omitempty"`
+	EvidenceID    string               `json:"evidence_id,omitempty"`
+	URLHash       string               `json:"url_hash"`
+	InitialMode   Mode                 `json:"initial_mode"`
+	FinalMode     Mode                 `json:"final_mode"`
+	Decision      string               `json:"decision"`
+	Policy        string               `json:"policy"`
+	Capabilities  []CapabilityEvidence `json:"capabilities,omitempty"`
+	Fallbacks     []FallbackEvidence   `json:"fallbacks,omitempty"`
+	Attempts      int                  `json:"attempts"`
+	CostUnit      int64                `json:"cost_unit"`
+	ResultQuality string               `json:"result_quality,omitempty"`
+	State         StateEvidence        `json:"state"`
+	StartedAt     time.Time            `json:"started_at"`
+	Duration      time.Duration        `json:"duration_ns"`
 }
 
 type FallbackEvidence struct {
