@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,8 +81,14 @@ func (s *StructuredSchema) Required() []string {
 	}
 	// New behavior: collect required fields from FieldsMap.
 	if s.FieldsMap != nil {
-		out := make([]string, 0, len(s.FieldsMap))
-		for name, sub := range s.FieldsMap {
+		names := make([]string, 0, len(s.FieldsMap))
+		for name := range s.FieldsMap {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		out := make([]string, 0, len(names))
+		for _, name := range names {
+			sub := s.FieldsMap[name]
 			if sub != nil && sub.IsRequired {
 				out = append(out, name)
 			}
@@ -95,71 +102,73 @@ func (s *StructuredSchema) Required() []string {
 // unknown-kind + missing-required-selector + invalid-attr-on-non-attr-kind
 // + recursive-cycles). Returns an error if the schema is invalid.
 func (s *StructuredSchema) Validate() error {
-	return s.validateWithVisited(nil)
+	return s.validateWithPath(make(map[*StructuredSchema]bool), "schema")
 }
 
-func (s *StructuredSchema) validateWithVisited(visited []string) error {
+func (s *StructuredSchema) validateWithPath(visited map[*StructuredSchema]bool, path string) error {
 	if s == nil {
-		return fmt.Errorf("schema is nil")
+		return fmt.Errorf("%s: schema is nil", path)
 	}
+	if visited[s] {
+		return fmt.Errorf("%s: recursive schema cycle detected", path)
+	}
+	visited[s] = true
+	defer delete(visited, s)
 	// Check kind is valid.
 	if s.Kind == "" {
-		return fmt.Errorf("schema.kind is required")
+		return fmt.Errorf("%s.kind is required", path)
 	}
 	if s.Kind != KindObject && s.Kind != KindList && !ScalarKinds[s.Kind] {
-		return fmt.Errorf("schema.kind %q is not a valid kind (must be text|html|attr|url|number|object|list)", s.Kind)
+		return fmt.Errorf("%s.kind %q is not a valid kind (must be text|html|attr|url|number|object|list)", path, s.Kind)
 	}
 	// Selector is required for all kinds.
 	if strings.TrimSpace(s.Selector) == "" {
-		return fmt.Errorf("schema.selector is required (non-empty)")
+		return fmt.Errorf("%s.selector is required (non-empty)", path)
+	}
+	if err := validateStructuredSelector(s.Selector); err != nil {
+		return fmt.Errorf("%s.selector: %w", path, err)
 	}
 	// Validate attr: only supported for kind=attr or kind=url.
 	if s.Attr != "" && s.Kind != KindAttr && s.Kind != KindURL {
-		return fmt.Errorf("schema.attr is only supported for kind attr and url, not %s", s.Kind)
+		return fmt.Errorf("%s.attr is only supported for kind attr and url, not %s", path, s.Kind)
 	}
 	// Validate attr is required for kind=attr.
 	if s.Kind == KindAttr && s.Attr == "" {
-		return fmt.Errorf("schema.attr is required for kind attr")
+		return fmt.Errorf("%s.attr is required for kind attr", path)
 	}
 	// Validate join: only supported for text, attr, url.
 	if s.Join != "" && !JoinKinds[s.Kind] {
-		return fmt.Errorf("schema.join is only supported for text, attr, and url fields, not %s", s.Kind)
+		return fmt.Errorf("%s.join is only supported for text, attr, and url fields, not %s", path, s.Kind)
 	}
 	// Validate coerce: must be "number" or "url".
 	if s.Coerce != "" && s.Coerce != "number" && s.Coerce != "url" {
-		return fmt.Errorf("schema.coerce must be \"number\" or \"url\", got %q", s.Coerce)
+		return fmt.Errorf("%s.coerce must be \"number\" or \"url\", got %q", path, s.Coerce)
 	}
 	// Validate object kind: must have FieldsMap.
 	if s.Kind == KindObject {
 		if len(s.FieldsMap) == 0 {
-			return fmt.Errorf("schema.fields is required for kind object")
+			return fmt.Errorf("%s.fields is required for kind object", path)
 		}
-		for name, sub := range s.FieldsMap {
-			path := fmt.Sprintf("fields.%s", name)
-			// Check for recursive cycles.
-			for _, v := range visited {
-				if v == path {
-					return fmt.Errorf("recursive cycle detected at %s", path)
-				}
-			}
-			if err := sub.validateWithVisited(append(visited, path)); err != nil {
-				return fmt.Errorf("%s: %w", path, err)
+		names := make([]string, 0, len(s.FieldsMap))
+		for name := range s.FieldsMap {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			sub := s.FieldsMap[name]
+			fieldPath := fmt.Sprintf("%s.fields.%s", path, name)
+			if err := sub.validateWithPath(visited, fieldPath); err != nil {
+				return err
 			}
 		}
 	}
 	// Validate list kind: must have Item.
 	if s.Kind == KindList {
 		if s.Item == nil {
-			return fmt.Errorf("schema.item is required for kind list")
+			return fmt.Errorf("%s.item is required for kind list", path)
 		}
-		path := "item"
-		for _, v := range visited {
-			if v == path {
-				return fmt.Errorf("recursive cycle detected at %s", path)
-			}
-		}
-		if err := s.Item.validateWithVisited(append(visited, path)); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+		if err := s.Item.validateWithPath(visited, path+".item"); err != nil {
+			return err
 		}
 	}
 	return nil

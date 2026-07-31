@@ -3,9 +3,12 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/prompts"
 )
 
 // ai_finder_detail.go (spec L4398: AI Finder Stage 2 full detail).
@@ -47,6 +50,7 @@ const (
 type InferenceHubLLMRequest struct {
 	Mode      FinderMode `json:"mode"`
 	Content   string     `json:"content"`    // HTML snippet (text mode) or screenshot base64 (vision mode)
+	Prompt    string     `json:"prompt"`     // canonical browser-agent prompt rendered at the inference boundary
 	Intent    string     `json:"intent"`     // natural-language description of the target element
 	Attempt   int        `json:"attempt"`    // 1-based attempt number for varied formulations
 	LocalOnly bool       `json:"local_only"` // privacy routing: force local inference
@@ -82,6 +86,7 @@ type AIFinderStage2Config struct {
 	Mode            FinderMode    // text or vision
 	Timeout         time.Duration // per-attempt LLM timeout
 	CacheConfidence float64       // minimum confidence to cache a selector
+	PromptExecutor  *prompts.TemplateExecutor
 }
 
 // DefaultAIFinderStage2Config returns spec-compliant defaults.
@@ -91,6 +96,7 @@ func DefaultAIFinderStage2Config() AIFinderStage2Config {
 		Mode:            FinderModeText,
 		Timeout:         30 * time.Second,
 		CacheConfidence: 0.70,
+		PromptExecutor:  prompts.NewTemplateExecutor(),
 	}
 }
 
@@ -128,6 +134,9 @@ func NewAIFinderStage2(hub InferenceHubLLM, router PrivacyRouter, cache *Adaptiv
 	}
 	if config.CacheConfidence <= 0 {
 		config.CacheConfidence = 0.70
+	}
+	if config.PromptExecutor == nil {
+		config.PromptExecutor = prompts.NewTemplateExecutor()
 	}
 	return &AIFinderStage2{
 		hub:    hub,
@@ -202,17 +211,29 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 		// Vary the formulation on each attempt (spec L4398: varied formulations).
 		formulatedIntent := varyFormulation(intent, attempt)
+		attemptCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
+		prompt, promptErr := a.config.PromptExecutor.Execute(attemptCtx, "observe", map[string]string{
+			"previous_chunkwise_information": content,
+			"i":                              strconv.Itoa(attempt),
+			"total_pages":                    "1",
+		})
+		if promptErr != nil {
+			cancel()
+			lastErr = fmt.Errorf("ai finder stage2: attempt %d: render prompt: %w", attempt, promptErr)
+			continue
+		}
 
 		req := InferenceHubLLMRequest{
 			Mode:      a.config.Mode,
 			Content:   content,
+			Prompt:    prompt,
 			Intent:    formulatedIntent,
 			Attempt:   attempt,
 			LocalOnly: localOnly,
 		}
 
-		// Per-attempt timeout.
-		attemptCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
+		// The same per-attempt timeout covers canonical prompt rendering and
+		// the actual inference request.
 		resp, err := a.hub.AnalyzePage(attemptCtx, req)
 		cancel()
 

@@ -8,18 +8,16 @@ import (
 	"time"
 )
 
+func testArtifact(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+	return ParsedArtifact{URL: input.URL, HTML: []byte(input.HTML), Title: input.ID}, nil
+}
+
 func TestWorkerPoolProcessAll(t *testing.T) {
 	pool := NewWorkerPool(4)
 	jobs := []ParseJob{
-		{ID: "j1", HTML: "<html>1</html>", Parse: func(ctx context.Context, html string) (interface{}, error) {
-			return "result1", nil
-		}},
-		{ID: "j2", HTML: "<html>2</html>", Parse: func(ctx context.Context, html string) (interface{}, error) {
-			return "result2", nil
-		}},
-		{ID: "j3", HTML: "<html>3</html>", Parse: func(ctx context.Context, html string) (interface{}, error) {
-			return "result3", nil
-		}},
+		{ID: "j1", HTML: "<html>1</html>", Parse: testArtifact},
+		{ID: "j2", HTML: "<html>2</html>", Parse: testArtifact},
+		{ID: "j3", HTML: "<html>3</html>", Parse: testArtifact},
 	}
 	results := pool.ProcessAll(context.Background(), jobs)
 	if len(results) != 3 {
@@ -38,8 +36,8 @@ func TestWorkerPoolProcessAll(t *testing.T) {
 func TestWorkerPoolWithError(t *testing.T) {
 	pool := NewWorkerPool(2)
 	jobs := []ParseJob{
-		{ID: "j1", Parse: func(ctx context.Context, html string) (interface{}, error) {
-			return nil, errors.New("parse error")
+		{ID: "j1", Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+			return ParsedArtifact{}, errors.New("parse error")
 		}},
 	}
 	results := pool.ProcessAll(context.Background(), jobs)
@@ -88,14 +86,14 @@ func TestWorkerPoolResults(t *testing.T) {
 	pool.Start()
 	pool.Submit(ParseJob{
 		ID: "j1",
-		Parse: func(ctx context.Context, html string) (interface{}, error) {
-			return "ok", nil
+		Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+			return ParsedArtifact{Title: "ok"}, nil
 		},
 	})
 	select {
 	case r := <-pool.Results():
-		if r.Value != "ok" {
-			t.Fatalf("expected 'ok', got %v", r.Value)
+		if r.Artifact.Title != "ok" {
+			t.Fatalf("expected 'ok', got %v", r.Artifact.Title)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for result")
@@ -109,8 +107,8 @@ func TestWorkerPoolWorkerID(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		pool.Submit(ParseJob{
 			ID: "j",
-			Parse: func(ctx context.Context, html string) (interface{}, error) {
-				return nil, nil
+			Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+				return ParsedArtifact{}, nil
 			},
 		})
 	}
@@ -135,12 +133,12 @@ func TestWorkerPoolContextCancellation(t *testing.T) {
 	// Submit a slow job that checks context cancellation
 	pool.Submit(ParseJob{
 		ID: "slow",
-		Parse: func(ctx context.Context, html string) (interface{}, error) {
+		Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return ParsedArtifact{}, ctx.Err()
 			case <-time.After(10 * time.Second):
-				return "done", nil
+				return ParsedArtifact{Title: "done"}, nil
 			}
 		},
 	})
@@ -158,8 +156,8 @@ func TestWorkerPoolConcurrentSubmit(t *testing.T) {
 		go func() {
 			if pool.Submit(ParseJob{
 				ID: "j",
-				Parse: func(ctx context.Context, html string) (interface{}, error) {
-					return nil, nil
+				Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+					return ParsedArtifact{}, nil
 				},
 			}) {
 				submitted.Add(1)
@@ -194,4 +192,53 @@ func TestWorkerPoolDoubleStop(t *testing.T) {
 	pool.Start()
 	pool.Stop()
 	pool.Stop() // should not panic
+}
+
+func TestWorkerPoolStartIsIdempotentAndDefaultParserIsReal(t *testing.T) {
+	pool := NewWorkerPool(1)
+	pool.Start()
+	pool.Start()
+	if !pool.Submit(ParseJob{ID: "real", URL: "https://example.test", HTML: `<html><head><title>Title</title></head><body><p>Body</p><script>hidden()</script></body></html>`}) {
+		t.Fatal("expected real parse job to be accepted")
+	}
+	result := <-pool.Results()
+	if result.Error != nil {
+		t.Fatalf("default parser: %v", result.Error)
+	}
+	if result.Artifact.Title != "Title" || result.Artifact.Text != "Body" || result.Artifact.Document == nil {
+		t.Fatalf("unexpected artifact: %+v", result.Artifact)
+	}
+	pool.Stop()
+}
+
+func TestWorkerPoolStopSubmitRaceDoesNotPanic(t *testing.T) {
+	pool := NewWorkerPool(2)
+	pool.Start()
+	for i := 0; i < 32; i++ {
+		go pool.Submit(ParseJob{ID: "race", Parse: testArtifact})
+	}
+	pool.Stop()
+}
+
+func TestWorkerPoolProcessAllCancellationReturnsExplicitFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	results := NewWorkerPool(1).ProcessAll(ctx, []ParseJob{{ID: "cancelled", Parse: testArtifact}})
+	if len(results) != 1 || results[0].Error == nil {
+		t.Fatalf("cancellation must return an explicit failure result: %+v", results)
+	}
+}
+
+func TestWorkerPoolProcessAllRestoresInputOrder(t *testing.T) {
+	jobs := []ParseJob{
+		{ID: "first", Parse: func(ctx context.Context, input ParseInput) (ParsedArtifact, error) {
+			time.Sleep(20 * time.Millisecond)
+			return ParsedArtifact{Title: input.ID}, nil
+		}},
+		{ID: "second", Parse: testArtifact},
+	}
+	results := NewWorkerPool(2).ProcessAll(context.Background(), jobs)
+	if len(results) != 2 || results[0].JobID != "first" || results[1].JobID != "second" {
+		t.Fatalf("results are not input ordered: %+v", results)
+	}
 }

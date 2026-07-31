@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -17,13 +18,14 @@ import (
 // (spec L4028: snapshot_extract.go - renderless DOM snapshot, CDP
 // live-DOM snapshot).
 type SnapshotExtractor struct {
-	mode ExtractionMode
+	mode      ExtractionMode
+	parsePool *ParseWorkerPool
 }
 
 // NewSnapshotExtractor creates a new SnapshotExtractor for the given
 // extraction mode (spec L4028: snapshot_extract.go).
 func NewSnapshotExtractor(mode ExtractionMode) *SnapshotExtractor {
-	return &SnapshotExtractor{mode: mode}
+	return &SnapshotExtractor{mode: mode, parsePool: NewParseWorkerPool(0)}
 }
 
 // Extract extracts an ExtractedPage from a SourceSnapshot
@@ -35,6 +37,10 @@ func (e *SnapshotExtractor) Extract(snap SourceSnapshot) (ExtractedPage, error) 
 	if snap.HTML == "" {
 		return ExtractedPage{}, fmt.Errorf("snapshot_extract: empty HTML in snapshot")
 	}
+	parsed, err := e.parsePool.Parse(context.Background(), "snapshot", snap.URL, snap.HTML)
+	if err != nil {
+		return ExtractedPage{}, fmt.Errorf("snapshot_extract: parse HTML: %w", err)
+	}
 
 	page := ExtractedPage{
 		URL:            snap.URL,
@@ -43,10 +49,9 @@ func (e *SnapshotExtractor) Extract(snap SourceSnapshot) (ExtractedPage, error) 
 	}
 
 	// Extract title
-	page.Title = extractTitle(snap.HTML)
+	page.Title = parsed.Title
 
-	// Extract text (simplified: strip HTML tags)
-	page.Text = extractText(snap.HTML)
+	page.Text = parsed.Text
 
 	// Extract links
 	page.Links = extractLinks(snap.HTML)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -115,6 +116,9 @@ func TestAIFinderStage2_SuccessFirstAttempt(t *testing.T) {
 	}
 	if hub.CallCount() != 1 {
 		t.Fatalf("CallCount = %d, want 1", hub.CallCount())
+	}
+	if prompt := hub.LastRequest().Prompt; prompt == "" || !strings.Contains(prompt, "<div>...</div>") {
+		t.Fatalf("inference request must contain rendered canonical prompt, got %q", prompt)
 	}
 }
 
@@ -262,6 +266,9 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 	}
 	if hub.CallCount() != 0 {
 		t.Fatalf("CallCount = %d, want 0 (cache hit)", hub.CallCount())
+	}
+	if hub.LastRequest().Prompt != "" {
+		t.Fatal("cache hit must not render or send a prompt")
 	}
 }
 
