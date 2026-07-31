@@ -2,6 +2,7 @@ package cdpops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -46,6 +47,20 @@ type NavigationResult struct {
 	Error      string          `json:"error,omitempty"`
 }
 
+// NavigationResponse is the typed result returned by Page.navigate.
+type NavigationResponse struct {
+	FrameID   string `json:"frameId"`
+	LoaderID  string `json:"loaderId"`
+	ErrorText string `json:"errorText"`
+}
+
+// NavigatorCaller preserves page-level policy while still allowing the
+// navigator to use the common Caller contract for every other CDP method.
+type NavigatorCaller interface {
+	Caller
+	Navigate(context.Context, string, string, *NavigationResponse) error
+}
+
 // WaitCondition enumerates page load wait conditions
 // (spec L4019: page navigation + wait).
 type WaitCondition string
@@ -64,25 +79,41 @@ type Navigator struct {
 	state      NavigationState
 	currentURL string
 	lastNav    time.Time
+	caller     Caller
 }
 
 // NewNavigator creates a new Navigator
 // (spec L4019: page navigation + wait).
-func NewNavigator() *Navigator {
-	return &Navigator{
-		state: NavigationStateIdle,
+func NewNavigator(callers ...Caller) *Navigator {
+	var caller Caller
+	if len(callers) > 0 {
+		caller = callers[0]
 	}
+	return &Navigator{state: NavigationStateIdle, caller: caller}
 }
 
 // Navigate navigates to a URL
 // (spec L4019: page navigation + wait).
 func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) NavigationResult {
 	start := time.Now()
+	if ctx == nil {
+		return NavigationResult{Success: false, State: NavigationStateError, Error: "navigation: context required", Duration: time.Since(start)}
+	}
 	if req.URL == "" {
 		return NavigationResult{
-			Success: false,
-			Error:   "navigation: empty URL",
+			Success: false, State: NavigationStateError,
+			Error: "navigation: empty URL", Duration: time.Since(start),
 		}
+	}
+	if req.WaitUntil == "" {
+		req.WaitUntil = WaitLoad
+	}
+	if !IsValidWaitCondition(req.WaitUntil) {
+		return NavigationResult{Success: false, State: NavigationStateError, Error: fmt.Sprintf("navigation: invalid wait condition %q", req.WaitUntil), Duration: time.Since(start)}
+	}
+	if err := n.requireCaller(); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
 	n.mu.Lock()
 	n.state = NavigationStateLoading
@@ -91,11 +122,29 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	if req.WaitUntil == "" {
-		req.WaitUntil = WaitLoad
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var response NavigationResponse
+	var err error
+	if navigatorCaller, ok := n.caller.(NavigatorCaller); ok {
+		err = navigatorCaller.Navigate(callCtx, req.URL, req.Referer, &response)
+	} else {
+		err = n.caller.Call(callCtx, "Page.navigate", map[string]any{"url": req.URL, "referrer": req.Referer}, &response)
 	}
-	// In a real implementation, this would use CDP Page.navigate
-	// and wait for the specified condition.
+	if err == nil && response.ErrorText != "" {
+		err = fmt.Errorf("navigation: %s", response.ErrorText)
+	}
+	if err == nil {
+		err = n.waitForCondition(callCtx, req.WaitUntil)
+	}
+	if err != nil {
+		n.setError(err)
+		state := NavigationStateError
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			state = NavigationStateAborted
+		}
+		return NavigationResult{Success: false, URL: req.URL, State: state, Error: err.Error(), Duration: time.Since(start)}
+	}
 	n.mu.Lock()
 	n.state = NavigationStateComplete
 	n.currentURL = req.URL
@@ -112,29 +161,28 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 // WaitForLoad waits for the page to reach the specified condition
 // (spec L4019: page navigation + wait).
 func (n *Navigator) WaitForLoad(ctx context.Context, condition WaitCondition, timeout time.Duration) error {
+	if ctx == nil {
+		return errors.New("wait: context required")
+	}
+	if !IsValidWaitCondition(condition) {
+		return fmt.Errorf("wait: invalid condition %q", condition)
+	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	deadline := time.Now().Add(timeout)
-	for {
-		n.mu.RLock()
-		state := n.state
-		n.mu.RUnlock()
-		if state == NavigationStateComplete {
-			return nil
-		}
-		if state == NavigationStateError {
-			return fmt.Errorf("wait: navigation error")
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("wait: timeout after %v", timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-		}
+	if err := n.requireCaller(); err != nil {
+		return err
 	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := n.waitForCondition(waitCtx, condition); err != nil {
+		n.setError(err)
+		return err
+	}
+	n.mu.Lock()
+	n.state = NavigationStateComplete
+	n.mu.Unlock()
+	return nil
 }
 
 // State returns the current navigation state
@@ -156,33 +204,152 @@ func (n *Navigator) CurrentURL() string {
 // GoBack navigates back in history
 // (spec L4019: page navigation + wait).
 func (n *Navigator) GoBack(ctx context.Context) NavigationResult {
-	// In a real implementation, this would use CDP Page.goBack
-	return NavigationResult{
-		Success:  true,
-		State:    NavigationStateComplete,
-		Duration: 0,
-	}
+	return n.navigateHistory(ctx, -1)
 }
 
 // GoForward navigates forward in history
 // (spec L4019: page navigation + wait).
 func (n *Navigator) GoForward(ctx context.Context) NavigationResult {
-	return NavigationResult{
-		Success:  true,
-		State:    NavigationStateComplete,
-		Duration: 0,
-	}
+	return n.navigateHistory(ctx, 1)
 }
 
 // Reload reloads the current page
 // (spec L4019: page navigation + wait).
 func (n *Navigator) Reload(ctx context.Context) NavigationResult {
+	start := time.Now()
+	if ctx == nil {
+		return NavigationResult{Success: false, State: NavigationStateError, Error: "reload: context required", Duration: time.Since(start)}
+	}
+	if err := n.requireCaller(); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	n.mu.Lock()
+	n.state = NavigationStateLoading
+	currentURL := n.currentURL
+	n.mu.Unlock()
+	if err := n.caller.Call(ctx, "Page.reload", map[string]any{"ignoreCache": false}, &struct{}{}); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, URL: currentURL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	if err := n.waitForCondition(ctx, WaitLoad); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, URL: currentURL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
 	n.mu.Lock()
 	n.state = NavigationStateComplete
+	n.lastNav = time.Now()
 	n.mu.Unlock()
-	return NavigationResult{
-		Success: true,
-		State:   NavigationStateComplete,
+	return NavigationResult{Success: true, URL: currentURL, State: NavigationStateComplete, Duration: time.Since(start)}
+}
+
+type navigationHistory struct {
+	CurrentIndex int `json:"currentIndex"`
+	Entries      []struct {
+		ID  int64  `json:"id"`
+		URL string `json:"url"`
+	} `json:"entries"`
+}
+
+func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationResult {
+	start := time.Now()
+	if ctx == nil {
+		return NavigationResult{Success: false, State: NavigationStateError, Error: "history: context required", Duration: time.Since(start)}
+	}
+	if err := n.requireCaller(); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	var history navigationHistory
+	if err := n.caller.Call(ctx, "Page.getNavigationHistory", map[string]any{}, &history); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	index := history.CurrentIndex + delta
+	if index < 0 || index >= len(history.Entries) {
+		err := fmt.Errorf("history: entry unavailable")
+		n.setError(err)
+		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	n.mu.Lock()
+	n.state = NavigationStateLoading
+	n.mu.Unlock()
+	entry := history.Entries[index]
+	if err := n.caller.Call(ctx, "Page.navigateToHistoryEntry", map[string]any{"entryId": entry.ID}, &struct{}{}); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, URL: entry.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	if err := n.waitForCondition(ctx, WaitLoad); err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, URL: entry.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	n.mu.Lock()
+	n.state = NavigationStateComplete
+	n.currentURL = entry.URL
+	n.lastNav = time.Now()
+	n.mu.Unlock()
+	return NavigationResult{Success: true, URL: entry.URL, State: NavigationStateComplete, Duration: time.Since(start)}
+}
+
+func (n *Navigator) waitForCondition(ctx context.Context, condition WaitCondition) error {
+	if ctx == nil {
+		return errors.New("wait: context required")
+	}
+	for {
+		ready, err := n.documentReady(ctx, condition)
+		if err != nil {
+			return err
+		}
+		if ready {
+			return nil
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (n *Navigator) documentReady(ctx context.Context, condition WaitCondition) (bool, error) {
+	var result struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := n.caller.Call(ctx, "Runtime.evaluate", map[string]any{
+		"expression": "document.readyState", "returnByValue": true,
+	}, &result); err != nil {
+		return false, fmt.Errorf("wait: ready-state probe: %w", err)
+	}
+	switch condition {
+	case WaitDOMContentLoaded:
+		return result.Result.Value == "interactive" || result.Result.Value == "complete", nil
+	case WaitLoad, WaitNetworkIdle, WaitNetworkAlmostIdle:
+		return result.Result.Value == "complete", nil
+	default:
+		return false, fmt.Errorf("wait: invalid condition %q", condition)
+	}
+}
+
+func (n *Navigator) requireCaller() error {
+	n.mu.RLock()
+	caller := n.caller
+	n.mu.RUnlock()
+	if caller == nil {
+		return ErrCallerRequired
+	}
+	return nil
+}
+
+func (n *Navigator) setError(err error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.state = NavigationStateError
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		n.state = NavigationStateAborted
 	}
 }
 

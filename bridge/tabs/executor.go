@@ -56,6 +56,15 @@ func NewTabExecutor(registry *TabRegistry, maxConcurrent int) *TabExecutor {
 // (spec L4021: concurrent tab execution).
 func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResult {
 	start := time.Now()
+	if ctx == nil {
+		return TabTaskResult{TabID: task.TabID, Success: false, Error: "executor: context required"}
+	}
+	if e.registry == nil {
+		return TabTaskResult{TabID: task.TabID, Success: false, Error: "executor: tab registry required"}
+	}
+	if err := e.registry.Sync(ctx); err != nil {
+		return TabTaskResult{TabID: task.TabID, Success: false, Error: err.Error()}
+	}
 	tab, ok := e.registry.GetTab(task.TabID)
 	if !ok {
 		return TabTaskResult{

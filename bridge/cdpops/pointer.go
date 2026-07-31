@@ -1,6 +1,7 @@
 package cdpops
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -27,10 +28,13 @@ const (
 // (spec L4019: mouse/touch events).
 type MouseEvent struct {
 	Type       MouseButton `json:"type"`
+	EventType  string      `json:"eventType,omitempty"`
 	X          float64     `json:"x"`
 	Y          float64     `json:"y"`
 	Button     MouseButton `json:"button"`
 	ClickCount int         `json:"clickCount"`
+	DeltaX     float64     `json:"deltaX,omitempty"`
+	DeltaY     float64     `json:"deltaY,omitempty"`
 	Timestamp  time.Time   `json:"timestamp"`
 }
 
@@ -48,26 +52,63 @@ type TouchEvent struct {
 type PointerDispatcher struct {
 	mu     sync.Mutex
 	events []interface{}
+	caller Caller
 }
 
 // NewPointerDispatcher creates a new PointerDispatcher
 // (spec L4019: mouse/touch events).
-func NewPointerDispatcher() *PointerDispatcher {
-	return &PointerDispatcher{}
+func NewPointerDispatcher(callers ...Caller) *PointerDispatcher {
+	var caller Caller
+	if len(callers) > 0 {
+		caller = callers[0]
+	}
+	return &PointerDispatcher{caller: caller}
 }
 
 // DispatchMouse dispatches a mouse event
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) DispatchMouse(event MouseEvent) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !IsValidMouseButton(event.Button) {
+	return d.DispatchMouseContext(context.Background(), event)
+}
+
+// DispatchMouseContext dispatches one mouse event through CDP and records it
+// only after the protocol call succeeds.
+func (d *PointerDispatcher) DispatchMouseContext(ctx context.Context, event MouseEvent) error {
+	if ctx == nil {
+		return fmt.Errorf("pointer: context required")
+	}
+	eventType := event.EventType
+	if eventType == "" {
+		eventType = "mousePressed"
+	}
+	if !isValidMouseEventType(eventType) {
+		return fmt.Errorf("pointer: invalid mouse event type %q", eventType)
+	}
+	if eventType != "mouseMoved" && eventType != "mouseWheel" && !IsValidMouseButton(event.Button) {
 		return fmt.Errorf("pointer: invalid mouse button %q", event.Button)
+	}
+	if err := d.requireCaller(); err != nil {
+		return err
 	}
 	if event.ClickCount <= 0 {
 		event.ClickCount = 1
 	}
+	params := map[string]any{"type": eventType, "x": event.X, "y": event.Y}
+	if eventType != "mouseMoved" && eventType != "mouseWheel" {
+		params["button"] = string(event.Button)
+		params["clickCount"] = event.ClickCount
+	}
+	if eventType == "mouseWheel" {
+		params["deltaX"] = event.DeltaX
+		params["deltaY"] = event.DeltaY
+	}
+	if err := d.caller.Call(ctx, "Input.dispatchMouseEvent", params, &struct{}{}); err != nil {
+		return fmt.Errorf("pointer: dispatch mouse: %w", err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	event.Timestamp = time.Now()
+	event.EventType = eventType
 	d.events = append(d.events, event)
 	return nil
 }
@@ -75,11 +116,30 @@ func (d *PointerDispatcher) DispatchMouse(event MouseEvent) error {
 // DispatchTouch dispatches a touch event
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) DispatchTouch(event TouchEvent) error {
+	return d.DispatchTouchContext(context.Background(), event)
+}
+
+// DispatchTouchContext dispatches one touch event through CDP and records it
+// only after the protocol call succeeds.
+func (d *PointerDispatcher) DispatchTouchContext(ctx context.Context, event TouchEvent) error {
+	if ctx == nil {
+		return fmt.Errorf("pointer: context required")
+	}
+	if !isValidTouchEventType(event.Type) {
+		return fmt.Errorf("pointer: invalid touch event type %q", event.Type)
+	}
+	if err := d.requireCaller(); err != nil {
+		return err
+	}
+	params := map[string]any{
+		"type":        event.Type,
+		"touchPoints": []map[string]any{{"x": event.X, "y": event.Y}},
+	}
+	if err := d.caller.Call(ctx, "Input.dispatchTouchEvent", params, &struct{}{}); err != nil {
+		return fmt.Errorf("pointer: dispatch touch: %w", err)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if event.Type == "" {
-		return fmt.Errorf("pointer: empty touch event type")
-	}
 	event.Timestamp = time.Now()
 	d.events = append(d.events, event)
 	return nil
@@ -88,47 +148,85 @@ func (d *PointerDispatcher) DispatchTouch(event TouchEvent) error {
 // Click dispatches a click at the given coordinates
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) Click(x, y float64, button MouseButton) error {
-	return d.DispatchMouse(MouseEvent{
-		Type:       button,
-		X:          x,
-		Y:          y,
-		Button:     button,
-		ClickCount: 1,
-	})
+	return d.ClickContext(context.Background(), x, y, button)
+}
+
+func (d *PointerDispatcher) ClickContext(ctx context.Context, x, y float64, button MouseButton) error {
+	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
+		if err := d.DispatchMouseContext(ctx, MouseEvent{Type: button, EventType: eventType, X: x, Y: y, Button: button, ClickCount: 1}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DoubleClick dispatches a double-click
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) DoubleClick(x, y float64) error {
-	return d.DispatchMouse(MouseEvent{
-		Type:       MouseButtonLeft,
-		X:          x,
-		Y:          y,
-		Button:     MouseButtonLeft,
-		ClickCount: 2,
-	})
+	return d.DoubleClickContext(context.Background(), x, y)
+}
+
+func (d *PointerDispatcher) DoubleClickContext(ctx context.Context, x, y float64) error {
+	for range 2 {
+		for _, eventType := range []string{"mousePressed", "mouseReleased"} {
+			if err := d.DispatchMouseContext(ctx, MouseEvent{Type: MouseButtonLeft, EventType: eventType, X: x, Y: y, Button: MouseButtonLeft, ClickCount: 2}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // MouseMove dispatches a mouse move
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) MouseMove(x, y float64) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.events = append(d.events, MouseEvent{
-		X:         x,
-		Y:         y,
-		Timestamp: time.Now(),
-	})
-	return nil
+	return d.MouseMoveContext(context.Background(), x, y)
+}
+
+func (d *PointerDispatcher) MouseMoveContext(ctx context.Context, x, y float64) error {
+	return d.DispatchMouseContext(ctx, MouseEvent{EventType: "mouseMoved", X: x, Y: y})
+}
+
+// Wheel dispatches a mouse-wheel event through CDP.
+func (d *PointerDispatcher) Wheel(ctx context.Context, x, y, deltaX, deltaY float64) error {
+	return d.DispatchMouseContext(ctx, MouseEvent{EventType: "mouseWheel", X: x, Y: y, DeltaX: deltaX, DeltaY: deltaY})
+}
+
+// TouchTapContext dispatches a real touch start/end pair.
+func (d *PointerDispatcher) TouchTapContext(ctx context.Context, x, y float64) error {
+	if err := d.DispatchTouchContext(ctx, TouchEvent{Type: "touchStart", X: x, Y: y}); err != nil {
+		return err
+	}
+	return d.DispatchTouchContext(ctx, TouchEvent{Type: "touchEnd", X: x, Y: y})
 }
 
 // TouchTap dispatches a touch tap (start + end)
 // (spec L4019: mouse/touch events).
 func (d *PointerDispatcher) TouchTap(x, y float64) error {
-	if err := d.DispatchTouch(TouchEvent{Type: "touchStart", X: x, Y: y}); err != nil {
-		return err
+	return d.TouchTapContext(context.Background(), x, y)
+}
+
+func (d *PointerDispatcher) requireCaller() error {
+	if d.caller == nil {
+		return ErrCallerRequired
 	}
-	return d.DispatchTouch(TouchEvent{Type: "touchEnd", X: x, Y: y})
+	return nil
+}
+
+func isValidMouseEventType(eventType string) bool {
+	switch eventType {
+	case "mouseMoved", "mousePressed", "mouseReleased", "mouseWheel":
+		return true
+	}
+	return false
+}
+
+func isValidTouchEventType(eventType string) bool {
+	switch eventType {
+	case "touchStart", "touchMove", "touchEnd", "touchCancel":
+		return true
+	}
+	return false
 }
 
 // EventCount returns the total number of dispatched events

@@ -2,10 +2,90 @@ package tabs
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
 )
+
+type testTargetSource struct {
+	mu           sync.Mutex
+	nextID       int
+	targets      map[string]Target
+	failCreate   bool
+	failActivate bool
+	failClose    bool
+}
+
+func newTestTargetSource() *testTargetSource {
+	return &testTargetSource{targets: make(map[string]Target)}
+}
+
+func (s *testTargetSource) ListTargets(_ context.Context) ([]Target, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.targets))
+	for id := range s.targets {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]Target, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, s.targets[id])
+	}
+	return out, nil
+}
+
+func (s *testTargetSource) CreateTarget(_ context.Context, url string) (Target, error) {
+	if s.failCreate {
+		return Target{}, fmt.Errorf("forced create failure")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextID++
+	target := Target{ID: fmt.Sprintf("target-%d", s.nextID), URL: url, State: "attached"}
+	s.targets[target.ID] = target
+	return target, nil
+}
+
+func (s *testTargetSource) ActivateTarget(_ context.Context, id string) error {
+	if s.failActivate {
+		return fmt.Errorf("forced activate failure")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	target, ok := s.targets[id]
+	if !ok {
+		return fmt.Errorf("target %s not found", id)
+	}
+	target.State = "active"
+	s.targets[id] = target
+	return nil
+}
+
+func (s *testTargetSource) CloseTarget(_ context.Context, id string) error {
+	if s.failClose {
+		return fmt.Errorf("forced close failure")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.targets[id]; !ok {
+		return fmt.Errorf("target %s not found", id)
+	}
+	delete(s.targets, id)
+	return nil
+}
+
+func (s *testTargetSource) setState(id, state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	target := s.targets[id]
+	target.State = state
+	s.targets[id] = target
+}
+
+func newTestRegistry() *TabRegistry { return NewTabRegistry(newTestTargetSource()) }
 
 // ==================== manager.go tests ====================
 
@@ -21,10 +101,49 @@ func TestTASK2254_NewTabRegistry(t *testing.T) {
 	}
 }
 
+func TestTASK2568_TabRegistryRequiresBridgeSourceAndProjectsCrash(t *testing.T) {
+	withoutSource := NewTabRegistry()
+	if tab := withoutSource.CreateTab("user", "https://example.com"); tab != nil {
+		t.Fatal("tab registry created an independent tab identity")
+	}
+	source := newTestTargetSource()
+	registry := NewTabRegistry(source)
+	tab := registry.CreateTab("user", "https://example.com")
+	if tab == nil || tab.ID != "target-1" || tab.CDPID != tab.ID {
+		t.Fatalf("tab=%#v, want bridge target identity", tab)
+	}
+	source.setState(tab.ID, "crashed")
+	projected, err := registry.ListTabsContext(context.Background(), "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected) != 1 || projected[0].State != TabStateCrashed {
+		t.Fatalf("crash projection=%#v", projected)
+	}
+}
+
+func TestTASK2568_TabLifecycleFailureDoesNotMutateProjection(t *testing.T) {
+	source := newTestTargetSource()
+	registry := NewTabRegistry(source)
+	source.failCreate = true
+	if tab := registry.CreateTab("user", "https://example.com"); tab != nil {
+		t.Fatal("failed target creation produced a local tab")
+	}
+	source.failCreate = false
+	tab := registry.CreateTab("user", "https://example.com")
+	source.failClose = true
+	if ok := registry.CloseTab(tab.ID); ok {
+		t.Fatal("failed target close reported success")
+	}
+	if got, ok := registry.GetTab(tab.ID); !ok || got.ID != tab.ID {
+		t.Fatal("failed close removed the live source projection")
+	}
+}
+
 // TestTASK2254_CreateTab verifies tab creation
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_CreateTab(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if tab == nil {
 		t.Fatal("tab should not be nil")
@@ -46,7 +165,7 @@ func TestTASK2254_CreateTab(t *testing.T) {
 // TestTASK2254_GetTab verifies tab retrieval
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_GetTab(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	got, ok := r.GetTab(tab.ID)
 	if !ok {
@@ -64,7 +183,7 @@ func TestTASK2254_GetTab(t *testing.T) {
 // TestTASK2254_CloseTab verifies tab closing
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_CloseTab(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if !r.CloseTab(tab.ID) {
 		t.Error("close should succeed")
@@ -80,7 +199,7 @@ func TestTASK2254_CloseTab(t *testing.T) {
 // TestTASK2254_ListTabs verifies tab listing
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_ListTabs(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	r.CreateTab("user1", "https://a.com")
 	r.CreateTab("user1", "https://b.com")
 	r.CreateTab("user2", "https://c.com")
@@ -97,38 +216,38 @@ func TestTASK2254_ListTabs(t *testing.T) {
 // TestTASK2254_UpdateTabState verifies state updates
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_UpdateTabState(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
-	if !r.UpdateTabState(tab.ID, TabStateActive) {
-		t.Error("update should succeed")
+	if !r.UpdateTabState(tab.ID, TabStateOpen) {
+		t.Error("source state should be observed")
 	}
 	got, _ := r.GetTab(tab.ID)
-	if got.State != TabStateActive {
-		t.Error("state should be active")
+	if got.State != TabStateOpen {
+		t.Error("state should be open")
 	}
 }
 
 // TestTASK2254_UpdateTabURL verifies URL updates
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_UpdateTabURL(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
-	if !r.UpdateTabURL(tab.ID, "https://new.com", "New Title") {
-		t.Error("update should succeed")
+	if r.UpdateTabURL(tab.ID, "https://new.com", "New Title") {
+		t.Error("registry must not mutate source metadata")
 	}
 	got, _ := r.GetTab(tab.ID)
-	if got.URL != "https://new.com" {
-		t.Error("url mismatch")
+	if got.URL != "https://example.com" {
+		t.Error("source URL should remain authoritative")
 	}
-	if got.Title != "New Title" {
-		t.Error("title mismatch")
+	if got.Title != "" {
+		t.Error("source title should remain authoritative")
 	}
 }
 
 // TestTASK2254_CloseAll verifies closing all tabs for a user
 // (spec L4021: tab registry + lifecycle).
 func TestTASK2254_CloseAll(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	r.CreateTab("user1", "https://a.com")
 	r.CreateTab("user1", "https://b.com")
 	r.CreateTab("user2", "https://c.com")
@@ -168,7 +287,7 @@ func TestTASK2254_TabString(t *testing.T) {
 // TestTASK2254_NewTabExecutor verifies creation
 // (spec L4021: concurrent tab execution).
 func TestTASK2254_NewTabExecutor(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	e := NewTabExecutor(r, 4)
 	if e == nil {
 		t.Fatal("executor should not be nil")
@@ -180,7 +299,7 @@ func TestTASK2254_NewTabExecutor(t *testing.T) {
 
 // TestTASK2254_NewTabExecutorDefault verifies default concurrency.
 func TestTASK2254_NewTabExecutorDefault(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	e := NewTabExecutor(r, 0)
 	if e.MaxConcurrent() != 4 {
 		t.Error("default max concurrent should be 4")
@@ -190,7 +309,7 @@ func TestTASK2254_NewTabExecutorDefault(t *testing.T) {
 // TestTASK2254_ExecuteTask verifies task execution
 // (spec L4021: concurrent tab execution).
 func TestTASK2254_ExecuteTask(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	e := NewTabExecutor(r, 4)
 	task := TabTask{
@@ -207,7 +326,7 @@ func TestTASK2254_ExecuteTask(t *testing.T) {
 
 // TestTASK2254_ExecuteTaskNotFound verifies nonexistent tab.
 func TestTASK2254_ExecuteTaskNotFound(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	e := NewTabExecutor(r, 4)
 	task := TabTask{
 		TabID: "nonexistent",
@@ -223,7 +342,7 @@ func TestTASK2254_ExecuteTaskNotFound(t *testing.T) {
 
 // TestTASK2254_ExecuteTaskError verifies error propagation.
 func TestTASK2254_ExecuteTaskError(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	e := NewTabExecutor(r, 4)
 	task := TabTask{
@@ -244,7 +363,7 @@ func TestTASK2254_ExecuteTaskError(t *testing.T) {
 // TestTASK2254_ExecuteConcurrent verifies concurrent execution
 // (spec L4021: concurrent tab execution).
 func TestTASK2254_ExecuteConcurrent(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab1 := r.CreateTab("user1", "https://a.com")
 	tab2 := r.CreateTab("user1", "https://b.com")
 	e := NewTabExecutor(r, 4)
@@ -266,7 +385,7 @@ func TestTASK2254_ExecuteConcurrent(t *testing.T) {
 // TestTASK2254_ExecuteSequential verifies sequential execution
 // (spec L4021: concurrent tab execution).
 func TestTASK2254_ExecuteSequential(t *testing.T) {
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab1 := r.CreateTab("user1", "https://a.com")
 	tab2 := r.CreateTab("user1", "https://b.com")
 	e := NewTabExecutor(r, 4)
@@ -599,7 +718,7 @@ func TestTASK2254_LockString(t *testing.T) {
 // (spec L4021: manager.go, executor.go, dialog.go, lock.go).
 func TestTASK2254_FullSpecParity(t *testing.T) {
 	// 1. manager.go - tab registry + lifecycle
-	r := NewTabRegistry()
+	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if tab == nil || r.Count() != 1 {
 		t.Error("manager.go: tab creation failed")

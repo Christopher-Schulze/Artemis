@@ -15,6 +15,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemistabs "github.com/Christopher-Schulze/Artemis/bridge/tabs"
 	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
 	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
@@ -175,6 +176,10 @@ func TestRuntimeRealChromiumInteractionMatrix(t *testing.T) {
 		t.Fatal("tab target ID missing")
 	}
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindTabSwitch, TargetID: tab.TargetID}))
+	active, ok := f.runtime.tabs.GetTab(tab.TargetID)
+	if !ok || active.State != artemistabs.TabStateActive || active.CDPID != tab.TargetID {
+		t.Fatalf("active tab projection=%#v", active)
+	}
 	listed := f.runtime.Execute(ctx, Request{Kind: KindTabList})
 	requireAction(t, listed)
 	ids, ok := listed.Value.([]string)

@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/bridge/cdpops"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	artemistabs "github.com/Christopher-Schulze/Artemis/bridge/tabs"
 	artemisdownload "github.com/Christopher-Schulze/Artemis/download"
 )
 
@@ -139,6 +141,9 @@ type Runtime struct {
 	observer     *bridgeobserve.Collector
 	policy       Policy
 	now          func() time.Time
+	navigator    *cdpops.Navigator
+	pointer      *cdpops.PointerDispatcher
+	tabs         *artemistabs.TabRegistry
 	downloads    *artemisdownload.DownloadManager
 	downloadOnce sync.Once
 	downloadErr  error
@@ -161,7 +166,13 @@ func NewRuntimeWithConfig(page *bridge.Page, observer *bridgeobserve.Collector, 
 	if observer == nil {
 		return nil, errors.New("actions runtime: observer required")
 	}
-	return &Runtime{page: page, observer: observer, policy: policy, now: time.Now, downloads: config.Downloads}, nil
+	caller := pageCaller{page: page}
+	source := &pageTargetSource{root: page, activeID: page.TargetID()}
+	return &Runtime{
+		page: page, observer: observer, policy: policy, now: time.Now,
+		navigator: cdpops.NewNavigator(caller), pointer: cdpops.NewPointerDispatcher(caller),
+		tabs: artemistabs.NewTabRegistry(source), downloads: config.Downloads,
+	}, nil
 }
 
 func (r *Runtime) Execute(ctx context.Context, request Request) Outcome {
@@ -272,13 +283,21 @@ func (r *Runtime) executeOnce(ctx context.Context, q Request, e Evidence) Outcom
 	case KindTabOpen:
 		return r.tabOpen(ctx, q, e)
 	case KindTabClose:
-		if err := r.page.Close(); err != nil {
+		targetID := q.TargetID
+		if targetID == "" {
+			targetID = r.page.TargetID()
+		}
+		closed, err := r.tabs.CloseTabContext(ctx, targetID)
+		if err != nil {
 			return failedNow(e, FailureProtocol, err.Error())
+		}
+		if !closed {
+			return failedNow(e, FailureTarget, "tab target not found")
 		}
 		e.Postcondition = Postcondition{Type: "page_closed", Passed: true}
 		return Outcome{Success: true, Evidence: e}
 	case KindTabList:
-		return r.tabList(e)
+		return r.tabList(ctx, e)
 	case KindTabSwitch:
 		return r.tabSwitch(ctx, q, e)
 	case KindEvaluate:
@@ -400,11 +419,9 @@ func (r *Runtime) resolve(ctx context.Context, ref string, e Evidence) (bridgeob
 }
 
 func (r *Runtime) navigate(ctx context.Context, q Request, e Evidence, _ bool) Outcome {
-	if _, _, err := r.page.Navigate(ctx, q.URL); err != nil {
-		return failedNow(e, classifyContext(ctx, FailureProtocol), err.Error())
-	}
-	if err := r.waitReady(ctx); err != nil {
-		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+	result := r.navigator.Navigate(ctx, cdpops.NavigationRequest{URL: q.URL, WaitUntil: cdpops.WaitLoad, Timeout: q.Timeout})
+	if !result.Success {
+		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
 	}
 	value, err := r.eval(ctx, "location.href")
 	if err != nil {
@@ -419,68 +436,44 @@ func (r *Runtime) navigate(ctx context.Context, q Request, e Evidence, _ bool) O
 	return Outcome{Success: true, Value: actual, Evidence: e}
 }
 func (r *Runtime) history(ctx context.Context, q Request, e Evidence, delta int) Outcome {
-	var h struct {
-		CurrentIndex int `json:"currentIndex"`
-		Entries      []struct {
-			ID int64 `json:"id"`
-		} `json:"entries"`
+	var result cdpops.NavigationResult
+	if delta < 0 {
+		result = r.navigator.GoBack(ctx)
+	} else {
+		result = r.navigator.GoForward(ctx)
 	}
-	if err := r.page.Call(ctx, "Page.getNavigationHistory", map[string]any{}, &h); err != nil {
-		return failedNow(e, FailureProtocol, err.Error())
-	}
-	index := h.CurrentIndex + delta
-	if index < 0 || index >= len(h.Entries) {
-		return failedNow(e, FailureValidation, "history entry unavailable")
-	}
-	if out := r.simplePage(ctx, "Page.navigateToHistoryEntry", map[string]any{"entryId": h.Entries[index].ID}, q, e, "history_dispatched"); !out.Success {
-		return out
-	}
-	if err := r.waitReady(ctx); err != nil {
-		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+	if !result.Success {
+		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
 	}
 	e.Postcondition = Postcondition{Type: "history_ready", Passed: true}
 	return Outcome{Success: true, Evidence: e}
 }
 
 func (r *Runtime) reload(ctx context.Context, q Request, e Evidence) Outcome {
-	if out := r.simplePage(ctx, "Page.reload", map[string]any{}, q, e, "reload_dispatched"); !out.Success {
-		return out
-	}
-	if err := r.waitReady(ctx); err != nil {
-		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+	result := r.navigator.Reload(ctx)
+	if !result.Success {
+		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
 	}
 	e.Postcondition = Postcondition{Type: "reload_ready", Passed: true}
 	return Outcome{Success: true, Evidence: e}
 }
 func (r *Runtime) wait(ctx context.Context, q Request, e Evidence) Outcome {
-	if err := r.waitReady(ctx); err != nil {
+	if err := r.navigator.WaitForLoad(ctx, cdpops.WaitLoad, q.Timeout); err != nil {
 		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
 	}
 	e.Postcondition = Postcondition{Type: "document_ready", Actual: "complete", Passed: true}
 	return Outcome{Success: true, Evidence: e}
 }
-func (r *Runtime) simplePage(ctx context.Context, method string, params any, _ Request, e Evidence, post string) Outcome {
-	if err := r.page.Call(ctx, method, params, &struct{}{}); err != nil {
-		return failedNow(e, classifyContext(ctx, FailureProtocol), err.Error())
-	}
-	e.Postcondition = Postcondition{Type: post, Passed: true}
-	return Outcome{Success: true, Evidence: e}
-}
-
 func (r *Runtime) click(ctx context.Context, n bridgeobserve.Node, e Evidence) Outcome {
 	x, y, err := r.elementPoint(ctx, n)
 	if err != nil {
 		return failedNow(e, FailureActionability, err.Error())
 	}
-	for _, event := range []string{"mouseMoved", "mousePressed", "mouseReleased"} {
-		params := map[string]any{"type": event, "x": x, "y": y, "button": "left", "clickCount": 1}
-		if event == "mouseMoved" {
-			delete(params, "button")
-			delete(params, "clickCount")
-		}
-		if err := r.page.Call(ctx, "Input.dispatchMouseEvent", params, &struct{}{}); err != nil {
-			return failedNow(e, FailureProtocol, err.Error())
-		}
+	if err := r.pointer.MouseMoveContext(ctx, x, y); err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
+	}
+	if err := r.pointer.ClickContext(ctx, x, y, cdpops.MouseButtonLeft); err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
 	}
 	e.Postcondition = Postcondition{Type: "input_dispatch", Actual: "mouseReleased", Passed: true}
 	return Outcome{Success: true, Evidence: e}
@@ -490,7 +483,7 @@ func (r *Runtime) hover(ctx context.Context, n bridgeobserve.Node, e Evidence) O
 	if pointErr != nil {
 		return failedNow(e, FailureActionability, pointErr.Error())
 	}
-	if err := r.page.Call(ctx, "Input.dispatchMouseEvent", map[string]any{"type": "mouseMoved", "x": x, "y": y}, &struct{}{}); err != nil {
+	if err := r.pointer.MouseMoveContext(ctx, x, y); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
 	return r.elementBool(ctx, n, e, "function(){return this.matches(':hover')}", nil, "hovered")
@@ -500,7 +493,7 @@ func (r *Runtime) scroll(ctx context.Context, q Request, e Evidence) Outcome {
 	if err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
-	if err := r.page.Call(ctx, "Input.dispatchMouseEvent", map[string]any{"type": "mouseWheel", "x": q.X, "y": q.Y, "deltaX": q.DeltaX, "deltaY": q.DeltaY}, &struct{}{}); err != nil {
+	if err := r.pointer.Wheel(ctx, q.X, q.Y, q.DeltaX, q.DeltaY); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
 	var after any
@@ -815,34 +808,34 @@ func (r *Runtime) dialog(ctx context.Context, q Request, e Evidence) Outcome {
 	return Outcome{Success: true, Evidence: e}
 }
 func (r *Runtime) tabOpen(ctx context.Context, q Request, e Evidence) Outcome {
-	page, err := r.page.NewSibling(ctx, q.URL)
+	tab, err := r.tabs.CreateTabContext(ctx, "", q.URL)
 	if err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
-	e.Postcondition = Postcondition{Type: "tab_attached", Actual: page.TargetID(), Passed: page.TargetID() != ""}
-	return Outcome{Success: true, TargetID: page.TargetID(), Evidence: e}
+	e.Postcondition = Postcondition{Type: "tab_attached", Actual: tab.ID, Passed: tab.ID != ""}
+	return Outcome{Success: true, TargetID: tab.ID, Evidence: e}
 }
-func (r *Runtime) tabList(e Evidence) Outcome {
-	pages := r.page.ContextPages()
-	ids := make([]string, len(pages))
-	for i, page := range pages {
-		ids[i] = page.TargetID()
+func (r *Runtime) tabList(ctx context.Context, e Evidence) Outcome {
+	tabs, err := r.tabs.ListTabsContext(ctx, "")
+	if err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
+	}
+	ids := make([]string, len(tabs))
+	for i, tab := range tabs {
+		ids[i] = tab.ID
 	}
 	e.Postcondition = Postcondition{Type: "tab_list", Actual: len(ids), Passed: true}
 	return Outcome{Success: true, Value: ids, Evidence: e}
 }
 func (r *Runtime) tabSwitch(ctx context.Context, q Request, e Evidence) Outcome {
-	for _, page := range r.page.ContextPages() {
-		if page.TargetID() != q.TargetID {
-			continue
+	if err := r.tabs.ActivateTabContext(ctx, q.TargetID); err != nil {
+		if errors.Is(err, artemistabs.ErrTargetNotFound) {
+			return failedNow(e, FailureTarget, err.Error())
 		}
-		if err := page.Activate(ctx); err != nil {
-			return failedNow(e, FailureProtocol, err.Error())
-		}
-		e.Postcondition = Postcondition{Type: "tab_activated", Actual: q.TargetID, Passed: true}
-		return Outcome{Success: true, TargetID: q.TargetID, Evidence: e}
+		return failedNow(e, FailureProtocol, err.Error())
 	}
-	return failedNow(e, FailureTarget, "tab target not found")
+	e.Postcondition = Postcondition{Type: "tab_activated", Actual: q.TargetID, Passed: true}
+	return Outcome{Success: true, TargetID: q.TargetID, Evidence: e}
 }
 func (r *Runtime) evaluate(ctx context.Context, q Request, e Evidence) Outcome {
 	value, err := r.eval(ctx, q.Expression)
@@ -1054,21 +1047,6 @@ func (r *Runtime) eval(ctx context.Context, expression string) (any, error) {
 		return nil, errors.New(result.Exception.Text)
 	}
 	return result.Result.Value, nil
-}
-func (r *Runtime) waitReady(ctx context.Context) error {
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		value, err := r.eval(ctx, "document.readyState")
-		if err == nil && (value == "complete" || value == "interactive") {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 func snapshotHash(snapshot bridgeobserve.Snapshot) string {
 	record, err := bridgeobserve.NewTraceRecord(snapshot)

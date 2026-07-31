@@ -2,9 +2,79 @@ package cdpops
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 )
+
+type cdpopsTestCaller struct {
+	calls      []string
+	failMethod string
+}
+
+func (c *cdpopsTestCaller) Call(_ context.Context, method string, _ any, result any) error {
+	c.calls = append(c.calls, method)
+	if method == c.failMethod {
+		return fmt.Errorf("forced CDP failure for %s", method)
+	}
+	var value any
+	switch method {
+	case "Page.navigate":
+		value = map[string]any{"frameId": "frame-1", "loaderId": "loader-1"}
+	case "Runtime.evaluate":
+		value = map[string]any{"result": map[string]any{"value": "complete"}}
+	case "Page.getNavigationHistory":
+		value = map[string]any{"currentIndex": 1, "entries": []map[string]any{{"id": 1, "url": "https://one.example"}, {"id": 2, "url": "https://two.example"}, {"id": 3, "url": "https://three.example"}}}
+	case "Page.navigateToHistoryEntry", "Page.reload", "Input.dispatchMouseEvent", "Input.dispatchTouchEvent":
+		value = map[string]any{}
+	default:
+		return fmt.Errorf("unexpected CDP method %s", method)
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, result)
+}
+
+func newCDPOpsTestCaller() *cdpopsTestCaller { return &cdpopsTestCaller{} }
+
+func TestTASK2568_CDPPrimitivesRequireProtocolAndCaller(t *testing.T) {
+	noCaller := NewNavigator()
+	if result := noCaller.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"}); result.Success {
+		t.Fatal("navigator reported success without a CDP caller")
+	}
+	caller := newCDPOpsTestCaller()
+	dispatcher := NewPointerDispatcher(caller)
+	if err := dispatcher.ClickContext(context.Background(), 10, 20, MouseButtonLeft); err != nil {
+		t.Fatal(err)
+	}
+	if dispatcher.EventCount() != 2 {
+		t.Fatalf("event count=%d, want press+release", dispatcher.EventCount())
+	}
+	for _, want := range []string{"Input.dispatchMouseEvent", "Input.dispatchMouseEvent"} {
+		if len(caller.calls) == 0 || caller.calls[len(caller.calls)-1] != want {
+			t.Fatalf("last CDP call=%v, want %s", caller.calls, want)
+		}
+		caller.calls = caller.calls[:len(caller.calls)-1]
+	}
+}
+
+func TestTASK2568_CDPFailureCannotBecomeSuccessOrHistory(t *testing.T) {
+	navigator := NewNavigator(&cdpopsTestCaller{failMethod: "Page.navigate"})
+	if result := navigator.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"}); result.Success {
+		t.Fatal("navigation converted a CDP failure into success")
+	}
+	caller := &cdpopsTestCaller{failMethod: "Input.dispatchMouseEvent"}
+	dispatcher := NewPointerDispatcher(caller)
+	if err := dispatcher.Click(10, 20, MouseButtonLeft); err == nil {
+		t.Fatal("pointer swallowed a CDP failure")
+	}
+	if dispatcher.EventCount() != 0 {
+		t.Fatal("failed pointer event was recorded as executed")
+	}
+}
 
 // ==================== element.go tests ====================
 
@@ -246,7 +316,7 @@ func TestTASK2256_QuadToRect(t *testing.T) {
 // TestTASK2256_NavigatorNavigate verifies navigation
 // (spec L4019: page navigation + wait).
 func TestTASK2256_NavigatorNavigate(t *testing.T) {
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.Navigate(context.Background(), NavigationRequest{
 		URL:       "https://example.com",
 		WaitUntil: WaitLoad,
@@ -275,7 +345,7 @@ func TestTASK2256_NavigatorNavigateEmpty(t *testing.T) {
 // TestTASK2256_NavigatorWaitForLoad verifies wait
 // (spec L4019: page navigation + wait).
 func TestTASK2256_NavigatorWaitForLoad(t *testing.T) {
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	n.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"})
 	err := n.WaitForLoad(context.Background(), WaitLoad, 1*time.Second)
 	if err != nil {
@@ -286,7 +356,7 @@ func TestTASK2256_NavigatorWaitForLoad(t *testing.T) {
 // TestTASK2256_NavigatorGoBack verifies back navigation
 // (spec L4019: page navigation + wait).
 func TestTASK2256_NavigatorGoBack(t *testing.T) {
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.GoBack(context.Background())
 	if !result.Success {
 		t.Error("go back should succeed")
@@ -296,7 +366,7 @@ func TestTASK2256_NavigatorGoBack(t *testing.T) {
 // TestTASK2256_NavigatorGoForward verifies forward navigation
 // (spec L4019: page navigation + wait).
 func TestTASK2256_NavigatorGoForward(t *testing.T) {
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.GoForward(context.Background())
 	if !result.Success {
 		t.Error("go forward should succeed")
@@ -306,7 +376,7 @@ func TestTASK2256_NavigatorGoForward(t *testing.T) {
 // TestTASK2256_NavigatorReload verifies reload
 // (spec L4019: page navigation + wait).
 func TestTASK2256_NavigatorReload(t *testing.T) {
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.Reload(context.Background())
 	if !result.Success {
 		t.Error("reload should succeed")
@@ -338,20 +408,20 @@ func TestTASK2256_IsValidNavigationState(t *testing.T) {
 // TestTASK2256_PointerClick verifies click
 // (spec L4019: mouse/touch events).
 func TestTASK2256_PointerClick(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.Click(100, 200, MouseButtonLeft)
 	if err != nil {
 		t.Fatalf("Click: %v", err)
 	}
-	if d.EventCount() != 1 {
-		t.Error("event count should be 1")
+	if d.EventCount() != 2 {
+		t.Error("event count should be 2 (press+release)")
 	}
 }
 
 // TestTASK2256_PointerDoubleClick verifies double-click
 // (spec L4019: mouse/touch events).
 func TestTASK2256_PointerDoubleClick(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.DoubleClick(100, 200)
 	if err != nil {
 		t.Fatalf("DoubleClick: %v", err)
@@ -361,7 +431,7 @@ func TestTASK2256_PointerDoubleClick(t *testing.T) {
 // TestTASK2256_PointerMouseMove verifies mouse move
 // (spec L4019: mouse/touch events).
 func TestTASK2256_PointerMouseMove(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.MouseMove(100, 200)
 	if err != nil {
 		t.Fatalf("MouseMove: %v", err)
@@ -371,7 +441,7 @@ func TestTASK2256_PointerMouseMove(t *testing.T) {
 // TestTASK2256_PointerTouchTap verifies touch tap
 // (spec L4019: mouse/touch events).
 func TestTASK2256_PointerTouchTap(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.TouchTap(100, 200)
 	if err != nil {
 		t.Fatalf("TouchTap: %v", err)
@@ -383,7 +453,7 @@ func TestTASK2256_PointerTouchTap(t *testing.T) {
 
 // TestTASK2256_PointerInvalidButton verifies invalid button.
 func TestTASK2256_PointerInvalidButton(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.DispatchMouse(MouseEvent{Button: MouseButton("invalid")})
 	if err == nil {
 		t.Error("invalid button should error")
@@ -392,11 +462,11 @@ func TestTASK2256_PointerInvalidButton(t *testing.T) {
 
 // TestTASK2256_PointerClear verifies clear.
 func TestTASK2256_PointerClear(t *testing.T) {
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	d.Click(100, 200, MouseButtonLeft)
 	cleared := d.Clear()
-	if cleared != 1 {
-		t.Errorf("cleared: got %d, want 1", cleared)
+	if cleared != 2 {
+		t.Errorf("cleared: got %d, want 2", cleared)
 	}
 	if d.EventCount() != 0 {
 		t.Error("count should be 0 after clear")
@@ -463,14 +533,14 @@ func TestTASK2256_FullSpecParity(t *testing.T) {
 	}
 
 	// 3. navigation.go - page navigation + wait
-	n := NewNavigator()
+	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"})
 	if !result.Success {
 		t.Error("navigation.go: navigate failed")
 	}
 
 	// 4. pointer.go - mouse/touch events
-	d := NewPointerDispatcher()
+	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	if err := d.Click(100, 200, MouseButtonLeft); err != nil {
 		t.Error("pointer.go: click failed")
 	}

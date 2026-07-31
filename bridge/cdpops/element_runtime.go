@@ -10,11 +10,13 @@ type Caller interface {
 	Call(context.Context, string, any, any) error
 }
 
+var ErrCallerRequired = errors.New("cdpops: CDP caller required")
+
 type ElementClient struct{ caller Caller }
 
 func NewElementClient(caller Caller) (*ElementClient, error) {
 	if caller == nil {
-		return nil, errors.New("element client: CDP caller required")
+		return nil, ErrCallerRequired
 	}
 	return &ElementClient{caller: caller}, nil
 }
