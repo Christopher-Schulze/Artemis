@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Christopher-Schulze/Artemis/telemetry"
 )
 
 func TestDoctorJSONExitCode(t *testing.T) {
@@ -30,6 +32,7 @@ func TestTraceEmitsJSON(t *testing.T) {
 		fmt.Fprint(w, `<!doctype html><html><head><title>TraceTest</title></head><body></body></html>`)
 	}))
 	defer page.Close()
+	traceDir := t.TempDir()
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -43,6 +46,7 @@ func TestTraceEmitsJSON(t *testing.T) {
 		"--url", page.URL,
 		"--allow-private-networks",
 		"--allow-port", portOf(page.URL),
+		"--trace-dir", traceDir,
 		"--format", "json",
 	})
 	w.Close()
@@ -61,6 +65,18 @@ func TestTraceEmitsJSON(t *testing.T) {
 	}
 	if len(result.Events) == 0 {
 		t.Errorf("expected trace events, got none")
+	}
+	if result.TargetID == "" || result.BrowserContextID == "" || result.TracePath == "" {
+		t.Fatalf("trace identity/archive missing: %+v", result)
+	}
+	entries, err := telemetry.ReadTraceZip(result.TracePath)
+	if err != nil {
+		t.Fatalf("read trace archive: %v", err)
+	}
+	for _, name := range []string{"trace.meta.json", "debug/console.json", "debug/page-errors.json", "debug/network.json", "screenshots/screenshot-0001.png", "snapshots/snapshot-0001.html"} {
+		if _, ok := entries[name]; !ok {
+			t.Fatalf("trace archive missing %s", name)
+		}
 	}
 }
 

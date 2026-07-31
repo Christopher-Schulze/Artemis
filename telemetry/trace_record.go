@@ -2,6 +2,9 @@ package telemetry
 
 import (
 	"archive/zip"
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +23,31 @@ type TraceRecordConfig struct {
 	TraceDir    string
 }
 
+// TargetIdentity identifies the concrete browser target that produced a
+// trace. It is intentionally protocol-level data, not a caller label.
+type TargetIdentity struct {
+	TargetID         string `json:"target_id"`
+	SessionID        string `json:"session_id"`
+	BrowserContextID string `json:"browser_context_id,omitempty"`
+}
+
+// Validate rejects an identity that cannot be tied to one attached target.
+func (i TargetIdentity) Validate() error {
+	if i.TargetID == "" {
+		return fmt.Errorf("trace target: target ID is required")
+	}
+	if i.SessionID == "" {
+		return fmt.Errorf("trace target: session ID is required")
+	}
+	return nil
+}
+
+// TraceSource is one optional browser resource captured with a trace.
+type TraceSource struct {
+	URL  string
+	Data []byte
+}
+
 // DefaultTraceRecordConfig returns the spec-default trace config:
 // screenshots=true, snapshots=true, sources=false.
 func DefaultTraceRecordConfig(traceDir string) TraceRecordConfig {
@@ -36,13 +64,15 @@ func DefaultTraceRecordConfig(traceDir string) TraceRecordConfig {
 type TraceRecorder struct {
 	mu          sync.Mutex
 	config      TraceRecordConfig
+	target      *TargetIdentity
 	active      bool
 	startedAt   time.Time
 	stoppedAt   time.Time
 	tracePath   string
 	screenshots [][]byte
 	snapshots   [][]byte
-	sources     [][]byte
+	sources     []TraceSource
+	debug       TraceDebugEvidence
 }
 
 // NewTraceRecorder builds a TraceRecorder with the supplied config.
@@ -50,6 +80,28 @@ func NewTraceRecorder(config TraceRecordConfig) *TraceRecorder {
 	return &TraceRecorder{
 		config: config,
 	}
+}
+
+// NewTraceRecorderWithTarget creates a recorder whose archive is bound to one
+// concrete browser target and CDP session.
+func NewTraceRecorderWithTarget(config TraceRecordConfig, target TargetIdentity) (*TraceRecorder, error) {
+	if err := target.Validate(); err != nil {
+		return nil, err
+	}
+	recorder := NewTraceRecorder(config)
+	recorder.target = &target
+	return recorder, nil
+}
+
+// SetDebugEvidence attaches bounded target-bound debug records before stop.
+func (r *TraceRecorder) SetDebugEvidence(evidence TraceDebugEvidence) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.active {
+		return fmt.Errorf("no active trace session")
+	}
+	r.debug = cloneTraceDebugEvidence(evidence)
+	return nil
 }
 
 // Start begins a trace recording session. Returns an error if a session is
@@ -67,6 +119,7 @@ func (r *TraceRecorder) Start() error {
 	r.screenshots = nil
 	r.snapshots = nil
 	r.sources = nil
+	r.debug = TraceDebugEvidence{}
 	return nil
 }
 
@@ -83,12 +136,9 @@ func (r *TraceRecorder) Stop() (string, error) {
 	r.active = false
 	r.stoppedAt = time.Now()
 
-	traceDir := r.config.TraceDir
-	if traceDir == "" {
-		traceDir = os.TempDir()
-	}
-	if err := os.MkdirAll(traceDir, 0o755); err != nil {
-		return "", fmt.Errorf("create trace dir: %w", err)
+	traceDir, err := ensureTraceRoot(r.config.TraceDir)
+	if err != nil {
+		return "", err
 	}
 
 	filename := fmt.Sprintf("browser-trace-%d-%03d.zip", r.startedAt.UnixMilli(), r.startedAt.Nanosecond()%1000000)
@@ -97,12 +147,12 @@ func (r *TraceRecorder) Stop() (string, error) {
 	// Atomic write: write to a sibling temp file then rename.
 	tempPath := buildSiblingTempPath(finalPath)
 	if err := r.writeZip(tempPath); err != nil {
-		os.Remove(tempPath)
-		return "", fmt.Errorf("write trace zip: %w", err)
+		cleanupErr := os.Remove(tempPath)
+		return "", errors.Join(fmt.Errorf("write trace zip: %w", err), cleanupErr)
 	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		os.Remove(tempPath)
-		return "", fmt.Errorf("rename trace zip: %w", err)
+		cleanupErr := os.Remove(tempPath)
+		return "", errors.Join(fmt.Errorf("rename trace zip: %w", err), cleanupErr)
 	}
 
 	r.tracePath = finalPath
@@ -119,7 +169,7 @@ func (r *TraceRecorder) AddScreenshot(data []byte) error {
 	if !r.config.Screenshots {
 		return nil
 	}
-	r.screenshots = append(r.screenshots, data)
+	r.screenshots = append(r.screenshots, bytes.Clone(data))
 	return nil
 }
 
@@ -133,7 +183,7 @@ func (r *TraceRecorder) AddSnapshot(data []byte) error {
 	if !r.config.Snapshots {
 		return nil
 	}
-	r.snapshots = append(r.snapshots, data)
+	r.snapshots = append(r.snapshots, bytes.Clone(data))
 	return nil
 }
 
@@ -147,7 +197,24 @@ func (r *TraceRecorder) AddSource(data []byte) error {
 	if !r.config.Sources {
 		return nil
 	}
-	r.sources = append(r.sources, data)
+	r.sources = append(r.sources, TraceSource{Data: bytes.Clone(data)})
+	return nil
+}
+
+// AddNamedSource appends a resource source while retaining its browser URL.
+func (r *TraceRecorder) AddNamedSource(source TraceSource) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.active {
+		return fmt.Errorf("no active trace session")
+	}
+	if !r.config.Sources {
+		return nil
+	}
+	if source.URL == "" {
+		return fmt.Errorf("trace source URL is required")
+	}
+	r.sources = append(r.sources, TraceSource{URL: source.URL, Data: bytes.Clone(source.Data)})
 	return nil
 }
 
@@ -203,15 +270,23 @@ func (r *TraceRecorder) Duration() time.Duration {
 }
 
 // writeZip writes the trace data as a .zip archive to the supplied path.
-func (r *TraceRecorder) writeZip(path string) error {
-	f, err := os.Create(path)
+func (r *TraceRecorder) writeZip(path string) (writeErr error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); writeErr == nil && err != nil {
+			writeErr = err
+		}
+	}()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
+	defer func() {
+		if err := zw.Close(); writeErr == nil && err != nil {
+			writeErr = err
+		}
+	}()
 
 	for i, data := range r.screenshots {
 		entry := fmt.Sprintf("screenshots/screenshot-%04d.png", i+1)
@@ -227,19 +302,52 @@ func (r *TraceRecorder) writeZip(path string) error {
 		}
 	}
 
-	for i, data := range r.sources {
+	for i, source := range r.sources {
 		entry := fmt.Sprintf("sources/source-%04d.txt", i+1)
-		if err := writeZipEntry(zw, entry, data); err != nil {
+		if source.URL != "" {
+			entry = fmt.Sprintf("sources/source-%04d-%s.txt", i+1, safeTraceName(source.URL))
+		}
+		if err := writeZipEntry(zw, entry, source.Data); err != nil {
 			return err
 		}
 	}
 
-	// Write a trace metadata file.
-	meta := fmt.Sprintf(`{"startedAt":"%s","stoppedAt":"%s","screenshots":%d,"snapshots":%d,"sources":%d}`,
-		r.startedAt.Format(time.RFC3339Nano),
-		r.stoppedAt.Format(time.RFC3339Nano),
-		len(r.screenshots), len(r.snapshots), len(r.sources))
-	return writeZipEntry(zw, "trace.meta.json", []byte(meta))
+	meta := traceMetadata{
+		StartedAt:   r.startedAt,
+		StoppedAt:   r.stoppedAt,
+		Screenshots: len(r.screenshots),
+		Snapshots:   len(r.snapshots),
+		Sources:     len(r.sources),
+		Debug:       newTraceDebugSummary(r.debug),
+	}
+	if r.target != nil {
+		meta.Target = r.target
+	}
+	metaData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal trace metadata: %w", err)
+	}
+	if err := writeZipEntry(zw, "trace.meta.json", metaData); err != nil {
+		return err
+	}
+	debugEntries := []struct {
+		name string
+		data any
+	}{
+		{name: "debug/console.json", data: r.debug.Console},
+		{name: "debug/page-errors.json", data: r.debug.PageErrors},
+		{name: "debug/network.json", data: r.debug.Network},
+	}
+	for _, entry := range debugEntries {
+		data, err := json.Marshal(entry.data)
+		if err != nil {
+			return fmt.Errorf("marshal trace debug %s: %w", entry.name, err)
+		}
+		if err := writeZipEntry(zw, entry.name, data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeZipEntry writes a single entry to a zip.Writer.
@@ -258,6 +366,32 @@ func buildSiblingTempPath(targetPath string) string {
 	dir := filepath.Dir(targetPath)
 	base := filepath.Base(targetPath)
 	return filepath.Join(dir, fmt.Sprintf(".artemis-trace-%d-%s.part", time.Now().UnixNano(), base))
+}
+
+func ensureTraceRoot(raw string) (string, error) {
+	traceDir := raw
+	if traceDir == "" {
+		traceDir = os.TempDir()
+	}
+	absolute, err := filepath.Abs(traceDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve trace dir: %w", err)
+	}
+	if err := os.MkdirAll(absolute, 0o755); err != nil {
+		return "", fmt.Errorf("create trace dir: %w", err)
+	}
+	root, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve trace root: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", fmt.Errorf("stat trace root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("trace root is not a directory: %s", root)
+	}
+	return root, nil
 }
 
 // ReadTraceZip opens a trace .zip archive and returns the list of entry
