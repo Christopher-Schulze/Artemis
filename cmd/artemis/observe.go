@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
@@ -24,12 +26,20 @@ func cmdObserve(args []string) int {
 	maxMemory := fs.Int64("max-memory-bytes", browserprocess.DefaultMaxMemoryBytes, "maximum Chromium process-group RSS bytes")
 	maxProfile := fs.Int64("max-profile-bytes", browserprocess.DefaultMaxProfileDiskBytes, "maximum Chromium profile bytes")
 	sessionTimeout := fs.Duration("session-timeout", browserprocess.DefaultSessionTimeout, "maximum Chromium session lifetime")
+	format := fs.String("format", string(formatEvidence), "output format: json, har or ndjson")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: artemis observe [flags] <url>"); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 1 {
 		fs.Usage()
+		return 2
+	}
+	// Reject an unknown format before launching Chromium so a typo costs
+	// nothing instead of a full browser session.
+	outputFormat, err := parseObserveFormat(*format)
+	if err != nil {
+		errf("observe format: %v", err)
 		return 2
 	}
 	sandboxPolicy, err := parseSandboxPolicy(*sandbox)
@@ -97,13 +107,66 @@ func cmdObserve(args []string) int {
 		errf("observe capture: %v", err)
 		return 1
 	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if err = encoder.Encode(evidence); err != nil {
+	if err = writeObserveOutput(os.Stdout, outputFormat, evidence); err != nil {
 		errf("observe output: %v", err)
 		return 1
 	}
 	return 0
+}
+
+// observeFormat selects how a capture is written to stdout.
+type observeFormat string
+
+const (
+	// formatEvidence emits the full ObservationEvidence document.
+	formatEvidence observeFormat = "json"
+	// formatHAR emits the captured network events as an HTTP Archive.
+	formatHAR observeFormat = "har"
+	// formatNDJSON emits one captured network event per line.
+	formatNDJSON observeFormat = "ndjson"
+)
+
+// parseObserveFormat validates the --format value.
+func parseObserveFormat(value string) (observeFormat, error) {
+	switch observeFormat(strings.ToLower(strings.TrimSpace(value))) {
+	case formatEvidence:
+		return formatEvidence, nil
+	case formatHAR:
+		return formatHAR, nil
+	case formatNDJSON:
+		return formatNDJSON, nil
+	default:
+		return "", fmt.Errorf("unsupported format %q: want json, har or ndjson", value)
+	}
+}
+
+// writeObserveOutput renders one capture in the selected format. The HAR and
+// NDJSON paths route the captured network events through the spec-mandated
+// formatters in observe/format.go (spec L4024).
+func writeObserveOutput(out io.Writer, format observeFormat, evidence artemisobserve.ObservationEvidence) error {
+	switch format {
+	case formatHAR, formatNDJSON:
+		target := artemisobserve.OutputFormatHAR
+		if format == formatNDJSON {
+			target = artemisobserve.OutputFormatNDJSON
+		}
+		encoded, err := artemisobserve.FormatOutput(target, evidence.Network)
+		if err != nil {
+			return err
+		}
+		if _, err = out.Write(encoded); err != nil {
+			return err
+		}
+		if format == formatHAR {
+			_, err = io.WriteString(out, "\n")
+			return err
+		}
+		return nil
+	default:
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(evidence)
+	}
 }
 
 func waitDocumentReady(ctx context.Context, page *bridge.Page) error {

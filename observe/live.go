@@ -372,7 +372,7 @@ func (c *LiveCollector) recordNetworkResponse(raw json.RawMessage) {
 	entry.event.URL = firstNonEmpty(response.Response.URL, entry.event.URL)
 	entry.event.Status = response.Response.Status
 	entry.event.MimeType = response.Response.MimeType
-	entry.event.Headers = rawHeaders(response.Response.Headers)
+	entry.event.ResponseHeaders = rawHeaders(response.Response.Headers)
 	if response.Response.EncodedDataLen > 0 {
 		entry.event.Bytes = int(response.Response.EncodedDataLen)
 	}
@@ -586,6 +586,7 @@ func cloneNetworkEvents(events []NetworkEvent) []NetworkEvent {
 	copy(result, events)
 	for i := range result {
 		result[i].Headers = cloneStringMap(result[i].Headers)
+		result[i].ResponseHeaders = cloneStringMap(result[i].ResponseHeaders)
 	}
 	return result
 }

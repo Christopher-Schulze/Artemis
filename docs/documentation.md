@@ -186,7 +186,7 @@ artemis <command> [flags] [args]
 | `download <url>` | fetch into the session-owned store with path, MIME, size, quota, free-space, and atomic-write enforcement |
 | `run <url>` | load a JavaScript file and execute it in the page context |
 | `serve` | start the JSON-over-WebSocket steering server |
-| `observe` | capture a bounded Chromium DOM/accessibility snapshot as JSON |
+| `observe` | capture a bounded Chromium DOM/accessibility snapshot as JSON, HAR or NDJSON |
 | `act` | execute one typed Chromium action and emit evidence as JSON |
 | `session` | manage durable profile sessions (new, list, open, close) |
 | `profile` | manage browser profiles (list, create, get, delete) |
@@ -196,6 +196,8 @@ artemis <command> [flags] [args]
 | `benchmark` | run the benchmark harness and emit a scorecard |
 
 `act` and `observe` accept `--sandbox=required|disabled`, `--max-cpu-percent`, `--max-memory-bytes`, `--max-profile-bytes`, and `--session-timeout`. Sandbox disabling is never accepted through raw Chromium arguments and emits an explicit stderr warning when deliberately selected.
+
+`observe` additionally accepts `--format {json|har|ndjson}` (default `json`). `json` emits the full `ObservationEvidence` document; `har` emits the captured network events as an HTTP Archive 1.2 file with credential-bearing headers redacted; `ndjson` emits one captured network event per line. An unknown value is rejected with exit 2 before Chromium is launched.
 
 `fetch` flags: `--dump {html\|markdown\|text\|title\|links\|structured\|semantic}` (default `markdown`), `--user-agent`, `--proxy`, `--timeout`, `--max-body-bytes`, `--header k=v` (repeatable), `--run-scripts`, `--eval <expr>`, `--console`, `--allow-private-networks`, `--allow-port`. Exit 0 on success; 1 on runtime error; 2 on argument error.
 
@@ -635,10 +637,14 @@ The `observe` package implements page observation: accessibility tree extraction
 | `observe.SnapshotInteractive(tree)` | func | snapshot interactive elements |
 | `observe.SnapshotByRole(tree, role)` | func | snapshot by ARIA role |
 | `observe.DedupRoleSnapshot(nodes)` | func | deduplicate role snapshot |
-| `observe.FormatHAR(entries)` | func | format HAR output |
+| `observe.FormatHAR(entries)` | func | format entries as a complete HAR document |
 | `observe.FormatNDJSON(events)` | func | format NDJSON output |
 | `observe.FormatConsoleNDJSON(entries)` | func | format console NDJSON |
-| `observe.FormatOutput(format, events)` | func | format output |
+| `observe.FormatOutput(format, events)` | func | format captured events as HAR or NDJSON |
+| `observe.HARDocument` | struct | top-level HAR file object; the log nests under `log` |
+| `observe.HARPostData` | struct | request body section of a HAR entry |
+| `observe.HARExporter.FromNetworkEvents(events)` | method | map captured events to HAR entries with headers, timings, post data and credential redaction |
+| `observe.NetworkEvent.Headers` / `.ResponseHeaders` | field | request and response headers kept as separate sets |
 | `observe.TruncateContent(content, maxLen)` | func | truncate content |
 | `observe.ContentRoles` / `observe.InteractiveRoles` / `observe.StructuralRoles` | var | role classification maps |
 | `observe.DefaultConsoleBufferSize` | const | 1000 entries |

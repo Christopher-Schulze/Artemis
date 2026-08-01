@@ -104,10 +104,13 @@ func TestHARExporter_ToJSON_Roundtrip(t *testing.T) {
 		t.Fatal("expected non-empty JSON")
 	}
 
-	var parsed HARLog
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	// A HAR file nests its log under the mandatory "log" member; parsing the
+	// document any other way would accept output no HAR viewer can open.
+	var document HARDocument
+	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
+	parsed := document.Log
 	if parsed.Version != "1.2" {
 		t.Errorf("expected parsed version=1.2, got %s", parsed.Version)
 	}

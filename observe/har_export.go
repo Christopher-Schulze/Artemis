@@ -3,6 +3,7 @@ package observe
 import (
 	"encoding/json"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,35 @@ const HARCreatorName = "artemis"
 // HARCreatorVersion is the version reported in the HAR creator field.
 const HARCreatorVersion = "1.0.0"
 
-// HARLog is the top-level HAR log object (spec L4263).
+// harHTTPVersion is the protocol version reported for exported entries.
+// CDP does not surface the negotiated version on the events observe
+// consumes, so exports declare HTTP/1.1 rather than guess per entry.
+const harHTTPVersion = "HTTP/1.1"
+
+// redactedHeaderValue replaces credential-bearing header values in exports.
+const redactedHeaderValue = "[REDACTED]"
+
+// sensitiveHeaderNames are headers carrying credentials or session tokens.
+// Their values are redacted in every export so a shared archive cannot leak
+// a session (research floor: network_export.go:241-248).
+var sensitiveHeaderNames = map[string]bool{
+	"cookie":              true,
+	"set-cookie":          true,
+	"authorization":       true,
+	"proxy-authorization": true,
+	"x-api-key":           true,
+	"x-csrf-token":        true,
+}
+
+// HARDocument is the top-level object of a HAR file. The archive format
+// requires the log to sit under a single "log" member; emitting a bare
+// HARLog produces a document no HAR consumer can open (spec L4263: HAR 1.2;
+// research floor research/webstack/pinchtab-main/internal/bridge/observe/format_har.go:40-48).
+type HARDocument struct {
+	Log HARLog `json:"log"`
+}
+
+// HARLog is the log object of a HAR file (spec L4263).
 type HARLog struct {
 	Version string        `json:"version"`
 	Creator HARCreator    `json:"creator"`
@@ -61,8 +90,15 @@ type HARRequest struct {
 	Headers     []HARNameValue `json:"headers"`
 	Cookies     []HARCookie    `json:"cookies"`
 	QueryString []HARNameValue `json:"queryString"`
+	PostData    *HARPostData   `json:"postData,omitempty"`
 	HeadersSize int            `json:"headersSize"`
 	BodySize    int            `json:"bodySize"`
+}
+
+// HARPostData is the request body section of a HAR entry (spec L4263).
+type HARPostData struct {
+	MimeType string `json:"mimeType"`
+	Text     string `json:"text"`
 }
 
 // HARResponse is the response side of a HAR entry (spec L4263).
@@ -206,18 +242,20 @@ func (e *HARExporter) Export(entries []HAREntry) HARLog {
 	return log
 }
 
-// ToJSON serializes a HARLog to compact JSON (spec L4263).
+// ToJSON serializes a HARLog into a complete HAR document, wrapping it in
+// the mandatory "log" member so the output loads in HAR viewers
+// (spec L4263).
 func (e *HARExporter) ToJSON(log HARLog) ([]byte, error) {
-	return json.Marshal(log)
+	return json.Marshal(HARDocument{Log: log})
 }
 
 // FromNetworkEvents converts observe.NetworkEvent records (as
-// produced by NetworkRingBuffer) into HAR entries. Each event
-// becomes a request/response pair with timings derived from the
-// event's status and byte count. The StartedDateTime is set to the
-// current time in ISO 8601 UTC because NetworkEvent carries no
-// timestamp; callers may overwrite it after conversion
-// (spec L4263).
+// produced by NetworkRingBuffer) into HAR entries. Every field the
+// captured event carries is mapped: start time, duration and its
+// timing breakdown, request and response headers, post data and the
+// response MIME type. Credential-bearing headers are redacted so an
+// exported archive cannot leak a session (spec L4263; research floor
+// research/webstack/pinchtab-main/internal/bridge/observe/network_export.go:146-189).
 func (e *HARExporter) FromNetworkEvents(events []NetworkEvent) []HAREntry {
 	entries := make([]HAREntry, 0, len(events))
 	for _, ev := range events {
@@ -225,47 +263,112 @@ func (e *HARExporter) FromNetworkEvents(events []NetworkEvent) []HAREntry {
 		if method == "" {
 			method = "GET"
 		}
-		rawURL := ev.URL
-		httpVersion := "HTTP/1.1"
-		queryString := parseQueryString(rawURL)
-		headers := []HARNameValue{}
-		statusText := statusTextFor(ev.Status)
+		mimeType := strings.TrimSpace(ev.MimeType)
+		if mimeType == "" {
+			mimeType = mimeTypeForURL(ev.URL)
+		}
 
 		entry := HAREntry{
-			StartedDateTime: time.Now().UTC().Format(time.RFC3339Nano),
-			Time:            0,
+			StartedDateTime: harStartedDateTime(ev.Start),
+			Time:            ev.DurationMS,
 			Request: HARRequest{
 				Method:      method,
-				URL:         rawURL,
-				HTTPVersion: httpVersion,
-				Headers:     headers,
+				URL:         ev.URL,
+				HTTPVersion: harHTTPVersion,
+				Headers:     harHeaderPairs(ev.Headers),
 				Cookies:     []HARCookie{},
-				QueryString: queryString,
+				QueryString: parseQueryString(ev.URL),
 				HeadersSize: -1,
-				BodySize:    0,
+				BodySize:    len(ev.PostData),
 			},
 			Response: HARResponse{
 				Status:      ev.Status,
-				StatusText:  statusText,
-				HTTPVersion: httpVersion,
-				Headers:     []HARNameValue{},
+				StatusText:  statusTextFor(ev.Status),
+				HTTPVersion: harHTTPVersion,
+				Headers:     harHeaderPairs(ev.ResponseHeaders),
 				Content: HARContent{
 					Size:     ev.Bytes,
-					MimeType: mimeTypeForURL(rawURL),
+					MimeType: mimeType,
 				},
 				RedirectURL: "",
 				HeadersSize: -1,
 				BodySize:    ev.Bytes,
 			},
-			Timings: HARTimings{
-				Send:    0,
-				Wait:    0,
-				Receive: 0,
-			},
+			Timings: harTimings(ev.DurationMS),
+		}
+		if ev.PostData != "" {
+			entry.Request.PostData = &HARPostData{
+				MimeType: contentTypeFromHeaders(ev.Headers),
+				Text:     ev.PostData,
+			}
 		}
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// harStartedDateTime formats the capture start time in ISO 8601 UTC.
+// A zero start time means the event never reached the request stage,
+// and the field is left empty rather than filled with a fabricated
+// timestamp.
+func harStartedDateTime(start time.Time) string {
+	if start.IsZero() {
+		return ""
+	}
+	return start.UTC().Format(time.RFC3339Nano)
+}
+
+// harHeaderPairs converts a header map into sorted HAR name/value
+// pairs, redacting credential-bearing headers. Sorting keeps exported
+// archives byte-stable across runs.
+func harHeaderPairs(headers map[string]string) []HARNameValue {
+	pairs := make([]HARNameValue, 0, len(headers))
+	if len(headers) == 0 {
+		return pairs
+	}
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := headers[key]
+		if sensitiveHeaderNames[strings.ToLower(strings.TrimSpace(key))] {
+			value = redactedHeaderValue
+		}
+		pairs = append(pairs, HARNameValue{Name: key, Value: value})
+	}
+	return pairs
+}
+
+// harTimings derives the send/wait/receive breakdown from the measured
+// duration. Without per-phase CDP timing the transfer is modelled as
+// 1ms send plus 1ms receive around the wait, and collapses to pure wait
+// for durations too short to split (research floor: computeTimings).
+func harTimings(durationMS float64) HARTimings {
+	if durationMS <= 0 {
+		return HARTimings{}
+	}
+	send, receive := 1.0, 1.0
+	if durationMS < 3 {
+		send, receive = 0, 0
+	}
+	wait := durationMS - send - receive
+	if wait < 0 {
+		wait = 0
+	}
+	return HARTimings{Send: send, Wait: wait, Receive: receive}
+}
+
+// contentTypeFromHeaders returns the request content type used as the
+// post-data MIME type, or an empty string when the request carried none.
+func contentTypeFromHeaders(headers map[string]string) string {
+	for key, value := range headers {
+		if strings.EqualFold(strings.TrimSpace(key), "content-type") {
+			return value
+		}
+	}
+	return ""
 }
 
 // parseQueryString extracts query parameters from a URL string as

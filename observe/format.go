@@ -29,18 +29,18 @@ const (
 // (spec L4024: format.go - output formatters HAR).
 type HARLogAlias = HARLog
 
-// FormatHAR formats network events as a HAR log
+// FormatHAR formats network events as a complete HAR document
 // (spec L4024: format.go - output formatters HAR).
 func FormatHAR(entries []HAREntry) ([]byte, error) {
-	log := HARLog{
+	document := HARDocument{Log: HARLog{
 		Version: HARVersion,
 		Creator: HARCreator{
 			Name:    HARCreatorName,
 			Version: HARCreatorVersion,
 		},
 		Entries: entries,
-	}
-	return json.MarshalIndent(log, "", "  ")
+	}}
+	return json.MarshalIndent(document, "", "  ")
 }
 
 // FormatNDJSON formats events as newline-delimited JSON
@@ -75,11 +75,12 @@ func FormatConsoleNDJSON(entries []ConsoleEntry) ([]byte, error) {
 
 // FormatOutput formats data in the specified output format
 // (spec L4024: format.go - output formatters HAR, NDJSON).
+// The HAR path converts every supplied event through the exporter, so
+// the emitted log carries one entry per event.
 func FormatOutput(format OutputFormat, events []NetworkEvent) ([]byte, error) {
 	switch format {
 	case OutputFormatHAR:
-		harEntries := make([]HAREntry, 0, len(events))
-		return FormatHAR(harEntries)
+		return FormatHAR(NewHARExporter().FromNetworkEvents(events))
 	case OutputFormatNDJSON:
 		return FormatNDJSON(events)
 	default:
