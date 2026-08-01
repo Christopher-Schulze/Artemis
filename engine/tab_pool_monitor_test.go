@@ -158,6 +158,47 @@ func TestTabPoolMonitorNoPressureNoRecycle(t *testing.T) {
 	}
 }
 
+func TestTabPoolMonitorRepeatedStartRunsOneWorker(t *testing.T) {
+	monitor := NewTabPoolMonitor(NewTabRecycler(1), TabPoolConfig{
+		IdleTimeout:      time.Hour,
+		MemCheckInterval: time.Hour,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	monitor.Start(ctx, func(context.Context, string) error { return nil })
+	monitor.Start(ctx, func(context.Context, string) error { return nil })
+
+	stopped := make(chan struct{})
+	go func() {
+		monitor.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop blocked after repeated Start")
+	}
+}
+
+func TestTabPoolMonitorStopBeforeStartReturns(t *testing.T) {
+	monitor := NewTabPoolMonitor(NewTabRecycler(1), TabPoolConfig{})
+	stopped := make(chan struct{})
+	go func() {
+		monitor.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop blocked before Start")
+	}
+
+	monitor.Start(context.Background(), func(context.Context, string) error { return nil })
+	monitor.Stop()
+}
+
 func TestDefaultTabPoolConfig(t *testing.T) {
 	cfg := DefaultTabPoolConfig()
 	if cfg.MaxTabs < 1 || cfg.MaxTabs > 8 {

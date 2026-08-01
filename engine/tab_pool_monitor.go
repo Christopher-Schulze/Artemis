@@ -67,6 +67,8 @@ type TabPoolMonitor struct {
 	mu       sync.Mutex
 	stop     chan struct{}
 	done     chan struct{}
+	started  bool
+	stopped  bool
 	now      func() time.Time
 	memStats func() (heapAlloc int64)
 }
@@ -99,14 +101,15 @@ func NewTabPoolMonitor(recycler *TabRecycler, cfg TabPoolConfig) *TabPoolMonitor
 	}
 }
 
-// Start begins background monitoring. Calling Start twice without Stop
-// panics.
+// Start begins background monitoring. Repeated calls and calls after Stop are
+// ignored so lifecycle races cannot create multiple workers.
 func (m *TabPoolMonitor) Start(ctx context.Context, navigateFn func(ctx context.Context, url string) error) {
 	m.mu.Lock()
-	if m.done == nil {
+	if m.started || m.stopped {
 		m.mu.Unlock()
-		panic("tab pool monitor: already started")
+		return
 	}
+	m.started = true
 	done := m.done
 	m.mu.Unlock()
 
@@ -116,15 +119,20 @@ func (m *TabPoolMonitor) Start(ctx context.Context, navigateFn func(ctx context.
 // Stop signals the monitor to stop and waits for it to finish.
 func (m *TabPoolMonitor) Stop() {
 	m.mu.Lock()
-	if m.done == nil {
+	if m.stopped {
+		done := m.done
 		m.mu.Unlock()
+		<-done
 		return
 	}
+	m.stopped = true
 	close(m.stop)
-	d := m.done
-	m.done = nil
+	done := m.done
+	if !m.started {
+		close(done)
+	}
 	m.mu.Unlock()
-	<-d
+	<-done
 }
 
 func (m *TabPoolMonitor) run(ctx context.Context, navigateFn func(ctx context.Context, url string) error, done chan struct{}) {
