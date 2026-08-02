@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -94,7 +95,7 @@ func TestTASK2257_NewBridgeInitializer(t *testing.T) {
 // TestTASK2257_BridgeInitStart verifies start
 // (spec L4018: Chrome Launch + Stealth Injection).
 func TestTASK2257_BridgeInitStart(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
 			_ = bi.Stop()
@@ -111,7 +112,7 @@ func TestTASK2257_BridgeInitStart(t *testing.T) {
 
 // TestTASK2257_BridgeInitStartTwice verifies double start fails.
 func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
 			_ = bi.Stop()
@@ -129,7 +130,7 @@ func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
 // TestTASK2257_BridgeInitStop verifies stop
 // (spec L4018: Lifecycle).
 func TestTASK2257_BridgeInitStop(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	bi := NewBridgeInitializer(testBridgeInitConfig())
 	if err := bi.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestTASK2257_BridgeInitStop(t *testing.T) {
 
 // TestTASK2257_BridgeInitStopNotStarted verifies stop without start.
 func TestTASK2257_BridgeInitStopNotStarted(t *testing.T) {
-	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	bi := NewBridgeInitializer(testBridgeInitConfig())
 	err := bi.Stop()
 	if err == nil {
 		t.Error("stop without start should fail")
@@ -153,7 +154,9 @@ func TestTASK2257_BridgeInitStopNotStarted(t *testing.T) {
 
 func TestBridgeInitializerCanRestartAfterCloseFailure(t *testing.T) {
 	provider := &initializerTestProvider{closeErr: errors.New("close failed")}
-	bi := NewBridgeInitializer(BridgeInitConfig{ProviderName: provider.Name()})
+	config := testBridgeInitConfig()
+	config.ProviderName = provider.Name()
+	bi := NewBridgeInitializer(config)
 	bi.Registry().Register(provider.Name(), provider)
 	if err := bi.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -175,6 +178,18 @@ func TestBridgeInitializerCanRestartAfterCloseFailure(t *testing.T) {
 	}
 	if err := bi.Stop(); err != nil {
 		t.Fatalf("final stop: %v", err)
+	}
+}
+
+func TestBridgeInitializerRejectsMissingDependencyAuthority(t *testing.T) {
+	config := testBridgeInitConfig()
+	config.DependencyAuthorizer = nil
+	bi := NewBridgeInitializer(config)
+	if err := bi.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "dependency authority") {
+		t.Fatalf("missing Chromium dependency authority must fail before provider launch, got %v", err)
+	}
+	if bi.IsStarted() {
+		t.Fatal("bridge must remain stopped after dependency-authority rejection")
 	}
 }
 
@@ -364,7 +379,7 @@ func TestTASK2257_FullSpecParity(t *testing.T) {
 	}
 
 	// 2. init.go - Bridge initialization and lifecycle
-	bi := NewBridgeInitializer(BridgeInitConfig{Headless: true})
+	bi := NewBridgeInitializer(testBridgeInitConfig())
 	if err := bi.Start(context.Background()); err != nil {
 		t.Error("init.go: start failed")
 	}

@@ -1,5 +1,8 @@
 package process
 
+// dependency-authority: owned Chromium launch requires the boundary adapter's
+// canonical AcquisitionAuthority approval before process start.
+
 import (
 	"context"
 	"errors"
@@ -26,6 +29,12 @@ const (
 	policyHostResolverRule = "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
 )
 
+// DependencyAuthorizer is the boundary adapter supplied by the Omnimus
+// runtime. Artemis deliberately does not import Omnimus internals.
+type DependencyAuthorizer interface {
+	Authorize(ctx context.Context, artifact, version, path string) error
+}
+
 // SandboxPolicy controls whether Chromium's OS sandbox must remain enabled.
 type SandboxPolicy string
 
@@ -36,21 +45,25 @@ const (
 
 // LaunchConfig configures one owned Chromium process.
 type LaunchConfig struct {
-	BinaryPath           string
-	UserDataDir          string
-	Headless             bool
-	ExtraArgs            []string
-	StartupTimeout       time.Duration
-	ShutdownTimeout      time.Duration
-	OutputLimit          int
-	AllowPrivateNetworks bool
-	AllowedPorts         []int
-	PolicyProxyURL       string
-	Sandbox              SandboxPolicy
-	ResourceBudget       ResourceBudget
-	PolicyDecisionSink   network.DecisionSink
-	ResourceSink         ResourceSink
-	resourceSampler      resourceSampler
+	BinaryPath                     string
+	UserDataDir                    string
+	Headless                       bool
+	ExtraArgs                      []string
+	StartupTimeout                 time.Duration
+	ShutdownTimeout                time.Duration
+	OutputLimit                    int
+	AllowPrivateNetworks           bool
+	AllowedPorts                   []int
+	PolicyProxyURL                 string
+	Sandbox                        SandboxPolicy
+	ResourceBudget                 ResourceBudget
+	PolicyDecisionSink             network.DecisionSink
+	ResourceSink                   ResourceSink
+	DependencyAuthorizer           DependencyAuthorizer
+	Artifact                       string
+	ArtifactVersion                string
+	RequireDependencyAuthorization bool
+	resourceSampler                resourceSampler
 }
 
 // Browser owns a launched Chromium process and its disposable profile.
@@ -85,6 +98,15 @@ func Launch(ctx context.Context, config LaunchConfig) (*Browser, error) {
 	if err != nil {
 		return nil, err
 	}
+	if normalized.RequireDependencyAuthorization {
+		artifact := normalized.Artifact
+		if artifact == "" {
+			artifact = "chromium"
+		}
+		if err := normalized.DependencyAuthorizer.Authorize(ctx, artifact, normalized.ArtifactVersion, binary.Path); err != nil {
+			return nil, &Error{Code: ErrorLaunchFailed, Op: "authorize Chromium", Err: err}
+		}
+	}
 	profileDir, removeProfile, profileLease, err := prepareProfile(normalized.UserDataDir)
 	if err != nil {
 		return nil, err
@@ -111,6 +133,9 @@ func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
 	}
 	if config.Sandbox == "" {
 		config.Sandbox = SandboxRequired
+	}
+	if config.RequireDependencyAuthorization && (config.DependencyAuthorizer == nil || strings.TrimSpace(config.ArtifactVersion) == "") {
+		return LaunchConfig{}, Binary{}, invalidConfig("dependency authorizer and artifact version are required")
 	}
 	if config.Sandbox != SandboxRequired && config.Sandbox != SandboxDisabled {
 		return LaunchConfig{}, Binary{}, invalidConfig(fmt.Sprintf("invalid sandbox policy %q", config.Sandbox))
@@ -244,6 +269,8 @@ func releaseProfileLease(lease string) error {
 	return err
 }
 
+// dependency-authority-flow: Launch authorizes binary.Path before delegating
+// the actual process start to this boundary helper.
 func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profileDir, profileLease string, removeProfile bool) (*Browser, error) {
 	args := chromiumArgs(config, profileDir)
 	cmd := newProcessCommand(binary.Path, profileDir, removeProfile, args)

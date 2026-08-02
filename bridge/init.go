@@ -3,7 +3,10 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
 // init.go (spec L4018: bridge/init.go - Bridge initialization and
@@ -16,13 +19,15 @@ import (
 // BridgeInitConfig configures bridge initialization
 // (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
 type BridgeInitConfig struct {
-	ProviderName   string             `json:"providerName"`
-	Headless       bool               `json:"headless"`
-	StealthEnabled bool               `json:"stealthEnabled"`
-	TargetScripts  TargetScriptConfig `json:"-"`
-	MaxTabs        int                `json:"maxTabs"`
-	UserDataDir    string             `json:"userDataDir,omitempty"`
-	ChromePath     string             `json:"chromePath,omitempty"`
+	ProviderName         string                              `json:"providerName"`
+	Headless             bool                                `json:"headless"`
+	StealthEnabled       bool                                `json:"stealthEnabled"`
+	TargetScripts        TargetScriptConfig                  `json:"-"`
+	MaxTabs              int                                 `json:"maxTabs"`
+	UserDataDir          string                              `json:"userDataDir,omitempty"`
+	ChromePath           string                              `json:"chromePath,omitempty"`
+	DependencyAuthorizer browserprocess.DependencyAuthorizer `json:"-"`
+	ArtifactVersion      string                              `json:"artifactVersion,omitempty"`
 }
 
 // BridgeInitializer manages bridge initialization and lifecycle
@@ -61,6 +66,9 @@ func (bi *BridgeInitializer) Start(ctx context.Context) error {
 	if bi.config.StealthEnabled && bi.config.TargetScripts.PageScript == "" && bi.config.TargetScripts.WorkerScript == "" {
 		return fmt.Errorf("init: stealth enabled without a validated target script contract")
 	}
+	if bi.config.DependencyAuthorizer == nil || strings.TrimSpace(bi.config.ArtifactVersion) == "" {
+		return fmt.Errorf("init: Chromium dependency authority and artifact version are required")
+	}
 	if err := bi.state.Transition(BridgeStateInitializing); err != nil {
 		return err
 	}
@@ -72,6 +80,8 @@ func (bi *BridgeInitializer) Start(ctx context.Context) error {
 	session, err := provider.Launch(ctx, ProviderConfig{
 		Headless: bi.config.Headless, SessionName: "artemis-bridge", ProfileDir: bi.config.UserDataDir,
 		ChromePath: bi.config.ChromePath, MaxTabs: bi.config.MaxTabs,
+		DependencyAuthorizer: bi.config.DependencyAuthorizer, Artifact: "chromium",
+		ArtifactVersion: bi.config.ArtifactVersion, RequireDependencyAuthorization: true,
 	})
 	if err != nil {
 		_ = bi.state.Transition(BridgeStateError)

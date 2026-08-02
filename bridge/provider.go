@@ -63,6 +63,11 @@ type ProviderConfig struct {
 	PolicyDecisionSink network.DecisionSink
 	// ResourceSink persists redacted Chromium process-group samples.
 	ResourceSink browserprocess.ResourceSink
+	// DependencyAuthorizer is the Omnimus acquisition boundary for owned Chromium.
+	DependencyAuthorizer           browserprocess.DependencyAuthorizer
+	Artifact                       string
+	ArtifactVersion                string
+	RequireDependencyAuthorization bool
 }
 
 // BrowserSession represents an active browser session from a provider.
@@ -211,6 +216,8 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 			AllowPrivateNetworks: config.AllowPrivateNetworks, AllowedPorts: config.AllowedPorts,
 			Sandbox: config.Sandbox, ResourceBudget: config.ResourceBudget,
 			PolicyDecisionSink: config.PolicyDecisionSink, ResourceSink: config.ResourceSink,
+			DependencyAuthorizer: config.DependencyAuthorizer, Artifact: config.Artifact,
+			ArtifactVersion: config.ArtifactVersion, RequireDependencyAuthorization: config.RequireDependencyAuthorization,
 		})
 	}
 	if err != nil {
