@@ -129,7 +129,9 @@ func (r *Runtime) ensureFetchTemplates() *fetchTemplates {
 				c.asyncFetchPath(req, resolver)
 				return resolver.GetPromise().Value
 			}
-			resp, err := c.fetcher(context.Background(), req)
+			fetchCtx, cancel := c.fetchContext()
+			resp, err := c.fetcher(fetchCtx, req)
+			cancel()
 			if err != nil {
 				rejectErr(iso, resolver, err)
 				return resolver.GetPromise().Value
@@ -209,6 +211,12 @@ func parseFetchArgs(v8ctx *v8.Context, args []*v8.Value) (FetchRequest, error) {
 	if v, err := optsObj.Get("method"); err == nil && !v.IsNullOrUndefined() {
 		req.Method = strings.ToUpper(v.String())
 	}
+	if v, err := optsObj.Get("headers"); err == nil && v.IsObject() {
+		hObj, _ := v.AsObject()
+		if hObj != nil {
+			req.Headers = headerMapFromJS(v8ctx, hObj)
+		}
+	}
 	if v, err := optsObj.Get("body"); err == nil && !v.IsNullOrUndefined() {
 		// Detect FormData via the `_pairs` internal property; serialize as
 		// urlencoded and auto-set Content-Type when not provided. Real
@@ -225,7 +233,7 @@ func parseFetchArgs(v8ctx *v8.Context, args []*v8.Value) (FetchRequest, error) {
 								if req.Headers == nil {
 									req.Headers = map[string]string{}
 								}
-								if _, has := req.Headers["Content-Type"]; !has {
+								if !hasHeader(req.Headers, "Content-Type") {
 									req.Headers["Content-Type"] = "application/x-www-form-urlencoded"
 								}
 								isFormData = true
@@ -239,13 +247,16 @@ func parseFetchArgs(v8ctx *v8.Context, args []*v8.Value) (FetchRequest, error) {
 			req.Body = []byte(v.String())
 		}
 	}
-	if v, err := optsObj.Get("headers"); err == nil && v.IsObject() {
-		hObj, _ := v.AsObject()
-		if hObj != nil {
-			req.Headers = headerMapFromJS(v8ctx, hObj)
+	return req, nil
+}
+
+func hasHeader(headers map[string]string, name string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			return true
 		}
 	}
-	return req, nil
+	return false
 }
 
 // headerMapFromJS extracts header pairs from a JS object via JSON
@@ -288,6 +299,12 @@ func headerMapFromJS(v8ctx *v8.Context, obj *v8.Object) map[string]string {
 // fetchBodies slab and the handle goes in internal field 0 so the
 // shared text/json callbacks can dispatch to the right body.
 func buildResponseObject(c *Context, v8ctx *v8.Context, r *FetchResponse) (*v8.Value, error) {
+	if r == nil {
+		return nil, errors.New("fetch: nil response")
+	}
+	if r.Status < 100 || r.Status > 599 {
+		return nil, fmt.Errorf("fetch: invalid response status %d", r.Status)
+	}
 	t := c.rt.ensureFetchTemplates()
 	obj, err := t.respObjTmpl.NewInstance(v8ctx)
 	if err != nil {
@@ -314,6 +331,18 @@ func buildResponseObject(c *Context, v8ctx *v8.Context, r *FetchResponse) (*v8.V
 	_ = obj.Set("text", t.respText.GetFunction(v8ctx))
 	_ = obj.Set("json", t.respJSON.GetFunction(v8ctx))
 	return obj.Value, nil
+}
+
+func (c *Context) fetchContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(c.async.ctx)
+	if c.evalCtx == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(c.evalCtx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 func rejectErr(iso *v8.Isolate, resolver *v8.PromiseResolver, err error) {

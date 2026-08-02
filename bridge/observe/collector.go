@@ -65,6 +65,7 @@ func NewCollector(caller Caller, config Config) (*Collector, error) {
 	if len(config.SensitiveAttributes) == 0 {
 		config.SensitiveAttributes = defaults.SensitiveAttributes
 	}
+	config.SensitiveAttributes = append([]string(nil), config.SensitiveAttributes...)
 	if config.ReResolveThreshold <= 0 || config.ReResolveThreshold > 1 {
 		config.ReResolveThreshold = defaults.ReResolveThreshold
 	}
@@ -196,7 +197,7 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 			c.identities[key] = ref
 		}
 		nodes[i].Ref = ref
-		c.refs[ref] = remembered{ref: ref, node: nodes[i], epoch: c.epoch}
+		c.refs[ref] = remembered{ref: ref, node: cloneNode(nodes[i]), epoch: c.epoch}
 	}
 	if mode == ModeInteractive || mode == ModeEvidence {
 		nodes = filterInteractive(nodes)
@@ -210,8 +211,8 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 	}
 	snapshot := Snapshot{Schema: Schema, Epoch: c.epoch, CapturedAt: time.Now().UTC(), Mode: mode, RootBackendNodeID: root, Nodes: nodes, TotalNodes: len(nodes), Truncated: len(reasons) > 0, TruncationReasons: reasons, Warnings: warnings}
 	snapshot = c.boundJSON(snapshot)
-	c.last = snapshot
-	return snapshot, nil
+	c.last = cloneSnapshot(snapshot)
+	return cloneSnapshot(snapshot), nil
 }
 
 // LastSnapshot returns the most recent completed observation. It is useful for
@@ -219,7 +220,34 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 func (c *Collector) LastSnapshot() Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.last
+	return cloneSnapshot(c.last)
+}
+
+func cloneSnapshot(snapshot Snapshot) Snapshot {
+	clone := snapshot
+	clone.Nodes = make([]Node, len(snapshot.Nodes))
+	for i := range snapshot.Nodes {
+		clone.Nodes[i] = cloneNode(snapshot.Nodes[i])
+	}
+	clone.TruncationReasons = append([]string(nil), snapshot.TruncationReasons...)
+	clone.Warnings = append([]string(nil), snapshot.Warnings...)
+	return clone
+}
+
+func cloneNode(node Node) Node {
+	clone := node
+	if node.Attributes != nil {
+		clone.Attributes = make(map[string]string, len(node.Attributes))
+		for key, value := range node.Attributes {
+			clone.Attributes[key] = value
+		}
+	}
+	clone.ShadowPath = append([]string(nil), node.ShadowPath...)
+	if node.Box != nil {
+		box := *node.Box
+		clone.Box = &box
+	}
+	return clone
 }
 
 func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, mainFrame string) []string {
@@ -591,8 +619,9 @@ func sensitive(a map[string]string, names []string) bool {
 }
 func redactAttributes(a map[string]string, names []string) map[string]string {
 	out := make(map[string]string, len(a))
+	redactValue := strings.EqualFold(a["type"], "password") || sensitive(a, names)
 	for k, v := range a {
-		redact := false
+		redact := strings.EqualFold(k, "value") && redactValue
 		for _, name := range names {
 			if strings.Contains(strings.ToLower(k), strings.ToLower(name)) {
 				redact = true

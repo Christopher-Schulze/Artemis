@@ -83,7 +83,7 @@ func HoverDwell(rng *rand.Rand) float64 {
 // easeInOut(t) = t<0.5 ? 2t^2 : -1+(4-2t)*t. Linear scroll is bot-detectable.
 // totalDistance is the full scroll distance; steps is the number of scroll increments.
 func EaseInOutScroll(totalDistance float64, steps int) []float64 {
-	if steps <= 0 {
+	if steps <= 1 {
 		return []float64{totalDistance}
 	}
 	out := make([]float64, steps)

@@ -31,6 +31,10 @@ func cmdAct(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	if *timeout <= 0 {
+		errf("act timeout must be positive")
+		return 2
+	}
 	var request actions.Request
 	if err := json.Unmarshal([]byte(*requestJSON), &request); err != nil {
 		errf("act request: %v", err)

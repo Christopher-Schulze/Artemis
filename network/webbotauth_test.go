@@ -264,6 +264,40 @@ func TestWebBotAuthVerifyMissingHeaders(t *testing.T) {
 	}
 }
 
+func TestWebBotAuthVerifyRejectsNilAndExpiredRequests(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	if err := VerifyWebBotAuthSignature(nil, pub); err == nil {
+		t.Fatal("nil request accepted")
+	}
+	req, _ := http.NewRequest("GET", "https://example.com/", nil)
+	req.Host = "example.com"
+	now := time.Now().Unix()
+	input := buildSignatureInput(req.Host, now-120, now-60, "expired-key")
+	base, err := buildSignatureBase(req.Host, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Signature-Input", input)
+	req.Header.Set("Signature", "g=:"+base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(base)))+":")
+	if err := VerifyWebBotAuthSignature(req, pub); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired valid signature accepted: %v", err)
+	}
+}
+
+func TestVerifyRequestHeadersRejectsFutureSignature(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	now := time.Now().Unix()
+	input := buildSignatureInput("example.com", now+600, now+1200, "future-key")
+	base, err := buildSignatureBase("example.com", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := "g=:" + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(base))) + ":"
+	if err := VerifyRequestHeaders(`g="https://agent.example.com"`, input, signature, "example.com", pub); err == nil || !strings.Contains(err.Error(), "future") {
+		t.Fatalf("future signature accepted: %v", err)
+	}
+}
+
 func TestWebBotAuthMiddleware(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	w, _ := NewWebBotAuth(WebBotAuthConfig{

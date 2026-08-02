@@ -76,6 +76,9 @@ func NewDownloadManager(config DownloadConfig) (*DownloadManager, error) {
 		return nil, errors.New("download manager: invalid session ID")
 	}
 	if config.MaxDiskBytes <= 0 {
+		if config.MaxDiskBytes < 0 {
+			return nil, errors.New("download manager: maximum disk bytes must not be negative")
+		}
 		config.MaxDiskBytes = DefaultMaxDiskBytes
 	}
 	if config.MinFreeBytes == 0 {
@@ -163,8 +166,11 @@ func (s *BrowserStage) Adopt(filename, declaredType string) (*Download, error) {
 		return nil, err
 	}
 	if err := os.Remove(source); err != nil {
-		_ = os.Remove(target)
-		return nil, fmt.Errorf("download stage finalize: %w", err)
+		finalizeErr := fmt.Errorf("download stage finalize: %w", err)
+		if cleanupErr := os.Remove(target); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			finalizeErr = errors.Join(finalizeErr, fmt.Errorf("download stage rollback: %w", cleanupErr))
+		}
+		return nil, finalizeErr
 	}
 	return download, nil
 }
@@ -218,7 +224,7 @@ func (m *DownloadManager) ResolveTarget(target string) (string, error) {
 }
 
 // Store atomically commits bytes after path, MIME, size, quota, and disk checks.
-func (m *DownloadManager) Store(filename, declaredType string, content []byte) (*Download, error) {
+func (m *DownloadManager) Store(filename, declaredType string, content []byte) (download *Download, resultErr error) {
 	if m == nil {
 		return nil, errors.New("download manager unavailable")
 	}
@@ -243,10 +249,16 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 	}
 	temporaryPath := temporary.Name()
 	committed := false
+	targetLinked := false
 	defer func() {
 		_ = temporary.Close()
 		if !committed {
 			_ = os.Remove(temporaryPath)
+			if targetLinked {
+				if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+					resultErr = errors.Join(resultErr, fmt.Errorf("download rollback: %w", err))
+				}
+			}
 		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
@@ -265,8 +277,8 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 	if err := os.Link(temporaryPath, target); err != nil {
 		return nil, fmt.Errorf("download commit: %w", err)
 	}
+	targetLinked = true
 	if err := os.Remove(temporaryPath); err != nil {
-		_ = os.Remove(target)
 		return nil, fmt.Errorf("download finalize: %w", err)
 	}
 	committed = true
@@ -288,11 +300,15 @@ func (m *DownloadManager) Adopt(path, declaredType string) (*Download, error) {
 	return m.adoptLocked(target, declaredType)
 }
 
-func (m *DownloadManager) adoptLocked(target, declaredType string) (*Download, error) {
+func (m *DownloadManager) adoptLocked(target, declaredType string) (download *Download, resultErr error) {
 	accepted := false
 	defer func() {
-		if !accepted {
-			_ = os.Remove(target)
+		if accepted {
+			return
+		}
+		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanupErr := fmt.Errorf("download cleanup rejected target: %w", err)
+			resultErr = errors.Join(resultErr, cleanupErr)
 		}
 	}()
 	info, err := os.Lstat(target)
@@ -337,6 +353,12 @@ func (m *DownloadManager) adoptLocked(target, declaredType string) (*Download, e
 
 // ValidatePending rejects an in-progress browser download before completion.
 func (m *DownloadManager) ValidatePending(size int64) error {
+	if m == nil {
+		return errors.New("download manager unavailable")
+	}
+	if size < 0 {
+		return errors.New("download pending size must not be negative")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if size == 0 {

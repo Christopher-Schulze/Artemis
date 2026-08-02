@@ -448,15 +448,26 @@ func (s *Store) appendLineLocked(line []byte) error {
 		_ = file.Close()
 		return fmt.Errorf("diagnostics permissions: %w", err)
 	}
-	_, writeErr := file.Write(append(append([]byte(nil), line...), '\n'))
+	payload := append(append([]byte(nil), line...), '\n')
+	written, writeErr := file.Write(payload)
+	if writeErr == nil && written != len(payload) {
+		writeErr = io.ErrShortWrite
+	}
+	var syncErr error
 	var info os.FileInfo
 	var statErr error
 	if writeErr == nil {
+		syncErr = file.Sync()
+	}
+	if writeErr == nil && syncErr == nil {
 		info, statErr = file.Stat()
 	}
 	closeErr := file.Close()
 	if writeErr != nil {
 		return fmt.Errorf("diagnostics write: %w", writeErr)
+	}
+	if syncErr != nil {
+		return fmt.Errorf("diagnostics sync: %w", syncErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("diagnostics close: %w", closeErr)

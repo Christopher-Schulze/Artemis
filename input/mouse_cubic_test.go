@@ -42,9 +42,9 @@ func TestGenerateMousePathCubic(t *testing.T) {
 	if len(path.Points) != cfg.Steps {
 		t.Errorf("points len = %d, want %d", len(path.Points), cfg.Steps)
 	}
-	// First point should be near start
-	if path.Points[0].X > 10 || path.Points[0].Y > 10 {
-		t.Errorf("first point (%f,%f) should be near start (0,0)", path.Points[0].X, path.Points[0].Y)
+	// Movement starts at the exact caller-provided pointer position.
+	if path.Points[0] != start {
+		t.Errorf("first point = %+v, want %+v", path.Points[0], start)
 	}
 	// Last point should be exactly end
 	last := path.Points[len(path.Points)-1]
@@ -210,6 +210,28 @@ func TestBoxModelCenterEmpty(t *testing.T) {
 	center := box.Center()
 	if center.X != 0 || center.Y != 0 {
 		t.Errorf("empty quad Center = (%f,%f), want (0,0)", center.X, center.Y)
+	}
+}
+
+func TestBoxModelCenterRejectsIncompleteQuad(t *testing.T) {
+	box := BoxModel{BackendNodeID: 1, Quad: []float64{0, 0, 100, 0, 100, 100}}
+	center := box.Center()
+	if center != (MousePoint{}) {
+		t.Fatalf("incomplete quad Center = %+v, want zero point", center)
+	}
+}
+
+func TestGenerateClickSequenceSubMillisecondRangesDoNotPanic(t *testing.T) {
+	cfg := DefaultClickSequenceConfig()
+	cfg.PreClickDelayMax = cfg.PreClickDelayMin + time.Nanosecond
+	cfg.HoldDurationMax = cfg.HoldDurationMin + time.Nanosecond
+
+	seq := GenerateClickSequence(MousePoint{}, MousePoint{X: 100, Y: 100}, cfg, rand.New(rand.NewSource(42)))
+	if seq.PreClickDelay != cfg.PreClickDelayMin {
+		t.Fatalf("pre-click delay = %v, want %v", seq.PreClickDelay, cfg.PreClickDelayMin)
+	}
+	if seq.HoldDuration != cfg.HoldDurationMin {
+		t.Fatalf("hold duration = %v, want %v", seq.HoldDuration, cfg.HoldDurationMin)
 	}
 }
 

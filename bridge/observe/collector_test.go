@@ -129,6 +129,21 @@ func TestCaptureStableRefsRedactionGeometryAndShadow(t *testing.T) {
 	}
 }
 
+func TestRedactAttributesDoesNotLeakSensitiveValue(t *testing.T) {
+	attributes := map[string]string{
+		"type":       "password",
+		"value":      "super-secret",
+		"aria-label": "Password",
+	}
+	redacted := redactAttributes(attributes, DefaultConfig().SensitiveAttributes)
+	if redacted["value"] != "[REDACTED]" {
+		t.Fatalf("sensitive value leaked: %#v", redacted)
+	}
+	if redacted["type"] != "password" || redacted["aria-label"] != "Password" {
+		t.Fatalf("non-secret metadata was removed: %#v", redacted)
+	}
+}
+
 func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 	t.Run("exact", func(t *testing.T) {
 		c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(1, 4, "Login", false)}}, DefaultConfig())
@@ -225,6 +240,58 @@ func TestCaptureInteractiveSubtreeEvidenceAndByteBudget(t *testing.T) {
 	}
 	if _, err = c.Capture(context.Background(), ModeSubtree, "e999"); err == nil {
 		t.Fatal("unknown subtree ref accepted")
+	}
+}
+
+func TestCollectorSnapshotsAndConfigAreImmutable(t *testing.T) {
+	config := DefaultConfig()
+	caller := &scriptedCaller{documents: []map[string]any{
+		domFixture(1, 4, "Login", false),
+		domFixture(1, 4, "Login", false),
+		domFixture(1, 4, "Login", false),
+	}}
+	collector, err := NewCollector(caller, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range config.SensitiveAttributes {
+		config.SensitiveAttributes[i] = "aria-label"
+	}
+
+	first, err := collector.Capture(context.Background(), ModeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	button := findBackend(t, first.Nodes, 4)
+	ref := button.Ref
+	for i := range first.Nodes {
+		if first.Nodes[i].BackendNodeID != 4 {
+			continue
+		}
+		first.Nodes[i].Name = "mutated"
+		first.Nodes[i].Attributes["aria-label"] = "mutated"
+		first.Nodes[i].ShadowPath[0] = "mutated"
+		first.Nodes[i].Box.Width = -1
+	}
+	first.TruncationReasons = append(first.TruncationReasons, "mutated")
+	first.Warnings = append(first.Warnings, "mutated")
+
+	last := collector.LastSnapshot()
+	lastButton := findBackend(t, last.Nodes, 4)
+	if lastButton.Name != "Login" || lastButton.Attributes["aria-label"] != "Login" || lastButton.ShadowPath[0] != "open" || lastButton.Box.Width != 140 {
+		t.Fatalf("capture mutated collector state: %#v", lastButton)
+	}
+	lastButton.Attributes["aria-label"] = "second mutation"
+	lastButton.ShadowPath[0] = "second mutation"
+	lastButton.Box.Width = -2
+	last.Nodes[0].Name = "second mutation"
+
+	resolution, err := collector.Resolve(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Status != ResolutionExact || resolution.Node == nil || resolution.Node.Name != "Login" || resolution.Node.Attributes["aria-label"] != "Login" || resolution.Node.Box.Width != 140 {
+		t.Fatalf("external mutation corrupted stable ref: %#v", resolution)
 	}
 }
 

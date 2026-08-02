@@ -614,6 +614,10 @@ func TestTASK2254_LockUnlock(t *testing.T) {
 	if l.IsLocked("tab1") {
 		t.Error("tab1 should be unlocked")
 	}
+	if !l.TryLock("tab1", "owner2") {
+		t.Fatal("IsLocked retained the free tab mutex")
+	}
+	l.Unlock("tab1")
 }
 
 // TestTASK2254_TryLock verifies non-blocking lock
@@ -682,9 +686,11 @@ func TestTASK2254_LockedTabs(t *testing.T) {
 	l.Lock("tab1", "owner1")
 	l.Lock("tab2", "owner2")
 	locked := l.LockedTabs()
-	if len(locked) != 2 {
+	if len(locked) != 2 || locked[0] != "tab1" || locked[1] != "tab2" {
 		t.Errorf("locked: got %d, want 2", len(locked))
 	}
+	l.Unlock("tab2")
+	l.Unlock("tab1")
 }
 
 // TestTASK2254_LockRemove verifies removal

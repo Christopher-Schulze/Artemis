@@ -27,8 +27,12 @@ type RobotsPolicy struct {
 // case-insensitive; the most specific match (longest path prefix) of
 // the matching group wins; ties favour Allow.
 func ParseRobots(r io.Reader) (*RobotsPolicy, error) {
+	if r == nil {
+		return nil, errors.New("robots: reader required")
+	}
 	policy := &RobotsPolicy{Groups: make(map[string][]RobotsRule)}
 	current := []string{"*"}
+	rulesSeen := false
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -46,12 +50,22 @@ func ParseRobots(r io.Reader) (*RobotsPolicy, error) {
 		v = strings.TrimSpace(v)
 		switch k {
 		case "user-agent":
-			current = []string{strings.ToLower(v)}
+			userAgent := strings.ToLower(v)
+			if userAgent == "" {
+				continue
+			}
+			if rulesSeen {
+				current = nil
+				rulesSeen = false
+			}
+			current = append(current, userAgent)
 		case "allow":
+			rulesSeen = true
 			for _, ua := range current {
 				policy.Groups[ua] = append(policy.Groups[ua], RobotsRule{Allow: true, Path: v})
 			}
 		case "disallow":
+			rulesSeen = true
 			for _, ua := range current {
 				policy.Groups[ua] = append(policy.Groups[ua], RobotsRule{Allow: false, Path: v})
 			}
@@ -98,13 +112,21 @@ func (p *RobotsPolicy) Allowed(userAgent, path string) bool {
 
 func (p *RobotsPolicy) matchGroup(userAgent string) []RobotsRule {
 	ua := strings.ToLower(userAgent)
-	if rules, ok := p.Groups[ua]; ok {
-		return rules
-	}
-	for k, rules := range p.Groups {
-		if k != "*" && strings.Contains(ua, k) {
-			return rules
+	bestLength := -1
+	var matched []RobotsRule
+	for agent, rules := range p.Groups {
+		if agent == "*" || !strings.Contains(ua, agent) {
+			continue
 		}
+		if len(agent) > bestLength {
+			bestLength = len(agent)
+			matched = append(matched[:0], rules...)
+		} else if len(agent) == bestLength {
+			matched = append(matched, rules...)
+		}
+	}
+	if bestLength >= 0 {
+		return matched
 	}
 	return p.Groups["*"]
 }
@@ -135,6 +157,15 @@ func (rc *robotsCache) put(host string, p *RobotsPolicy) {
 // FetchRobots fetches and caches the robots.txt for the host of u.
 // Network errors and 404s are treated as "no policy = everything allowed".
 func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *RobotsPolicy, resultErr error) {
+	if c == nil || c.client == nil || c.robots == nil {
+		return nil, errors.New("robots: initialized HTTP client required")
+	}
+	if ctx == nil {
+		return nil, errors.New("robots: context required")
+	}
+	if u == nil || u.Scheme == "" || u.Host == "" {
+		return nil, errors.New("robots: absolute URL required")
+	}
 	if p, ok := c.robots.get(u.Host); ok {
 		return p, nil
 	}
@@ -177,7 +208,7 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *Robot
 		return empty, nil
 	}
 	countedBody := &countingReader{reader: resp.Body}
-	body, err := io.ReadAll(io.LimitReader(countedBody, 1<<20))
+	body, err := readLimited(countedBody, 1<<20)
 	responseBytes = countedBody.bytes
 	if err != nil {
 		return nil, fmt.Errorf("read robots: %w", err)

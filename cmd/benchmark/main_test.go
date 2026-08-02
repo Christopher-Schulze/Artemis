@@ -7,6 +7,32 @@ import (
 	"testing"
 )
 
+func TestValidateOptions(t *testing.T) {
+	cases := []struct {
+		name              string
+		skipCompetitor    bool
+		requireHeadToHead bool
+		iterations        int
+		outputDir         string
+		wantErr           bool
+	}{
+		{name: "artemis only", skipCompetitor: true, iterations: 1, outputDir: "out"},
+		{name: "head to head", requireHeadToHead: true, iterations: 5, outputDir: "out"},
+		{name: "zero iterations", skipCompetitor: true, outputDir: "out", wantErr: true},
+		{name: "negative iterations", skipCompetitor: true, iterations: -1, outputDir: "out", wantErr: true},
+		{name: "empty output", skipCompetitor: true, iterations: 1, wantErr: true},
+		{name: "contradictory modes", skipCompetitor: true, requireHeadToHead: true, iterations: 1, outputDir: "out", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotErr := validateOptions(tc.skipCompetitor, tc.requireHeadToHead, tc.iterations, tc.outputDir) != nil
+			if gotErr != tc.wantErr {
+				t.Fatalf("validateOptions() error = %v, want error %v", gotErr, tc.wantErr)
+			}
+		})
+	}
+}
+
 // TestBenchmarkCmdRuns verifies the benchmark CLI tool compiles and
 // runs successfully in Artemis-only mode, producing a scorecard. This
 // is a smoke test that exercises the full harness via the CLI entry

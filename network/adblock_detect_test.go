@@ -429,6 +429,21 @@ func TestDetector_Stats(t *testing.T) {
 	}
 }
 
+func TestAdBlockDetectorConfigIsMutationIsolated(t *testing.T) {
+	cfg := DefaultAdBlockDetectionConfig()
+	d := NewAdBlockDetector(cfg)
+	cfg.DetectionPatterns[0] = "caller mutation"
+	if got := d.Config().DetectionPatterns[0]; got == "caller mutation" {
+		t.Fatal("constructor retained caller-owned config slice")
+	}
+
+	projected := d.Config()
+	projected.WhitelistDomains[0] = "projection mutation"
+	if d.IsWhitelisted("projection mutation") {
+		t.Fatal("Config returned mutable internal whitelist storage")
+	}
+}
+
 func TestDetector_ResetStats(t *testing.T) {
 	d := NewAdBlockDetector(DefaultAdBlockDetectionConfig())
 	d.DetectOverlay(`<div>adblock detected</div>`)

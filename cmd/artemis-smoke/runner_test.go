@@ -193,6 +193,31 @@ func TestRunnerScenarioNetworkFailureTolerant(t *testing.T) {
 	if !res.NetworkFail {
 		t.Errorf("expected NetworkFail=true for fetch_failed on page.open")
 	}
+	if !res.Skipped {
+		t.Errorf("expected tolerant network failure to be skipped")
+	}
+}
+
+func TestValidateCLIConfig(t *testing.T) {
+	cases := []struct {
+		name        string
+		port        int
+		stepTimeout time.Duration
+		wantErr     bool
+	}{
+		{name: "valid", port: 9344, stepTimeout: time.Second},
+		{name: "zero port", port: 0, stepTimeout: time.Second, wantErr: true},
+		{name: "high port", port: 65536, stepTimeout: time.Second, wantErr: true},
+		{name: "zero timeout", port: 9344, stepTimeout: 0, wantErr: true},
+		{name: "negative timeout", port: 9344, stepTimeout: -time.Second, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if gotErr := validateCLIConfig(tc.port, tc.stepTimeout) != nil; gotErr != tc.wantErr {
+				t.Fatalf("validateCLIConfig() error = %v, want error %v", gotErr, tc.wantErr)
+			}
+		})
+	}
 }
 
 func TestScorecardJSONRoundTrip(t *testing.T) {

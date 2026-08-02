@@ -50,6 +50,9 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid duration %q: %w", s, err)
 	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid duration %q: must be positive", s)
+	}
 	return d, nil
 }
 

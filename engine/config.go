@@ -5,6 +5,7 @@
 package engine
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
@@ -91,4 +92,23 @@ func (c *Config) applyDefaults() {
 	if c.SessionBudget.MaxDiskBytes < c.MaxDownloadDiskBytes {
 		c.MaxDownloadDiskBytes = c.SessionBudget.MaxDiskBytes
 	}
+}
+
+func (c Config) validate() error {
+	if c.Timeout < time.Millisecond {
+		return errors.New("engine: request timeout must be at least 1ms")
+	}
+	if c.MaxBodyBytes < 1 {
+		return errors.New("engine: maximum body bytes must be positive")
+	}
+	if c.MaxDownloadDiskBytes < 1 {
+		return errors.New("engine: maximum download disk bytes must be positive")
+	}
+	if c.MinDownloadFreeBytes < 0 {
+		return errors.New("engine: minimum download free bytes must not be negative")
+	}
+	if c.JSContextPoolSize < 0 {
+		return errors.New("engine: JavaScript context pool size must not be negative")
+	}
+	return nil
 }

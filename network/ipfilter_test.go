@@ -40,3 +40,14 @@ func TestCheckHostPublicNumeric(t *testing.T) {
 		t.Errorf("public IP rejected: %v", err)
 	}
 }
+
+func TestCheckHostPublicRejectsMalformedTarget(t *testing.T) {
+	for _, target := range []*url.URL{nil, {}, {Scheme: "http"}, {Path: "/relative"}} {
+		if err := CheckHostPublic(target); err == nil {
+			t.Fatalf("CheckHostPublic(%v) accepted malformed target", target)
+		}
+	}
+	if err := (Netguard{BlockPrivate: true}).Allow("/relative"); err == nil {
+		t.Fatal("Netguard accepted relative target")
+	}
+}

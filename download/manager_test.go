@@ -52,6 +52,21 @@ func TestDownloadManagerRejectsTraversalAndSymlinkSession(t *testing.T) {
 	}
 }
 
+func TestDownloadManagerRejectsInvalidCapacityAndPendingInputs(t *testing.T) {
+	policy := newTestPolicy(t, 64, []string{"*/*"})
+	if _, err := NewDownloadManager(DownloadConfig{RootDir: t.TempDir(), SessionID: "negative", MaxDiskBytes: -1, Policy: policy}); err == nil {
+		t.Fatal("negative maximum disk bytes accepted")
+	}
+	var unavailable *DownloadManager
+	if err := unavailable.ValidatePending(1); err == nil {
+		t.Fatal("nil download manager accepted pending bytes")
+	}
+	manager := newTestManager(t, 64, 128, []string{"*/*"})
+	if err := manager.ValidatePending(-1); err == nil {
+		t.Fatal("negative pending bytes accepted")
+	}
+}
+
 func TestDownloadManagerEnforcesTypeSizeQuotaAndHeadroom(t *testing.T) {
 	tests := []struct {
 		name    string

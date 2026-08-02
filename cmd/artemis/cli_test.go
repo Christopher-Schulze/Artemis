@@ -66,6 +66,12 @@ func TestParseDurationRejectsInvalidValue(t *testing.T) {
 	if _, err := parseDuration("soon", time.Second); err == nil {
 		t.Fatal("expected invalid duration error")
 	}
+	if _, err := parseDuration("0s", time.Second); err == nil {
+		t.Fatal("expected zero duration error")
+	}
+	if _, err := parseDuration("-1s", time.Second); err == nil {
+		t.Fatal("expected negative duration error")
+	}
 }
 
 func TestStringSliceFlagAppendsAndFormatsValues(t *testing.T) {

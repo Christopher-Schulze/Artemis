@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
@@ -24,9 +25,8 @@ import (
 // is executed against that element.
 
 // Type types text into the first element matching the given CSS selector.
-// It clears the field first, then types the text with default keystroke
-// timing (50ms delay, 20ms variance). Returns the TypeResult from the
-// underlying actions.TypeAction (TASK-2343).
+// It performs a renderless DOM value mutation. Browser keystroke timing belongs
+// to the canonical live action runtime and is not simulated here.
 func (p *Page) Type(ctx context.Context, selector, text string) (actions.TypeResult, error) {
 	if p == nil || p.document == nil {
 		return actions.TypeResult{}, fmt.Errorf("page: nil page or document")
@@ -36,6 +36,12 @@ func (p *Page) Type(ctx context.Context, selector, text string) (actions.TypeRes
 	}
 	if text == "" {
 		return actions.TypeResult{}, fmt.Errorf("page.Type: empty text")
+	}
+	if ctx == nil {
+		return actions.TypeResult{}, fmt.Errorf("page.Type: context required")
+	}
+	if err := p.sessionError(); err != nil {
+		return actions.TypeResult{}, err
 	}
 	element, err := p.document.QuerySelector(selector)
 	if err != nil {
@@ -64,6 +70,15 @@ func (p *Page) TypeWithDelay(ctx context.Context, selector, text string, delay, 
 	if text == "" {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: empty text")
 	}
+	if ctx == nil {
+		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: context required")
+	}
+	if delay != 0 || variance != 0 {
+		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: renderless timing is unsupported; use the canonical browser action runtime")
+	}
+	if err := p.sessionError(); err != nil {
+		return actions.TypeResult{}, err
+	}
 	element, err := p.document.QuerySelector(selector)
 	if err != nil {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: query %q: %w", selector, err)
@@ -71,8 +86,6 @@ func (p *Page) TypeWithDelay(ctx context.Context, selector, text string, delay, 
 	if element == nil {
 		return actions.TypeResult{}, fmt.Errorf("page.TypeWithDelay: no element matches %q", selector)
 	}
-	_ = delay
-	_ = variance
 	start := time.Now()
 	if err := agent.Type(p.document, selector, text); err != nil {
 		return actions.TypeResult{Ref: selector, Duration: time.Since(start), Error: err.Error()}, fmt.Errorf("page.TypeWithDelay: %w", err)
@@ -106,10 +119,22 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("page.Form: no fields to fill")
 	}
+	if ctx == nil {
+		return nil, fmt.Errorf("page.Form: context required")
+	}
+	if err := p.sessionError(); err != nil {
+		return nil, err
+	}
 
 	var allActions []actions.FormAction
 	allFieldsFound := true
-	for selector, value := range fields {
+	selectors := make([]string, 0, len(fields))
+	for selector := range fields {
+		selectors = append(selectors, selector)
+	}
+	sort.Strings(selectors)
+	for _, selector := range selectors {
+		value := fields[selector]
 		fieldElement, fieldErr := p.document.QuerySelector(selector)
 		if fieldErr != nil || fieldElement == nil {
 			allFieldsFound = false
@@ -142,11 +167,7 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 				result.Success = true
 			}
 		case actions.FormActionSubmit:
-			if err := p.Click(ctx, formElement); err != nil {
-				result.Error = err.Error()
-			} else {
-				result.Success = true
-			}
+			result.Error = "form: renderless submission is unsupported; use Form.Submit with Engine.Submit or the canonical browser runtime"
 		default:
 			result.Error = "form: unsupported renderless action"
 		}
@@ -188,14 +209,15 @@ func (p *Page) FormSubmit(ctx context.Context, formSelector string) (actions.For
 	if formElement == nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: no form matches %q", formSelector)
 	}
-	start := time.Now()
-	err = p.Click(ctx, formElement)
-	result := actions.FormResult{Success: err == nil, Type: actions.FormActionSubmit, Ref: formSelector, Duration: time.Since(start)}
-	if err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("page.FormSubmit: %w", err)
+	if ctx == nil {
+		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: context required")
 	}
-	return result, nil
+	if err := p.sessionError(); err != nil {
+		return actions.FormResult{}, err
+	}
+	start := time.Now()
+	err = fmt.Errorf("page.FormSubmit: renderless submission is unsupported; use Form.Submit with Engine.Submit or the canonical browser runtime")
+	return actions.FormResult{Type: actions.FormActionSubmit, Ref: formSelector, Duration: time.Since(start), Error: err.Error()}, err
 }
 
 // ClickSelector is a convenience method that clicks the first element

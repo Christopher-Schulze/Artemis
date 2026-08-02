@@ -80,8 +80,11 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse proxy url %q: %w", cfg.ProxyURL, err)
 		}
-		if _, err := policy.ResolveURL(context.Background(), u.String(), TargetProxy, cfg.SessionID); err != nil {
-			return nil, fmt.Errorf("validate proxy url: %w", err)
+		validationCtx, cancel := context.WithTimeout(context.Background(), policy.Config().DialTimeout)
+		_, validationErr := policy.ResolveURL(validationCtx, u.String(), TargetProxy, cfg.SessionID)
+		cancel()
+		if validationErr != nil {
+			return nil, fmt.Errorf("validate proxy url: %w", validationErr)
 		}
 		transport.Proxy = http.ProxyURL(u)
 	}
@@ -122,6 +125,9 @@ func sameOrigin(first, next *url.URL) bool {
 
 // Close releases resources. It is safe to call multiple times.
 func (c *HTTPClient) Close() error {
+	if c == nil || c.client == nil {
+		return nil
+	}
 	if t, ok := c.client.Transport.(*http.Transport); ok {
 		t.CloseIdleConnections()
 	}
@@ -129,7 +135,12 @@ func (c *HTTPClient) Close() error {
 }
 
 // CookieJar returns the underlying cookie jar.
-func (c *HTTPClient) CookieJar() http.CookieJar { return c.jar }
+func (c *HTTPClient) CookieJar() http.CookieJar {
+	if c == nil {
+		return nil
+	}
+	return c.jar
+}
 
 // Request describes a single HTTP request.
 type Request struct {
@@ -160,6 +171,9 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 
 // DoTarget executes a request under the policy identity of kind.
 func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (result *Response, resultErr error) {
+	if c == nil || c.client == nil || c.cfg.Policy == nil {
+		return nil, errors.New("network: initialized HTTP client required")
+	}
 	requestCtx, finish, err := c.beginRequest(ctx)
 	if err != nil {
 		return nil, err

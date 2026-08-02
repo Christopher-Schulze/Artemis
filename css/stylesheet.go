@@ -121,11 +121,15 @@ func parseDeclBlock(body string) (map[string]string, map[string]bool) {
 		if k == "" {
 			continue
 		}
-		// strip "!important" suffix
-		if idx := strings.LastIndex(strings.ToLower(v), "!important"); idx >= 0 {
+		// Strip an actual trailing "!important" priority marker. Text that
+		// merely contains the token inside a string or function is a value.
+		if idx := strings.LastIndex(strings.ToLower(v), "!important"); idx >= 0 && strings.TrimSpace(v[idx+len("!important"):]) == "" {
 			before := strings.TrimSpace(v[:idx])
 			decls[k] = before
 			important[k] = true
+			continue
+		}
+		if important[k] {
 			continue
 		}
 		decls[k] = v

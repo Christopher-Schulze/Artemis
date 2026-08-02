@@ -35,6 +35,10 @@ func cmdObserve(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	if *timeout <= 0 || *maxNodes <= 0 {
+		errf("observe timeout and max-nodes must be positive")
+		return 2
+	}
 	// Reject an unknown format before launching Chromium so a typo costs
 	// nothing instead of a full browser session.
 	outputFormat, err := parseObserveFormat(*format)

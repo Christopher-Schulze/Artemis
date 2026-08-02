@@ -283,6 +283,10 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 			// but still record the failure honestly.
 			if st.Cmd == "page.open" && strings.Contains(sr.Error, "fetch_failed") {
 				res.NetworkFail = true
+				if s.NetworkFail != "strict" {
+					res.Skipped = true
+					res.SkipReason = "site/network unavailable: " + sr.Error
+				}
 			}
 			// Stop the scenario on first failure (no point continuing
 			// against a broken page).
@@ -313,7 +317,12 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		if st.Cmd == "page.dump" {
 			if data, ok := extractString(sr.Got, "data"); ok {
 				art := filepath.Join(scenarioDir, fmt.Sprintf("step-%02d-%s.txt", i, sanitize(st.Name)))
-				_ = os.WriteFile(art, []byte(data), 0o644)
+				if err := os.WriteFile(art, []byte(data), 0o644); err != nil {
+					res.Pass = false
+					res.Steps[len(res.Steps)-1].OK = false
+					res.Steps[len(res.Steps)-1].Error = "write page dump: " + err.Error()
+					break
+				}
 				res.Artifacts = append(res.Artifacts, art)
 			}
 		}
@@ -390,7 +399,11 @@ func (r *Runner) runStep(ctx context.Context, conn *websocket.Conn, st *Step, mu
 		Cmd:    st.Cmd,
 		Params: params,
 	}
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		sr.Error = "marshal request: " + err.Error()
+		return sr
+	}
 
 	mu.Lock()
 	writeErr := conn.Write(ctx, websocket.MessageText, body)
@@ -419,16 +432,29 @@ func (r *Runner) runStep(ctx context.Context, conn *websocket.Conn, st *Step, mu
 		sr.Error = "unmarshal resp: " + err.Error()
 		return sr
 	}
+	if resp.ID != req.ID {
+		sr.Error = fmt.Sprintf("response id mismatch: got %q, want %q", resp.ID, req.ID)
+		return sr
+	}
 	sr.OK = resp.OK
 	sr.Got = resp.Value
 	if !resp.OK && resp.Error != nil {
 		sr.Error = resp.Error.Code + ": " + resp.Error.Message
 		return sr
 	}
+	if !resp.OK {
+		sr.Error = "response failed without error details"
+		return sr
+	}
 	// For page.assert, check the pass field.
 	if st.Cmd == "page.assert" && resp.OK {
 		if m, ok := resp.Value.(map[string]any); ok {
-			pass, _ := m["pass"].(bool)
+			pass, valid := m["pass"].(bool)
+			if !valid {
+				sr.OK = false
+				sr.Error = "assert response missing boolean pass"
+				return sr
+			}
 			sr.Assert = &pass
 			want := true
 			if st.AssertPass != nil {
@@ -438,6 +464,9 @@ func (r *Runner) runStep(ctx context.Context, conn *websocket.Conn, st *Step, mu
 				sr.OK = false
 				sr.Error = fmt.Sprintf("assertion failed: got pass=%v, want %v (got=%v)", pass, want, m["got"])
 			}
+		} else {
+			sr.OK = false
+			sr.Error = "assert response is not an object"
 		}
 	}
 	return sr

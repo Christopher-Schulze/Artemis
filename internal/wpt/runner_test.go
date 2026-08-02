@@ -77,6 +77,44 @@ func TestRunnerUnregisteredPath(t *testing.T) {
 	}
 }
 
+func TestRunnerRejectsInvalidInputs(t *testing.T) {
+	if _, err := (*Runner)(nil).RunCase(context.Background(), TestCase{Path: "a.html", Name: "n", Expected: OutcomePass, CapabilityID: "c"}); err == nil {
+		t.Fatal("nil runner was accepted")
+	}
+
+	r, err := NewRunner()
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	defer r.Close()
+
+	if _, err := r.Run(context.Background(), Subset{}); err == nil {
+		t.Fatal("invalid subset was accepted")
+	}
+	if _, err := r.RunCase(context.Background(), TestCase{}); err == nil {
+		t.Fatal("invalid test case was accepted")
+	}
+}
+
+func TestRunnerRejectsMissingHarnessResults(t *testing.T) {
+	r, err := NewRunner()
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	defer r.Close()
+	r.Server.RegisterHTML("/no-results.html", "<html><head><title>No results</title></head><body></body></html>")
+
+	_, err = r.RunCase(context.Background(), TestCase{
+		Path:         "no-results.html",
+		Name:         "missing",
+		Expected:     OutcomePass,
+		CapabilityID: "renderless.javascript",
+	})
+	if err == nil {
+		t.Fatal("missing harness results were accepted")
+	}
+}
+
 func TestResultValidate(t *testing.T) {
 	valid := Result{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: "OK"}
 	if err := valid.Validate(); err != nil {
@@ -88,6 +126,8 @@ func TestResultValidate(t *testing.T) {
 		{Path: "a.html", Name: "", Status: "PASS", HarnessStatus: "OK"},
 		{Path: "a.html", Name: "n", Status: "", HarnessStatus: "OK"},
 		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: ""},
+		{Path: "a.html", Name: "n", Status: "UNKNOWN(9)", HarnessStatus: "OK"},
+		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: "UNKNOWN(9)"},
 	}
 	for i, r := range invalid {
 		if err := r.Validate(); err == nil {

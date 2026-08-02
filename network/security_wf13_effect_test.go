@@ -81,16 +81,16 @@ func TestWFArtemisSecurity_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("oracle: CheckHostPublic nil returns nil", func(t *testing.T) {
-		if err := CheckHostPublic(nil); err != nil {
-			t.Fatalf("expected nil, got %v", err)
+	t.Run("oracle: CheckHostPublic nil fails closed", func(t *testing.T) {
+		if err := CheckHostPublic(nil); err != ErrPrivateIP {
+			t.Fatalf("expected ErrPrivateIP, got %v", err)
 		}
 	})
 
-	t.Run("oracle: CheckHostPublic empty host returns nil", func(t *testing.T) {
+	t.Run("oracle: CheckHostPublic empty host fails closed", func(t *testing.T) {
 		u := &url.URL{Host: ""}
-		if err := CheckHostPublic(u); err != nil {
-			t.Fatalf("expected nil, got %v", err)
+		if err := CheckHostPublic(u); err != ErrPrivateIP {
+			t.Fatalf("expected ErrPrivateIP, got %v", err)
 		}
 	})
 

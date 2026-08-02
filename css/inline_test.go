@@ -26,7 +26,10 @@ func TestCamelKebab(t *testing.T) {
 		"fontSize":        "font-size",
 		"backgroundColor": "background-color",
 		"color":           "color",
-		"webkitTransform": "webkit-transform",
+		"webkitTransform": "-webkit-transform",
+		"msTransform":     "-ms-transform",
+		"MozTransform":    "-moz-transform",
+		"OTransform":      "-o-transform",
 		"":                "",
 	}
 	for in, want := range cases {

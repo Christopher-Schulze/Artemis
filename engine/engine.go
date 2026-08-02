@@ -101,6 +101,9 @@ type Download = artemisdownload.Download
 // New creates an Engine using cfg. The returned engine must be Closed.
 func New(cfg Config) (*Engine, error) {
 	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 	if err := cfg.SessionBudget.validate(); err != nil {
 		return nil, err
 	}
@@ -203,6 +206,9 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 	if ctx == nil {
 		return nil, errors.New("engine: fetch context required")
 	}
+	if opts.MaxBodyBytes < 0 {
+		return nil, errors.New("engine: maximum body bytes override must not be negative")
+	}
 	ctx, release := e.session.mergeContext(ctx)
 	defer release()
 	sessionID := network.SessionID(ctx, e.cfg.SessionID)
@@ -212,7 +218,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 	} else {
 		method = strings.ToUpper(method)
 	}
-	headers := opts.Headers
+	headers := opts.Headers.Clone()
 	if len(opts.Body) > 0 && method != http.MethodGet {
 		if headers == nil {
 			headers = http.Header{}
@@ -247,6 +253,16 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			return nil, fmt.Errorf("engine: OnRequest: %w", err)
 		}
 		if mock != nil {
+			bodyLimit := opts.MaxBodyBytes
+			if bodyLimit == 0 {
+				bodyLimit = e.cfg.MaxBodyBytes
+			}
+			if int64(len(mock.Body)) > bodyLimit {
+				return nil, fmt.Errorf("engine: OnRequest response body exceeds limit of %d bytes", bodyLimit)
+			}
+			if mock.Status < 100 || mock.Status > 599 {
+				return nil, fmt.Errorf("engine: OnRequest response status %d is invalid", mock.Status)
+			}
 			if err := e.session.admitSynthetic(int64(len(mock.Body))); err != nil {
 				return nil, err
 			}
@@ -283,9 +299,9 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			page := &Page{
 				url:        finalURL,
 				statusCode: mock.Status,
-				headers:    mock.Headers,
+				headers:    mock.Headers.Clone(),
 				document:   doc,
-				rawBody:    mock.Body,
+				rawBody:    append([]byte(nil), mock.Body...),
 				jsCtx:      jsCtx,
 				download: func(filename, contentType string, content []byte) (*Download, error) {
 					return e.storePageDownload(sessionID, filename, contentType, content)
@@ -347,9 +363,9 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 	page := &Page{
 		url:        resp.FinalURL,
 		statusCode: resp.StatusCode,
-		headers:    resp.Headers,
+		headers:    resp.Headers.Clone(),
 		document:   doc,
-		rawBody:    resp.Body,
+		rawBody:    append([]byte(nil), resp.Body...),
 		jsCtx:      jsCtx,
 		download: func(filename, contentType string, content []byte) (*Download, error) {
 			return e.storePageDownload(sessionID, filename, contentType, content)

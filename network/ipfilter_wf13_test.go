@@ -106,14 +106,14 @@ func TestWFArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
 		{
 			"check_host_public_nil_url",
 			func() bool {
-				return CheckHostPublic(nil) == nil
+				return CheckHostPublic(nil) == ErrPrivateIP
 			},
 		},
 		{
 			"check_host_public_empty_host",
 			func() bool {
 				u, _ := url.Parse("http:///path")
-				return CheckHostPublic(u) == nil
+				return CheckHostPublic(u) == ErrPrivateIP
 			},
 		},
 		{

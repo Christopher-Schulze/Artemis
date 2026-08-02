@@ -29,7 +29,7 @@ func cmdDownload(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 1 || *maxFile <= 0 || *maxSession <= 0 {
+	if fs.NArg() != 1 || *timeout <= 0 || *maxFile <= 0 || *maxSession <= 0 {
 		fs.Usage()
 		return 2
 	}

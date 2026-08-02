@@ -126,6 +126,31 @@ func TestLoadScenariosMissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadScenariosRejectsUnknownFieldsAndCommands(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  string
+	}{
+		{name: "unknown field", doc: "version: \"1\"\nunknown: true\nscenarios: []\n"},
+		{name: "unknown command", doc: "version: \"1\"\nscenarios:\n  - id: s1\n    site: https://example.com\n    steps:\n      - name: bad\n        cmd: page.typo\n"},
+		{name: "invalid network mode", doc: "version: \"1\"\nscenarios:\n  - id: s1\n    site: https://example.com\n    network_fail: maybe\n    steps:\n      - name: open\n        cmd: session.new\n"},
+		{name: "negative timeout", doc: "version: \"1\"\nscenarios:\n  - id: s1\n    site: https://example.com\n    timeout: -1s\n    steps:\n      - name: open\n        cmd: session.new\n"},
+		{name: "unsafe id", doc: "version: \"1\"\nscenarios:\n  - id: ../../escape\n    site: https://example.com\n    steps:\n      - name: open\n        cmd: session.new\n"},
+		{name: "multiple documents", doc: "version: \"1\"\nscenarios:\n  - id: s1\n    site: https://example.com\n    steps:\n      - name: open\n        cmd: session.new\n---\nversion: \"2\"\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "scenarios.yaml")
+			if err := os.WriteFile(path, []byte(tc.doc), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if _, err := LoadScenarios(path); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestLoadSmokeMatrix(t *testing.T) {
 	path := filepath.Join("..", "..", "testdata", "smoke", "scenarios.yaml")
 	sf, err := LoadScenarios(path)

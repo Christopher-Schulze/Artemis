@@ -52,3 +52,10 @@ func TestEaseInOutScroll(t *testing.T) {
 		t.Fatalf("easeInOut not working: first=%f last=%f", firstHalf, lastHalf)
 	}
 }
+
+func TestEaseInOutScrollSingleStep(t *testing.T) {
+	offsets := EaseInOutScroll(250, 1)
+	if len(offsets) != 1 || offsets[0] != 250 {
+		t.Fatalf("offsets=%v, want [250]", offsets)
+	}
+}

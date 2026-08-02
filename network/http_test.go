@@ -224,5 +224,18 @@ func TestCookieJarPresent(t *testing.T) {
 	}
 }
 
+func TestHTTPClientNilReceiverFailsClosed(t *testing.T) {
+	var client *HTTPClient
+	if _, err := client.Do(context.Background(), Request{URL: "https://example.com"}); err == nil {
+		t.Fatal("nil client executed request")
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("nil Close: %v", err)
+	}
+	if client.CookieJar() != nil {
+		t.Fatal("nil client returned a cookie jar")
+	}
+}
+
 // silence unused imports in case future refactors drop one
 var _ = io.Discard

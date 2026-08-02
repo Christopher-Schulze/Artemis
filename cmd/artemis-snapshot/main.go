@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	v8 "rogchap.com/v8go"
@@ -23,6 +24,7 @@ import (
 )
 
 const snapshotPath = "js/snapshot.bin"
+const artemisModulePath = "github.com/Christopher-Schulze/Artemis"
 
 // stubsBootstrap pre-installs no-op or sentinel values for every native
 // global and DOM accessor that bootstrap top-level code touches before
@@ -161,6 +163,9 @@ func main() {
 
 func run() error {
 	start := time.Now()
+	if err := validateModuleRoot("."); err != nil {
+		return err
+	}
 
 	// --predictable forces V8 to use a deterministic random seed and a
 	// stable allocation strategy so the produced snapshot bytes are
@@ -193,10 +198,53 @@ func run() error {
 	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(snapshotPath, blob, 0o644); err != nil {
+	if err := writeFileAtomic(snapshotPath, blob, 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("snapshot: %s (%d bytes) in %s\n",
 		snapshotPath, len(blob), time.Since(start))
+	return nil
+}
+
+func validateModuleRoot(root string) error {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return fmt.Errorf("read Artemis go.mod: %w", err)
+	}
+	want := "module " + artemisModulePath
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("working directory is not the Artemis module root")
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".snapshot-*")
+	if err != nil {
+		return fmt.Errorf("create snapshot candidate: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod snapshot candidate: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write snapshot candidate: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync snapshot candidate: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close snapshot candidate: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("publish snapshot: %w", err)
+	}
 	return nil
 }

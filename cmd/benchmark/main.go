@@ -24,6 +24,10 @@ func main() {
 	cpuProfile := flag.String("cpu-profile", "", "write CPU profile to file")
 	memProfile := flag.String("mem-profile", "", "write memory profile to file")
 	flag.Parse()
+	if err := validateOptions(*skipCompetitor, *requireHeadToHead, *iterations, *outputDir); err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
+		os.Exit(2)
+	}
 
 	cfg := benchmark.HarnessConfig{
 		OutputDir:         *outputDir,
@@ -56,4 +60,17 @@ func main() {
 	}
 
 	benchmark.PrintSummary(sc)
+}
+
+func validateOptions(skipCompetitor, requireHeadToHead bool, iterations int, outputDir string) error {
+	if iterations <= 0 {
+		return fmt.Errorf("iterations must be positive")
+	}
+	if outputDir == "" {
+		return fmt.Errorf("output must not be empty")
+	}
+	if skipCompetitor && requireHeadToHead {
+		return fmt.Errorf("require-head-to-head cannot be combined with skip-competitor")
+	}
+	return nil
 }

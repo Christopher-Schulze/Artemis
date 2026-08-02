@@ -1,7 +1,6 @@
 package network
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -355,6 +354,9 @@ func (w *WebBotAuth) PublishPublicKey() ([]byte, error) {
 // signature is valid, an error otherwise. This is the server-side
 // verification function; the agent uses Sign.
 func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
+	if req == nil {
+		return errors.New("webbotauth: nil request")
+	}
 	sigInput := req.Header.Get("Signature-Input")
 	sigHeader := req.Header.Get("Signature")
 	if sigInput == "" || sigHeader == "" {
@@ -366,9 +368,8 @@ func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
 		return fmt.Errorf("webbotauth: extract signature: %w", err)
 	}
 	// Extract the signature-params from the Signature-Input header.
-	paramsStr, err := extractSignatureParams(sigInput)
-	if err != nil {
-		return fmt.Errorf("webbotauth: extract params: %w", err)
+	if err := validateSignatureWindow(sigInput, time.Now()); err != nil {
+		return err
 	}
 	// Reconstruct the @authority value.
 	authority := req.Host
@@ -383,10 +384,27 @@ func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
 	if err != nil {
 		return fmt.Errorf("webbotauth: rebuild base: %w", err)
 	}
-	_ = paramsStr // paramsStr is embedded in sigBase via sigInput
 	// Verify the Ed25519 signature.
 	if !ed25519.Verify(pub, []byte(sigBase), sig) {
 		return errors.New("webbotauth: signature verification failed")
+	}
+	return nil
+}
+
+func validateSignatureWindow(sigInput string, now time.Time) error {
+	created, expires, _, _, err := ParseWebBotAuthSignatureInput(sigInput)
+	if err != nil {
+		return fmt.Errorf("webbotauth: parse signature-input: %w", err)
+	}
+	if created <= 0 || expires <= created {
+		return errors.New("webbotauth: invalid signature time window")
+	}
+	nowUnix := now.Unix()
+	if created > nowUnix+int64((5*time.Minute)/time.Second) {
+		return errors.New("webbotauth: signature created in the future")
+	}
+	if expires < nowUnix {
+		return errors.New("webbotauth: signature expired")
 	}
 	return nil
 }
@@ -605,11 +623,9 @@ func VerifyRequestHeaders(sigAgent, sigInput, sigHeader, authority string, pub e
 		return errors.New("webbotauth: missing Signature-Input or Signature header")
 	}
 	// Verify the tag is web-bot-auth.
-	_, _, _, tag, err := ParseWebBotAuthSignatureInput(sigInput)
-	if err != nil {
-		return fmt.Errorf("webbotauth: parse signature-input: %w", err)
+	if err := validateSignatureWindow(sigInput, time.Now()); err != nil {
+		return err
 	}
-	_ = tag
 	sigB64, err := extractSigB64FromHeader(sigHeader)
 	if err != nil {
 		return fmt.Errorf("webbotauth: extract signature: %w", err)
@@ -620,12 +636,9 @@ func VerifyRequestHeaders(sigAgent, sigInput, sigHeader, authority string, pub e
 	// Verify Signature-Agent if provided.
 	if sigAgent != "" {
 		// sigAgent format: g="<url>"
-		if !strings.HasPrefix(sigAgent, `g="`) {
+		if !strings.HasPrefix(sigAgent, `g="`) || !strings.HasSuffix(sigAgent, `"`) || len(sigAgent) <= len(`g=""`) {
 			return errors.New("webbotauth: malformed Signature-Agent header")
 		}
 	}
 	return nil
 }
-
-// bufferPool avoids allocating fresh buffers for signature base construction.
-var _ = bytes.NewBufferString

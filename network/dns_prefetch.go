@@ -75,6 +75,9 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 	if c == nil {
 		return nil, fmt.Errorf("dns cache: nil")
 	}
+	if ctx == nil {
+		return nil, fmt.Errorf("dns cache: context required")
+	}
 	host = strings.ToLower(strings.TrimSpace(host))
 	if host == "" {
 		return nil, fmt.Errorf("dns cache: empty host")
@@ -110,9 +113,6 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 		strs = append(strs, ip.String())
 	}
 	exp := now.Add(c.ttl)
-	c.mu.Lock()
-	c.l1[host] = dnsEntry{ips: strs, expiresAt: exp}
-	c.mu.Unlock()
 	if c.db != nil {
 		if _, err := c.db.Exec(
 			`INSERT OR REPLACE INTO dns_cache(host,ips,expires_at) VALUES(?,?,?)`,
@@ -121,11 +121,20 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 			return nil, fmt.Errorf("dns cache: persist %s: %w", host, err)
 		}
 	}
+	c.mu.Lock()
+	c.l1[host] = dnsEntry{ips: strs, expiresAt: exp}
+	c.mu.Unlock()
 	return ips, nil
 }
 
 // Prefetch resolves hosts concurrently (max workers).
 func (c *DNSPrefetchCache) Prefetch(ctx context.Context, hosts []string, workers int) error {
+	if c == nil {
+		return fmt.Errorf("dns cache: nil")
+	}
+	if ctx == nil {
+		return fmt.Errorf("dns cache: context required")
+	}
 	if workers <= 0 {
 		workers = 10
 	}
@@ -138,8 +147,13 @@ func (c *DNSPrefetchCache) Prefetch(ctx context.Context, hosts []string, workers
 		if h == "" {
 			continue
 		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return ctx.Err()
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(host string) {
 			defer wg.Done()
 			defer func() { <-sem }()

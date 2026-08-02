@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,7 +81,11 @@ func SystemMetadata() CaptureMetadata {
 // sensitive literals, writes the replay to outDir, and returns the captured
 // Replay. If outDir is empty, the replay is not written to disk.
 func CaptureReplay(sc Scenario, runner string, result CrossResult, d time.Duration, meta CaptureMetadata, cfg RedactionConfig, outDir string) (*Replay, error) {
+	if err := validateRedactionConfig(cfg); err != nil {
+		return nil, err
+	}
 	redacted, log := redactCrossResult(result, cfg)
+	redactedScenario := redactScenario(sc, cfg)
 	if meta.OS == "" {
 		sys := SystemMetadata()
 		if meta.OS == "" {
@@ -96,13 +101,16 @@ func CaptureReplay(sc Scenario, runner string, result CrossResult, d time.Durati
 			meta.Hostname = sys.Hostname
 		}
 	}
+	if cfg.Enabled {
+		meta.Hostname = ""
+	}
 
 	id := fmt.Sprintf("%s-%s-%d", sanitize(runner), sanitize(sc.ID), time.Now().UTC().UnixMilli())
 	replay := &Replay{
 		ID:           id,
 		ScenarioID:   sc.ID,
 		Runner:       runner,
-		Scenario:     sc,
+		Scenario:     redactedScenario,
 		Result:       redacted,
 		CapturedAt:   time.Now().UTC(),
 		DurationMs:   d.Milliseconds(),
@@ -117,6 +125,45 @@ func CaptureReplay(sc Scenario, runner string, result CrossResult, d time.Durati
 		}
 	}
 	return replay, nil
+}
+
+func validateRedactionConfig(cfg RedactionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	for _, expr := range cfg.Patterns {
+		if _, err := regexp.Compile("(?i:" + expr + ")"); err != nil {
+			return fmt.Errorf("replay: invalid redaction pattern %q: %w", expr, err)
+		}
+	}
+	return nil
+}
+
+func redactScenario(sc Scenario, cfg RedactionConfig) Scenario {
+	if !cfg.Enabled {
+		return sc
+	}
+	out := sc
+	out.Description = Redact(sc.Description, cfg)
+	out.HTML = Redact(sc.HTML, cfg)
+	out.Expect.Title = Redact(sc.Expect.Title, cfg)
+	out.Expect.Eval = Redact(sc.Expect.Eval, cfg)
+	out.Expect.EvalContains = Redact(sc.Expect.EvalContains, cfg)
+	out.Expect.URL = Redact(sc.Expect.URL, cfg)
+	out.Expect.Contains = redactStrings(sc.Expect.Contains, cfg)
+	out.Expect.NotContains = redactStrings(sc.Expect.NotContains, cfg)
+	return out
+}
+
+func redactStrings(values []string, cfg RedactionConfig) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = Redact(value, cfg)
+	}
+	return out
 }
 
 // Save serializes the replay to JSON under dir with 0600 permissions and
@@ -319,6 +366,7 @@ func redactCrossResult(result CrossResult, cfg RedactionConfig) (CrossResult, []
 	for n := range log {
 		names = append(names, n)
 	}
+	sort.Strings(names)
 	return out, names
 }
 

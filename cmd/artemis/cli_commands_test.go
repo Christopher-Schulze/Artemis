@@ -27,6 +27,33 @@ func TestDoctorTextExitCode(t *testing.T) {
 	}
 }
 
+func TestCommandsRejectInvalidFormatsAndBoundsBeforeWork(t *testing.T) {
+	if code := cmdDoctor([]string{"--format", "yaml"}); code != 2 {
+		t.Fatalf("doctor invalid format exit code = %d", code)
+	}
+	if code := cmdDoctor([]string{"--timeout", "0s"}); code != 2 {
+		t.Fatalf("doctor invalid timeout exit code = %d", code)
+	}
+	if code := cmdTrace([]string{"--url", "https://fixture.test", "--format", "yaml"}); code != 2 {
+		t.Fatalf("trace invalid format exit code = %d", code)
+	}
+	if code := cmdBenchmark([]string{"--format", "yaml"}); code != 2 {
+		t.Fatalf("benchmark invalid format exit code = %d", code)
+	}
+	if code := cmdObserve([]string{"--timeout", "0s", "https://fixture.test"}); code != 2 {
+		t.Fatalf("observe invalid timeout exit code = %d", code)
+	}
+	if code := cmdObserve([]string{"--max-nodes", "0", "https://fixture.test"}); code != 2 {
+		t.Fatalf("observe invalid node bound exit code = %d", code)
+	}
+	if code := cmdAct([]string{"--timeout", "0s", "--request", `{}`, "https://fixture.test"}); code != 2 {
+		t.Fatalf("act invalid timeout exit code = %d", code)
+	}
+	if code := cmdDownload([]string{"--timeout", "0s", "https://fixture.test"}); code != 2 {
+		t.Fatalf("download invalid timeout exit code = %d", code)
+	}
+}
+
 func TestTraceEmitsJSON(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `<!doctype html><html><head><title>TraceTest</title></head><body></body></html>`)

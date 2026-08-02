@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -124,7 +125,19 @@ func TestReplayRedaction(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	sc := Scenario{ID: "redaction-test", Path: "/redaction-test", Kind: KindHTML, Status: 200, HTML: "<html></html>"}
+	sc := Scenario{
+		ID:          "redaction-test",
+		Path:        "/redaction-test",
+		Kind:        KindHTML,
+		Status:      200,
+		Description: "Contact user@example.com",
+		HTML:        `<input name="password" value="scenario-secret"/>`,
+		Expect: Expect{
+			Title:       "Token token=scenario-secret",
+			Contains:    []string{"user@example.com"},
+			NotContains: []string{"123-45-6789"},
+		},
+	}
 	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), DefaultRedactionConfig(), dir)
 	if err != nil {
 		t.Fatalf("CaptureReplay: %v", err)
@@ -156,6 +169,27 @@ func TestReplayRedaction(t *testing.T) {
 	}
 	if len(replay.RedactionLog) == 0 {
 		t.Error("RedactionLog should contain matched patterns")
+	}
+	scenarioJSON, err := json.Marshal(replay.Scenario)
+	if err != nil {
+		t.Fatalf("marshal replay scenario: %v", err)
+	}
+	for _, secret := range []string{"scenario-secret", "user@example.com", "123-45-6789"} {
+		if strings.Contains(string(scenarioJSON), secret) {
+			t.Errorf("scenario secret %q was persisted: %s", secret, scenarioJSON)
+		}
+	}
+	if replay.Metadata.Hostname != "" {
+		t.Errorf("redacted replay retained hostname %q", replay.Metadata.Hostname)
+	}
+}
+
+func TestReplayRejectsInvalidRedactionPattern(t *testing.T) {
+	cfg := DefaultRedactionConfig()
+	cfg.Patterns = []string{"["}
+
+	if _, err := CaptureReplay(Scenario{ID: "invalid-pattern"}, "renderless", CrossResult{}, 0, SystemMetadata(), cfg, ""); err == nil {
+		t.Fatal("CaptureReplay accepted an invalid redaction pattern")
 	}
 }
 

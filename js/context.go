@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	v8 "rogchap.com/v8go"
 
@@ -42,7 +43,8 @@ type Context struct {
 	bootstrapsSkipped bool
 	storageHandleIDs  []uint32 // handles into Runtime.storageHandles to free on Close
 	fetchBodyIDs      []uint32 // handles into Runtime.fetchBodies to free on Close
-	closed            bool
+	evalCtx           context.Context
+	closed            atomic.Bool
 }
 
 // registerBootstrap queues a JS bootstrap source. Sources are flushed as
@@ -372,7 +374,7 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 // resources (timers, observers, ws, fetch bodies, storage handles) are
 // always freed eagerly here — only the v8 Context object is recycled.
 func (c *Context) Close() {
-	if c == nil || c.closed {
+	if c == nil || !c.closed.CompareAndSwap(false, true) {
 		return
 	}
 	// Iframe sub-Contexts close themselves (each acquires ctxMu); do
@@ -400,11 +402,6 @@ func (c *Context) Close() {
 	if c.rt != nil {
 		c.rt.ctxMu.Lock()
 		defer c.rt.ctxMu.Unlock()
-		// Re-check under the lock — another goroutine might have
-		// closed us between the early-out and the lock acquire.
-		if c.closed {
-			return
-		}
 	}
 	if c.rt != nil && c.rt.storageHandles != nil {
 		for _, id := range c.storageHandleIDs {
@@ -425,14 +422,12 @@ func (c *Context) Close() {
 		if c.rt.poolEnabled && c.rt.ctxPool != nil {
 			select {
 			case c.rt.ctxPool <- c.v8ctx:
-				c.closed = true
 				return
 			default:
 			}
 		}
 	}
 	c.v8ctx.Close()
-	c.closed = true
 }
 
 // Eval evaluates expr and returns the result. V8's default microtask
@@ -442,12 +437,23 @@ func (c *Context) Close() {
 // all share r.iso and v8::Isolate is single-threaded; without this, two goroutines
 // evaluating on different Contexts of the same Runtime race inside V8 and crash
 // (SIGSEGV in cgo, e.g. mid-callback in Value.String).
-func (c *Context) Eval(_ context.Context, expr string) (*Value, error) {
-	if c.closed {
+func (c *Context) Eval(ctx context.Context, expr string) (*Value, error) {
+	if c == nil || c.closed.Load() {
 		return nil, errors.New("eval on closed context")
+	}
+	if ctx == nil {
+		return nil, errors.New("eval: context required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	c.rt.ctxMu.Lock()
 	defer c.rt.ctxMu.Unlock()
+	if c.closed.Load() {
+		return nil, errors.New("eval on closed context")
+	}
+	c.evalCtx = ctx
+	defer func() { c.evalCtx = nil }()
 	return c.evalLocked(expr)
 }
 

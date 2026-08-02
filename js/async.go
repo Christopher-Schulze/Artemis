@@ -2,6 +2,7 @@ package js
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	v8 "rogchap.com/v8go"
@@ -87,6 +88,20 @@ func (a *asyncChan) resolveOne(c *Context, p *pendingFetch) {
 // fires mutation observers (in case .then / onmessage callbacks mutated
 // DOM). Returns ctx.Err() on cancellation.
 func (c *Context) WaitIdle(ctx context.Context) error {
+	if c == nil || c.closed.Load() {
+		return context.Canceled
+	}
+	if ctx == nil {
+		return errors.New("wait idle: context required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.rt.ctxMu.Lock()
+	defer c.rt.ctxMu.Unlock()
+	if c.closed.Load() {
+		return context.Canceled
+	}
 	if c.async == nil {
 		return nil
 	}

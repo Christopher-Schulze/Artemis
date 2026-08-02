@@ -41,6 +41,26 @@ func TestParseStylesheetImportant(t *testing.T) {
 	}
 }
 
+func TestParseStylesheetPrioritySurvivesLaterNormalDeclaration(t *testing.T) {
+	sh := ParseStylesheet(`p { color: red !important; color: blue; }`)
+	if got := sh.Rules[0].Decls["color"]; got != "red" {
+		t.Fatalf("color = %q, want red", got)
+	}
+	if !sh.Rules[0].Important["color"] {
+		t.Fatal("color priority was lost")
+	}
+}
+
+func TestParseStylesheetImportantTextInsideValueIsNotPriority(t *testing.T) {
+	sh := ParseStylesheet(`p { content: "!important"; }`)
+	if got := sh.Rules[0].Decls["content"]; got != `"!important"` {
+		t.Fatalf("content = %q", got)
+	}
+	if sh.Rules[0].Important["content"] {
+		t.Fatal("content text was misclassified as priority")
+	}
+}
+
 func TestParseStylesheetSkipsAtRules(t *testing.T) {
 	sh := ParseStylesheet(`
 		@media (min-width: 600px) {

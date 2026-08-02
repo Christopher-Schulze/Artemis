@@ -6,12 +6,29 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxScenarioFileBytes int64 = 1 << 20
+
+var supportedStepCommands = map[string]bool{
+	"session.new":        true,
+	"session.close":      true,
+	"page.open":          true,
+	"page.close":         true,
+	"page.eval":          true,
+	"page.dump":          true,
+	"page.click_by_text": true,
+	"page.type":          true,
+	"page.wait_idle":     true,
+	"page.assert":        true,
+}
 
 // ScenarioFile is the top-level YAML document.
 type ScenarioFile struct {
@@ -42,13 +59,29 @@ type Step struct {
 
 // LoadScenarios reads and validates a scenario YAML file.
 func LoadScenarios(path string) (*ScenarioFile, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.Size() > maxScenarioFileBytes {
+		return nil, fmt.Errorf("read %s: scenario file exceeds %d bytes", path, maxScenarioFileBytes)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var sf ScenarioFile
-	if err := yaml.Unmarshal(data, &sf); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&sf); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("parse %s: multiple YAML documents are not allowed", path)
+		}
+		return nil, fmt.Errorf("parse %s: trailing document: %w", path, err)
 	}
 	if err := sf.Validate(); err != nil {
 		return nil, err
@@ -70,12 +103,21 @@ func (sf *ScenarioFile) Validate() error {
 		if s.ID == "" {
 			return fmt.Errorf("scenario[%d]: missing id", i)
 		}
+		if sanitize(s.ID) != s.ID {
+			return fmt.Errorf("scenario[%d]: id %q must contain only letters, digits, hyphen or underscore", i, s.ID)
+		}
 		if seen[s.ID] {
 			return fmt.Errorf("scenario %q: duplicate id", s.ID)
 		}
 		seen[s.ID] = true
 		if s.Site == "" {
 			return fmt.Errorf("scenario %q: missing site", s.ID)
+		}
+		if s.NetworkFail != "" && s.NetworkFail != "tolerant" && s.NetworkFail != "strict" {
+			return fmt.Errorf("scenario %q: network_fail must be tolerant or strict", s.ID)
+		}
+		if s.Timeout < 0 {
+			return fmt.Errorf("scenario %q: timeout must not be negative", s.ID)
 		}
 		if len(s.Steps) == 0 {
 			return fmt.Errorf("scenario %q: no steps", s.ID)
@@ -87,6 +129,9 @@ func (sf *ScenarioFile) Validate() error {
 			}
 			if st.Name == "" {
 				return fmt.Errorf("scenario %q step[%d]: missing name", s.ID, j)
+			}
+			if !supportedStepCommands[st.Cmd] {
+				return fmt.Errorf("scenario %q step[%d]: unsupported cmd %q", s.ID, j, st.Cmd)
 			}
 		}
 	}

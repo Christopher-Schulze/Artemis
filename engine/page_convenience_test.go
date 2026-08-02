@@ -95,7 +95,7 @@ func TestPageTypeInvalidSelector(t *testing.T) {
 	}
 }
 
-func TestPageTypeWithDelay(t *testing.T) {
+func TestPageTypeWithDelayRejectsFakeRenderlessTiming(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<!doctype html><html><body><input id="q"></body></html>`)
 	}))
@@ -108,14 +108,8 @@ func TestPageTypeWithDelay(t *testing.T) {
 	defer page.Close()
 
 	result, err := page.TypeWithDelay(context.Background(), "#q", "hi", 10*time.Millisecond, 5*time.Millisecond)
-	if err != nil {
-		t.Fatalf("TypeWithDelay: %v", err)
-	}
-	if !result.Success {
-		t.Errorf("result.Success = false")
-	}
-	if result.CharsTyped != 2 {
-		t.Errorf("CharsTyped = %d, want 2", result.CharsTyped)
+	if err == nil || result.Success {
+		t.Fatalf("fake renderless timing reported success: result=%+v err=%v", result, err)
 	}
 }
 
@@ -185,22 +179,25 @@ func TestPageFormFillAndSubmit(t *testing.T) {
 		"#pass": "secret123",
 	}
 	results, err := page.Form(context.Background(), "#login", fields, true)
-	if err != nil {
-		t.Fatalf("Form: %v", err)
+	if err == nil {
+		t.Fatal("renderless form submission reported success")
 	}
 	// 2 fills + 1 submit = 3 results.
 	if len(results) != 3 {
 		t.Fatalf("results len = %d, want 3", len(results))
 	}
-	for _, r := range results {
-		if !r.Success {
-			t.Errorf("result not successful: %s", r.Error)
+	for index, r := range results {
+		if index < 2 && !r.Success {
+			t.Errorf("fill result not successful: %s", r.Error)
 		}
 	}
 	// Last result should be a submit.
 	last := results[len(results)-1]
 	if last.Type != "submit" {
 		t.Errorf("last result type = %s, want submit", last.Type)
+	}
+	if last.Success || last.Error == "" {
+		t.Fatalf("renderless submit result=%+v", last)
 	}
 }
 
@@ -340,11 +337,8 @@ func TestPageFormSubmitOnly(t *testing.T) {
 	defer page.Close()
 
 	result, err := page.FormSubmit(context.Background(), "#login")
-	if err != nil {
-		t.Fatalf("FormSubmit: %v", err)
-	}
-	if !result.Success {
-		t.Errorf("result.Success = false")
+	if err == nil || result.Success {
+		t.Fatalf("renderless form submission reported success: result=%+v err=%v", result, err)
 	}
 	if result.Type != "submit" {
 		t.Errorf("type = %s, want submit", result.Type)
@@ -390,10 +384,9 @@ func TestPageClickSelector(t *testing.T) {
 	defer page.Close()
 
 	err := page.ClickSelector(context.Background(), "#btn")
-	// Click may fail if there's no JS context, but the selector resolution
-	// should succeed. We only care that the method doesn't panic and
-	// returns either nil or a JS-context error.
-	_ = err
+	if err != nil {
+		t.Fatalf("ClickSelector: %v", err)
+	}
 }
 
 func TestPageClickSelectorEmptySelector(t *testing.T) {

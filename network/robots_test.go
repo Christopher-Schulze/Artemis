@@ -52,3 +52,36 @@ func TestNilPolicyAllows(t *testing.T) {
 		t.Error("nil policy should allow")
 	}
 }
+
+func TestParseRobotsAccumulatesConsecutiveUserAgents(t *testing.T) {
+	p, err := ParseRobots(strings.NewReader("User-agent: Artemis\nUser-agent: Omnimus\nDisallow: /private\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, userAgent := range []string{"Artemis/1.0", "Omnimus/1.0"} {
+		if p.Allowed(userAgent, "/private/data") {
+			t.Fatalf("%s lost shared group rule", userAgent)
+		}
+	}
+}
+
+func TestRobotsSelectsLongestMatchingUserAgentDeterministically(t *testing.T) {
+	p, err := ParseRobots(strings.NewReader("User-agent: bot\nDisallow: /broad\nUser-agent: artemis-bot\nDisallow: /specific\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		if p.Allowed("Artemis-Bot/1.0", "/specific") {
+			t.Fatal("longest user-agent match was not selected")
+		}
+		if !p.Allowed("Artemis-Bot/1.0", "/broad") {
+			t.Fatal("shorter matching group was incorrectly merged")
+		}
+	}
+}
+
+func TestParseRobotsRejectsNilReader(t *testing.T) {
+	if _, err := ParseRobots(nil); err == nil {
+		t.Fatal("nil reader accepted")
+	}
+}

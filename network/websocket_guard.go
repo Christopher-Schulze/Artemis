@@ -174,8 +174,10 @@ func (g *WebSocketGuard) Evaluate(event WebSocketEvent) WebSocketDecision {
 			Original: event.URL,
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), g.policy.Config().DialTimeout)
+	defer cancel()
 	if err := g.policy.ValidateRequest(
-		context.Background(),
+		ctx,
 		event.URL,
 		http.MethodGet,
 		"",

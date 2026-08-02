@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -109,7 +110,11 @@ func (l *TabLock) IsLocked(tabID string) bool {
 	if !ok {
 		return false
 	}
-	return !lock.TryLock()
+	if !lock.TryLock() {
+		return true
+	}
+	lock.Unlock()
+	return false
 }
 
 // Remove removes a tab lock entry (only if not currently locked)
@@ -133,6 +138,7 @@ func (l *TabLock) LockedTabs() []string {
 	for tabID := range l.owners {
 		result = append(result, tabID)
 	}
+	sort.Strings(result)
 	return result
 }
 

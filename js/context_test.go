@@ -3,6 +3,7 @@ package js
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
@@ -170,5 +171,29 @@ func TestEvalAfterCloseFails(t *testing.T) {
 	c.Close()
 	if _, err := c.Eval(context.Background(), `1`); err == nil {
 		t.Error("expected error after Close")
+	}
+}
+
+func TestContextCloseIsConcurrentAndIdempotent(t *testing.T) {
+	c := newCtxFromHTML(t, `<html></html>`, nil)
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Close()
+		}()
+	}
+	wg.Wait()
+	if _, err := c.Eval(context.Background(), `1`); err == nil {
+		t.Fatal("Eval succeeded after concurrent Close")
+	}
+}
+
+func TestWaitIdleRejectsClosedContext(t *testing.T) {
+	c := newCtxFromHTML(t, `<html></html>`, nil)
+	c.Close()
+	if err := c.WaitIdle(context.Background()); err == nil {
+		t.Fatal("WaitIdle succeeded after Close")
 	}
 }

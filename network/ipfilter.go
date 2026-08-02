@@ -44,7 +44,7 @@ func allPorts() []int {
 // compatibility wrapper around the unified Policy engine.
 func CheckHostPublic(u *url.URL) error {
 	if u == nil || u.Host == "" {
-		return nil
+		return ErrPrivateIP
 	}
 	raw := u.String()
 	if u.Scheme == "" {
@@ -54,7 +54,9 @@ func CheckHostPublic(u *url.URL) error {
 	if err != nil {
 		return err
 	}
-	if _, err := policy.ResolveURL(context.Background(), raw, TargetNavigation, ""); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultPolicyConfig().DialTimeout)
+	defer cancel()
+	if _, err := policy.ResolveURL(ctx, raw, TargetNavigation, ""); err != nil {
 		return ErrPrivateIP
 	}
 	return nil

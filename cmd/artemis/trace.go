@@ -15,7 +15,7 @@ import (
 func cmdTrace(args []string) int {
 	fs := newFlagSet("trace")
 	url := fs.String("url", "", "URL to fetch (required)")
-	format := fs.String("format", "json", "output format: json")
+	format := fs.String("format", "json", "output format: json or text")
 	binary := fs.String("binary", "", "Chromium binary path (auto-discovered when empty)")
 	sandbox := fs.String("sandbox", string(process.SandboxRequired), "Chromium sandbox policy: required or disabled")
 	traceDir := fs.String("trace-dir", "", "directory for the atomic trace archive")
@@ -40,6 +40,10 @@ Flags:
 	}
 	if *url == "" {
 		errf("trace: --url required")
+		return 2
+	}
+	if *format != "json" && *format != "text" {
+		errf("trace format %q invalid", *format)
 		return 2
 	}
 	sandboxPolicy, err := parseSandboxPolicy(*sandbox)

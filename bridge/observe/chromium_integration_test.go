@@ -87,7 +87,7 @@ func TestChromiumObservationFixture(t *testing.T) {
 	if covered == nil || covered.Hit != bridgeobserve.HitCovered || covered.Interactable {
 		t.Fatalf("covered state missing: %#v warnings=%v", covered, snapshot.Warnings)
 	}
-	if password == nil || password.Value != "[REDACTED]" {
+	if password == nil || password.Value != "[REDACTED]" || password.Attributes["value"] != "[REDACTED]" {
 		t.Fatalf("password leaked: %#v", password)
 	}
 	if shadow == nil || len(shadow.ShadowPath) == 0 {

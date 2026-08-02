@@ -139,7 +139,8 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 		}
 		points[i] = pt
 	}
-	// Ensure the last point is exactly the end point
+	// Preserve the exact movement endpoints; jitter applies only in flight.
+	points[0] = start
 	points[cfg.Steps-1] = end
 
 	// Compute duration: 100ms base + 200ms per 2000px
@@ -304,14 +305,18 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 	preClickDelay := cfg.PreClickDelayMin
 	if rng != nil && cfg.PreClickDelayMax > cfg.PreClickDelayMin {
 		rangeMs := int((cfg.PreClickDelayMax - cfg.PreClickDelayMin) / time.Millisecond)
-		preClickDelay = cfg.PreClickDelayMin + time.Duration(rng.Intn(rangeMs))*time.Millisecond
+		if rangeMs > 0 {
+			preClickDelay = cfg.PreClickDelayMin + time.Duration(rng.Intn(rangeMs+1))*time.Millisecond
+		}
 	}
 
 	// 5. Hold duration 30-119ms (spec L4194)
 	holdDuration := cfg.HoldDurationMin
 	if rng != nil && cfg.HoldDurationMax > cfg.HoldDurationMin {
 		rangeMs := int((cfg.HoldDurationMax - cfg.HoldDurationMin) / time.Millisecond)
-		holdDuration = cfg.HoldDurationMin + time.Duration(rng.Intn(rangeMs))*time.Millisecond
+		if rangeMs > 0 {
+			holdDuration = cfg.HoldDurationMin + time.Duration(rng.Intn(rangeMs+1))*time.Millisecond
+		}
 	}
 
 	// 6. Release point: target + +-1.0px jitter (spec L4194)
@@ -344,7 +349,7 @@ type BoxModel struct {
 // BoxCenter computes the center point of a box model
 // (spec L4194: center + +-5px offset).
 func (b BoxModel) Center() MousePoint {
-	if len(b.Quad) < 4 {
+	if len(b.Quad) < 8 {
 		return MousePoint{}
 	}
 	// Quad is [x1,y1, x2,y2, x3,y3, x4,y4]

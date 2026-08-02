@@ -114,14 +114,14 @@ func NewAdBlockDetector(cfg AdBlockDetectionConfig) *AdBlockDetector {
 	if cfg.BlockedRequestThreshold <= 0 {
 		cfg.BlockedRequestThreshold = 5
 	}
-	return &AdBlockDetector{config: cfg}
+	return &AdBlockDetector{config: cloneAdBlockDetectionConfig(cfg)}
 }
 
 // Config returns a copy of the current detection config.
 func (d *AdBlockDetector) Config() AdBlockDetectionConfig {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.config
+	return cloneAdBlockDetectionConfig(d.config)
 }
 
 // SetConfig replaces the detection config atomically.
@@ -130,8 +130,16 @@ func (d *AdBlockDetector) SetConfig(cfg AdBlockDetectionConfig) {
 		cfg.BlockedRequestThreshold = 5
 	}
 	d.mu.Lock()
-	d.config = cfg
+	d.config = cloneAdBlockDetectionConfig(cfg)
 	d.mu.Unlock()
+}
+
+func cloneAdBlockDetectionConfig(cfg AdBlockDetectionConfig) AdBlockDetectionConfig {
+	cfg.DetectionPatterns = append([]string(nil), cfg.DetectionPatterns...)
+	cfg.OverlayCSSPatterns = append([]string(nil), cfg.OverlayCSSPatterns...)
+	cfg.WhitelistDomains = append([]string(nil), cfg.WhitelistDomains...)
+	cfg.JSErrorPatterns = append([]string(nil), cfg.JSErrorPatterns...)
+	return cfg
 }
 
 // DetectOverlay implements Case A: it scans rendered HTML content for

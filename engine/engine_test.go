@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEngineFetchEndToEnd(t *testing.T) {
@@ -63,5 +64,72 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	if cfg.MaxBodyBytes == 0 {
 		t.Error("MaxBodyBytes default not applied")
+	}
+}
+
+func TestEngineRejectsProtectionDisablingConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "timeout", cfg: Config{Timeout: -time.Second}},
+		{name: "body limit", cfg: Config{MaxBodyBytes: -1}},
+		{name: "download limit", cfg: Config{MaxDownloadDiskBytes: -1}},
+		{name: "download headroom", cfg: Config{MinDownloadFreeBytes: -1}},
+		{name: "context pool", cfg: Config{JSContextPoolSize: -1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if engine, err := New(test.cfg); err == nil {
+				_ = engine.Close()
+				t.Fatal("invalid configuration accepted")
+			}
+		})
+	}
+}
+
+func TestEngineMockResponseHonorsBodyLimitAndStatus(t *testing.T) {
+	engine, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	for _, response := range []*ResponseInfo{
+		{Status: http.StatusOK, Body: []byte("oversize")},
+		{Status: 0, Body: []byte("ok")},
+	} {
+		_, err := engine.Fetch(context.Background(), "https://example.invalid/", FetchOpts{
+			MaxBodyBytes: 2,
+			OnRequest:    func(*RequestInfo) (*ResponseInfo, error) { return response, nil },
+		})
+		if err == nil {
+			t.Fatalf("invalid mock response accepted: %#v", response)
+		}
+	}
+}
+
+func TestPageResponseAccessorsReturnCopies(t *testing.T) {
+	headers := http.Header{"X-Proof": []string{"original"}}
+	body := []byte("<html><body>original</body></html>")
+	engine, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	page, err := engine.Fetch(context.Background(), "https://example.invalid/", FetchOpts{OnRequest: func(*RequestInfo) (*ResponseInfo, error) {
+		return &ResponseInfo{Status: http.StatusOK, Headers: headers, Body: body}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	headers.Set("X-Proof", "mutated-source")
+	body[0] = 'X'
+	gotHeaders := page.Headers()
+	gotBody := page.RawBody()
+	gotHeaders.Set("X-Proof", "mutated-result")
+	gotBody[0] = 'Y'
+	if page.Headers().Get("X-Proof") != "original" || string(page.RawBody()) != "<html><body>original</body></html>" {
+		t.Fatalf("page response aliases caller-owned data: headers=%v body=%q", page.Headers(), page.RawBody())
 	}
 }

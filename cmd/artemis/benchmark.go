@@ -26,6 +26,10 @@ Flags:
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if *format != "json" && *format != "summary" {
+		errf("benchmark format %q invalid", *format)
+		return 2
+	}
 
 	cfg := benchmark.HarnessConfig{
 		OutputDir:      *outputDir,

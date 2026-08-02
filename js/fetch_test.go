@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func staticFetcher(t *testing.T, body string, status int) FetchFunc {
@@ -104,6 +106,86 @@ func TestFetchTransportErrorRejects(t *testing.T) {
 	}
 	if !strings.Contains(v.String(), "rejected") || !strings.Contains(v.String(), "refused") {
 		t.Errorf("captured = %q, want rejected:...connection refused", v.String())
+	}
+}
+
+func TestFetchRejectsInvalidResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		fetcher FetchFunc
+		want    string
+	}{
+		{
+			name: "nil response",
+			fetcher: func(context.Context, FetchRequest) (*FetchResponse, error) {
+				return nil, nil
+			},
+			want: "nil response",
+		},
+		{
+			name: "invalid status",
+			fetcher: func(context.Context, FetchRequest) (*FetchResponse, error) {
+				return &FetchResponse{Status: 0}, nil
+			},
+			want: "invalid response status",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newCtxFromHTMLOpts(t, `<html></html>`, ContextOpts{Fetch: tt.fetcher})
+			if _, err := c.Eval(context.Background(), `
+				var captured = '';
+				fetch('https://example.test/').catch(e => { captured = String(e); });
+			`); err != nil {
+				t.Fatalf("eval fetch: %v", err)
+			}
+			v, err := c.Eval(context.Background(), `captured`)
+			if err != nil {
+				t.Fatalf("eval captured: %v", err)
+			}
+			if !strings.Contains(v.String(), tt.want) {
+				t.Fatalf("captured = %q, want substring %q", v.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestSynchronousFetchHonorsEvalCancellation(t *testing.T) {
+	started := make(chan struct{})
+	var once sync.Once
+	observed := make(chan error, 1)
+	c := newCtxFromHTMLOpts(t, `<html></html>`, ContextOpts{
+		Fetch: func(ctx context.Context, _ FetchRequest) (*FetchResponse, error) {
+			once.Do(func() { close(started) })
+			<-ctx.Done()
+			observed <- ctx.Err()
+			return nil, ctx.Err()
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Eval(ctx, `fetch('https://example.test/slow')`)
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("fetcher did not start")
+	}
+	cancel()
+	select {
+	case err := <-observed:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("fetch context error = %v, want canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fetcher did not observe Eval cancellation")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Eval did not return after cancellation")
 	}
 }
 

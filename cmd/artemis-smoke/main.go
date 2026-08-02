@@ -37,6 +37,10 @@ Flags:
 		fs.Usage()
 		os.Exit(2)
 	}
+	if err := validateCLIConfig(*port, *stepTimeout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -77,6 +81,16 @@ Flags:
 		os.Exit(1)
 	}
 	logger.Info("smoke complete", "passed", sc.Passed, "failed", sc.Failed, "skipped", sc.Skipped)
+}
+
+func validateCLIConfig(port int, stepTimeout time.Duration) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	if stepTimeout <= 0 {
+		return fmt.Errorf("step-timeout must be positive")
+	}
+	return nil
 }
 
 func signalContext() (context.Context, context.CancelFunc) {

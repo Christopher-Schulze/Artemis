@@ -34,13 +34,13 @@ func (p *Page) URL() string { return p.url }
 func (p *Page) StatusCode() int { return p.statusCode }
 
 // Headers returns the response headers.
-func (p *Page) Headers() http.Header { return p.headers }
+func (p *Page) Headers() http.Header { return p.headers.Clone() }
 
 // Document returns the parsed DOM document.
 func (p *Page) Document() *webapi.Document { return p.document }
 
 // RawBody returns the raw response body as fetched, before parsing.
-func (p *Page) RawBody() []byte { return p.rawBody }
+func (p *Page) RawBody() []byte { return append([]byte(nil), p.rawBody...) }
 
 // SaveDownload atomically stores this response body in the owning engine
 // session's download directory. The target must be a filename, not a path.

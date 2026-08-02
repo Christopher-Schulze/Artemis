@@ -50,6 +50,12 @@ func (r Result) Validate() error {
 	if r.HarnessStatus == "" {
 		return fmt.Errorf("wpt Result %q/%q: HarnessStatus is empty", r.Path, r.Name)
 	}
+	if strings.HasPrefix(r.Status, "UNKNOWN(") {
+		return fmt.Errorf("wpt Result %q/%q: unsupported test status %q", r.Path, r.Name, r.Status)
+	}
+	if strings.HasPrefix(r.HarnessStatus, "UNKNOWN(") {
+		return fmt.Errorf("wpt Result %q/%q: unsupported harness status %q", r.Path, r.Name, r.HarnessStatus)
+	}
 	return nil
 }
 
@@ -90,6 +96,9 @@ func (r *Runner) Close() error {
 
 // Run executes the subset and returns the result for each test case.
 func (r *Runner) Run(ctx context.Context, subset Subset) ([]Result, error) {
+	if err := subset.Validate(); err != nil {
+		return nil, err
+	}
 	var out []Result
 	for _, tc := range subset.Tests {
 		res, err := r.RunCase(ctx, tc)
@@ -103,6 +112,12 @@ func (r *Runner) Run(ctx context.Context, subset Subset) ([]Result, error) {
 
 // RunCase runs a single WPT test case and returns its observed result.
 func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
+	if r == nil || r.Engine == nil || r.Server == nil {
+		return Result{}, fmt.Errorf("wpt: initialized runner is required")
+	}
+	if err := tc.Validate(); err != nil {
+		return Result{}, err
+	}
 	pageURL := r.Server.URL(tc.Path)
 	page, err := r.Engine.Fetch(ctx, pageURL, engine.FetchOpts{RunScripts: true})
 	if err != nil {
@@ -121,11 +136,7 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
 
 	raw := v.String()
 	if raw == "undefined" || raw == "null" || raw == "" {
-		return Result{
-			Path:   tc.Path,
-			Name:   tc.Name,
-			Status: "NO_RESULTS",
-		}, nil
+		return Result{}, fmt.Errorf("wpt %s/%s: harness produced no results", tc.Path, tc.Name)
 	}
 
 	var report struct {
@@ -143,13 +154,17 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
 
 	for _, t := range report.Tests {
 		if t.Name == tc.Name {
-			return Result{
+			result := Result{
 				Path:          tc.Path,
 				Name:          tc.Name,
 				Status:        testStatus(t.Status),
 				Message:       t.Message,
 				HarnessStatus: harnessStatus(report.HarnessStatus),
-			}, nil
+			}
+			if err := result.Validate(); err != nil {
+				return Result{}, err
+			}
+			return result, nil
 		}
 	}
 
