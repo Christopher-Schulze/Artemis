@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
@@ -85,14 +87,17 @@ var ErrRobotsDisallowed = network.ErrRobotsDisallowed
 // Engine is the top-level handle for performing fetches and producing
 // pages. It is safe for concurrent use.
 type Engine struct {
-	cfg         Config
-	client      *network.HTTPClient
-	policy      *network.Policy
-	jsRT        *js.Runtime
-	downloadMu  sync.Mutex
-	downloads   map[string]*artemisdownload.DownloadManager
-	session     *sessionBudgetController
-	diagnostics *diagnostics.Store
+	cfg            Config
+	client         *network.HTTPClient
+	policy         *network.Policy
+	jsRT           *js.Runtime
+	downloadMu     sync.Mutex
+	downloads      map[string]*artemisdownload.DownloadManager
+	ingressMu      sync.RWMutex
+	ingress        DownloadIngress
+	requireIngress bool
+	session        *sessionBudgetController
+	diagnostics    *diagnostics.Store
 }
 
 // Download is the verified metadata for a committed session download.
@@ -154,7 +159,11 @@ func New(cfg Config) (*Engine, error) {
 	default:
 		rt = js.NewRuntime()
 	}
-	return &Engine{cfg: cfg, client: client, policy: policy, jsRT: rt, session: session, diagnostics: diagnosticStore}, nil
+	return &Engine{
+		cfg: cfg, client: client, policy: policy, jsRT: rt, session: session,
+		diagnostics: diagnosticStore, ingress: cfg.DownloadIngress,
+		requireIngress: cfg.RequireDownloadIngress,
+	}, nil
 }
 
 // Config returns a copy of the active configuration.
@@ -193,8 +202,11 @@ func (e *Engine) Download(ctx context.Context, rawURL, filename string) (*Downlo
 	if err != nil {
 		return nil, err
 	}
-	download, err := manager.Store(filename, resp.Headers.Get("Content-Type"), resp.Body)
+	download, err := manager.StoreContext(ctx, filename, resp.Headers.Get("Content-Type"), resp.Body)
 	if err != nil {
+		return nil, err
+	}
+	if err := e.publishDownload(ctx, sessionID, filename, resp.Headers.Get("Content-Type"), resp.Body, download.Path); err != nil {
 		return nil, err
 	}
 	return e.recordDownload(sessionID, manager, download)
@@ -312,8 +324,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			tabOwned = false
 			if opts.RunInlineScripts || opts.RunScripts {
 				if err := e.runScripts(ctx, jsCtx, doc, finalURL); err != nil {
-					_ = page.Close()
-					return nil, err
+					return nil, errors.Join(err, page.Close())
 				}
 			}
 			return page, nil
@@ -376,8 +387,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 
 	if opts.RunInlineScripts || opts.RunScripts {
 		if err := e.runScripts(ctx, jsCtx, doc, resp.FinalURL); err != nil {
-			_ = page.Close()
-			return nil, err
+			return nil, errors.Join(err, page.Close())
 		}
 	}
 
@@ -395,11 +405,13 @@ func (e *Engine) downloadManager(sessionID string) (*artemisdownload.DownloadMan
 		return manager, nil
 	}
 	manager, err := artemisdownload.NewDownloadManager(artemisdownload.DownloadConfig{
-		RootDir:      e.cfg.DownloadRoot,
-		SessionID:    sessionID,
-		MaxDiskBytes: e.cfg.MaxDownloadDiskBytes,
-		MinFreeBytes: e.cfg.MinDownloadFreeBytes,
-		Policy:       e.policy,
+		RootDir:            e.cfg.DownloadRoot,
+		SessionID:          sessionID,
+		MaxDiskBytes:       e.cfg.MaxDownloadDiskBytes,
+		MinFreeBytes:       e.cfg.MinDownloadFreeBytes,
+		Policy:             e.policy,
+		Reservation:        e.cfg.DownloadReservation,
+		RequireReservation: e.cfg.RequireDownloadReservation,
 	})
 	if err != nil {
 		return nil, err
@@ -420,7 +432,66 @@ func (e *Engine) storePageDownload(sessionID, filename, contentType string, cont
 	if err != nil {
 		return nil, err
 	}
+	publishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := e.publishDownload(publishCtx, sessionID, filename, contentType, content, download.Path); err != nil {
+		return nil, err
+	}
 	return e.recordDownload(sessionID, manager, download)
+}
+
+// SetDownloadIngress updates the embedding application's governed download
+// publication boundary for an already-created engine.
+func (e *Engine) SetDownloadIngress(ingress DownloadIngress, required bool) {
+	if e == nil {
+		return
+	}
+	e.ingressMu.Lock()
+	e.ingress = ingress
+	e.requireIngress = required
+	e.ingressMu.Unlock()
+}
+
+func (e *Engine) publishDownload(ctx context.Context, sessionID, filename, contentType string, content []byte, path string) error {
+	if e == nil {
+		return errors.New("engine: download ingress unavailable")
+	}
+	e.ingressMu.RLock()
+	ingress := e.ingress
+	required := e.requireIngress
+	e.ingressMu.RUnlock()
+	if ingress == nil {
+		if required {
+			removeErr := removeDownloadFile(path)
+			return errors.Join(errors.New("engine: governed download ingress unavailable"), removeErr)
+		}
+		return nil
+	}
+	if err := ingress.PublishDownload(ctx, sessionID, filename, contentType, append([]byte(nil), content...)); err != nil {
+		removeErr := removeDownloadFile(path)
+		return errors.Join(fmt.Errorf("engine: publish download: %w", err), removeErr)
+	}
+	return nil
+}
+
+func removeDownloadFile(path string) (returnErr error) {
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("engine: remove committed download: %w", err)
+	}
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("engine: open download directory after removal: %w", err)
+	}
+	if err := directory.Sync(); err != nil {
+		returnErr = fmt.Errorf("engine: sync download directory after removal: %w", err)
+	}
+	if err := directory.Close(); err != nil {
+		returnErr = errors.Join(returnErr, fmt.Errorf("engine: close download directory after removal: %w", err))
+	}
+	return returnErr
 }
 
 // ReleaseSession removes runtime-only download synchronization state after all
@@ -434,11 +505,11 @@ func (e *Engine) ReleaseSession(sessionID string) {
 func (e *Engine) recordDownload(sessionID string, manager *artemisdownload.DownloadManager, download *Download) (*Download, error) {
 	usage, err := manager.DiskUsage()
 	if err != nil {
-		removeErr := os.Remove(download.Path)
+		removeErr := removeDownloadFile(download.Path)
 		return nil, errors.Join(fmt.Errorf("engine: measure download disk usage: %w", err), removeErr)
 	}
 	if err := e.session.setDiskUsage(sessionID, usage); err != nil {
-		removeErr := os.Remove(download.Path)
+		removeErr := removeDownloadFile(download.Path)
 		return nil, errors.Join(err, removeErr)
 	}
 	return download, nil
@@ -527,7 +598,13 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 		if strings.TrimSpace(code) == "" {
 			return webapi.WalkContinue
 		}
-		_, _ = jsCtx.Eval(ctx, code)
+		if _, evalErr := jsCtx.Eval(ctx, code); evalErr != nil {
+			if budgetErr := e.session.err(); budgetErr != nil {
+				runErr = budgetErr
+				return webapi.WalkStop
+			}
+			return webapi.WalkContinue
+		}
 		if budgetErr := e.session.err(); budgetErr != nil {
 			runErr = budgetErr
 			return webapi.WalkStop

@@ -3,6 +3,7 @@ package download
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,11 +18,26 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 const sniffBytes = 512
+
+const downloadCompatibilityTimeout = 30 * time.Second
+const downloadCleanupTimeout = 5 * time.Second
+
+func downloadCompatibilityContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), downloadCompatibilityTimeout)
+}
+
+func downloadCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		return context.WithTimeout(context.Background(), downloadCleanupTimeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(parent), downloadCleanupTimeout)
+}
 
 const (
 	DefaultMaxDiskBytes = int64(1024 * 1024 * 1024)
@@ -30,13 +46,48 @@ const (
 
 var downloadSessionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// ReclaimPolicy is deliberately dependency-free so the Artemis module can be
+// composed with Omnimus' supervisor without importing the Omnimus module.
+type ReclaimPolicy string
+
+const ReclaimNone ReclaimPolicy = "none"
+
+// StorageReservationSpec is the cross-process admission request for one
+// download publication.
+type StorageReservationSpec struct {
+	EstimatedBytes     int64
+	RollbackBytes      int64
+	MinFreeAfter       int64
+	AuditHeadroomBytes int64
+	ReclaimPolicy      ReclaimPolicy
+	AbortCleanupRefs   []string
+}
+
+// AdmissionResult returns an exact deficit instead of allowing mid-write
+// ENOSPC.
+type AdmissionResult struct {
+	Admitted    bool
+	ByteDeficit int64
+	Reason      string
+	Runbook     string
+}
+
+// StorageReservationAuthority is implemented by the durable Omnimus
+// supervisor adapter and may also be used by standalone Artemis hosts.
+type StorageReservationAuthority interface {
+	Admit(ctx context.Context, reservationID, owner string, spec StorageReservationSpec) (AdmissionResult, error)
+	Release(ctx context.Context, reservationID string) error
+}
+
 // DownloadConfig defines one session-owned download store.
 type DownloadConfig struct {
-	RootDir      string
-	SessionID    string
-	MaxDiskBytes int64
-	MinFreeBytes int64
-	Policy       *network.Policy
+	RootDir            string
+	SessionID          string
+	MaxDiskBytes       int64
+	MinFreeBytes       int64
+	Policy             *network.Policy
+	Reservation        StorageReservationAuthority
+	RequireReservation bool
 }
 
 // Download is the verified metadata for a committed session download.
@@ -50,13 +101,15 @@ type Download struct {
 
 // DownloadManager owns validation, quota, and atomic writes for one session.
 type DownloadManager struct {
-	mu           sync.Mutex
-	dir          string
-	sessionDir   string
-	sessionID    string
-	maxDiskBytes int64
-	minFreeBytes int64
-	policy       *network.Policy
+	mu                 sync.Mutex
+	dir                string
+	sessionDir         string
+	sessionID          string
+	maxDiskBytes       int64
+	minFreeBytes       int64
+	policy             *network.Policy
+	reservation        StorageReservationAuthority
+	requireReservation bool
 }
 
 // BrowserStage isolates one Chromium download attempt from committed files
@@ -71,6 +124,9 @@ type BrowserStage struct {
 func NewDownloadManager(config DownloadConfig) (*DownloadManager, error) {
 	if config.Policy == nil {
 		return nil, errors.New("download manager: network policy required")
+	}
+	if config.RequireReservation && config.Reservation == nil {
+		return nil, errors.New("download manager: storage reservation authority required")
 	}
 	if !downloadSessionPattern.MatchString(config.SessionID) || config.SessionID == "." || config.SessionID == ".." {
 		return nil, errors.New("download manager: invalid session ID")
@@ -107,12 +163,14 @@ func NewDownloadManager(config DownloadConfig) (*DownloadManager, error) {
 		return nil, err
 	}
 	return &DownloadManager{
-		dir:          canonicalDir,
-		sessionDir:   sessionDir,
-		sessionID:    config.SessionID,
-		maxDiskBytes: config.MaxDiskBytes,
-		minFreeBytes: config.MinFreeBytes,
-		policy:       config.Policy,
+		dir:                canonicalDir,
+		sessionDir:         sessionDir,
+		sessionID:          config.SessionID,
+		maxDiskBytes:       config.MaxDiskBytes,
+		minFreeBytes:       config.MinFreeBytes,
+		policy:             config.Policy,
+		reservation:        config.Reservation,
+		requireReservation: config.RequireReservation,
 	}, nil
 }
 
@@ -126,8 +184,8 @@ func (m *DownloadManager) NewBrowserStage() (*BrowserStage, error) {
 		return nil, fmt.Errorf("download stage: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("download stage permissions: %w", err)
+		cleanupErr := os.RemoveAll(dir)
+		return nil, errors.Join(fmt.Errorf("download stage permissions: %w", err), cleanupErr)
 	}
 	return &BrowserStage{manager: m, dir: dir}, nil
 }
@@ -137,8 +195,19 @@ func (s *BrowserStage) Directory() string { return s.dir }
 
 // Adopt verifies the staged file and atomically links it into committed state.
 func (s *BrowserStage) Adopt(filename, declaredType string) (*Download, error) {
+	ctx, cancel := downloadCompatibilityContext()
+	defer cancel()
+	return s.AdoptContext(ctx, filename, declaredType)
+}
+
+// AdoptContext verifies and commits one staged browser file under a caller
+// deadline, including the shared storage reservation.
+func (s *BrowserStage) AdoptContext(ctx context.Context, filename, declaredType string) (*Download, error) {
 	if s == nil || s.manager == nil {
 		return nil, errors.New("download stage unavailable")
+	}
+	if ctx == nil {
+		return nil, errors.New("download stage context required")
 	}
 	if filepath.Base(filename) != filename || filename == "." || filename == ".." || strings.TrimSpace(filename) == "" {
 		return nil, errors.New("download stage filename invalid")
@@ -161,16 +230,23 @@ func (s *BrowserStage) Adopt(filename, declaredType string) (*Download, error) {
 	if err := os.Link(source, target); err != nil {
 		return nil, fmt.Errorf("download stage commit: %w", err)
 	}
-	download, err := s.manager.adoptLocked(target, declaredType)
+	download, err := s.manager.adoptLocked(ctx, target, declaredType)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.Remove(source); err != nil {
 		finalizeErr := fmt.Errorf("download stage finalize: %w", err)
-		if cleanupErr := os.Remove(target); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+		if cleanupErr := removeCommittedDownload(target); cleanupErr != nil {
 			finalizeErr = errors.Join(finalizeErr, fmt.Errorf("download stage rollback: %w", cleanupErr))
 		}
 		return nil, finalizeErr
+	}
+	if err := syncDownloadDirectory(s.manager.dir); err != nil {
+		cleanupErr := removeCommittedDownload(target)
+		if cleanupErr != nil {
+			return nil, errors.Join(fmt.Errorf("download stage sync: %w", err), fmt.Errorf("download stage rollback: %w", cleanupErr))
+		}
+		return nil, fmt.Errorf("download stage sync: %w", err)
 	}
 	return download, nil
 }
@@ -223,10 +299,21 @@ func (m *DownloadManager) ResolveTarget(target string) (string, error) {
 	return target, nil
 }
 
-// Store atomically commits bytes after path, MIME, size, quota, and disk checks.
+// Store atomically commits bytes after path, MIME, size, quota, disk and
+// shared-reservation checks.
 func (m *DownloadManager) Store(filename, declaredType string, content []byte) (download *Download, resultErr error) {
+	ctx, cancel := downloadCompatibilityContext()
+	defer cancel()
+	return m.StoreContext(ctx, filename, declaredType, content)
+}
+
+// StoreContext is the cancellation-aware download publication path.
+func (m *DownloadManager) StoreContext(ctx context.Context, filename, declaredType string, content []byte) (download *Download, resultErr error) {
 	if m == nil {
 		return nil, errors.New("download manager unavailable")
+	}
+	if ctx == nil {
+		return nil, errors.New("download context required")
 	}
 	target, err := m.ResolveTarget(filename)
 	if err != nil {
@@ -243,6 +330,22 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("download target: %w", err)
 	}
+	hashSum := sha256.Sum256(content)
+	hashHex := hex.EncodeToString(hashSum[:])
+	reservationID, reserved, err := m.admit(ctx, int64(len(content)), target, hashHex)
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		defer func() {
+			releaseCtx, releaseCancel := downloadCleanupContext(ctx)
+			releaseErr := m.reservation.Release(releaseCtx, reservationID)
+			releaseCancel()
+			if releaseErr != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("download reservation release: %w", releaseErr))
+			}
+		}()
+	}
 	temporary, err := os.CreateTemp(m.dir, ".artemis-download-*.partial")
 	if err != nil {
 		return nil, fmt.Errorf("download temporary file: %w", err)
@@ -250,14 +353,21 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 	temporaryPath := temporary.Name()
 	committed := false
 	targetLinked := false
+	temporaryClosed := false
 	defer func() {
-		_ = temporary.Close()
-		if !committed {
-			_ = os.Remove(temporaryPath)
-			if targetLinked {
-				if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-					resultErr = errors.Join(resultErr, fmt.Errorf("download rollback: %w", err))
-				}
+		if !temporaryClosed {
+			if closeErr := temporary.Close(); closeErr != nil && !errors.Is(closeErr, os.ErrInvalid) {
+				resultErr = errors.Join(resultErr, fmt.Errorf("download temporary close: %w", closeErr))
+			}
+		}
+		if !committed && temporaryPath != "" {
+			if removeErr := os.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				resultErr = errors.Join(resultErr, fmt.Errorf("download temporary cleanup: %w", removeErr))
+			}
+		}
+		if !committed && targetLinked {
+			if err := removeCommittedDownload(target); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("download rollback: %w", err))
 			}
 		}
 	}()
@@ -274,12 +384,17 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 	if err := temporary.Close(); err != nil {
 		return nil, fmt.Errorf("download close: %w", err)
 	}
+	temporaryClosed = true
 	if err := os.Link(temporaryPath, target); err != nil {
 		return nil, fmt.Errorf("download commit: %w", err)
 	}
 	targetLinked = true
 	if err := os.Remove(temporaryPath); err != nil {
 		return nil, fmt.Errorf("download finalize: %w", err)
+	}
+	temporaryPath = ""
+	if err := syncDownloadDirectory(m.dir); err != nil {
+		return nil, fmt.Errorf("download directory sync: %w", err)
 	}
 	committed = true
 	return &Download{Path: target, Filename: filepath.Base(target), MIME: mimeType, Size: int64(len(content)), SHA256: hex.EncodeToString(hash.Sum(nil))}, nil
@@ -288,8 +403,19 @@ func (m *DownloadManager) Store(filename, declaredType string, content []byte) (
 // Adopt verifies a completed browser download already written in Directory.
 // Rejected files are removed so policy failures never leave untracked content.
 func (m *DownloadManager) Adopt(path, declaredType string) (*Download, error) {
+	ctx, cancel := downloadCompatibilityContext()
+	defer cancel()
+	return m.AdoptContext(ctx, path, declaredType)
+}
+
+// AdoptContext verifies a completed browser file and reserves its committed
+// size before accepting it into the session store.
+func (m *DownloadManager) AdoptContext(ctx context.Context, path, declaredType string) (*Download, error) {
 	if m == nil {
 		return nil, errors.New("download manager unavailable")
+	}
+	if ctx == nil {
+		return nil, errors.New("download context required")
 	}
 	target, err := m.ResolveTarget(path)
 	if err != nil {
@@ -297,16 +423,16 @@ func (m *DownloadManager) Adopt(path, declaredType string) (*Download, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.adoptLocked(target, declaredType)
+	return m.adoptLocked(ctx, target, declaredType)
 }
 
-func (m *DownloadManager) adoptLocked(target, declaredType string) (download *Download, resultErr error) {
+func (m *DownloadManager) adoptLocked(ctx context.Context, target, declaredType string) (download *Download, resultErr error) {
 	accepted := false
 	defer func() {
 		if accepted {
 			return
 		}
-		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := removeCommittedDownload(target); err != nil {
 			cleanupErr := fmt.Errorf("download cleanup rejected target: %w", err)
 			resultErr = errors.Join(resultErr, cleanupErr)
 		}
@@ -322,7 +448,19 @@ func (m *DownloadManager) adoptLocked(target, declaredType string) (download *Do
 	if err != nil {
 		return nil, fmt.Errorf("download open: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("download close: %w", closeErr))
+			accepted = false
+		}
+		if accepted {
+			return
+		}
+		download = nil
+		if cleanupErr := removeCommittedDownload(target); cleanupErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("download cleanup rejected target: %w", cleanupErr))
+		}
+	}()
 	prefix := make([]byte, sniffBytes)
 	read, readErr := io.ReadFull(file, prefix)
 	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
@@ -347,8 +485,48 @@ func (m *DownloadManager) adoptLocked(target, declaredType string) (download *Do
 	if err != nil || !os.SameFile(info, current) || current.Size() != info.Size() || current.ModTime() != info.ModTime() {
 		return nil, errors.New("download changed while being verified")
 	}
+	hashHex := hex.EncodeToString(hash.Sum(nil))
+	reservationID, reserved, err := m.admit(ctx, info.Size(), target, hashHex)
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		defer func() {
+			releaseCtx, releaseCancel := downloadCleanupContext(ctx)
+			releaseErr := m.reservation.Release(releaseCtx, reservationID)
+			releaseCancel()
+			if releaseErr != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("download reservation release: %w", releaseErr))
+			}
+		}()
+	}
 	accepted = true
-	return &Download{Path: target, Filename: filepath.Base(target), MIME: mimeType, Size: info.Size(), SHA256: hex.EncodeToString(hash.Sum(nil))}, nil
+	return &Download{Path: target, Filename: filepath.Base(target), MIME: mimeType, Size: info.Size(), SHA256: hashHex}, nil
+}
+
+func (m *DownloadManager) admit(ctx context.Context, size int64, target, hash string) (string, bool, error) {
+	if m.reservation == nil {
+		if m.requireReservation {
+			return "", false, errors.New("download storage reservation authority unavailable")
+		}
+		return "", false, nil
+	}
+	estimate := size
+	if estimate == 0 {
+		estimate = 1
+	}
+	reservationID := fmt.Sprintf("artemis-download:%s:%s:%s", m.sessionID, filepath.Base(target), hash[:16])
+	result, err := m.reservation.Admit(ctx, reservationID, m.sessionID, StorageReservationSpec{
+		EstimatedBytes: estimate, RollbackBytes: estimate, MinFreeAfter: m.minFreeBytes,
+		ReclaimPolicy: ReclaimNone, AbortCleanupRefs: []string{target},
+	})
+	if err != nil {
+		return reservationID, false, fmt.Errorf("download storage reservation: %w", err)
+	}
+	if !result.Admitted {
+		return reservationID, false, fmt.Errorf("download rejected by shared storage reservation: %s (deficit=%d)", result.Reason, result.ByteDeficit)
+	}
+	return reservationID, true, nil
 }
 
 // ValidatePending rejects an in-progress browser download before completion.
@@ -480,6 +658,30 @@ func downloadFreeBytes(path string) (int64, error) {
 		return 0, fmt.Errorf("download free-space check: %w", err)
 	}
 	return int64(stats.Bavail) * int64(stats.Bsize), nil
+}
+
+func syncDownloadDirectory(path string) (returnErr error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open directory: %w", err)
+	}
+	if err := directory.Sync(); err != nil {
+		returnErr = fmt.Errorf("sync directory: %w", err)
+	}
+	if err := directory.Close(); err != nil {
+		returnErr = errors.Join(returnErr, fmt.Errorf("close directory: %w", err))
+	}
+	return returnErr
+}
+
+func removeCommittedDownload(path string) error {
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return syncDownloadDirectory(filepath.Dir(path))
 }
 
 // SuggestedFilename derives a safe basename from response metadata.

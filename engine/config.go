@@ -5,10 +5,12 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
+	"github.com/Christopher-Schulze/Artemis/download"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
@@ -55,6 +57,18 @@ type Config struct {
 	MaxDownloadDiskBytes int64
 	// MinDownloadFreeBytes is the free-space headroom preserved after a write.
 	MinDownloadFreeBytes int64
+	// DownloadReservation is the shared durable admission authority for
+	// committed browser downloads.
+	DownloadReservation download.StorageReservationAuthority
+	// RequireDownloadReservation fails closed when the shared authority is not
+	// configured for a production engine.
+	RequireDownloadReservation bool
+	// DownloadIngress publishes every committed browser download into the
+	// embedding application's governed attachment lifecycle.
+	DownloadIngress DownloadIngress
+	// RequireDownloadIngress fails closed when a production engine has no
+	// governed download publication boundary.
+	RequireDownloadIngress bool
 	// SessionBudget contains hard limits shared by all renderless work owned
 	// by this engine unit.
 	SessionBudget SessionBudget
@@ -70,6 +84,13 @@ type Config struct {
 	// Adds ~JSContextPoolSize ms to startup but eliminates the cold
 	// build cost on the first page. Ignored when JSContextPoolSize == 0.
 	JSContextPoolWarm bool
+}
+
+// DownloadIngress is the dependency-free publication boundary for browser
+// downloads. The embedding application owns classification, quarantine,
+// persistence and activation policy; Artemis only supplies verified bytes.
+type DownloadIngress interface {
+	PublishDownload(ctx context.Context, sessionID, filename, contentType string, content []byte) error
 }
 
 func (c *Config) applyDefaults() {
@@ -107,8 +128,14 @@ func (c Config) validate() error {
 	if c.MinDownloadFreeBytes < 0 {
 		return errors.New("engine: minimum download free bytes must not be negative")
 	}
+	if c.RequireDownloadReservation && c.DownloadReservation == nil {
+		return errors.New("engine: download reservation required")
+	}
 	if c.JSContextPoolSize < 0 {
 		return errors.New("engine: JavaScript context pool size must not be negative")
+	}
+	if c.RequireDownloadIngress && c.DownloadIngress == nil {
+		return errors.New("engine: download ingress required")
 	}
 	return nil
 }
