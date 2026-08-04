@@ -540,6 +540,24 @@ func (b *Browser) Done() <-chan struct{} {
 	return b.done
 }
 
+// Signal forwards a signal to the owned Chromium process. Signal(0) is the
+// non-destructive liveness probe used by the Omnimus browser circuit.
+func (b *Browser) Signal(signal os.Signal) error {
+	if b == nil {
+		return errors.New("browser process is nil")
+	}
+	if signal == nil {
+		return errors.New("browser process signal is nil")
+	}
+	b.mu.RLock()
+	cmd := b.cmd
+	b.mu.RUnlock()
+	if cmd == nil || cmd.Process == nil {
+		return errors.New("browser process is not running")
+	}
+	return cmd.Process.Signal(signal)
+}
+
 // WaitError returns Chromium's terminal process result after Done closes.
 func (b *Browser) WaitError() error {
 	b.mu.RLock()

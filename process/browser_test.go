@@ -89,6 +89,20 @@ func TestLaunchOwnsAndRemovesDisposableProfile(t *testing.T) {
 	}
 }
 
+func TestBrowserSignalZeroChecksOwnedChromium(t *testing.T) {
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), Headless: true,
+		StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Close()
+	if err := browser.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("Signal(0): %v", err)
+	}
+}
+
 func TestLaunchPreservesConfiguredProfile(t *testing.T) {
 	profile := t.TempDir()
 	browser, err := Launch(context.Background(), LaunchConfig{
