@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -87,6 +88,71 @@ func TestLaunchOwnsAndRemovesDisposableProfile(t *testing.T) {
 	if err := browser.Close(); err != nil {
 		t.Fatalf("repeated close: %v", err)
 	}
+}
+
+func TestLaunchRegistersAndUnregistersOwnedChromiumProcess(t *testing.T) {
+	registrar := &recordingChildRegistrar{}
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath:            writeBrowserScript(t, browserReadyScript),
+		StartupTimeout:        5 * time.Second,
+		ShutdownTimeout:       time.Second,
+		ChildProcessRegistrar: registrar,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrar.mu.Lock()
+	pid, name := registrar.pid, registrar.name
+	registrar.mu.Unlock()
+	if pid <= 0 || name == "" {
+		t.Fatalf("registration pid=%d name=%q", pid, name)
+	}
+	if err := browser.Close(); err != nil {
+		t.Fatal(err)
+	}
+	registrar.mu.Lock()
+	unregistered := registrar.unregistered
+	registrar.mu.Unlock()
+	if !unregistered {
+		t.Fatal("owned Chromium process remained registered after close")
+	}
+}
+
+func TestLaunchFailsClosedWhenChildRegistrationFails(t *testing.T) {
+	_, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath:            writeBrowserScript(t, browserReadyScript),
+		StartupTimeout:        5 * time.Second,
+		ShutdownTimeout:       time.Second,
+		ChildProcessRegistrar: rejectingChildRegistrar{},
+	})
+	if !IsCode(err, ErrorLaunchFailed) {
+		t.Fatalf("registration failure=%v", err)
+	}
+}
+
+type recordingChildRegistrar struct {
+	mu           sync.Mutex
+	pid          int
+	name         string
+	unregistered bool
+}
+
+func (r *recordingChildRegistrar) RegisterChild(pid int, name string) (func(), error) {
+	r.mu.Lock()
+	r.pid = pid
+	r.name = name
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		r.unregistered = true
+		r.mu.Unlock()
+	}, nil
+}
+
+type rejectingChildRegistrar struct{}
+
+func (rejectingChildRegistrar) RegisterChild(int, string) (func(), error) {
+	return nil, errors.New("governor unavailable")
 }
 
 func TestBrowserSignalZeroChecksOwnedChromium(t *testing.T) {

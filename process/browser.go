@@ -35,6 +35,12 @@ type DependencyAuthorizer interface {
 	Authorize(ctx context.Context, artifact, version, path string) error
 }
 
+// ChildProcessRegistrar is the narrow boundary used to attach the owned
+// Chromium child to the host runtime's external-process governor.
+type ChildProcessRegistrar interface {
+	RegisterChild(pid int, name string) (func(), error)
+}
+
 // SandboxPolicy controls whether Chromium's OS sandbox must remain enabled.
 type SandboxPolicy string
 
@@ -63,30 +69,32 @@ type LaunchConfig struct {
 	Artifact                       string
 	ArtifactVersion                string
 	RequireDependencyAuthorization bool
+	ChildProcessRegistrar          ChildProcessRegistrar
 	resourceSampler                resourceSampler
 }
 
 // Browser owns a launched Chromium process and its disposable profile.
 type Browser struct {
-	mu            sync.RWMutex
-	cmd           *exec.Cmd
-	endpoint      string
-	profileDir    string
-	profileLease  string
-	removeProfile bool
-	shutdown      time.Duration
-	output        *cappedOutput
-	done          chan struct{}
-	processDone   chan struct{}
-	ready         chan struct{}
-	waitErr       error
-	terminalErr   error
-	closing       bool
-	closeOnce     sync.Once
-	closeErr      error
-	cleanupOnce   sync.Once
-	cleanupErr    error
-	warnings      []string
+	mu              sync.RWMutex
+	cmd             *exec.Cmd
+	endpoint        string
+	profileDir      string
+	profileLease    string
+	removeProfile   bool
+	shutdown        time.Duration
+	output          *cappedOutput
+	done            chan struct{}
+	processDone     chan struct{}
+	ready           chan struct{}
+	waitErr         error
+	terminalErr     error
+	closing         bool
+	closeOnce       sync.Once
+	closeErr        error
+	cleanupOnce     sync.Once
+	cleanupErr      error
+	unregisterChild func()
+	warnings        []string
 }
 
 // Launch starts Chromium with an isolated loopback CDP endpoint.
@@ -289,6 +297,19 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 	if err := cmd.Start(); err != nil {
 		return nil, &Error{Code: ErrorLaunchFailed, Op: "start", Err: err}
 	}
+	unregisterChild := func() {}
+	if config.ChildProcessRegistrar != nil {
+		cleanup, err := config.ChildProcessRegistrar.RegisterChild(cmd.Process.Pid, filepath.Base(binary.Path))
+		if err != nil {
+			killErr := cmd.Process.Kill()
+			waitErr := cmd.Wait()
+			return nil, &Error{Code: ErrorLaunchFailed, Op: "register Chromium process", Err: errors.Join(err, killErr, waitErr)}
+		}
+		if cleanup != nil {
+			unregisterChild = cleanup
+		}
+	}
+	browser.unregisterChild = unregisterChild
 	go browser.wait()
 	go browser.supervise(ctx, config)
 	endpoint, err := browser.waitForEndpoint(ctx, config.StartupTimeout)
@@ -339,7 +360,9 @@ func (b *Browser) wait() {
 	err := b.cmd.Wait()
 	b.mu.Lock()
 	b.waitErr = err
+	unregisterChild := b.unregisterChild
 	b.mu.Unlock()
+	unregisterChild()
 	close(b.processDone)
 }
 

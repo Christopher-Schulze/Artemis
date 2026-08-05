@@ -200,11 +200,36 @@ func TestRuntimeNavigationHistoryReloadDialogAndDenials(t *testing.T) {
 	if err := f.page.Call(ctx, "Page.enable", map[string]any{}, &struct{}{}); err != nil {
 		t.Fatal(err)
 	}
+	dialogEvents, err := f.page.SubscribeBrowserEvents(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dialogEvents.Close()
 	dialogDone := make(chan error, 1)
 	go func() {
 		dialogDone <- f.page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "prompt('proof','x')"}, &struct{}{})
 	}()
-	time.Sleep(100 * time.Millisecond)
+	dialogCtx, cancelDialogWait := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelDialogWait()
+	for {
+		select {
+		case event, ok := <-dialogEvents.Events:
+			if !ok {
+				t.Fatal("dialog event subscription closed")
+			}
+			if event.Method == "Page.javascriptDialogOpening" && event.SessionID == f.page.SessionID() {
+				goto dialogReady
+			}
+		case err, ok := <-dialogEvents.Errors:
+			if !ok {
+				t.Fatal("dialog event error channel closed")
+			}
+			t.Fatal(err)
+		case <-dialogCtx.Done():
+			t.Fatal("timed out waiting for JavaScript dialog event")
+		}
+	}
+dialogReady:
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindDialog, Accept: true, PromptText: "accepted"}))
 	if err := <-dialogDone; err != nil {
 		t.Fatal(err)
