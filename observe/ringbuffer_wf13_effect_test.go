@@ -8,7 +8,7 @@ import (
 // TestWFArtemisObserve_EffectOracle proves SP-artemis-observe-EFFECT:
 // DefaultNetworkRingCapacity/MaxNetworkRingCapacity constants; NetworkEvent;
 // NetworkRingBuffer; NewNetworkRingBuffer; Push; Snapshot; Len; Lookup;
-// Capacity; sanitizeEvent; truncateString; normalizeHeaders.
+// Capacity; sanitizeEvent; truncateString.
 func TestWFArtemisObserve_EffectOracle(t *testing.T) {
 	t.Run("oracle: DefaultNetworkRingCapacity is 100", func(t *testing.T) {
 		if DefaultNetworkRingCapacity != 100 {
@@ -120,13 +120,6 @@ func TestWFArtemisObserve_EffectOracle(t *testing.T) {
 		s := truncateString("hello world", 5)
 		if len(s) > 5 {
 			t.Fatalf("expected <= 5, got %d", len(s))
-		}
-	})
-
-	t.Run("oracle: normalizeHeaders returns normalized", func(t *testing.T) {
-		h := normalizeHeaders(map[string]string{"X-Custom": "value"})
-		if h["x-custom"] != "value" {
-			t.Fatal("expected normalized headers with lowercase keys")
 		}
 	})
 

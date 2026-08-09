@@ -111,17 +111,24 @@ func observationTestURLPort(t *testing.T, rawURL string) int {
 	return port
 }
 
+type runtimeEvaluateParams struct {
+	Expression    string `json:"expression"`
+	ReturnByValue bool   `json:"returnByValue"`
+}
+
+type runtimeEvaluateResult struct {
+	Result struct {
+		Value string `json:"value"`
+	} `json:"result"`
+}
+
 func waitReady(t *testing.T, ctx context.Context, page *bridge.Page) {
 	t.Helper()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var result struct {
-			Result struct {
-				Value any `json:"value"`
-			} `json:"result"`
-		}
-		if err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &result); err == nil && result.Result.Value == "complete" {
+		var result runtimeEvaluateResult
+		if err := page.Call(ctx, "Runtime.evaluate", runtimeEvaluateParams{Expression: "document.readyState", ReturnByValue: true}, &result); err == nil && result.Result.Value == "complete" {
 			return
 		}
 		select {

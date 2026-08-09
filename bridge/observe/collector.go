@@ -72,6 +72,22 @@ func NewCollector(caller Caller, config Config) (*Collector, error) {
 	return &Collector{caller: caller, config: config, refs: make(map[string]remembered), identities: make(map[identity]string)}, nil
 }
 
+func callCDP[R any, P any](ctx context.Context, caller Caller, method string, params P) (R, error) {
+	var result R
+	if err := caller.Call(ctx, method, params, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func callCDPFrame[R any, P any](ctx context.Context, caller FrameCaller, frameID, method string, params P) (R, error) {
+	var result R
+	if err := caller.CallFrame(ctx, frameID, method, params, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (Snapshot, error) {
 	if ctx == nil {
 		return Snapshot{}, errors.New("observation: context required")
@@ -82,27 +98,27 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 	if mode != ModeFull && mode != ModeInteractive && mode != ModeSubtree && mode != ModeEvidence {
 		return Snapshot{}, fmt.Errorf("observation: unsupported mode %q", mode)
 	}
-	if err := c.caller.Call(ctx, "Accessibility.enable", map[string]any{}, &struct{}{}); err != nil {
+	if _, err := callCDP[emptyResult](ctx, c.caller, "Accessibility.enable", emptyParams{}); err != nil {
 		return Snapshot{}, fmt.Errorf("enable accessibility: %w", err)
 	}
-	if err := c.caller.Call(ctx, "DOM.enable", map[string]any{}, &struct{}{}); err != nil {
+	if _, err := callCDP[emptyResult](ctx, c.caller, "DOM.enable", emptyParams{}); err != nil {
 		return Snapshot{}, fmt.Errorf("enable DOM: %w", err)
 	}
-	var dom domSnapshotResult
-	params := map[string]any{"computedStyles": []string{"display", "visibility", "opacity", "pointer-events"}, "includeDOMRects": true, "includePaintOrder": true}
-	if err := c.caller.Call(ctx, "DOMSnapshot.captureSnapshot", params, &dom); err != nil {
+	params := captureSnapshotParams{ComputedStyles: []string{"display", "visibility", "opacity", "pointer-events"}, IncludeDOMRects: true, IncludePaintOrder: true}
+	dom, err := callCDP[domSnapshotResult](ctx, c.caller, "DOMSnapshot.captureSnapshot", params)
+	if err != nil {
 		return Snapshot{}, fmt.Errorf("capture DOM snapshot: %w", err)
 	}
 	if len(dom.Documents) == 0 {
 		return Snapshot{}, errors.New("capture DOM snapshot: no documents")
 	}
-	var frames frameTreeResult
-	if err := c.caller.Call(ctx, "Page.getFrameTree", map[string]any{}, &frames); err != nil {
+	frames, err := callCDP[frameTreeResult](ctx, c.caller, "Page.getFrameTree", emptyParams{})
+	if err != nil {
 		return Snapshot{}, fmt.Errorf("get frame tree: %w", err)
 	}
 	frameIDs := flattenFrames(frames.FrameTree)
-	var document documentResult
-	if err := c.caller.Call(ctx, "DOM.getDocument", map[string]any{"depth": -1, "pierce": true}, &document); err != nil {
+	document, err := callCDP[documentResult](ctx, c.caller, "DOM.getDocument", getDocumentParams{Depth: -1, Pierce: true})
+	if err != nil {
 		return Snapshot{}, fmt.Errorf("get pierced DOM document: %w", err)
 	}
 	shadowPaths := make(map[int64][]string)
@@ -115,8 +131,8 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 				continue
 			}
 		}
-		var tree axTreeResult
-		if err := c.caller.Call(ctx, "Accessibility.getFullAXTree", map[string]any{"frameId": frameID}, &tree); err != nil {
+		tree, err := callCDP[axTreeResult](ctx, c.caller, "Accessibility.getFullAXTree", getAXTreeParams{FrameID: frameID})
+		if err != nil {
 			if frameID == frames.FrameTree.Frame.ID {
 				return Snapshot{}, fmt.Errorf("get main-frame AX tree: %w", err)
 			}
@@ -138,15 +154,19 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 		}
 		sort.Strings(attachedFrameIDs)
 		for _, frameID := range attachedFrameIDs {
-			var frameDOM domSnapshotResult
-			_ = router.CallFrame(ctx, frameID, "Accessibility.enable", map[string]any{}, &struct{}{})
-			_ = router.CallFrame(ctx, frameID, "DOM.enable", map[string]any{}, &struct{}{})
-			if err := router.CallFrame(ctx, frameID, "DOMSnapshot.captureSnapshot", params, &frameDOM); err != nil {
+			if _, err := callCDPFrame[emptyResult](ctx, router, frameID, "Accessibility.enable", emptyParams{}); err != nil {
+				warnings = append(warnings, "Accessibility unavailable for OOPIF "+frameID+": "+err.Error())
+			}
+			if _, err := callCDPFrame[emptyResult](ctx, router, frameID, "DOM.enable", emptyParams{}); err != nil {
+				warnings = append(warnings, "DOM unavailable for OOPIF "+frameID+": "+err.Error())
+			}
+			frameDOM, err := callCDPFrame[domSnapshotResult](ctx, router, frameID, "DOMSnapshot.captureSnapshot", params)
+			if err != nil {
 				warnings = append(warnings, "DOM snapshot unavailable for OOPIF "+frameID+": "+err.Error())
 				continue
 			}
-			var frameAX axTreeResult
-			if err := router.CallFrame(ctx, frameID, "Accessibility.getFullAXTree", map[string]any{}, &frameAX); err != nil {
+			frameAX, err := callCDPFrame[axTreeResult](ctx, router, frameID, "Accessibility.getFullAXTree", emptyParams{})
+			if err != nil {
 				warnings = append(warnings, "AX tree unavailable for OOPIF "+frameID+": "+err.Error())
 			}
 			frameAXByBackend := make(map[int64]axNode)
@@ -162,8 +182,8 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 					reasons = append(reasons, reason)
 				}
 			}
-			var frameDocument documentResult
-			if err := router.CallFrame(ctx, frameID, "DOM.getDocument", map[string]any{"depth": -1, "pierce": true}, &frameDocument); err == nil {
+			frameDocument, err := callCDPFrame[documentResult](ctx, router, frameID, "DOM.getDocument", getDocumentParams{Depth: -1, Pierce: true})
+			if err == nil {
 				collectShadowPaths(frameDocument.Root, nil, shadowPaths)
 			}
 		}
@@ -267,11 +287,13 @@ func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, mainFrame s
 			break
 		}
 		tested++
-		var result struct {
-			BackendNodeID int64 `json:"backendNodeId"`
-		}
-		params := map[string]any{"x": int(math.Round(node.Box.X + node.Box.Width/2)), "y": int(math.Round(node.Box.Y + node.Box.Height/2)), "includeUserAgentShadowDOM": false, "ignorePointerEventsNone": false}
-		if err := c.caller.Call(ctx, "DOM.getNodeForLocation", params, &result); err != nil {
+		result, err := callCDP[getNodeForLocationResult](ctx, c.caller, "DOM.getNodeForLocation", getNodeForLocationParams{
+			X:                         int(math.Round(node.Box.X + node.Box.Width/2)),
+			Y:                         int(math.Round(node.Box.Y + node.Box.Height/2)),
+			IncludeUserAgentShadowDOM: false,
+			IgnorePointerEventsNone:   false,
+		})
+		if err != nil {
 			warnings = append(warnings, "hit test unavailable for backend node "+strconv.FormatInt(node.BackendNodeID, 10)+": "+err.Error())
 			continue
 		}
@@ -514,24 +536,12 @@ func attributesAt(all [][]stringIndex, index int, values []string) map[string]st
 	return out
 }
 func axFields(n axNode) (string, string, string, bool, bool) {
-	role := ""
-	if n.Role.Value != nil {
-		role = fmt.Sprint(n.Role.Value)
-	}
-	name := ""
-	if n.Name.Value != nil {
-		name = fmt.Sprint(n.Name.Value)
-	}
-	value := ""
-	if n.Value.Value != nil {
-		value = fmt.Sprint(n.Value.Value)
-	}
+	role := n.Role.String()
+	name := n.Name.String()
+	value := n.Value.String()
 	disabled, focused := false, false
 	for _, p := range n.Properties {
-		v, ok := p.Value.Value.(bool)
-		if !ok {
-			continue
-		}
+		v := p.Value.Bool()
 		if p.Name == "disabled" {
 			disabled = v
 		}

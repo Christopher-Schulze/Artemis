@@ -1,5 +1,10 @@
 package observe
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 type stringIndex int
 
 type rareStringData struct {
@@ -39,8 +44,38 @@ type domSnapshotResult struct {
 	Strings   []string           `json:"strings"`
 }
 
+type emptyParams struct{}
+
+type emptyResult struct{}
+
+type captureSnapshotParams struct {
+	ComputedStyles    []string `json:"computedStyles"`
+	IncludeDOMRects   bool     `json:"includeDOMRects"`
+	IncludePaintOrder bool     `json:"includePaintOrder"`
+}
+
+type getDocumentParams struct {
+	Depth  int  `json:"depth"`
+	Pierce bool `json:"pierce"`
+}
+
+type getAXTreeParams struct {
+	FrameID string `json:"frameId"`
+}
+
+type getNodeForLocationParams struct {
+	X                         int  `json:"x"`
+	Y                         int  `json:"y"`
+	IncludeUserAgentShadowDOM bool `json:"includeUserAgentShadowDOM"`
+	IgnorePointerEventsNone   bool `json:"ignorePointerEventsNone"`
+}
+
+type getNodeForLocationResult struct {
+	BackendNodeID int64 `json:"backendNodeId"`
+}
+
 type axValue struct {
-	Value any `json:"value"`
+	Value json.RawMessage `json:"value"`
 }
 type axProperty struct {
 	Name  string  `json:"name"`
@@ -79,6 +114,23 @@ type domNode struct {
 
 type documentResult struct {
 	Root domNode `json:"root"`
+}
+
+func (v axValue) String() string {
+	raw := strings.TrimSpace(string(v.Value))
+	if raw == "" || raw == "null" {
+		return ""
+	}
+	var value string
+	if err := json.Unmarshal(v.Value, &value); err == nil {
+		return value
+	}
+	return strings.Trim(raw, `"`)
+}
+
+func (v axValue) Bool() bool {
+	var value bool
+	return json.Unmarshal(v.Value, &value) == nil && value
 }
 
 func stringAt(values []string, index stringIndex) string {

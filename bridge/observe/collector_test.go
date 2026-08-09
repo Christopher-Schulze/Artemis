@@ -11,35 +11,47 @@ import (
 
 type scriptedCaller struct {
 	mu         sync.Mutex
-	documents  []map[string]any
+	documents  []domSnapshotResult
 	roots      []int64
 	capture    int
 	failMethod string
+	calls      map[string][]json.RawMessage
 }
 
-func (s *scriptedCaller) Call(_ context.Context, method string, _ any, result any) error {
+func (s *scriptedCaller) Call(_ context.Context, method string, params any, result any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	if s.calls == nil {
+		s.calls = make(map[string][]json.RawMessage)
+	}
+	s.calls[method] = append(s.calls[method], paramsJSON)
 	if method == s.failMethod {
 		return errors.New("injected failure")
 	}
-	var value any
+	var raw []byte
 	switch method {
 	case "Accessibility.enable", "DOM.enable":
-		value = map[string]any{}
+		raw = []byte(`{}`)
 	case "Page.getFrameTree":
-		value = map[string]any{"frameTree": map[string]any{"frame": map[string]any{"id": "main"}, "childFrames": []any{map[string]any{"frame": map[string]any{"id": "child", "parentId": "main"}}}}}
+		raw, err = json.Marshal(frameTreeResult{FrameTree: frameTree{
+			Frame:       frame{ID: "main"},
+			ChildFrames: []frameTree{{Frame: frame{ID: "child", ParentID: "main"}}},
+		}})
 	case "Accessibility.getFullAXTree":
-		value = axFixture()
+		raw, err = json.Marshal(axFixture())
 	case "DOMSnapshot.captureSnapshot":
 		index := s.capture
 		if index >= len(s.documents) {
 			index = len(s.documents) - 1
 		}
-		value = s.documents[index]
+		raw, err = json.Marshal(s.documents[index])
 		s.capture++
 	case "DOM.getNodeForLocation":
-		value = map[string]any{"backendNodeId": 4}
+		raw, err = json.Marshal(getNodeForLocationResult{BackendNodeID: 4})
 	case "DOM.getDocument":
 		root := int64(1)
 		if len(s.roots) > 0 {
@@ -49,59 +61,152 @@ func (s *scriptedCaller) Call(_ context.Context, method string, _ any, result an
 			}
 			root = s.roots[index]
 		}
-		value = map[string]any{"root": map[string]any{"backendNodeId": root, "children": []any{map[string]any{"backendNodeId": 3, "shadowRoots": []any{map[string]any{"backendNodeId": 30, "shadowRootType": "open", "children": []any{map[string]any{"backendNodeId": 4}}}}}}}}
+		raw, err = json.Marshal(documentResult{Root: domNode{
+			BackendNodeID: root,
+			Children: []domNode{{
+				BackendNodeID: 3,
+				ShadowRoots: []domNode{{
+					BackendNodeID:  30,
+					ShadowRootType: "open",
+					Children:       []domNode{{BackendNodeID: 4}},
+				}},
+			}},
+		}})
 	default:
 		return fmt.Errorf("unexpected method %s", method)
 	}
-	raw, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(raw, result)
 }
 
-func domFixture(root, button int64, name string, duplicate bool) map[string]any {
+func domFixture(root, button int64, name string, duplicate bool) domSnapshotResult {
 	stringsTable := []string{"main", "#document", "", "html", "body", "button", "type", "password", "aria-label", name, "open", "display", "visibility", "opacity", "pointer-events", "child", "input", "value", "token"}
 	backend := []int64{root, 2, 3, button}
 	parent := []int{-1, 0, 1, 2}
-	names := []int{1, 3, 4, 5}
-	attrs := [][]int{{}, {}, {}, {8, 9}}
+	names := []stringIndex{1, 3, 4, 5}
+	attrs := [][]stringIndex{{}, {}, {}, {8, 9}}
 	bounds := [][]float64{{0, 0, 1000, 800}, {0, 0, 1000, 800}, {0, 0, 1000, 800}, {20, 30, 140, 40}}
 	if duplicate {
 		backend = append(backend, button+1)
 		parent = append(parent, 2)
 		names = append(names, 5)
-		attrs = append(attrs, []int{8, 9})
+		attrs = append(attrs, []stringIndex{8, 9})
 		bounds = append(bounds, []float64{20, 30, 140, 40})
 	}
 	nodeIndex := make([]int, len(backend))
-	styles := make([][]int, len(backend))
-	nodeValue := make([]int, len(backend))
+	styles := make([][]stringIndex, len(backend))
+	nodeValue := make([]stringIndex, len(backend))
 	nodeType := make([]int, len(backend))
-	attributes := make([][]int, len(backend))
+	attributes := make([][]stringIndex, len(backend))
 	for i := range backend {
 		nodeIndex[i] = i
-		styles[i] = []int{10, 10, 10, 10}
+		styles[i] = []stringIndex{10, 10, 10, 10}
 		nodeType[i] = 1
 		if i < len(attrs) {
 			attributes[i] = attrs[i]
 		}
 	}
-	return map[string]any{"strings": stringsTable, "documents": []any{map[string]any{"frameId": 0, "nodes": map[string]any{"parentIndex": parent, "nodeType": nodeType, "nodeName": names, "nodeValue": nodeValue, "backendNodeId": backend, "attributes": attributes, "shadowRootType": map[string]any{"index": []int{2}, "value": []int{10}}}, "layout": map[string]any{"nodeIndex": nodeIndex, "styles": styles, "bounds": bounds}}}}
+	return domSnapshotResult{
+		Strings: stringsTable,
+		Documents: []documentSnapshot{{
+			FrameID: 0,
+			Nodes: nodeTreeSnapshot{
+				ParentIndex:   parent,
+				NodeType:      nodeType,
+				NodeName:      names,
+				NodeValue:     nodeValue,
+				BackendNodeID: backend,
+				Attributes:    attributes,
+				ShadowRootType: &rareStringData{
+					Index: []int{2},
+					Value: []stringIndex{10},
+				},
+			},
+			Layout: layoutTreeSnapshot{NodeIndex: nodeIndex, Styles: styles, Bounds: bounds},
+		}},
+	}
 }
 
-func withFrame(document map[string]any, frameIndex int) map[string]any {
-	documents := document["documents"].([]any)
-	documents[0].(map[string]any)["frameId"] = frameIndex
+func withFrame(document domSnapshotResult, frameIndex int) domSnapshotResult {
+	document.Documents[0].FrameID = stringIndex(frameIndex)
 	return document
 }
 
-func axFixture() map[string]any {
-	return map[string]any{"nodes": []any{map[string]any{"backendDOMNodeId": 4, "role": map[string]any{"value": "button"}, "name": map[string]any{"value": "Login"}, "properties": []any{map[string]any{"name": "focused", "value": map[string]any{"value": true}}}}}}
+func axFixture() axTreeResult {
+	return axTreeResult{Nodes: []axNode{{
+		BackendNodeID: 4,
+		Role:          axValue{Value: json.RawMessage(`"button"`)},
+		Name:          axValue{Value: json.RawMessage(`"Login"`)},
+		Properties: []axProperty{{
+			Name:  "focused",
+			Value: axValue{Value: json.RawMessage(`true`)},
+		}},
+	}}}
+}
+
+func assertJSON[T any](t *testing.T, value T, want string) {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != want {
+		t.Fatalf("encoded JSON = %s, want %s", raw, want)
+	}
+}
+
+func TestTypedCDPParameterShapes(t *testing.T) {
+	assertJSON(t, emptyParams{}, `{}`)
+	assertJSON(t, captureSnapshotParams{
+		ComputedStyles:    []string{"display", "visibility", "opacity", "pointer-events"},
+		IncludeDOMRects:   true,
+		IncludePaintOrder: true,
+	}, `{"computedStyles":["display","visibility","opacity","pointer-events"],"includeDOMRects":true,"includePaintOrder":true}`)
+	assertJSON(t, getDocumentParams{Depth: -1, Pierce: true}, `{"depth":-1,"pierce":true}`)
+	assertJSON(t, getAXTreeParams{FrameID: "main"}, `{"frameId":"main"}`)
+	assertJSON(t, getNodeForLocationParams{
+		X:                         12,
+		Y:                         34,
+		IncludeUserAgentShadowDOM: false,
+		IgnorePointerEventsNone:   false,
+	}, `{"x":12,"y":34,"includeUserAgentShadowDOM":false,"ignorePointerEventsNone":false}`)
+}
+
+func TestCaptureUsesTypedCDPParameterShapes(t *testing.T) {
+	caller := &scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false)}}
+	collector, err := NewCollector(caller, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := collector.Capture(context.Background(), ModeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+	assertRecordedParams(t, caller, "Accessibility.enable", `{}`)
+	assertRecordedParams(t, caller, "DOM.enable", `{}`)
+	assertRecordedParams(t, caller, "DOMSnapshot.captureSnapshot", `{"computedStyles":["display","visibility","opacity","pointer-events"],"includeDOMRects":true,"includePaintOrder":true}`)
+	assertRecordedParams(t, caller, "Page.getFrameTree", `{}`)
+	assertRecordedParams(t, caller, "DOM.getDocument", `{"depth":-1,"pierce":true}`)
+	assertRecordedParams(t, caller, "Accessibility.getFullAXTree", `{"frameId":"main"}`)
+	assertRecordedParams(t, caller, "DOM.getNodeForLocation", `{"x":90,"y":50,"includeUserAgentShadowDOM":false,"ignorePointerEventsNone":false}`)
+}
+
+func assertRecordedParams(t *testing.T, caller *scriptedCaller, method, want string) {
+	t.Helper()
+	caller.mu.Lock()
+	defer caller.mu.Unlock()
+	params := caller.calls[method]
+	if len(params) == 0 {
+		t.Fatalf("method %s was not called", method)
+	}
+	if string(params[0]) != want {
+		t.Fatalf("%s params = %s, want %s", method, params[0], want)
+	}
 }
 
 func TestCaptureStableRefsRedactionGeometryAndShadow(t *testing.T) {
-	caller := &scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(1, 4, "Login", false)}}
+	caller := &scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), domFixture(1, 4, "Login", false)}}
 	collector, err := NewCollector(caller, DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +251,7 @@ func TestRedactAttributesDoesNotLeakSensitiveValue(t *testing.T) {
 
 func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 	t.Run("exact", func(t *testing.T) {
-		c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(1, 4, "Login", false)}}, DefaultConfig())
+		c, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), domFixture(1, 4, "Login", false)}}, DefaultConfig())
 		s, _ := c.Capture(context.Background(), ModeFull, "")
 		r, err := c.Resolve(context.Background(), findBackend(t, s.Nodes, 4).Ref)
 		if err != nil || r.Status != ResolutionExact {
@@ -154,7 +259,7 @@ func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 		}
 	})
 	t.Run("re-resolved", func(t *testing.T) {
-		c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(9, 8, "Login", false)}}, DefaultConfig())
+		c, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), domFixture(9, 8, "Login", false)}}, DefaultConfig())
 		s, _ := c.Capture(context.Background(), ModeFull, "")
 		r, err := c.Resolve(context.Background(), findBackend(t, s.Nodes, 4).Ref)
 		if err != nil || r.Status != ResolutionReResolved || r.Node.BackendNodeID != 8 {
@@ -162,7 +267,7 @@ func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 		}
 	})
 	t.Run("detached", func(t *testing.T) {
-		c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(9, 8, "Different", false)}}, DefaultConfig())
+		c, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), domFixture(9, 8, "Different", false)}}, DefaultConfig())
 		s, _ := c.Capture(context.Background(), ModeFull, "")
 		r, _ := c.Resolve(context.Background(), findBackend(t, s.Nodes, 4).Ref)
 		if r.Status != ResolutionDetached {
@@ -170,7 +275,7 @@ func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 		}
 	})
 	t.Run("ambiguous", func(t *testing.T) {
-		c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), domFixture(9, 8, "Login", true)}}, DefaultConfig())
+		c, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), domFixture(9, 8, "Login", true)}}, DefaultConfig())
 		s, _ := c.Capture(context.Background(), ModeFull, "")
 		r, _ := c.Resolve(context.Background(), findBackend(t, s.Nodes, 4).Ref)
 		if r.Status != ResolutionAmbiguous {
@@ -178,7 +283,7 @@ func TestResolveExactReResolvedDetachedAndAmbiguous(t *testing.T) {
 		}
 	})
 	t.Run("cross-frame", func(t *testing.T) {
-		caller := &scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false), withFrame(domFixture(9, 8, "Login", false), 15)}, roots: []int64{1, 9}}
+		caller := &scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false), withFrame(domFixture(9, 8, "Login", false), 15)}, roots: []int64{1, 9}}
 		c, _ := NewCollector(caller, DefaultConfig())
 		s, _ := c.Capture(context.Background(), ModeFull, "")
 		r, _ := c.Resolve(context.Background(), findBackend(t, s.Nodes, 4).Ref)
@@ -192,7 +297,7 @@ func TestCaptureBudgetsViewsSchemaAndFailures(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MaxNodes = 2
 	cfg.MaxSnapshotBytes = 100000
-	c, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", true)}}, cfg)
+	c, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", true)}}, cfg)
 	s, err := c.Capture(context.Background(), ModeFull, "")
 	if err != nil {
 		t.Fatal(err)
@@ -203,14 +308,14 @@ func TestCaptureBudgetsViewsSchemaAndFailures(t *testing.T) {
 	if _, err = c.Capture(context.Background(), Mode("wrong"), ""); err == nil {
 		t.Fatal("invalid mode accepted")
 	}
-	failing, _ := NewCollector(&scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", false)}, failMethod: "DOMSnapshot.captureSnapshot"}, DefaultConfig())
+	failing, _ := NewCollector(&scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", false)}, failMethod: "DOMSnapshot.captureSnapshot"}, DefaultConfig())
 	if _, err = failing.Capture(context.Background(), ModeFull, ""); err == nil {
 		t.Fatal("CDP failure hidden")
 	}
 }
 
 func TestCaptureInteractiveSubtreeEvidenceAndByteBudget(t *testing.T) {
-	caller := &scriptedCaller{documents: []map[string]any{domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true)}}
+	caller := &scriptedCaller{documents: []domSnapshotResult{domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true), domFixture(1, 4, "Login", true)}}
 	config := DefaultConfig()
 	config.MaxSnapshotBytes = 700
 	c, _ := NewCollector(caller, config)
@@ -245,7 +350,7 @@ func TestCaptureInteractiveSubtreeEvidenceAndByteBudget(t *testing.T) {
 
 func TestCollectorSnapshotsAndConfigAreImmutable(t *testing.T) {
 	config := DefaultConfig()
-	caller := &scriptedCaller{documents: []map[string]any{
+	caller := &scriptedCaller{documents: []domSnapshotResult{
 		domFixture(1, 4, "Login", false),
 		domFixture(1, 4, "Login", false),
 		domFixture(1, 4, "Login", false),

@@ -2,7 +2,6 @@ package observe
 
 import (
 	"sort"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -204,24 +203,4 @@ func truncateUTF8(s string, maxBytes int) string {
 // truncateString truncates a string to maxLen bytes on a rune boundary.
 func truncateString(s string, maxLen int) string {
 	return truncateUTF8(s, maxLen)
-}
-
-// normalizeHeaders lowercases header keys and truncates values.
-func normalizeHeaders(headers map[string]string) map[string]string {
-	if len(headers) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(headers))
-	totalLen := 0
-	for k, v := range headers {
-		k = strings.ToLower(strings.TrimSpace(k))
-		v = truncateString(v, MaxHeaderValLen)
-		entryLen := len(k) + len(v) + 4
-		if totalLen+entryLen > MaxHeaderTotalLen {
-			break
-		}
-		totalLen += entryLen
-		out[k] = v
-	}
-	return out
 }

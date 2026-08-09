@@ -6,6 +6,9 @@ import (
 )
 
 // Caller is the exact CDP surface required by the observation pipeline.
+// The transport remains generic because CDP methods have different request
+// and response structs; known observe calls pass concrete protocol types at
+// their call sites, while genuinely dynamic values use json.RawMessage.
 type Caller interface {
 	Call(context.Context, string, any, any) error
 }
