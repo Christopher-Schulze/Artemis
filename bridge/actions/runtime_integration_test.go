@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,28 +51,45 @@ func newActionFixture(t *testing.T) *actionFixture {
 		_, _ = w.Write([]byte("verified-download"))
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
+	var browser *bridge.ChromiumBrowser
+	var owner *bridge.BrowserContext
+	var page *bridge.Page
+	var closeOnce sync.Once
+	cleanup := func() {
+		closeOnce.Do(func() {
+			if page != nil {
+				if err := page.Close(); err != nil {
+					t.Errorf("close action fixture page: %v", err)
+				}
+			}
+			if owner != nil {
+				if err := owner.Close(); err != nil {
+					t.Errorf("close action fixture context: %v", err)
+				}
+			}
+			if browser != nil {
+				if err := browser.Close(); err != nil {
+					t.Errorf("close action fixture browser: %v", err)
+				}
+			}
+			cancel()
+			server.Close()
+		})
+	}
+	t.Cleanup(cleanup)
+	browser, err = bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
 		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
 		AllowedPorts: []int{actionTestURLPort(t, server.URL)},
 	})
 	if err != nil {
-		cancel()
-		server.Close()
 		t.Fatal(err)
 	}
-	owner, err := browser.NewContext(ctx)
+	owner, err = browser.NewContext(ctx)
 	if err != nil {
-		browser.Close()
-		cancel()
-		server.Close()
 		t.Fatal(err)
 	}
-	page, err := owner.NewPage(ctx, "about:blank")
+	page, err = owner.NewPage(ctx, "about:blank")
 	if err != nil {
-		owner.Close()
-		browser.Close()
-		cancel()
-		server.Close()
 		t.Fatal(err)
 	}
 	if _, _, err = page.Navigate(ctx, server.URL); err != nil {
@@ -94,7 +112,7 @@ func newActionFixture(t *testing.T) *actionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &actionFixture{runtime: runtime, page: page, observer: observer, server: server, close: func() { owner.Close(); browser.Close(); cancel(); server.Close() }}
+	return &actionFixture{runtime: runtime, page: page, observer: observer, server: server, close: cleanup}
 }
 
 func TestRuntimeRealChromiumInteractionMatrix(t *testing.T) {

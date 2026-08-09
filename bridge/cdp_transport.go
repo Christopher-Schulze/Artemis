@@ -251,14 +251,22 @@ func (t *CDPTransport) release(id int64) {
 }
 
 func (t *CDPTransport) write(ctx context.Context, payload []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case <-t.done:
 		return t.closeError("write")
 	default:
 	}
-	if err := t.conn.Write(ctx, websocket.MessageText, payload); err != nil {
+	writeCtx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	defer cancel()
+	if err := t.conn.Write(writeCtx, websocket.MessageText, payload); err != nil {
 		t.finish(&CDPError{Code: CDPErrorClosed, Op: "write", Err: err})
 		return t.closeError("write")
 	}

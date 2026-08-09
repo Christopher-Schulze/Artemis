@@ -158,6 +158,36 @@ func TestCDPTransportBoundsPendingCallsAndCancellation(t *testing.T) {
 	}
 }
 
+func TestCDPTransportCallerWriteCancellationKeepsTransportUsable(t *testing.T) {
+	endpoint := cdpTestServer(t, func(ctx context.Context, conn *websocket.Conn) error {
+		for {
+			command, err := readCDPCommand(ctx, conn)
+			if err != nil {
+				return err
+			}
+			if command.Method != "Survives.call" {
+				continue
+			}
+			if err := writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "result": map[string]any{}}); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return nil
+		}
+	})
+	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
+	defer transport.Close()
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := transport.Call(cancelled, "Canceled.call", nil, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation error=%v", err)
+	}
+	if err := transport.Call(context.Background(), "Survives.call", nil, nil); err != nil {
+		t.Fatalf("transport did not survive caller cancellation: %v", err)
+	}
+}
+
 func TestCDPTransportCloseUnblocksPendingCall(t *testing.T) {
 	received := make(chan struct{})
 	endpoint := cdpTestServer(t, func(ctx context.Context, conn *websocket.Conn) error {
