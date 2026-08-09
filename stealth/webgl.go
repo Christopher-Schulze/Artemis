@@ -22,10 +22,10 @@ type GPUInfo struct {
 type ConsistencyStatus string
 
 const (
-	ConsistencyValid       ConsistencyStatus = "valid"
-	ConsistencyMismatch    ConsistencyStatus = "mismatch"
-	ConsistencyUnknownGPU  ConsistencyStatus = "unknown_gpu"
-	ConsistencyNotChecked  ConsistencyStatus = "not_checked"
+	ConsistencyValid        ConsistencyStatus = "valid"
+	ConsistencyMismatch     ConsistencyStatus = "mismatch"
+	ConsistencyUnknownGPU   ConsistencyStatus = "unknown_gpu"
+	ConsistencyNotChecked   ConsistencyStatus = "not_checked"
 	ConsistencyUndetectable ConsistencyStatus = "undetectable"
 )
 
@@ -39,9 +39,9 @@ type ConsistencyResult struct {
 // gpuFamily is a build-time known GPU family with its expected WebGL
 // vendor string and renderer pattern (spec L4091: lookup table, build-time).
 type gpuFamily struct {
-	VendorPattern  string
+	VendorPattern   string
 	RendererPattern string
-	WebGLVendor    string
+	WebGLVendor     string
 }
 
 // gpuLookupTable is the build-time GPU-to-WebGL consistency table.
