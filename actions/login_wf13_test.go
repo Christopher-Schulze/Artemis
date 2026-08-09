@@ -74,7 +74,7 @@ func TestWFArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
 			if dec.Found {
 				t.Fatalf("%s: expected Found=false, got true", c.name)
 			}
-			if dec.Reason != c.reason {
+			if string(dec.Reason) != c.reason {
 				t.Fatalf("%s: expected reason %q, got %q", c.name, c.reason, dec.Reason)
 			}
 		}

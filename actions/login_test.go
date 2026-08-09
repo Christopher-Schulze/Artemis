@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -285,6 +286,149 @@ func TestDetectLoginFormButtonRoleSubmit(t *testing.T) {
 	}
 	if dec.SubmitButtonIdx != 0 {
 		t.Fatalf("expected submit button idx 0, got %d", dec.SubmitButtonIdx)
+	}
+}
+
+func TestDetectLoginFormIntentClassification(t *testing.T) {
+	cases := []struct {
+		name       string
+		form       LoginForm
+		wantFound  bool
+		wantIntent LoginIntent
+		wantReason LoginDetectionReason
+	}{
+		{
+			name: "current_password_login",
+			form: LoginForm{Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "identifier", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "password", Autocomplete: "current-password"},
+				{Tag: "button", Type: "submit", Text: "Sign in"},
+			}},
+			wantFound: true, wantIntent: LoginIntentCurrentPassword, wantReason: LoginReasonLoginFormDetected,
+		},
+		{
+			name: "german_current_password_login",
+			form: LoginForm{Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "mitarbeiter", Label: "Benutzername"},
+				{Tag: "input", Type: "password", Name: "kennwort", Label: "Passwort"},
+				{Tag: "button", Type: "submit", Text: "Anmelden"},
+			}},
+			wantFound: true, wantIntent: LoginIntentCurrentPassword, wantReason: LoginReasonLoginFormDetected,
+		},
+		{
+			name: "new_password",
+			form: LoginForm{Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "user", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "password", Autocomplete: "new-password"},
+				{Tag: "button", Type: "submit", Text: "Login"},
+			}},
+			wantIntent: LoginIntentAmbiguous, wantReason: LoginReasonNewPasswordField,
+		},
+		{
+			name: "registration_confirmation_pair",
+			form: LoginForm{ActionURL: "/account/register", Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "user", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "password", Autocomplete: "new-password"},
+				{Tag: "input", Type: "password", Name: "password_confirmation", Autocomplete: "new-password"},
+				{Tag: "button", Type: "submit", Text: "Create account"},
+			}},
+			wantIntent: LoginIntentRegistration, wantReason: LoginReasonRegistrationForm,
+		},
+		{
+			name: "password_reset",
+			form: LoginForm{ActionURL: "/password/reset", Fields: []LoginField{
+				{Tag: "input", Type: "email", Name: "email"},
+				{Tag: "input", Type: "password", Name: "password", Autocomplete: "new-password"},
+				{Tag: "button", Type: "submit", Text: "Reset password"},
+			}},
+			wantIntent: LoginIntentPasswordReset, wantReason: LoginReasonPasswordResetForm,
+		},
+		{
+			name: "password_change",
+			form: LoginForm{ActionURL: "/account/security", Fields: []LoginField{
+				{Tag: "input", Type: "email", Name: "email"},
+				{Tag: "input", Type: "password", Name: "current", Autocomplete: "current-password"},
+				{Tag: "input", Type: "password", Name: "new", Autocomplete: "new-password"},
+				{Tag: "button", Type: "submit", Text: "Save"},
+			}},
+			wantIntent: LoginIntentPasswordChange, wantReason: LoginReasonPasswordChangeForm,
+		},
+		{
+			name: "ambiguous_multiple_passwords",
+			form: LoginForm{Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "user", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "first"},
+				{Tag: "input", Type: "password", Name: "second"},
+				{Tag: "button", Type: "submit", Text: "Login"},
+			}},
+			wantIntent: LoginIntentAmbiguous, wantReason: LoginReasonAmbiguousPasswordFields,
+		},
+		{
+			name: "ambiguous_without_current_login_signal",
+			form: LoginForm{ActionURL: "/account/continue", Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "user", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "password"},
+				{Tag: "button", Type: "submit", Text: "Continue"},
+			}},
+			wantIntent: LoginIntentAmbiguous, wantReason: LoginReasonMissingCurrentLoginSignal,
+		},
+		{
+			name: "german_registration",
+			form: LoginForm{ActionURL: "/konto/erstellen", Fields: []LoginField{
+				{Tag: "input", Type: "text", Name: "benutzername", Autocomplete: "username"},
+				{Tag: "input", Type: "password", Name: "passwort", Autocomplete: "new-password"},
+				{Tag: "button", Type: "submit", Text: "Konto erstellen"},
+			}},
+			wantIntent: LoginIntentRegistration, wantReason: LoginReasonRegistrationForm,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dec, err := DetectLoginForm(context.Background(), LoginPage{Forms: []LoginForm{c.form}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dec.Found != c.wantFound || dec.Intent != c.wantIntent || dec.Reason != c.wantReason {
+				t.Fatalf("detection=%+v, want found=%t intent=%q reason=%q", dec, c.wantFound, c.wantIntent, c.wantReason)
+			}
+			if !c.wantFound && (dec.FormIdx != -1 || dec.UsernameFieldIdx != -1 || dec.PasswordFieldIdx != -1 || dec.SubmitFieldIdx != -1 || dec.SubmitButtonIdx != -1) {
+				t.Fatalf("denied detection exposed executable indexes: %+v", dec)
+			}
+		})
+	}
+}
+
+func TestDetectLoginFormSkipsDeniedFormForLaterCurrentPasswordLogin(t *testing.T) {
+	page := LoginPage{Forms: []LoginForm{
+		{ActionURL: "/register", Fields: []LoginField{
+			{Tag: "input", Type: "text", Name: "user", Autocomplete: "username"},
+			{Tag: "input", Type: "password", Name: "password", Autocomplete: "new-password"},
+			{Tag: "button", Type: "submit", Text: "Create account"},
+		}},
+		{ActionURL: "/login", Fields: []LoginField{
+			{Tag: "input", Type: "email", Name: "email"},
+			{Tag: "input", Type: "password", Name: "password", Autocomplete: "current-password"},
+			{Tag: "button", Type: "submit", Text: "Sign in"},
+		}},
+	}}
+	dec, err := DetectLoginForm(context.Background(), page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dec.Found || dec.FormIdx != 1 || dec.Intent != LoginIntentCurrentPassword {
+		t.Fatalf("valid later login was not selected: %+v", dec)
+	}
+}
+
+func TestLoginIntentErrorIsStableAndSecretFree(t *testing.T) {
+	secret := "credential-value-must-not-appear"
+	err := (&LoginIntentError{Intent: LoginIntentRegistration, Reason: LoginReasonRegistrationForm})
+	if !strings.Contains(err.Error(), string(LoginReasonRegistrationForm)) {
+		t.Fatalf("error=%q does not contain stable reason", err.Error())
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error leaked secret: %q", err.Error())
 	}
 }
 
