@@ -764,6 +764,230 @@ func (f *fakeProfileRuntime) Close(ctx context.Context, id profile.SessionID, ow
 	return nil
 }
 
+type admissionProfileRuntime struct {
+	openID       profile.SessionID
+	openStarted  chan struct{}
+	openRelease  chan struct{}
+	openOnce     sync.Once
+	openCalls    atomic.Int64
+	closeCalls   atomic.Int64
+	closeErr     error
+	mu           sync.Mutex
+	closedIDs    []profile.SessionID
+	closedOwners []string
+}
+
+func (r *admissionProfileRuntime) Open(_ context.Context, req profile.OpenSessionRequest) (*profile.RuntimeSession, error) {
+	r.openCalls.Add(1)
+	if r.openStarted != nil {
+		r.openOnce.Do(func() { close(r.openStarted) })
+	}
+	if r.openRelease != nil {
+		<-r.openRelease
+	}
+	return &profile.RuntimeSession{ID: r.openID, ProfileID: req.ProfileID, OwnerUserRef: req.OwnerUserRef, Class: req.Class}, nil
+}
+
+func (r *admissionProfileRuntime) Close(ctx context.Context, id profile.SessionID, owner string) error {
+	r.closeCalls.Add(1)
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("profile close received unbounded context")
+	}
+	r.mu.Lock()
+	r.closedIDs = append(r.closedIDs, id)
+	r.closedOwners = append(r.closedOwners, owner)
+	r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.closeErr
+}
+
+func (r *admissionProfileRuntime) closeArguments() ([]profile.SessionID, []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]profile.SessionID(nil), r.closedIDs...), append([]string(nil), r.closedOwners...)
+}
+
+func startAdmissionAgent(t *testing.T, config AgentConfig, runtime profileRuntime) (*Agent, *contractTelemetry) {
+	t.Helper()
+	agent, telemetry := newContractAgent(t, config, &contractRuntime{}, errorDispatcher{err: errors.New("unused")})
+	if err := agent.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	agent.profileRuntime = runtime
+	return agent, telemetry
+}
+
+func TestCreateSessionForProfileRejectsOpenAfterStop(t *testing.T) {
+	runtime := &admissionProfileRuntime{
+		openID: "late-session", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
+	}
+	agent, telemetry := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
+	createResult := make(chan struct {
+		session *Session
+		err     error
+	}, 1)
+	go func() {
+		session, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+			ProfileID: "profile-late", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+		})
+		createResult <- struct {
+			session *Session
+			err     error
+		}{session: session, err: err}
+	}()
+	<-runtime.openStarted
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- agent.Stop() }()
+	select {
+	case err := <-stopResult:
+		if err != nil {
+			t.Fatalf("stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		close(runtime.openRelease)
+		t.Fatal("stop waited for blocked profile open")
+	}
+	close(runtime.openRelease)
+
+	result := <-createResult
+	if result.session != nil || taskErrorCode(result.err) != TaskErrorInvalidTransition {
+		t.Fatalf("late create = session=%v err=%v", result.session, result.err)
+	}
+	if agent.State() != AgentStateStopped || len(agent.ListSessions()) != 0 {
+		t.Fatalf("agent state=%s sessions=%d", agent.State(), len(agent.ListSessions()))
+	}
+	if runtime.closeCalls.Load() != 1 {
+		t.Fatalf("late profile close calls = %d", runtime.closeCalls.Load())
+	}
+	closedIDs, closedOwners := runtime.closeArguments()
+	if len(closedIDs) != 1 || closedIDs[0] != runtime.openID || len(closedOwners) != 1 || closedOwners[0] != "owner-1" {
+		t.Fatalf("close arguments = ids=%v owners=%v", closedIDs, closedOwners)
+	}
+	if telemetry.count(AgentEventSessionCreated) != 0 {
+		t.Fatalf("false session.created events = %d", telemetry.count(AgentEventSessionCreated))
+	}
+}
+
+func TestCreateSessionForProfileReservesCapacityDuringOpen(t *testing.T) {
+	runtime := &admissionProfileRuntime{
+		openID: "reserved-session", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
+	}
+	agent, _ := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
+	defer agent.Stop()
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+			ProfileID: "profile-one", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+		})
+		firstResult <- err
+	}()
+	<-runtime.openStarted
+
+	_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+		ProfileID: "profile-two", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+	})
+	if taskErrorCode(err) != TaskErrorSessionLimit {
+		t.Fatalf("reserved capacity error = %v", err)
+	}
+	if runtime.openCalls.Load() != 1 {
+		t.Fatalf("open calls while capacity reserved = %d", runtime.openCalls.Load())
+	}
+	close(runtime.openRelease)
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if len(agent.ListSessions()) != 1 {
+		t.Fatalf("sessions after reserved open = %d", len(agent.ListSessions()))
+	}
+}
+
+func TestCreateSessionForProfileDuplicateRollsBackExactlyOnce(t *testing.T) {
+	runtime := &admissionProfileRuntime{openID: "duplicate-session"}
+	agent, telemetry := startAdmissionAgent(t, AgentConfig{MaxSessions: 2}, runtime)
+	defer agent.Stop()
+	request := profile.OpenSessionRequest{ProfileID: "profile-one", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral}
+	if _, err := agent.CreateSessionForProfile(context.Background(), request); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+		ProfileID: "profile-two", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+	})
+	if taskErrorCode(err) != TaskErrorExecutionFailed || !strings.Contains(err.Error(), `duplicate session "duplicate-session"`) {
+		t.Fatalf("duplicate create = %v", err)
+	}
+	if len(agent.ListSessions()) != 1 || telemetry.count(AgentEventSessionCreated) != 1 {
+		t.Fatalf("duplicate publication state: sessions=%d created=%d", len(agent.ListSessions()), telemetry.count(AgentEventSessionCreated))
+	}
+	if runtime.closeCalls.Load() != 1 {
+		t.Fatalf("duplicate rollback close calls = %d", runtime.closeCalls.Load())
+	}
+}
+
+func TestCreateSessionForProfilePreservesLifecycleErrorWhenRollbackFails(t *testing.T) {
+	runtime := &admissionProfileRuntime{
+		openID: "failed-cleanup", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
+		closeErr: errors.New("profile cleanup failed"),
+	}
+	agent, _ := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
+	createResult := make(chan error, 1)
+	go func() {
+		_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+			ProfileID: "profile-failed-cleanup", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+		})
+		createResult <- err
+	}()
+	<-runtime.openStarted
+	if err := agent.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	close(runtime.openRelease)
+	err := <-createResult
+	if taskErrorCode(err) != TaskErrorInvalidTransition || !strings.Contains(err.Error(), "profile cleanup failed") {
+		t.Fatalf("lifecycle cleanup error = %v", err)
+	}
+	if runtime.closeCalls.Load() != 1 || len(agent.ListSessions()) != 0 {
+		t.Fatalf("cleanup state: closes=%d sessions=%d", runtime.closeCalls.Load(), len(agent.ListSessions()))
+	}
+}
+
+func TestCreateSessionForProfileCallerCancellationReleasesAdmission(t *testing.T) {
+	runtime := &admissionProfileRuntime{
+		openID: "cancelled-session", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
+	}
+	agent, telemetry := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
+	defer agent.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	createResult := make(chan error, 1)
+	go func() {
+		_, err := agent.CreateSessionForProfile(ctx, profile.OpenSessionRequest{
+			ProfileID: "profile-cancelled", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral,
+		})
+		createResult <- err
+	}()
+	<-runtime.openStarted
+	cancel()
+	close(runtime.openRelease)
+	if err := <-createResult; taskErrorCode(err) != TaskErrorCancelled {
+		t.Fatalf("cancelled create = %v", err)
+	}
+	checkProfileSessionOpenings(t, agent, 0)
+	if runtime.closeCalls.Load() != 1 || telemetry.count(AgentEventSessionCreated) != 0 || len(agent.ListSessions()) != 0 {
+		t.Fatalf("cancelled publication state: closes=%d created=%d sessions=%d", runtime.closeCalls.Load(), telemetry.count(AgentEventSessionCreated), len(agent.ListSessions()))
+	}
+}
+
+func checkProfileSessionOpenings(t *testing.T, agent *Agent, want int) {
+	t.Helper()
+	agent.mu.RLock()
+	defer agent.mu.RUnlock()
+	if agent.profileSessionOpenings != want {
+		t.Fatalf("profile openings = %d, want %d", agent.profileSessionOpenings, want)
+	}
+}
+
 func startProfileAgent(t *testing.T, cfg AgentConfig) (*Agent, *fakeProfileRuntime) {
 	t.Helper()
 	agent, err := NewAgentWithDependencies(cfg, Dependencies{

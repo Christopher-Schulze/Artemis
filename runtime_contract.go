@@ -417,15 +417,16 @@ func (a *Agent) CloseSession(id string) error {
 	if closed {
 		a.mu.RLock()
 		runtime := a.runtime
+		profileRuntime := a.profileRuntime
 		a.mu.RUnlock()
 		if releaser, ok := runtime.(interface{ ReleaseSession(string) }); ok {
 			releaser.ReleaseSession(id)
 		}
 		a.telemetry.Record(AgentEvent{Type: AgentEventSessionClosed, SessionID: id, At: time.Now()})
-		if session.managed && a.profileRuntime != nil {
+		if session.managed && profileRuntime != nil {
 			closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
 			defer cancel()
-			if err := a.profileRuntime.Close(closeCtx, profile.SessionID(session.id), session.userID); err != nil {
+			if err := profileRuntime.Close(closeCtx, profile.SessionID(session.id), session.userID); err != nil {
 				closeErr = errors.Join(closeErr, err)
 			}
 		}
@@ -479,27 +480,81 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 	maxSessions := a.config.MaxSessions
 	profileRuntime := a.profileRuntime
 	runCtx := a.runCtx
-	a.mu.Unlock()
+	generation := a.lifecycleGeneration
 	if state != AgentStateRunning {
+		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorInvalidTransition, "create_session", fmt.Errorf("state %s", state))
 	}
 	if profileRuntime == nil {
+		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorCapabilityUnavailable, "create_session", fmt.Errorf("profile runtime is not configured"))
 	}
 	if req.OwnerUserRef == "" {
+		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorInvalidInput, "create_session", fmt.Errorf("empty owner user ref"))
 	}
 	if req.ProfileID == "" {
+		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorInvalidInput, "create_session", fmt.Errorf("empty profile id"))
 	}
-	rs, err := profileRuntime.Open(ctx, req)
-	if err != nil {
-		return nil, classifyTaskError("create_session", err)
+	if runCtx == nil {
+		a.mu.Unlock()
+		return nil, newTaskError(TaskErrorInvalidTransition, "create_session", fmt.Errorf("agent run context is unavailable"))
+	}
+	if a.profileSessionOpenings > 0 && a.sessions.Len()+a.profileSessionOpenings >= maxSessions {
+		a.mu.Unlock()
+		return nil, newTaskError(TaskErrorSessionLimit, "create_session", fmt.Errorf("maximum %d active sessions", maxSessions))
+	}
+	a.profileSessionOpenings++
+	a.mu.Unlock()
+
+	openCtx, cancelOpen := context.WithCancel(ctx)
+	stopRun := context.AfterFunc(runCtx, cancelOpen)
+	defer func() {
+		stopRun()
+		cancelOpen()
+	}()
+	rs, openErr := profileRuntime.Open(openCtx, req)
+	if openErr != nil {
+		lifecycleErr := a.finishProfileSessionAdmission(generation)
+		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		if lifecycleErr != nil {
+			return nil, profileSessionError(lifecycleErr, openErr, closeErr)
+		}
+		if ctxErr := openCtx.Err(); ctxErr != nil {
+			return nil, profileSessionError(classifyTaskError("create_session", ctxErr), openErr, closeErr)
+		}
+		return nil, profileSessionError(openErr, closeErr)
 	}
 	if rs == nil {
-		return nil, newTaskError(TaskErrorExecutionFailed, "create_session", fmt.Errorf("profile runtime returned no session"))
+		lifecycleErr := a.finishProfileSessionAdmission(generation)
+		nilSessionErr := newTaskError(TaskErrorExecutionFailed, "create_session", fmt.Errorf("profile runtime returned no session"))
+		if lifecycleErr != nil {
+			return nil, profileSessionError(lifecycleErr, nilSessionErr)
+		}
+		if ctxErr := openCtx.Err(); ctxErr != nil {
+			return nil, profileSessionError(classifyTaskError("create_session", ctxErr), nilSessionErr)
+		}
+		return nil, nilSessionErr
 	}
+
 	now := time.Now()
+	a.profileSessionPublicationMu.Lock()
+	a.mu.Lock()
+	a.profileSessionOpenings--
+	lifecycleErr := a.profileSessionLifecycleErrorLocked(generation)
+	if lifecycleErr != nil {
+		a.mu.Unlock()
+		a.profileSessionPublicationMu.Unlock()
+		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		return nil, profileSessionError(lifecycleErr, closeErr)
+	}
+	if ctxErr := openCtx.Err(); ctxErr != nil {
+		a.mu.Unlock()
+		a.profileSessionPublicationMu.Unlock()
+		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		return nil, profileSessionError(classifyTaskError("create_session", ctxErr), closeErr)
+	}
 	sessionCtx, sessionCancel := context.WithCancel(runCtx)
 	session := &Session{
 		owner: a, ctx: sessionCtx, cancel: sessionCancel,
@@ -507,25 +562,74 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 		active: true, pages: make(map[string]*engine.Page),
 		managed: true, profileID: string(req.ProfileID),
 	}
-	a.mu.Lock()
-	if err := a.sessions.PutIfBelow(session, maxSessions); err != nil {
+	storeErr := a.sessions.PutIfBelow(session, maxSessions)
+	if storeErr != nil {
 		a.mu.Unlock()
-		closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
-		closeErr := profileRuntime.Close(closeCtx, rs.ID, req.OwnerUserRef)
-		cancel()
+		a.profileSessionPublicationMu.Unlock()
 		sessionCancel()
-		if closeErr == nil {
-			return nil, classifyTaskError("create_session", err)
-		}
-		var stored *TaskError
-		if errors.As(err, &stored) {
-			return nil, newTaskError(stored.Code, stored.Op, errors.Join(err, closeErr))
-		}
-		return nil, classifyTaskError("create_session", errors.Join(err, closeErr))
+		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		return nil, profileSessionError(storeErr, closeErr)
 	}
 	a.mu.Unlock()
 	a.telemetry.Record(AgentEvent{Type: AgentEventSessionCreated, SessionID: session.id, At: now})
+	a.profileSessionPublicationMu.Unlock()
 	return session, nil
+}
+
+func (a *Agent) finishProfileSessionAdmission(generation uint64) *TaskError {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.profileSessionOpenings--
+	return a.profileSessionLifecycleErrorLocked(generation)
+}
+
+func (a *Agent) profileSessionLifecycleErrorLocked(generation uint64) *TaskError {
+	if a.state == AgentStateRunning && a.lifecycleGeneration == generation {
+		return nil
+	}
+	if a.state != AgentStateRunning {
+		return newTaskError(TaskErrorInvalidTransition, "create_session", fmt.Errorf("state %s", a.state))
+	}
+	return newTaskError(TaskErrorInvalidTransition, "create_session", fmt.Errorf("agent lifecycle changed during profile open"))
+}
+
+func closeOpenedProfileSession(runtime profileRuntime, session *profile.RuntimeSession, owner string) error {
+	if runtime == nil || session == nil {
+		return nil
+	}
+	closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
+	defer cancel()
+	closeOwner := session.OwnerUserRef
+	if closeOwner == "" {
+		closeOwner = owner
+	}
+	return runtime.Close(closeCtx, session.ID, closeOwner)
+}
+
+func profileSessionError(primary error, details ...error) *TaskError {
+	var taskErr *TaskError
+	if errors.As(primary, &taskErr) {
+		causes := make([]error, 0, len(details)+1)
+		if taskErr.Cause != nil {
+			causes = append(causes, taskErr.Cause)
+		}
+		for _, detail := range details {
+			if detail != nil {
+				causes = append(causes, detail)
+			}
+		}
+		if len(causes) == 0 {
+			return taskErr
+		}
+		return newTaskError(taskErr.Code, taskErr.Op, errors.Join(causes...))
+	}
+	causes := []error{primary}
+	for _, detail := range details {
+		if detail != nil {
+			causes = append(causes, detail)
+		}
+	}
+	return classifyTaskError("create_session", errors.Join(causes...))
 }
 
 func (a *Agent) runtimeForSession() (RenderlessRuntime, *TaskError) {

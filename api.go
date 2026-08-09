@@ -21,21 +21,25 @@ import (
 
 // Agent is the top-level artemis browser automation agent
 type Agent struct {
-	mu              sync.RWMutex
-	config          AgentConfig
-	state           AgentState
-	runtime         RenderlessRuntime
-	factory         RuntimeFactory
-	dispatcher      Dispatcher
-	hybrid          *artemisrouter.HybridRouter
-	sessions        SessionStore
-	telemetry       Telemetry
-	runCtx          context.Context
-	cancel          context.CancelFunc
-	operations      sync.WaitGroup
-	sessionSeq      uint64
-	chromiumActions ChromiumActions
-	profileRuntime  profileRuntime
+	mu                     sync.RWMutex
+	config                 AgentConfig
+	state                  AgentState
+	runtime                RenderlessRuntime
+	factory                RuntimeFactory
+	dispatcher             Dispatcher
+	hybrid                 *artemisrouter.HybridRouter
+	sessions               SessionStore
+	telemetry              Telemetry
+	runCtx                 context.Context
+	cancel                 context.CancelFunc
+	operations             sync.WaitGroup
+	sessionSeq             uint64
+	lifecycleGeneration    uint64
+	profileSessionOpenings int
+	// profileSessionPublicationMu makes the profile publish event atomic with Stop's boundary.
+	profileSessionPublicationMu sync.Mutex
+	chromiumActions             ChromiumActions
+	profileRuntime              profileRuntime
 }
 
 // AgentConfig configures the artemis agent
@@ -193,6 +197,7 @@ func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 	a.hybrid = hybrid
 	a.runCtx = runCtx
 	a.cancel = cancel
+	a.lifecycleGeneration++
 	a.state = AgentStateRunning
 	a.mu.Unlock()
 	a.telemetry.Record(AgentEvent{Type: AgentEventStarted, At: time.Now()})
@@ -223,6 +228,8 @@ func (a *Agent) Stop() error {
 }
 
 func (a *Agent) beginStop() (RenderlessRuntime, context.CancelFunc, bool, error) {
+	a.profileSessionPublicationMu.Lock()
+	defer a.profileSessionPublicationMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.state == AgentStateStopped {
@@ -232,6 +239,7 @@ func (a *Agent) beginStop() (RenderlessRuntime, context.CancelFunc, bool, error)
 		return nil, nil, false, newTaskError(TaskErrorInvalidTransition, "stop", fmt.Errorf("state %s", a.state))
 	}
 	a.state = AgentStateStopping
+	a.lifecycleGeneration++
 	return a.runtime, a.cancel, false, nil
 }
 
@@ -305,6 +313,10 @@ func (a *Agent) CreateSession(userID string) (*Session, error) {
 	if userID == "" {
 		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorInvalidInput, "create_session", fmt.Errorf("empty user ID"))
+	}
+	if a.sessions.Len()+a.profileSessionOpenings >= maxSessions {
+		a.mu.Unlock()
+		return nil, newTaskError(TaskErrorSessionLimit, "create_session", fmt.Errorf("maximum %d active sessions", maxSessions))
 	}
 	now := time.Now()
 	a.sessionSeq++
