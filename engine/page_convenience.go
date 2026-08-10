@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -116,6 +117,10 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	if formElement == nil {
 		return nil, fmt.Errorf("page.Form: no form matches %q", formSelector)
 	}
+	form := agent.FindForm(p.document, formSelector)
+	if form == nil {
+		return nil, fmt.Errorf("page.Form: selector %q does not resolve to a form", formSelector)
+	}
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("page.Form: no fields to fill")
 	}
@@ -124,6 +129,15 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	}
 	if err := p.sessionError(); err != nil {
 		return nil, err
+	}
+	if submit {
+		if _, preflightErr := form.Submit(); preflightErr != nil {
+			if !errors.Is(preflightErr, agent.ErrFormSubmissionRequiresBrowser) {
+				return nil, fmt.Errorf("page.Form: submit preflight: %w", preflightErr)
+			}
+			result := actions.FormResult{Type: actions.FormActionSubmit, Ref: formSelector, Error: preflightErr.Error()}
+			return []actions.FormResult{result}, preflightErr
+		}
 	}
 
 	var allActions []actions.FormAction
@@ -167,7 +181,7 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 				result.Success = true
 			}
 		case actions.FormActionSubmit:
-			result.Error = "form: renderless submission is unsupported; use Form.Submit with Engine.Submit or the canonical browser runtime"
+			result.Error = renderlessFormSubmissionError(form.EncType).Error()
 		default:
 			result.Error = "form: unsupported renderless action"
 		}
@@ -179,7 +193,11 @@ func (p *Page) Form(ctx context.Context, formSelector string, fields map[string]
 	var firstErr error
 	for _, r := range results {
 		if !r.Success {
-			firstErr = fmt.Errorf("page.Form: %s", r.Error)
+			if r.Type == actions.FormActionSubmit {
+				firstErr = renderlessFormSubmissionError(form.EncType)
+			} else {
+				firstErr = fmt.Errorf("page.Form: %s", r.Error)
+			}
 			break
 		}
 	}
@@ -209,6 +227,10 @@ func (p *Page) FormSubmit(ctx context.Context, formSelector string) (actions.For
 	if formElement == nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: no form matches %q", formSelector)
 	}
+	form := agent.FindForm(p.document, formSelector)
+	if form == nil {
+		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: selector %q does not resolve to a form", formSelector)
+	}
 	if ctx == nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: context required")
 	}
@@ -216,8 +238,12 @@ func (p *Page) FormSubmit(ctx context.Context, formSelector string) (actions.For
 		return actions.FormResult{}, err
 	}
 	start := time.Now()
-	err = fmt.Errorf("page.FormSubmit: renderless submission is unsupported; use Form.Submit with Engine.Submit or the canonical browser runtime")
+	err = renderlessFormSubmissionError(form.EncType)
 	return actions.FormResult{Type: actions.FormActionSubmit, Ref: formSelector, Duration: time.Since(start), Error: err.Error()}, err
+}
+
+func renderlessFormSubmissionError(encType string) error {
+	return &agent.FormSubmissionUnsupportedError{EncType: encType, Reason: "renderless DOM submit requires browser event semantics"}
 }
 
 // ClickSelector is a convenience method that clicks the first element
