@@ -127,15 +127,20 @@ func TestTASK2256_IsElementVisible(t *testing.T) {
 // (spec L4019: element queries + box model).
 func TestTASK2256_IsElementClickable(t *testing.T) {
 	info := &ElementInfo{
-		Visible: true,
-		Box:     &BoxModel{Width: 100, Height: 100},
+		Attachment:    ElementAttached,
+		Layout:        ElementLayoutPresent,
+		Visible:       true,
+		Interactive:   true,
+		Hit:           HitClear,
+		Actionability: ActionabilityReady,
+		Box:           &BoxModel{Width: 100, Height: 100},
 	}
 	if !IsElementClickable(info) {
-		t.Error("visible element with box should be clickable")
+		t.Error("fully evidenced actionable element should be clickable")
 	}
-	info.Visible = false
+	info.Hit = HitUnknown
 	if IsElementClickable(info) {
-		t.Error("invisible element should not be clickable")
+		t.Error("box geometry without a clear hit test should not be clickable")
 	}
 }
 

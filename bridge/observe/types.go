@@ -57,6 +57,22 @@ const (
 	HitUnknown HitState = "unknown"
 )
 
+// ActionabilityState is the canonical browser-observed reason a node can or
+// cannot receive a pointer action.
+type ActionabilityState string
+
+const (
+	ActionabilityReady          ActionabilityState = "actionable"
+	ActionabilityDetached       ActionabilityState = "detached"
+	ActionabilityNoLayout       ActionabilityState = "no_layout"
+	ActionabilityHidden         ActionabilityState = "hidden"
+	ActionabilityDisabled       ActionabilityState = "disabled"
+	ActionabilityNonInteractive ActionabilityState = "non_interactive"
+	ActionabilityCovered        ActionabilityState = "covered"
+	ActionabilityHitUnknown     ActionabilityState = "hit_unknown"
+	ActionabilityUnavailable    ActionabilityState = "observation_unavailable"
+)
+
 type Node struct {
 	Ref                 string            `json:"ref,omitempty"`
 	BackendNodeID       int64             `json:"backendNodeId"`
@@ -77,6 +93,42 @@ type Node struct {
 	Interactive         bool              `json:"interactive"`
 	Interactable        bool              `json:"interactable"`
 	Hit                 HitState          `json:"hit"`
+}
+
+// ClassifyActionability derives pointer actionability exclusively from the
+// canonical layout, accessibility and hit-test evidence on a captured node.
+func ClassifyActionability(node *Node) ActionabilityState {
+	if node == nil || node.BackendNodeID <= 0 {
+		return ActionabilityDetached
+	}
+	if node.Box == nil {
+		return ActionabilityNoLayout
+	}
+	if !node.Visible {
+		return ActionabilityHidden
+	}
+	if node.Disabled {
+		return ActionabilityDisabled
+	}
+	if !node.Interactive {
+		return ActionabilityNonInteractive
+	}
+	if node.Hit == HitCovered {
+		return ActionabilityCovered
+	}
+	if node.Hit != HitClear {
+		return ActionabilityHitUnknown
+	}
+	return ActionabilityReady
+}
+
+// ClassifyMissingActionability separates a node that disappeared from a
+// complete observation from one omitted by an explicitly incomplete capture.
+func ClassifyMissingActionability(snapshot Snapshot) ActionabilityState {
+	if snapshot.Truncated || len(snapshot.Warnings) > 0 {
+		return ActionabilityUnavailable
+	}
+	return ActionabilityDetached
 }
 
 type Snapshot struct {

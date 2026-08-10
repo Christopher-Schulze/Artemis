@@ -3,6 +3,8 @@ package cdpops
 import (
 	"fmt"
 	"strings"
+
+	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
 )
 
 // element.go (spec L4019: bridge/cdpops/element.go - element queries +
@@ -36,21 +38,68 @@ type Quad struct {
 	Y4 float64 `json:"y4"`
 }
 
+// ElementAttachmentState distinguishes a current DOM node from a match that
+// detached between selector resolution and observation.
+type ElementAttachmentState string
+
+const (
+	ElementAttached          ElementAttachmentState = "attached"
+	ElementDetached          ElementAttachmentState = "detached"
+	ElementAttachmentUnknown ElementAttachmentState = "unknown"
+)
+
+// ElementLayoutState distinguishes normal lack of layout from CDP failure.
+type ElementLayoutState string
+
+const (
+	ElementLayoutPresent ElementLayoutState = "present"
+	ElementLayoutAbsent  ElementLayoutState = "absent"
+	ElementLayoutUnknown ElementLayoutState = "unknown"
+)
+
+// ActionabilityState aliases the canonical observe-owned classification.
+type ActionabilityState = bridgeobserve.ActionabilityState
+
+// HitState aliases the canonical browser hit-test evidence.
+type HitState = bridgeobserve.HitState
+
+const (
+	HitClear                    = bridgeobserve.HitClear
+	HitCovered                  = bridgeobserve.HitCovered
+	HitUnknown                  = bridgeobserve.HitUnknown
+	ActionabilityReady          = bridgeobserve.ActionabilityReady
+	ActionabilityDetached       = bridgeobserve.ActionabilityDetached
+	ActionabilityNoLayout       = bridgeobserve.ActionabilityNoLayout
+	ActionabilityHidden         = bridgeobserve.ActionabilityHidden
+	ActionabilityDisabled       = bridgeobserve.ActionabilityDisabled
+	ActionabilityNonInteractive = bridgeobserve.ActionabilityNonInteractive
+	ActionabilityCovered        = bridgeobserve.ActionabilityCovered
+	ActionabilityHitUnknown     = bridgeobserve.ActionabilityHitUnknown
+	ActionabilityUnavailable    = bridgeobserve.ActionabilityUnavailable
+)
+
 // ElementInfo represents a queried DOM element
 // (spec L4019: element queries + box model).
 type ElementInfo struct {
-	Ref       string    `json:"ref"`
-	TagName   string    `json:"tagName"`
-	Type      string    `json:"type,omitempty"`
-	Text      string    `json:"text,omitempty"`
-	Role      string    `json:"role,omitempty"`
-	Classes   []string  `json:"classes,omitempty"`
-	ID        string    `json:"id,omitempty"`
-	Name      string    `json:"name,omitempty"`
-	Value     string    `json:"value,omitempty"`
-	Visible   bool      `json:"visible"`
-	Clickable bool      `json:"clickable"`
-	Box       *BoxModel `json:"box,omitempty"`
+	Ref           string                 `json:"ref"`
+	FrameID       string                 `json:"frameId,omitempty"`
+	TagName       string                 `json:"tagName"`
+	Type          string                 `json:"type,omitempty"`
+	Text          string                 `json:"text,omitempty"`
+	Role          string                 `json:"role,omitempty"`
+	Classes       []string               `json:"classes,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	Value         string                 `json:"value,omitempty"`
+	Attachment    ElementAttachmentState `json:"attachment"`
+	Layout        ElementLayoutState     `json:"layout"`
+	Visible       bool                   `json:"visible"`
+	Interactive   bool                   `json:"interactive"`
+	Disabled      bool                   `json:"disabled"`
+	Hit           HitState               `json:"hit"`
+	Actionability ActionabilityState     `json:"actionability"`
+	Clickable     bool                   `json:"clickable"`
+	Box           *BoxModel              `json:"box,omitempty"`
 }
 
 // ElementQuery represents a query for DOM elements
@@ -102,7 +151,9 @@ func IsElementClickable(info *ElementInfo) bool {
 	if info == nil {
 		return false
 	}
-	return info.Visible && IsElementVisible(info.Box)
+	return info.Attachment == ElementAttached && info.Layout == ElementLayoutPresent &&
+		info.Visible && info.Interactive && !info.Disabled && info.Hit == bridgeobserve.HitClear &&
+		info.Actionability == ActionabilityReady
 }
 
 // GetElementCenter returns the center point of an element's box model
