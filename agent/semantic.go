@@ -60,10 +60,11 @@ type SemanticNode struct {
 // Semantic returns a hierarchical agent-friendly view of the document
 // body. Nav, footer, aside, script, style, and template are skipped.
 func Semantic(d *webapi.Document) *SemanticNode {
-	root := &SemanticNode{Kind: SemSection, Level: 0, Text: d.Title()}
-	if d == nil {
+	root := &SemanticNode{Kind: SemSection, Level: 0}
+	if d == nil || d.RawRoot() == nil {
 		return root
 	}
+	root.Text = d.Title()
 	body := d.Body()
 	if body == nil {
 		return root

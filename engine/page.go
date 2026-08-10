@@ -76,7 +76,12 @@ func (p *Page) LinksAll() []agent.Link { return agent.LinksAll(p.document) }
 func (p *Page) StructuredData() agent.StructuredData { return agent.Structured(p.document) }
 
 // SemanticTree returns a hierarchical agent-friendly view of the document body.
-func (p *Page) SemanticTree() *agent.SemanticNode { return agent.Semantic(p.document) }
+func (p *Page) SemanticTree() *agent.SemanticNode {
+	if p == nil {
+		return agent.Semantic(nil)
+	}
+	return agent.Semantic(p.document)
+}
 
 // Click dispatches a click event on n via the JS context. Listeners
 // registered with addEventListener fire and may mutate the DOM.

@@ -5,7 +5,40 @@ import (
 	"testing"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
+
+func TestSemanticAbsentDocumentReturnsCanonicalEmptyRoot(t *testing.T) {
+	tests := []struct {
+		name     string
+		document *webapi.Document
+	}{
+		{name: "nil document"},
+		{name: "empty document", document: webapi.NewDocument(nil, "")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var root *SemanticNode
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						t.Fatalf("Semantic panicked: %v", recovered)
+					}
+				}()
+				root = Semantic(test.document)
+			}()
+			if root == nil || root.Kind != SemSection || root.Level != 0 || root.Text != "" || len(root.Children) != 0 {
+				t.Fatalf("empty semantic root = %+v", root)
+			}
+			if rendered := SemanticString(root); rendered != "" {
+				t.Fatalf("empty semantic rendering = %q", rendered)
+			}
+		})
+	}
+	if rendered := SemanticString(nil); rendered != "" {
+		t.Fatalf("nil semantic rendering = %q", rendered)
+	}
+}
 
 func TestSemanticHeadingsNest(t *testing.T) {
 	src := `<html><body>
