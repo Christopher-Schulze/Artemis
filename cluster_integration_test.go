@@ -235,13 +235,12 @@ func TestRoleSnapshotDedup(t *testing.T) {
 
 func TestFormIntentPrefetch(t *testing.T) {
 	f := actions.FormIntent{
-		ActionURL: "https://example.com/submit",
-		Method:    "POST",
-		Fields:    []actions.FormField{{Name: "email", Value: "a@b.c"}},
-		Prefetch:  true,
+		SessionID: "session", PageID: "page", FormRoot: "#signup",
+		Fields: []actions.FormField{{Name: "email", Value: "a@b.c", Selector: "#email"}},
 	}
-	if err := f.Validate(); err != nil || f.PrefetchKey() == "" {
-		t.Fatalf("err=%v key=%q", err, f.PrefetchKey())
+	identity := f.Identity()
+	if err := f.Validate(); err != nil || identity.SessionID == "" || identity.FormRoot == "" {
+		t.Fatalf("err=%v identity=%+v", err, identity)
 	}
 }
 

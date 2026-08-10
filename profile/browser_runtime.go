@@ -302,7 +302,8 @@ func (r *BrowserRuntime) Authenticate(ctx context.Context, sessionID SessionID, 
 		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "login_executor_unavailable", ProfileName: request.ProfileName, Domain: request.Domain}, err
 	}
 	auth := &Authenticator{Store: store, Executor: executor, Handoff: handoff, Policy: policy}
-	return auth.Authenticate(ctx, request)
+	outcome, authErr := auth.Authenticate(ctx, request)
+	return outcome, errors.Join(authErr, executor.Close())
 }
 
 func parseProductVersion(product string) string {

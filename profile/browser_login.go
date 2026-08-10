@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	formactions "github.com/Christopher-Schulze/Artemis/actions"
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	bridgeactions "github.com/Christopher-Schulze/Artemis/bridge/actions"
 )
 
 // BrowserLoginExecutor adapts the secure authentication contract to one
@@ -17,13 +19,18 @@ import (
 type BrowserLoginExecutor struct {
 	page      *bridge.Page
 	selectors LoginSelectors
+	forms     *formactions.FormIntentRuntime
 }
 
 func NewBrowserLoginExecutor(page *bridge.Page, selectors LoginSelectors) (*BrowserLoginExecutor, error) {
 	if page == nil {
 		return nil, errors.New("browser login executor: page required")
 	}
-	return &BrowserLoginExecutor{page: page, selectors: selectors}, nil
+	forms, err := bridgeactions.NewPageFormIntentRuntime(page, nil)
+	if err != nil {
+		return nil, fmt.Errorf("browser login executor: form runtime: %w", err)
+	}
+	return &BrowserLoginExecutor{page: page, selectors: selectors, forms: forms}, nil
 }
 
 func (e *BrowserLoginExecutor) DetectLogin(ctx context.Context, _ string) (bool, error) {
@@ -55,16 +62,26 @@ func (e *BrowserLoginExecutor) FillAndSubmit(ctx context.Context, record *Stored
 	}
 	var submitted bool
 	err := consume(func(password string) error {
+		usernameSelector := firstOr(e.selectors.UsernameField, `input[autocomplete="username"],input[type="email"],input[name*="user" i]`)
+		passwordSelector := firstOr(e.selectors.PasswordField, `input[type="password"]`)
+		intent := formactions.FormIntent{
+			SessionID: e.page.SessionID(), PageID: e.page.TargetID(), FormRoot: loginFormRoot(passwordSelector),
+			Fields: []formactions.FormField{
+				{Name: "username", Selector: usernameSelector, Value: record.Username},
+				{Name: "password", Selector: passwordSelector, Value: password},
+			},
+		}
+		if _, err := e.forms.Execute(ctx, intent); err != nil {
+			return fmt.Errorf("browser login executor: fill form intent: %w", err)
+		}
 		expression := fmt.Sprintf(`(() => {
   const user = document.querySelector(%s);
   const pass = document.querySelector(%s);
   if (!user || !pass) return false;
-  const set = (el, value) => { const setter = Object.getOwnPropertyDescriptor(el.__proto__, "value")?.set; if (setter) setter.call(el, value); else el.value = value; el.dispatchEvent(new Event("input", {bubbles:true})); el.dispatchEvent(new Event("change", {bubbles:true})); };
-  set(user, %s); set(pass, %s);
   const form = pass.form || user.form;
   if (form && typeof form.requestSubmit === "function") form.requestSubmit(); else if (form) form.submit(); else document.querySelector(%s)?.click();
   return true;
-})()`, jsString(firstOr(e.selectors.UsernameField, `input[autocomplete="username"],input[type="email"],input[name*="user" i]`)), jsString(firstOr(e.selectors.PasswordField, `input[type="password"]`)), jsString(record.Username), jsString(password), jsString(firstOr(e.selectors.SubmitButton, `button[type="submit"],input[type="submit"]`)))
+})()`, jsString(usernameSelector), jsString(passwordSelector), jsString(firstOr(e.selectors.SubmitButton, `button[type="submit"],input[type="submit"]`)))
 		if err := e.evaluate(ctx, expression, &submitted); err != nil {
 			return err
 		}
@@ -74,6 +91,13 @@ func (e *BrowserLoginExecutor) FillAndSubmit(ctx context.Context, record *Stored
 		return nil
 	})
 	return submitted && err == nil, err
+}
+
+func (e *BrowserLoginExecutor) Close() error {
+	if e == nil || e.forms == nil {
+		return nil
+	}
+	return e.forms.Close()
 }
 
 func (e *BrowserLoginExecutor) MFAFieldVisible(ctx context.Context, _ *StoredCredential) (bool, error) {
@@ -181,4 +205,8 @@ func firstOr(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func loginFormRoot(passwordSelector string) string {
+	return "form:has(" + passwordSelector + ")"
 }

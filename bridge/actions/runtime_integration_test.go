@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	formactions "github.com/Christopher-Schulze/Artemis/actions"
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
 	artemistabs "github.com/Christopher-Schulze/Artemis/bridge/tabs"
@@ -40,7 +41,7 @@ func newActionFixture(t *testing.T) *actionFixture {
 	server := httptest.NewServer(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL)
+		fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><form id="profile"><input aria-label="First" name="first"><input aria-label="Last" name="last"></form><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL)
 	})
 	mux.HandleFunc("/second", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("<!doctype html><title>Second</title><p>second</p>"))
@@ -54,9 +55,15 @@ func newActionFixture(t *testing.T) *actionFixture {
 	var browser *bridge.ChromiumBrowser
 	var owner *bridge.BrowserContext
 	var page *bridge.Page
+	var runtime *Runtime
 	var closeOnce sync.Once
 	cleanup := func() {
 		closeOnce.Do(func() {
+			if runtime != nil {
+				if err := runtime.Close(); err != nil {
+					t.Errorf("close action fixture runtime: %v", err)
+				}
+			}
 			if page != nil {
 				if err := page.Close(); err != nil {
 					t.Errorf("close action fixture page: %v", err)
@@ -108,11 +115,54 @@ func newActionFixture(t *testing.T) *actionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads})
+	runtime, err = NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &actionFixture{runtime: runtime, page: page, observer: observer, server: server, close: cleanup}
+}
+
+func TestRuntimeRealChromiumFormIntentBatchCacheAndMutationInvalidation(t *testing.T) {
+	f := newActionFixture(t)
+	defer f.close()
+	ctx := context.Background()
+	intent := &formactions.FormIntent{
+		SessionID: f.page.SessionID(), PageID: f.page.TargetID(), FormRoot: "#profile",
+		Fields: []formactions.FormField{
+			{Name: "first", Selector: `[name="first"]`, Value: "Ada"},
+			{Name: "last", Selector: `[name="last"]`, Value: "Lovelace"},
+		},
+	}
+	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindFillForm, FormIntent: intent}))
+	intent.Fields[0].Value = "Grace"
+	intent.Fields[1].Value = "Hopper"
+	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindFillForm, FormIntent: intent}))
+	assertValue(t, f.runtime, `document.querySelector('[name="first"]').value==="Grace"&&document.querySelector('[name="last"]').value==="Hopper"`)
+	metrics := f.runtime.FormIntentMetrics()
+	if metrics.FieldsPrefetchedTotal != 2 || metrics.CacheHitsTotal != 4 || metrics.MultiFieldFormsTotal != 2 {
+		t.Fatalf("metrics before mutation=%+v", metrics)
+	}
+	if err := f.page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": `document.querySelector("#profile").setAttribute("data-version","2")`}, &struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for f.runtime.FormIntentMetrics().CacheInvalidationsTotal == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("mutation invalidation metrics=%+v", f.runtime.FormIntentMetrics())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindFillForm, FormIntent: intent}))
+	metrics = f.runtime.FormIntentMetrics()
+	if metrics.FieldsPrefetchedTotal != 4 || metrics.CacheInvalidationsTotal != 1 {
+		t.Fatalf("metrics after mutation=%+v", metrics)
+	}
+	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindReload}))
+	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindFillForm, FormIntent: intent}))
+	metrics = f.runtime.FormIntentMetrics()
+	if metrics.FieldsPrefetchedTotal != 6 || metrics.CacheInvalidationsTotal != 2 {
+		t.Fatalf("metrics after reload=%+v", metrics)
+	}
 }
 
 func TestRuntimeRealChromiumInteractionMatrix(t *testing.T) {

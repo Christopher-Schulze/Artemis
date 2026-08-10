@@ -97,6 +97,10 @@ func cmdAct(args []string) int {
 		return 1
 	}
 	outcome := runtime.Execute(ctx, request)
+	if err = runtime.Close(); err != nil {
+		errf("act runtime close: %v", err)
+		return 1
+	}
 	if err = json.NewEncoder(os.Stdout).Encode(outcome); err != nil {
 		errf("act output: %v", err)
 		return 1

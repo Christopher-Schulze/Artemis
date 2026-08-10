@@ -2,17 +2,33 @@ package actions
 
 import "testing"
 
-func TestFormIntentValidateAndPrefetchKey(t *testing.T) {
+func TestFormIntentValidateAndIdentityExcludeValues(t *testing.T) {
 	f := FormIntent{
-		ActionURL: "https://example.com/submit",
-		Method:    "POST",
-		Fields:    []FormField{{Name: "email", Value: "a@b.c"}},
-		Prefetch:  true,
+		SessionID: "session-1",
+		PageID:    "page-1",
+		FormRoot:  "#login",
+		Fields:    []FormField{{Name: "email", Value: "a@b.c", Selector: "#email"}},
 	}
 	if err := f.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if f.PrefetchKey() == "" {
-		t.Fatal("prefetch key required")
+	identity := f.Identity()
+	f.Fields[0].Value = "different-secret"
+	if identity != f.Identity() {
+		t.Fatal("field value changed cache identity")
+	}
+}
+
+func TestFormIntentIdentityIsDelimiterCollisionSafe(t *testing.T) {
+	left := FormIntent{SessionID: "a|b", PageID: "c", FormRoot: "d", Fields: []FormField{{Name: "x", Selector: "#x"}}}
+	right := FormIntent{SessionID: "a", PageID: "b|c", FormRoot: "d", Fields: []FormField{{Name: "x", Selector: "#x"}}}
+	if err := left.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := right.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if left.Identity() == right.Identity() {
+		t.Fatal("distinct structured identities collided")
 	}
 }

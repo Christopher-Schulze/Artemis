@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	formactions "github.com/Christopher-Schulze/Artemis/actions"
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	"github.com/Christopher-Schulze/Artemis/bridge/cdpops"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
@@ -37,6 +38,7 @@ const (
 	KindType          Kind = "type"
 	KindClear         Kind = "clear"
 	KindFill          Kind = "fill"
+	KindFillForm      Kind = "fill_form"
 	KindSelect        Kind = "select"
 	KindCheck         Kind = "check"
 	KindUncheck       Kind = "uncheck"
@@ -88,31 +90,32 @@ type Evidence struct {
 	Postcondition Postcondition `json:"postcondition"`
 }
 type Request struct {
-	Kind        Kind          `json:"kind"`
-	Ref         string        `json:"ref,omitempty"`
-	TargetRef   string        `json:"targetRef,omitempty"`
-	URL         string        `json:"url,omitempty"`
-	Text        string        `json:"text,omitempty"`
-	Value       string        `json:"value,omitempty"`
-	Key         string        `json:"key,omitempty"`
-	Expression  string        `json:"expression,omitempty"`
-	Files       []string      `json:"files,omitempty"`
-	DownloadDir string        `json:"downloadDir,omitempty"`
-	Format      string        `json:"format,omitempty"`
-	Quality     int           `json:"quality,omitempty"`
-	X           float64       `json:"x,omitempty"`
-	Y           float64       `json:"y,omitempty"`
-	DeltaX      float64       `json:"deltaX,omitempty"`
-	DeltaY      float64       `json:"deltaY,omitempty"`
-	Timeout     time.Duration `json:"timeout,omitempty"`
-	Accept      bool          `json:"accept,omitempty"`
-	PromptText  string        `json:"promptText,omitempty"`
-	Idempotent  bool          `json:"idempotent,omitempty"`
-	RetryMax    int           `json:"retryMax,omitempty"`
-	Width       int           `json:"width,omitempty"`
-	Height      int           `json:"height,omitempty"`
-	FrameID     string        `json:"frameId,omitempty"`
-	TargetID    string        `json:"targetId,omitempty"`
+	Kind        Kind                    `json:"kind"`
+	Ref         string                  `json:"ref,omitempty"`
+	TargetRef   string                  `json:"targetRef,omitempty"`
+	URL         string                  `json:"url,omitempty"`
+	Text        string                  `json:"text,omitempty"`
+	Value       string                  `json:"value,omitempty"`
+	Key         string                  `json:"key,omitempty"`
+	Expression  string                  `json:"expression,omitempty"`
+	Files       []string                `json:"files,omitempty"`
+	DownloadDir string                  `json:"downloadDir,omitempty"`
+	Format      string                  `json:"format,omitempty"`
+	Quality     int                     `json:"quality,omitempty"`
+	X           float64                 `json:"x,omitempty"`
+	Y           float64                 `json:"y,omitempty"`
+	DeltaX      float64                 `json:"deltaX,omitempty"`
+	DeltaY      float64                 `json:"deltaY,omitempty"`
+	Timeout     time.Duration           `json:"timeout,omitempty"`
+	Accept      bool                    `json:"accept,omitempty"`
+	PromptText  string                  `json:"promptText,omitempty"`
+	Idempotent  bool                    `json:"idempotent,omitempty"`
+	RetryMax    int                     `json:"retryMax,omitempty"`
+	Width       int                     `json:"width,omitempty"`
+	Height      int                     `json:"height,omitempty"`
+	FrameID     string                  `json:"frameId,omitempty"`
+	TargetID    string                  `json:"targetId,omitempty"`
+	FormIntent  *formactions.FormIntent `json:"formIntent,omitempty"`
 }
 type Outcome struct {
 	Success  bool         `json:"success"`
@@ -147,11 +150,13 @@ type Runtime struct {
 	downloads    *artemisdownload.DownloadManager
 	downloadOnce sync.Once
 	downloadErr  error
+	formIntents  *formactions.FormIntentRuntime
 }
 
 // RuntimeConfig injects lifecycle owners used by action execution.
 type RuntimeConfig struct {
-	Downloads *artemisdownload.DownloadManager
+	Downloads         *artemisdownload.DownloadManager
+	FormIntentMetrics func(formactions.FormIntentMetricEvent)
 }
 
 func NewRuntime(page *bridge.Page, observer *bridgeobserve.Collector, policy Policy) (*Runtime, error) {
@@ -168,10 +173,14 @@ func NewRuntimeWithConfig(page *bridge.Page, observer *bridgeobserve.Collector, 
 	}
 	caller := pageCaller{page: page}
 	source := &pageTargetSource{root: page, activeID: page.TargetID()}
+	formIntents, err := NewPageFormIntentRuntime(page, config.FormIntentMetrics)
+	if err != nil {
+		return nil, err
+	}
 	return &Runtime{
 		page: page, observer: observer, policy: policy, now: time.Now,
 		navigator: cdpops.NewNavigator(caller), pointer: cdpops.NewPointerDispatcher(caller),
-		tabs: artemistabs.NewTabRegistry(source), downloads: config.Downloads,
+		tabs: artemistabs.NewTabRegistry(source), downloads: config.Downloads, formIntents: formIntents,
 	}, nil
 }
 
@@ -287,6 +296,11 @@ func (r *Runtime) executeOnce(ctx context.Context, q Request, e Evidence) Outcom
 		if targetID == "" {
 			targetID = r.page.TargetID()
 		}
+		if targetID == r.page.TargetID() {
+			if err := r.invalidateFormIntentPage(); err != nil {
+				return failedNow(e, FailureProtocol, "invalidate form intent: "+err.Error())
+			}
+		}
 		closed, err := r.tabs.CloseTabContext(ctx, targetID)
 		if err != nil {
 			return failedNow(e, FailureProtocol, err.Error())
@@ -308,6 +322,8 @@ func (r *Runtime) executeOnce(ctx context.Context, q Request, e Evidence) Outcom
 		return r.viewport(ctx, q, e)
 	case KindFrameEvaluate:
 		return r.frameEvaluate(ctx, q, e)
+	case KindFillForm:
+		return r.fillFormIntent(ctx, q, e)
 	}
 	node, resolved := r.resolve(ctx, q.Ref, e)
 	if !resolved.Success {
@@ -345,7 +361,7 @@ func (r *Runtime) executeOnce(ctx context.Context, q Request, e Evidence) Outcom
 }
 
 func validateRequest(q Request) error {
-	valid := map[Kind]bool{KindNavigate: true, KindReload: true, KindBack: true, KindForward: true, KindWait: true, KindFocus: true, KindClick: true, KindHover: true, KindScroll: true, KindKey: true, KindType: true, KindClear: true, KindFill: true, KindSelect: true, KindCheck: true, KindUncheck: true, KindDrag: true, KindUpload: true, KindDownload: true, KindScreenshot: true, KindPDF: true, KindDialog: true, KindTabOpen: true, KindTabClose: true, KindTabList: true, KindTabSwitch: true, KindEvaluate: true, KindAssert: true, KindViewport: true, KindFrameEvaluate: true}
+	valid := map[Kind]bool{KindNavigate: true, KindReload: true, KindBack: true, KindForward: true, KindWait: true, KindFocus: true, KindClick: true, KindHover: true, KindScroll: true, KindKey: true, KindType: true, KindClear: true, KindFill: true, KindFillForm: true, KindSelect: true, KindCheck: true, KindUncheck: true, KindDrag: true, KindUpload: true, KindDownload: true, KindScreenshot: true, KindPDF: true, KindDialog: true, KindTabOpen: true, KindTabClose: true, KindTabList: true, KindTabSwitch: true, KindEvaluate: true, KindAssert: true, KindViewport: true, KindFrameEvaluate: true}
 	if !valid[q.Kind] {
 		return fmt.Errorf("action: unsupported kind %q", q.Kind)
 	}
@@ -358,6 +374,14 @@ func validateRequest(q Request) error {
 	}
 	if (q.Kind == KindType || q.Kind == KindFill) && q.Text == "" && q.Value == "" {
 		return errors.New("action: text required")
+	}
+	if q.Kind == KindFillForm {
+		if q.FormIntent == nil {
+			return errors.New("action: form intent required")
+		}
+		if err := q.FormIntent.Validate(); err != nil {
+			return err
+		}
 	}
 	if q.Kind == KindSelect && q.Value == "" {
 		return errors.New("action: select value required")
@@ -423,6 +447,9 @@ func (r *Runtime) navigate(ctx context.Context, q Request, e Evidence, _ bool) O
 	if !result.Success {
 		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
 	}
+	if err := r.invalidateFormIntentPage(); err != nil {
+		return failedNow(e, FailureProtocol, "invalidate form intent: "+err.Error())
+	}
 	value, err := r.eval(ctx, "location.href")
 	if err != nil {
 		return failedNow(e, FailurePostcondition, err.Error())
@@ -445,6 +472,9 @@ func (r *Runtime) history(ctx context.Context, q Request, e Evidence, delta int)
 	if !result.Success {
 		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
 	}
+	if err := r.invalidateFormIntentPage(); err != nil {
+		return failedNow(e, FailureProtocol, "invalidate form intent: "+err.Error())
+	}
 	e.Postcondition = Postcondition{Type: "history_ready", Passed: true}
 	return Outcome{Success: true, Evidence: e}
 }
@@ -453,6 +483,9 @@ func (r *Runtime) reload(ctx context.Context, q Request, e Evidence) Outcome {
 	result := r.navigator.Reload(ctx)
 	if !result.Success {
 		return failedNow(e, classifyContext(ctx, FailureProtocol), result.Error)
+	}
+	if err := r.invalidateFormIntentPage(); err != nil {
+		return failedNow(e, FailureProtocol, "invalidate form intent: "+err.Error())
 	}
 	e.Postcondition = Postcondition{Type: "reload_ready", Passed: true}
 	return Outcome{Success: true, Evidence: e}
