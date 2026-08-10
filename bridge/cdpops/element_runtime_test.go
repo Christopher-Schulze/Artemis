@@ -10,24 +10,23 @@ import (
 type elementCaller struct{ malformed bool }
 
 func (c elementCaller) Call(_ context.Context, method string, _ any, result any) error {
-	var value any
+	var raw []byte
 	switch method {
 	case "DOM.getDocument":
-		value = map[string]any{"root": map[string]any{"nodeId": 1}}
+		raw = []byte(`{"root":{"nodeId":1}}`)
 	case "DOM.querySelectorAll":
-		value = map[string]any{"nodeIds": []int{7}}
+		raw = []byte(`{"nodeIds":[7]}`)
 	case "DOM.describeNode":
-		value = map[string]any{"node": map[string]any{"backendNodeId": 42, "nodeName": "BUTTON", "attributes": []string{"id", "submit"}}}
+		raw = []byte(`{"node":{"backendNodeId":42,"nodeName":"BUTTON","attributes":["id","submit"]}}`)
 	case "DOM.getBoxModel":
-		quad := []float64{10, 20, 110, 20, 110, 60, 10, 60}
 		if c.malformed {
-			quad = []float64{1, 2}
+			raw = []byte(`{"model":{"content":[1,2],"padding":[1,2],"border":[1,2],"margin":[1,2],"width":100,"height":40}}`)
+		} else {
+			raw = []byte(`{"model":{"content":[10,20,110,20,110,60,10,60],"padding":[10,20,110,20,110,60,10,60],"border":[10,20,110,20,110,60,10,60],"margin":[10,20,110,20,110,60,10,60],"width":100,"height":40}}`)
 		}
-		value = map[string]any{"model": map[string]any{"content": quad, "padding": quad, "border": quad, "margin": quad, "width": 100, "height": 40}}
 	default:
 		return fmt.Errorf("unexpected method %s", method)
 	}
-	raw, _ := json.Marshal(value)
 	return json.Unmarshal(raw, result)
 }
 

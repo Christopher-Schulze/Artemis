@@ -142,7 +142,8 @@ func TestRuntimeRealChromiumFormIntentBatchCacheAndMutationInvalidation(t *testi
 	if metrics.FieldsPrefetchedTotal != 2 || metrics.CacheHitsTotal != 4 || metrics.MultiFieldFormsTotal != 2 {
 		t.Fatalf("metrics before mutation=%+v", metrics)
 	}
-	if err := f.page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": `document.querySelector("#profile").setAttribute("data-version","2")`}, &struct{}{}); err != nil {
+	params := runtimeEvaluateParams{Expression: `document.querySelector("#profile").setAttribute("data-version","2")`}
+	if err := f.page.Call(ctx, "Runtime.evaluate", params, &emptyResult{}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -265,7 +266,7 @@ func TestRuntimeNavigationHistoryReloadDialogAndDenials(t *testing.T) {
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindForward}))
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindReload}))
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindWait}))
-	if err := f.page.Call(ctx, "Page.enable", map[string]any{}, &struct{}{}); err != nil {
+	if err := f.page.Call(ctx, "Page.enable", emptyParams{}, &emptyResult{}); err != nil {
 		t.Fatal(err)
 	}
 	dialogEvents, err := f.page.SubscribeBrowserEvents(8)
@@ -275,7 +276,7 @@ func TestRuntimeNavigationHistoryReloadDialogAndDenials(t *testing.T) {
 	defer dialogEvents.Close()
 	dialogDone := make(chan error, 1)
 	go func() {
-		dialogDone <- f.page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "prompt('proof','x')"}, &struct{}{})
+		dialogDone <- f.page.Call(ctx, "Runtime.evaluate", runtimeEvaluateParams{Expression: "prompt('proof','x')"}, &emptyResult{})
 	}()
 	dialogCtx, cancelDialogWait := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelDialogWait()
@@ -459,13 +460,13 @@ func waitRuntimeReady(t *testing.T, ctx context.Context, page *bridge.Page) {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var result struct {
-			Result struct {
-				Value any `json:"value"`
-			} `json:"result"`
-		}
-		if err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &result); err == nil && result.Result.Value == "complete" {
-			return
+		var result runtimeCallResult
+		params := runtimeEvaluateParams{Expression: "document.readyState", ReturnByValue: true}
+		if err := page.Call(ctx, "Runtime.evaluate", params, &result); err == nil {
+			var readyState string
+			if result.valueInto(&readyState) == nil && readyState == "complete" {
+				return
+			}
 		}
 		select {
 		case <-ctx.Done():

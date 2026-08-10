@@ -28,30 +28,19 @@ func (c *ElementClient) QuerySelector(ctx context.Context, selector string) ([]E
 	if selector == "" {
 		return nil, errors.New("element query: selector required")
 	}
-	var document struct {
-		Root struct {
-			NodeID int64 `json:"nodeId"`
-		} `json:"root"`
-	}
-	if err := c.caller.Call(ctx, "DOM.getDocument", map[string]any{"depth": -1, "pierce": true}, &document); err != nil {
+	var document getDocumentResult
+	if err := c.caller.Call(ctx, "DOM.getDocument", getDocumentParams{Depth: -1, Pierce: true}, &document); err != nil {
 		return nil, fmt.Errorf("element query document: %w", err)
 	}
-	var matches struct {
-		NodeIDs []int64 `json:"nodeIds"`
-	}
-	if err := c.caller.Call(ctx, "DOM.querySelectorAll", map[string]any{"nodeId": document.Root.NodeID, "selector": selector}, &matches); err != nil {
+	var matches querySelectorAllResult
+	params := querySelectorAllParams{NodeID: document.Root.NodeID, Selector: selector}
+	if err := c.caller.Call(ctx, "DOM.querySelectorAll", params, &matches); err != nil {
 		return nil, fmt.Errorf("element query selector: %w", err)
 	}
 	out := make([]ElementInfo, 0, len(matches.NodeIDs))
 	for _, nodeID := range matches.NodeIDs {
-		var described struct {
-			Node struct {
-				BackendNodeID int64    `json:"backendNodeId"`
-				NodeName      string   `json:"nodeName"`
-				Attributes    []string `json:"attributes"`
-			} `json:"node"`
-		}
-		if err := c.caller.Call(ctx, "DOM.describeNode", map[string]any{"nodeId": nodeID}, &described); err != nil {
+		var described describeNodeResult
+		if err := c.caller.Call(ctx, "DOM.describeNode", describeNodeParams{NodeID: nodeID}, &described); err != nil {
 			return nil, fmt.Errorf("element query describe node %d: %w", nodeID, err)
 		}
 		box, err := c.GetBoxModel(ctx, described.Node.BackendNodeID)
@@ -71,17 +60,8 @@ func (c *ElementClient) GetBoxModel(ctx context.Context, backendNodeID int64) (*
 	if backendNodeID <= 0 {
 		return nil, errors.New("box model: positive backend node ID required")
 	}
-	var result struct {
-		Model struct {
-			Content []float64 `json:"content"`
-			Padding []float64 `json:"padding"`
-			Border  []float64 `json:"border"`
-			Margin  []float64 `json:"margin"`
-			Width   int       `json:"width"`
-			Height  int       `json:"height"`
-		} `json:"model"`
-	}
-	if err := c.caller.Call(ctx, "DOM.getBoxModel", map[string]any{"backendNodeId": backendNodeID}, &result); err != nil {
+	var result getBoxModelResult
+	if err := c.caller.Call(ctx, "DOM.getBoxModel", getBoxModelParams{BackendNodeID: backendNodeID}, &result); err != nil {
 		return nil, fmt.Errorf("box model backend node %d: %w", backendNodeID, err)
 	}
 	content, err := quadFromSlice(result.Model.Content)

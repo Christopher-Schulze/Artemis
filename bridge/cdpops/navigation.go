@@ -129,7 +129,7 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 	if navigatorCaller, ok := n.caller.(NavigatorCaller); ok {
 		err = navigatorCaller.Navigate(callCtx, req.URL, req.Referer, &response)
 	} else {
-		err = n.caller.Call(callCtx, "Page.navigate", map[string]any{"url": req.URL, "referrer": req.Referer}, &response)
+		err = n.caller.Call(callCtx, "Page.navigate", navigateParams{URL: req.URL, Referrer: req.Referer}, &response)
 	}
 	if err == nil && response.ErrorText != "" {
 		err = fmt.Errorf("navigation: %s", response.ErrorText)
@@ -228,7 +228,7 @@ func (n *Navigator) Reload(ctx context.Context) NavigationResult {
 	n.state = NavigationStateLoading
 	currentURL := n.currentURL
 	n.mu.Unlock()
-	if err := n.caller.Call(ctx, "Page.reload", map[string]any{"ignoreCache": false}, &struct{}{}); err != nil {
+	if err := n.caller.Call(ctx, "Page.reload", reloadParams{IgnoreCache: false}, &emptyResult{}); err != nil {
 		n.setError(err)
 		return NavigationResult{Success: false, URL: currentURL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
@@ -243,14 +243,6 @@ func (n *Navigator) Reload(ctx context.Context) NavigationResult {
 	return NavigationResult{Success: true, URL: currentURL, State: NavigationStateComplete, Duration: time.Since(start)}
 }
 
-type navigationHistory struct {
-	CurrentIndex int `json:"currentIndex"`
-	Entries      []struct {
-		ID  int64  `json:"id"`
-		URL string `json:"url"`
-	} `json:"entries"`
-}
-
 func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationResult {
 	start := time.Now()
 	if ctx == nil {
@@ -260,8 +252,8 @@ func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationRe
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
-	var history navigationHistory
-	if err := n.caller.Call(ctx, "Page.getNavigationHistory", map[string]any{}, &history); err != nil {
+	var history navigationHistoryResult
+	if err := n.caller.Call(ctx, "Page.getNavigationHistory", navigationHistoryParams{}, &history); err != nil {
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
@@ -275,7 +267,7 @@ func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationRe
 	n.state = NavigationStateLoading
 	n.mu.Unlock()
 	entry := history.Entries[index]
-	if err := n.caller.Call(ctx, "Page.navigateToHistoryEntry", map[string]any{"entryId": entry.ID}, &struct{}{}); err != nil {
+	if err := n.caller.Call(ctx, "Page.navigateToHistoryEntry", navigateToHistoryEntryParams{EntryID: entry.ID}, &emptyResult{}); err != nil {
 		n.setError(err)
 		return NavigationResult{Success: false, URL: entry.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
@@ -314,14 +306,9 @@ func (n *Navigator) waitForCondition(ctx context.Context, condition WaitConditio
 }
 
 func (n *Navigator) documentReady(ctx context.Context, condition WaitCondition) (bool, error) {
-	var result struct {
-		Result struct {
-			Value string `json:"value"`
-		} `json:"result"`
-	}
-	if err := n.caller.Call(ctx, "Runtime.evaluate", map[string]any{
-		"expression": "document.readyState", "returnByValue": true,
-	}, &result); err != nil {
+	params := runtimeEvaluateParams{Expression: "document.readyState", ReturnByValue: true}
+	var result readyStateResult
+	if err := n.caller.Call(ctx, "Runtime.evaluate", params, &result); err != nil {
 		return false, fmt.Errorf("wait: ready-state probe: %w", err)
 	}
 	switch condition {

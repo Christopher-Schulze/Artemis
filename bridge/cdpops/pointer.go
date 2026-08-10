@@ -50,9 +50,9 @@ type TouchEvent struct {
 // PointerDispatcher dispatches mouse and touch events
 // (spec L4019: mouse/touch events).
 type PointerDispatcher struct {
-	mu     sync.Mutex
-	events []interface{}
-	caller Caller
+	mu         sync.Mutex
+	eventCount int
+	caller     Caller
 }
 
 // NewPointerDispatcher creates a new PointerDispatcher
@@ -93,23 +93,21 @@ func (d *PointerDispatcher) DispatchMouseContext(ctx context.Context, event Mous
 	if event.ClickCount <= 0 {
 		event.ClickCount = 1
 	}
-	params := map[string]any{"type": eventType, "x": event.X, "y": event.Y}
+	params := dispatchMouseEventParams{Type: eventType, X: event.X, Y: event.Y}
 	if eventType != "mouseMoved" && eventType != "mouseWheel" {
-		params["button"] = string(event.Button)
-		params["clickCount"] = event.ClickCount
+		params.Button = string(event.Button)
+		params.ClickCount = event.ClickCount
 	}
 	if eventType == "mouseWheel" {
-		params["deltaX"] = event.DeltaX
-		params["deltaY"] = event.DeltaY
+		params.DeltaX = &event.DeltaX
+		params.DeltaY = &event.DeltaY
 	}
-	if err := d.caller.Call(ctx, "Input.dispatchMouseEvent", params, &struct{}{}); err != nil {
+	if err := d.caller.Call(ctx, "Input.dispatchMouseEvent", params, &emptyResult{}); err != nil {
 		return fmt.Errorf("pointer: dispatch mouse: %w", err)
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	event.Timestamp = time.Now()
-	event.EventType = eventType
-	d.events = append(d.events, event)
+	d.eventCount++
 	return nil
 }
 
@@ -131,17 +129,16 @@ func (d *PointerDispatcher) DispatchTouchContext(ctx context.Context, event Touc
 	if err := d.requireCaller(); err != nil {
 		return err
 	}
-	params := map[string]any{
-		"type":        event.Type,
-		"touchPoints": []map[string]any{{"x": event.X, "y": event.Y}},
+	params := dispatchTouchEventParams{Type: event.Type, TouchPoints: []touchPoint{{X: event.X, Y: event.Y}}}
+	if event.Type == "touchEnd" || event.Type == "touchCancel" {
+		params.TouchPoints = []touchPoint{}
 	}
-	if err := d.caller.Call(ctx, "Input.dispatchTouchEvent", params, &struct{}{}); err != nil {
+	if err := d.caller.Call(ctx, "Input.dispatchTouchEvent", params, &emptyResult{}); err != nil {
 		return fmt.Errorf("pointer: dispatch touch: %w", err)
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	event.Timestamp = time.Now()
-	d.events = append(d.events, event)
+	d.eventCount++
 	return nil
 }
 
@@ -234,7 +231,7 @@ func isValidTouchEventType(eventType string) bool {
 func (d *PointerDispatcher) EventCount() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return len(d.events)
+	return d.eventCount
 }
 
 // Clear clears all events
@@ -242,8 +239,8 @@ func (d *PointerDispatcher) EventCount() int {
 func (d *PointerDispatcher) Clear() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	count := len(d.events)
-	d.events = nil
+	count := d.eventCount
+	d.eventCount = 0
 	return count
 }
 

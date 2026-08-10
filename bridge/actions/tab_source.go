@@ -106,20 +106,16 @@ func (s *pageTargetSource) target(ctx context.Context, page *bridge.Page) (tabs.
 	if page.State() != bridge.TargetStateAttached {
 		return target, nil
 	}
-	var result struct {
-		Result struct {
-			Value struct {
-				URL   string `json:"url"`
-				Title string `json:"title"`
-			} `json:"value"`
-		} `json:"result"`
-	}
-	if err := page.Call(ctx, "Runtime.evaluate", map[string]any{
-		"expression": "({url:location.href,title:document.title})", "returnByValue": true,
-	}, &result); err != nil {
+	params := runtimeEvaluateParams{Expression: "({url:location.href,title:document.title})", ReturnByValue: true}
+	var result runtimeCallResult
+	if err := page.Call(ctx, "Runtime.evaluate", params, &result); err != nil {
 		return tabs.Target{}, fmt.Errorf("actions tabs: inspect target %s: %w", page.TargetID(), err)
 	}
-	target.URL = result.Result.Value.URL
-	target.Title = result.Result.Value.Title
+	var metadata targetMetadata
+	if err := result.valueInto(&metadata); err != nil {
+		return tabs.Target{}, fmt.Errorf("actions tabs: decode target %s: %w", page.TargetID(), err)
+	}
+	target.URL = metadata.URL
+	target.Title = metadata.Title
 	return target, nil
 }

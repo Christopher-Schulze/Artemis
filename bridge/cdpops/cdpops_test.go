@@ -18,22 +18,18 @@ func (c *cdpopsTestCaller) Call(_ context.Context, method string, _ any, result 
 	if method == c.failMethod {
 		return fmt.Errorf("forced CDP failure for %s", method)
 	}
-	var value any
+	var raw []byte
 	switch method {
 	case "Page.navigate":
-		value = map[string]any{"frameId": "frame-1", "loaderId": "loader-1"}
+		raw = []byte(`{"frameId":"frame-1","loaderId":"loader-1"}`)
 	case "Runtime.evaluate":
-		value = map[string]any{"result": map[string]any{"value": "complete"}}
+		raw = []byte(`{"result":{"value":"complete"}}`)
 	case "Page.getNavigationHistory":
-		value = map[string]any{"currentIndex": 1, "entries": []map[string]any{{"id": 1, "url": "https://one.example"}, {"id": 2, "url": "https://two.example"}, {"id": 3, "url": "https://three.example"}}}
+		raw = []byte(`{"currentIndex":1,"entries":[{"id":1,"url":"https://one.example"},{"id":2,"url":"https://two.example"},{"id":3,"url":"https://three.example"}]}`)
 	case "Page.navigateToHistoryEntry", "Page.reload", "Input.dispatchMouseEvent", "Input.dispatchTouchEvent":
-		value = map[string]any{}
+		raw = []byte(`{}`)
 	default:
 		return fmt.Errorf("unexpected CDP method %s", method)
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return err
 	}
 	return json.Unmarshal(raw, result)
 }
