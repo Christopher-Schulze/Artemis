@@ -216,6 +216,21 @@ IsolatePtr NewIsolateWithSnapshot(const uint8_t* data, int len) {
   return iso;
 }
 
+int SnapshotBlobIsValid(const uint8_t* data, int len) {
+  // StartupData::IsValid() assumes the fixed header and version string are
+  // present and uses a V8 CHECK when they are not. Reject undersized caller
+  // input before entering that API so untrusted or truncated assets cannot
+  // terminate the host process.
+  constexpr int kMinimumSnapshotHeaderBytes = 64;
+  if (data == nullptr || len < kMinimumSnapshotHeaderBytes) {
+    return 0;
+  }
+  StartupData snapshot;
+  snapshot.data = reinterpret_cast<const char*>(data);
+  snapshot.raw_size = len;
+  return snapshot.IsValid() ? 1 : 0;
+}
+
 /********** Snapshot Creator **********/
 
 m_snapshotCreator* SnapshotCreatorNew() {

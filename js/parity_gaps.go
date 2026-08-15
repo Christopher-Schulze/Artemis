@@ -350,7 +350,10 @@ const parityGapsBootstrap = `
     globalThis.performance.getEntriesByType = function(t) {
       return _entries.filter(e => e.entryType === t);
     };
-    globalThis.performance.timeOrigin = Date.now();
+    // Runtime installation replaces this with the context's real origin.
+    // Keeping the snapshot bootstrap constant is required for reproducible
+    // V8 startup blobs and avoids serialising wall-clock state.
+    globalThis.performance.timeOrigin = 0;
   }
 
   class _PerformanceObserver {

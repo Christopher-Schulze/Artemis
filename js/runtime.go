@@ -32,6 +32,8 @@ type Runtime struct {
 	cache            *scriptCache
 	cachedBootstraps map[string]string // key "all" or "tainted" -> concat
 	hasSnapshot      bool              // V8 startup snapshot baked in
+	snapshotState    SnapshotState
+	snapshotReason   string
 
 	// Context pool: when poolSize > 0, NewContext borrows v8.Contexts
 	// from this channel instead of creating fresh ones. Close returns
@@ -66,6 +68,22 @@ type Runtime struct {
 	contextRegistry      sync.Map // *v8.Context -> *Context, populated by NewContext, drained by Close
 }
 
+// SnapshotState describes whether the embedded startup snapshot was admitted
+// for this runtime. Invalid assets fail closed to a cold isolate and remain
+// observable through SnapshotStatus.
+type SnapshotState string
+
+const (
+	SnapshotActive      SnapshotState = "active"
+	SnapshotUnavailable SnapshotState = "unavailable"
+)
+
+// SnapshotActivation is the runtime-visible snapshot admission result.
+type SnapshotActivation struct {
+	State  SnapshotState
+	Reason string
+}
+
 // contextFor returns the *js.Context bound to v8ctx, or nil if v8ctx
 // has been closed or was never registered. Used by Runtime-cached
 // FunctionTemplate callbacks to dispatch to per-Context state.
@@ -81,8 +99,9 @@ func (r *Runtime) contextFor(v8ctx *v8.Context) *Context {
 // snapshot (TASK 042). The snapshot bakes the parsed + first-run state
 // of every BootstrapSource so NewContext only needs to bind native
 // callbacks instead of re-evaluating ~30K lines of JS each time. If the
-// snapshot blob is absent at build time (rare; see snapshot_data.go),
-// falls back to the from-scratch isolate path.
+// snapshot blob is absent, stale or incompatible at build time (see
+// snapshot_data.go), falls back to the from-scratch isolate path and exposes
+// the admission failure through SnapshotStatus.
 func NewRuntime() *Runtime {
 	return newRuntime(0)
 }
@@ -154,19 +173,32 @@ func stubDocForWarmup() (*webapi.Document, error) {
 
 func newRuntime(poolSize int) *Runtime {
 	var iso *v8.Isolate
-	hasSnapshot := len(snapshotBlob) > 0
-	if hasSnapshot {
+	hasSnapshot := false
+	snapshotState := SnapshotUnavailable
+	snapshotReason := "snapshot asset unavailable"
+	if _, err := CurrentSnapshotManifest(); err == nil {
 		iso = v8.NewIsolateFromSnapshot(snapshotBlob)
+		hasSnapshot = true
+		snapshotState = SnapshotActive
+		snapshotReason = ""
 	} else {
 		iso = v8.NewIsolate()
+		snapshotReason = err.Error()
 	}
-	r := &Runtime{iso: iso, cache: newScriptCache(), hasSnapshot: hasSnapshot}
+	r := &Runtime{iso: iso, cache: newScriptCache(), hasSnapshot: hasSnapshot, snapshotState: snapshotState, snapshotReason: snapshotReason}
 	if poolSize > 0 {
 		r.ctxPool = make(chan *v8.Context, poolSize)
 		r.poolSize = poolSize
 		r.poolEnabled = true
 	}
 	return r
+}
+
+// SnapshotStatus returns the immutable admission result for this runtime.
+func (r *Runtime) SnapshotStatus() SnapshotActivation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return SnapshotActivation{State: r.snapshotState, Reason: r.snapshotReason}
 }
 
 // Close releases the isolate. Safe to call multiple times.

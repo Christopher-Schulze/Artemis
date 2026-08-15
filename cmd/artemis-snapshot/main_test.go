@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,26 @@ import (
 func TestSnapshotPathTargetsRuntimeBlob(t *testing.T) {
 	if snapshotPath != "js/snapshot.bin" {
 		t.Fatalf("snapshotPath = %q, want js/snapshot.bin", snapshotPath)
+	}
+}
+
+func TestSnapshotManifestPathTargetsRuntimeProvenance(t *testing.T) {
+	if snapshotManifestPath != "js/snapshot_manifest.json" {
+		t.Fatalf("snapshotManifestPath = %q, want js/snapshot_manifest.json", snapshotManifestPath)
+	}
+}
+
+func TestGenerateSnapshotIsByteDeterministic(t *testing.T) {
+	first, err := generateSnapshot()
+	if err != nil {
+		t.Fatalf("first generateSnapshot: %v", err)
+	}
+	second, err := generateSnapshot()
+	if err != nil {
+		t.Fatalf("second generateSnapshot: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("repeated snapshot generation produced different bytes")
 	}
 }
 

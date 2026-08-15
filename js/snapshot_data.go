@@ -9,9 +9,10 @@ import (
 // snapshotBlob is the V8 startup snapshot produced by
 // `go run ./cmd/artemis-snapshot/`. It bakes the parsed + first-run
 // state of every BootstrapSource into a binary blob that
-// NewIsolateFromSnapshot deserialises in microseconds. NewRuntime uses
-// it automatically; if absent, the runtime falls back to the
-// from-scratch isolate path.
+// NewIsolateFromSnapshot deserialises in microseconds. NewRuntime admits it
+// only after validating the embedded snapshot manifest, source-set identity,
+// V8 serialized-data validity and target compatibility; any mismatch falls
+// back to the from-scratch isolate path.
 //
 // Regenerate after any bootstrap source change:
 //

@@ -68,6 +68,7 @@ artemis/
   engine/              top-level Engine handle: Fetch, Submit, Page, Config
   js/                  V8 isolate + Context lifecycle, native bindings, JS bootstraps
     snapshot.bin       embedded V8 startup snapshot (regenerated on demand)
+    snapshot_manifest.json embedded snapshot provenance and source-set identity
   webapi/              DOM (Document, Node, Walk), HTML5 element subclasses
   parser/              HTML parser shim around golang.org/x/net/html
   agent/               extraction layer: Markdown, Text, Links, StructuredData,
@@ -114,7 +115,7 @@ artemis/
   testdata/            test fixtures (smoke scenarios, etc.)
   scripts/             tooling scripts (added on demand)
   LICENSE              MIT
-  Makefile             build / test / fmt / vet / snapshot / bench
+  Makefile             build / test / fmt / vet / snapshot / snapshot-check / bench
   go.mod               Go module (with `replace rogchap.com/v8go => ./third_party/v8go`)
   README.md            landing page
 ```
@@ -130,14 +131,24 @@ make test        # all tests
 make test-race   # tests with -race
 make test-security-gates # SSRF, fuzz, mutation, race, leak, and exhaustion gates
 make bench       # all benchmarks
-make snapshot    # regenerate js/snapshot.bin (after touching any js/ bootstrap source)
+make snapshot    # regenerate js/snapshot.bin and js/snapshot_manifest.json
+make snapshot-check # regenerate in memory and verify committed snapshot assets
 make vet         # static analysis
 make fmt         # gofmt -s -w
 make tidy        # go mod tidy
 make clean       # remove ./artemis, bin/, dist/, and Go build/test caches
 ```
 
-The V8 startup snapshot (`js/snapshot.bin`) is checked into the repo and embedded via `go:embed`. Regenerate it whenever you change a snapshot-eligible JS bootstrap (anything in `js.BootstrapSources()`); the snapshot tool runs in deterministic mode (`v8.SetFlags("--predictable")`) so identical sources produce byte-identical output.
+The V8 startup snapshot (`js/snapshot.bin`) and its provenance manifest
+(`js/snapshot_manifest.json`) are checked into the repo and embedded via
+`go:embed`. Regenerate both whenever you change a snapshot-eligible JS
+bootstrap (anything in `js.BootstrapSources()`), then run `make snapshot-check`.
+The generator binds the ordered bootstrap digests, native callback inventory,
+V8/v8go/Go target tuple, generator identity and activation owner. It runs V8
+in predictable, single-threaded mode and rejects wall-clock state in the
+snapshot bootstrap, so identical inputs produce byte-identical output. The
+runtime validates the blob and manifest before activation and falls back to a
+cold isolate with an observable unavailable status on any mismatch.
 
 ## Configuration
 

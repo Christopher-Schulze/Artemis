@@ -140,6 +140,7 @@ typedef struct {
 extern void Init();
 extern IsolatePtr NewIsolate();
 extern IsolatePtr NewIsolateWithSnapshot(const uint8_t* data, int len);
+extern int SnapshotBlobIsValid(const uint8_t* data, int len);
 
 typedef struct {
   const uint8_t* data;

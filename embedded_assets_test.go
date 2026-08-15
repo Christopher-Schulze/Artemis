@@ -34,4 +34,8 @@ func TestEmbeddedAssetsAreCompleteAndHashed(t *testing.T) {
 	if wptAsset.Size != wptSize || wptAsset.SHA256 != wptDigest {
 		t.Fatalf("WPT manifest drift: release=%d/%s embedded=%d/%s", wptAsset.Size, wptAsset.SHA256, wptSize, wptDigest)
 	}
+	snapshot := assets[0]
+	if snapshot.SourceSetSHA256 == "" || snapshot.GeneratorRef == "" || snapshot.ToolchainRef == "" || snapshot.ActivationOwner == "" {
+		t.Fatalf("snapshot provenance incomplete: %+v", snapshot)
+	}
 }

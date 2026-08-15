@@ -14,7 +14,7 @@ This directory contains a vendored, patched fork of `rogchap.com/v8go` used by A
 
 The changes from upstream are documented in `ARTEMIS_PATCHES.md` and include:
 
-1. V8 startup-snapshot bindings (`SnapshotCreator`, `NewIsolateWithSnapshot`, etc.) used by `js/snapshot.bin`.
+1. V8 startup-snapshot bindings (`SnapshotCreator`, `NewIsolateWithSnapshot`, `SnapshotBlobIsValid`, etc.) used by `js/snapshot.bin`.
 2. A header ABI fix for `deps/include/v8-snapshot.h` to match the prebuilt `libv8.a` symbol.
 
 ## Binary dependencies

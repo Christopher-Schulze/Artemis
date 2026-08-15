@@ -1,4 +1,4 @@
-.PHONY: build run test test-race test-security-gates vet fmt tidy clean bench snapshot
+.PHONY: build run test test-race test-security-gates vet fmt tidy clean bench snapshot snapshot-check
 
 BINARY        := artemis
 CMD           := ./cmd/artemis
@@ -7,12 +7,16 @@ SNAPSHOT_BIN  := js/snapshot.bin
 PKGS          := $(shell go list ./... 2>/dev/null | grep -v '/research/')
 SECURITY_GATE_PKGS := ./network ./bridge ./engine ./download ./process
 
-# snapshot regenerates the V8 startup snapshot. Run after touching any
-# JS bootstrap source under js/ (TASK 042). The result is embedded into
-# the artemis binary via go:embed and must be checked in.
+# snapshot regenerates the V8 startup snapshot and its provenance manifest.
+# Run after touching any snapshot-eligible JS bootstrap source under js/
+# (TASK-2789). The result is embedded into the artemis binary via go:embed
+# and must be checked in.
 snapshot:
 	go run $(SNAPSHOT_TOOL)
 	@ls -lh $(SNAPSHOT_BIN)
+
+snapshot-check:
+	go run $(SNAPSHOT_TOOL) --check
 
 build:
 	go build -o $(BINARY) $(CMD)

@@ -13,18 +13,36 @@ const (
 // EmbeddedAsset describes an Artemis-owned immutable binary asset without
 // coupling the reusable browser module to Omnimus release types.
 type EmbeddedAsset struct {
-	Ref        string
-	SourcePath string
-	MIME       string
-	Size       int64
-	SHA256     string
+	Ref             string
+	SourcePath      string
+	MIME            string
+	Size            int64
+	SHA256          string
+	SourceSetSHA256 string
+	GeneratorRef    string
+	ToolchainRef    string
+	ActivationOwner string
 }
 
 // EmbeddedAssets returns the complete Artemis go:embed inventory used by the
 // production runtime.
 func EmbeddedAssets() ([]EmbeddedAsset, error) {
+	snapshotManifest, err := js.CurrentSnapshotManifest()
+	if err != nil {
+		return nil, err
+	}
 	return []EmbeddedAsset{
-		{Ref: "artemis-v8-startup-snapshot", SourcePath: "codebase/backend/artemis/js/snapshot.bin", MIME: "application/octet-stream", Size: js.SnapshotAssetSize(), SHA256: js.SnapshotAssetSHA256()},
+		{
+			Ref:             "artemis-v8-startup-snapshot",
+			SourcePath:      snapshotManifest.SourcePath,
+			MIME:            snapshotManifest.MIME,
+			Size:            snapshotManifest.Size,
+			SHA256:          snapshotManifest.SHA256,
+			SourceSetSHA256: snapshotManifest.SourceSetSHA256,
+			GeneratorRef:    snapshotManifest.GeneratorRef,
+			ToolchainRef:    snapshotManifest.ToolchainRef,
+			ActivationOwner: snapshotManifest.ActivationOwner,
+		},
 		{Ref: "artemis-stealth-bundle", SourcePath: "codebase/backend/artemis/stealth/stealth_bundle.js", MIME: "text/javascript", Size: int64(stealth.BundledScriptSize()), SHA256: stealth.BundledScriptHash()},
 		{Ref: "artemis-wpt-subset", SourcePath: "codebase/backend/artemis/internal/wpt/testdata/wpt", MIME: "application/vnd.omnimus.asset-tree", Size: embeddedWPTAssetSize, SHA256: embeddedWPTAssetSHA256},
 	}, nil

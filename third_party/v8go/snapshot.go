@@ -108,3 +108,17 @@ func NewIsolateFromSnapshot(snapshot []byte) *Isolate {
 	iso.undefined = newValueUndefined(iso)
 	return iso
 }
+
+// SnapshotBlobIsValid checks the V8 checksum and serialized snapshot shape
+// against the linked V8 runtime without creating an isolate or mutating the
+// supplied bytes.
+func SnapshotBlobIsValid(snapshot []byte) bool {
+	initializeIfNecessary()
+	if len(snapshot) == 0 {
+		return false
+	}
+	return C.SnapshotBlobIsValid(
+		(*C.uint8_t)(unsafe.Pointer(&snapshot[0])),
+		C.int(len(snapshot)),
+	) != 0
+}

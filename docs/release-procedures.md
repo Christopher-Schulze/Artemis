@@ -16,6 +16,9 @@ git init
 git add -A
 git commit -m "Artemis release source"
 
+# Verify the committed V8 startup snapshot and provenance before building.
+make snapshot-check
+
 mkdir /tmp/artemis-build
 go build -trimpath -buildvcs=false -o /tmp/artemis-build/artemis ./cmd/artemis
 

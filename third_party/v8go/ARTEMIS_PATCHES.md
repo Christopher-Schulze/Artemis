@@ -27,12 +27,16 @@ re-evaluating ~30 K LoC of class definitions per page.
   - `SnapshotBlob SnapshotCreatorCreateBlob(SnapshotCreatorPtr)`
   - `void SnapshotCreatorDelete(SnapshotCreatorPtr)`
   - `void SnapshotBlobFree(uint8_t* data)`
+  - `int SnapshotBlobIsValid(const uint8_t* data, int len)`
 
 ### `v8go.cc`
 
 - New `m_snapshotCreator` struct (wraps `v8::SnapshotCreator` + persistent
   default `Context`)
-- Implementations for the six new C functions above
+- Implementations for the seven new C functions above
+- `SnapshotBlobIsValid` rejects undersized input before invoking V8's
+  serialized-data validation API, preventing malformed assets from reaching a
+  V8 `CHECK` path
 - `NewIsolate()` now writes `nullptr` to isolate slot 1 to mark the
   "no startup data attached" case
 - `IsolateDispose()` reads the StartupData* from slot 1 BEFORE calling
@@ -48,6 +52,7 @@ Pure-Go wrapper exposing:
 - `type SnapshotCreator` with `RunScript`, `CreateBlob`, `Dispose`
 - `func NewSnapshotCreator() *SnapshotCreator`
 - `func NewIsolateFromSnapshot(snapshot []byte) *Isolate`
+- `func SnapshotBlobIsValid(snapshot []byte) bool`
 
 ## Patched: `deps/include/v8-snapshot.h` ABI mismatch
 
