@@ -30,10 +30,10 @@ TASK-2356-G plus the program final seal TASK-2389, which run later.
 | CLI benchmark | `cmd/artemis benchmark` | `TestBenchmarkArtemisOnly` | — | macOS arm64, Linux x86_64 | `docs/documentation.md` | `scorecard.json` |
 | Network policy (SSRF deny) | `network.Policy` | `TestSealEngineSecureByDefault` | `network/ipfilter.go` tests | macOS arm64, Linux x86_64 | `SECURITY.md` | `checksums.txt` |
 | Benchmark harness (fail-closed) | `benchmark.Harness` | `TestSealBenchmarkHarnessIsFailClosed` | `benchmark/harness_test.go` | macOS arm64, Linux x86_64 | `docs/documentation.md` | `scorecard.json` |
-| V8 provenance | `third_party/v8go/` | `TestProvenanceDocument`, `TestLicenseExists` | — | macOS arm64, Linux x86_64 | `third_party/v8go/PROVENANCE.md` | `sbom.cdx.xml` |
-| Release artifacts | `cmd/artemis-release` | `TestReleaseArtifactsProduction`, `TestChecksumIsDeterministic` | — | macOS arm64, Linux x86_64 | `docs/release-procedures.md` | `release-manifest.json` |
-| Project hygiene | Public repo files | `TestProjectHygieneFiles`, `TestGitignoreCoversBuildArtifacts` | — | macOS arm64, Linux x86_64 | `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md` | `license-report.txt` |
-| Split verification | `split-artemis.sh` | `TestSplitArtemisScriptStripsPrivatePlanning`, `TestSplitArtemisScriptExists` | — | macOS arm64, Linux x86_64 | `CONTRIBUTING.md` | `checksums.txt` |
+| V8 provenance | `third_party/v8go/` | `TestProvenanceDocument`, `TestLicenseExists` | — | macOS arm64, Linux x86_64 | `third_party/v8go/PROVENANCE.md` | `sbom.cdx.json` |
+| Release artifacts | `cmd/artemis-release` | `TestBuildReleaseArtifactSetIsByteReproducible`, `TestCurrentModuleGraphAndLicenseEvidenceAreComplete`, `TestRunCLIPublishesReleaseSet`, `TestEmbeddedCycloneDXSchemaPin` | `TestBuildReleaseArtifactSetRejectsInvalidInputsWithoutPublication`, `TestBuildReleaseArtifactSetFailsClosedAcrossPipelineBoundaries`, `TestReleaseArtifactVerificationRejectsTamperingAndUnknownJSON`, `TestRenameExclusiveRejectsExistingDestination`, `TestCycloneDXSchemaRejectsInvalidDocuments` | macOS arm64, Linux x86_64 | `docs/release-procedures.md` | `release-manifest.json`, `checksums.txt`, `sbom.cdx.json`, `license-report.json` |
+| Project hygiene | Public repo files | `TestProjectHygieneFiles`, `TestGitignoreCoversBuildArtifacts` | — | macOS arm64, Linux x86_64 | `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md` | `license-report.json` |
+| Split verification | `split-artemis.sh` | `TestSplitArtemisPublishesValidatedStandaloneTree`, `TestSplitArtemisScriptExists` | `TestSplitArtemisRejectsExistingAndSourceDestinations`, `TestSplitArtemisScriptIsSyntaxValidAndNeverDeletesOutput`; the real fixture also rejects untracked Artemis source | macOS arm64, Linux x86_64 | `CONTRIBUTING.md` | Exact Git-tree standalone source publication |
 | Release identity | `Version`, `LICENSE`, `go.mod` | `TestReleaseIdentityAndClaimsDoNotDrift`, `TestSealVersionAndLicenseConsistency` | — | macOS arm64, Linux x86_64 | `README.md` | `release-manifest.json` |
 | No synthetic success | Agent API | `TestSealNoSyntheticSuccessInAgent` | `TestRenderlessDispatcherRejectsInvalidVariantsAndRuntimeFailures` | macOS arm64, Linux x86_64 | `docs/documentation.md` | — |
 
@@ -42,7 +42,7 @@ TASK-2356-G plus the program final seal TASK-2389, which run later.
 1. **engine.Config{} denies private networks** — `TestSealEngineSecureByDefault`
 2. **No synthetic/no-op tool responses** — `TestSealNoSyntheticSuccessInAgent`
 3. **Serve/CLI + Agent protocol works** — `TestServeStartupAndShutdown`, `TestDoctorVerifiesPlatform`, `TestAgentExecutesFetchWithObservableEvidence`
-4. **Release artifacts exist** — `TestSealReleaseArtifactGeneratorExists`, `TestReleaseArtifactsProduction`
+4. **Release artifacts exist** — `TestSealReleaseArtifactGeneratorExists`, `TestBuildReleaseArtifactSetIsByteReproducible`
 5. **Zero committed build artifacts** — `TestSealNoCommittedBuildArtifacts`, `TestGitignoreCoversBuildArtifacts`
 6. **Cross-platform CI** — `TestSealSupplyChainArtifactsExist` verifies CI matrix covers Linux + macOS
 7. **V8 provenance documented** — `TestProvenanceDocument`, `TestSealSupplyChainArtifactsExist`
@@ -61,16 +61,23 @@ git status --short --branch -uall
 # 2. Run the split
 codebase/scripts/build/split-artemis.sh /tmp/artemis-split
 
-# 3. Produce release artifacts
-cd /tmp/artemis-split && go run ./cmd/artemis-release --version v0.1.0-alpha.1 --output dist
+# 3. Initialize the plain split as a clean committed source repository
+cd /tmp/artemis-split && git init && git add -A && git commit -m "Artemis release source"
 
-# 4. Sign the tag (operator GPG key)
+# 4. Build outside the source and seal the exact deliverable set
+mkdir /tmp/artemis-build
+go build -trimpath -buildvcs=false -o /tmp/artemis-build/artemis ./cmd/artemis
+ARTEMIS_COMMIT="$(git rev-parse HEAD)"
+ARTEMIS_SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+go run ./cmd/artemis-release --source-root . --output /tmp/artemis-release-set --version v0.1.0-alpha.1 --commit "$ARTEMIS_COMMIT" --build-profile release_hardened --source-date-epoch "$ARTEMIS_SOURCE_DATE_EPOCH" --target darwin/arm64 --toolchain-digest "$ARTEMIS_TOOLCHAIN_DIGEST" --artifact artemis=/tmp/artemis-build/artemis
+
+# 5. Sign the tag (operator GPG key)
 git tag -s v0.1.0-alpha.1 -m "Artemis v0.1.0-alpha.1"
 
-# 5. Sign the artifacts
-gpg --detach-sign --armor dist/checksums.txt
-gpg --detach-sign --armor dist/release-manifest.json
+# 6. Sign the artifacts
+gpg --detach-sign --armor /tmp/artemis-release-set/checksums.txt
+gpg --detach-sign --armor /tmp/artemis-release-set/release-manifest.json
 
-# 6. Push (operator decision)
+# 7. Push (operator decision)
 git push origin main --tags
 ```

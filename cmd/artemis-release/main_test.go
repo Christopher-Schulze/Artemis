@@ -1,103 +1,94 @@
 package main
 
 import (
-	"encoding/json"
-	"encoding/xml"
+	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestReleaseArtifactsProduction(t *testing.T) {
-	// The release tool operates on the artemis source tree root.
-	origDir, err := os.Getwd()
+func TestParseCLIInputs(t *testing.T) {
+	var stderr bytes.Buffer
+	inputs, err := parseCLIInputs([]string{
+		"--source-root", "/source",
+		"--output", "/release",
+		"--version", "v1.2.3",
+		"--commit", "0123456789012345678901234567890123456789",
+		"--source-date-epoch", "1710000000",
+		"--target", "darwin/arm64",
+		"--toolchain-digest", "sha256:0123456789012345678901234567890123456789012345678901234567890123",
+		"--artifact", "artemis=/build/artemis",
+	}, &stderr)
 	if err != nil {
-		t.Fatalf("getwd: %v", err)
+		t.Fatalf("parseCLIInputs: %v", err)
 	}
-	artemisRoot := filepath.Join(origDir, "..", "..")
-	if err := os.Chdir(artemisRoot); err != nil {
-		t.Fatalf("chdir to artemis root: %v", err)
+	if inputs.Target != (targetPlatform{OS: "darwin", Arch: "arm64"}) || len(inputs.Artifacts) != 1 {
+		t.Fatalf("unexpected parsed inputs: %+v", inputs)
 	}
-	defer os.Chdir(origDir)
+}
 
-	tmpDir := t.TempDir()
+func TestParseCLIInputsRejectsMalformedContract(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "target", args: []string{"--target", "darwin"}},
+		{name: "artifact", args: []string{"--target", "darwin/arm64", "--artifact", "artemis"}},
+		{name: "positional", args: []string{"--target", "darwin/arm64", "unexpected"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := parseCLIInputs(test.args, &bytes.Buffer{}); err == nil {
+				t.Fatal("expected malformed CLI contract to fail")
+			}
+		})
+	}
+}
 
-	// Run the release tool in test mode by calling the production functions
-	// directly through a subprocess would be complex; instead verify the
-	// artifact shapes by running the tool.
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+func TestRunCLIPublishesReleaseSet(t *testing.T) {
+	fixture := newReleaseFixture(t, true)
+	output := filepath.Join(fixture.base, "release-cli")
+	inputs := fixture.inputs(output)
+	args := []string{
+		"--source-root", inputs.SourceRoot,
+		"--output", inputs.OutputRoot,
+		"--version", inputs.Version,
+		"--commit", inputs.Commit,
+		"--source-date-epoch", strconv.FormatInt(inputs.SourceDateEpoch, 10),
+		"--target", inputs.Target.OS + "/" + inputs.Target.Arch,
+		"--toolchain-digest", inputs.ToolchainDigest,
+		"--artifact", inputs.Artifacts[0].Name + "=" + inputs.Artifacts[0].SourcePath,
 	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := runCLI(args, &stdout, &stderr); exitCode != 0 {
+		t.Fatalf("runCLI exit=%d stderr=%s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "published Artemis release set") {
+		t.Fatalf("runCLI stdout=%q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(output, releaseManifestFile)); err != nil {
+		t.Fatalf("runCLI did not publish manifest: %v", err)
+	}
+}
 
-	// Produce checksums.
-	checksums, err := produceChecksums(tmpDir)
-	if err != nil {
-		t.Fatalf("produceChecksums: %v", err)
+func TestRunCLIRejectsInvalidArgumentsAndBuildFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{name: "invalid arguments", args: []string{"--target", "invalid"}, want: 2},
+		{name: "invalid build inputs", args: []string{"--target", "darwin/arm64"}, want: 1},
 	}
-	if len(checksums) == 0 {
-		t.Fatalf("no checksums produced")
-	}
-
-	checksumPath := filepath.Join(tmpDir, "checksums.txt")
-	data, err := os.ReadFile(checksumPath)
-	if err != nil {
-		t.Fatalf("read checksums.txt: %v", err)
-	}
-	if !strings.Contains(string(data), "  LICENSE") {
-		t.Errorf("checksums.txt missing LICENSE entry")
-	}
-
-	// Produce SBOM.
-	if err := produceSBOM(tmpDir); err != nil {
-		t.Fatalf("produceSBOM: %v", err)
-	}
-	sbomPath := filepath.Join(tmpDir, "sbom.cdx.xml")
-	sbomData, err := os.ReadFile(sbomPath)
-	if err != nil {
-		t.Fatalf("read sbom.cdx.xml: %v", err)
-	}
-	if !strings.Contains(string(sbomData), "cyclonedx.org/schema/bom") {
-		t.Errorf("sbom.cdx.xml missing CycloneDX namespace")
-	}
-	// Verify it parses as XML.
-	var bom cycloneDXBOM
-	if err := xml.Unmarshal(sbomData, &bom); err != nil {
-		t.Fatalf("sbom.cdx.xml invalid XML: %v", err)
-	}
-	if len(bom.Components) == 0 {
-		t.Errorf("sbom has no components")
-	}
-
-	// Produce license report.
-	if err := produceLicenseReport(tmpDir); err != nil {
-		t.Fatalf("produceLicenseReport: %v", err)
-	}
-	reportPath := filepath.Join(tmpDir, "license-report.txt")
-	reportData, err := os.ReadFile(reportPath)
-	if err != nil {
-		t.Fatalf("read license-report.txt: %v", err)
-	}
-	if !strings.Contains(string(reportData), "MIT") {
-		t.Errorf("license-report.txt missing MIT license")
-	}
-	if !strings.Contains(string(reportData), "rogchap.com/v8go") {
-		t.Errorf("license-report.txt missing v8go entry")
-	}
-
-	// Produce release manifest.
-	manifest := releaseManifest{
-		Version:    "test-0.0.0",
-		License:    "MIT",
-		SBOMFormat: "CycloneDX",
-		Checksums:  checksums,
-	}
-	manifestData, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatalf("marshal manifest: %v", err)
-	}
-	if !strings.Contains(string(manifestData), `"license":"MIT"`) {
-		t.Errorf("manifest missing MIT license")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if exitCode := runCLI(test.args, &bytes.Buffer{}, &bytes.Buffer{}); exitCode != test.want {
+				t.Fatalf("runCLI exit=%d, want %d", exitCode, test.want)
+			}
+		})
 	}
 }
 

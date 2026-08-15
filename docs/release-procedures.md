@@ -3,6 +3,38 @@
 This document covers the operator-gated procedures for signing, rolling back,
 revoking, and responding to vulnerabilities in Artemis releases.
 
+## Artifact Generation
+
+The release generator never builds, signs, tags, uploads or publishes a product release. It seals already-built deliverables into a fresh directory outside the source Git worktree. Required inputs are the clean committed source root, its exact full HEAD, semantic version, `release_hardened` profile, commit-derived source-date epoch, supported target, trusted `sha256:<64 lowercase hex>` toolchain digest, and at least one explicit `name=path` deliverable.
+
+The standalone split is a plain source tree. Initialize and commit it before invoking the release generator so Git identity and committed-tree provenance exist. Build deliverables outside that worktree, then generate the release set into another fresh sibling path:
+
+```bash
+codebase/scripts/build/split-artemis.sh /tmp/artemis-source
+cd /tmp/artemis-source
+git init
+git add -A
+git commit -m "Artemis release source"
+
+mkdir /tmp/artemis-build
+go build -trimpath -buildvcs=false -o /tmp/artemis-build/artemis ./cmd/artemis
+
+ARTEMIS_COMMIT="$(git rev-parse HEAD)"
+ARTEMIS_SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+go run ./cmd/artemis-release \
+  --source-root . \
+  --output /tmp/artemis-release-set \
+  --version v0.1.0 \
+  --commit "$ARTEMIS_COMMIT" \
+  --build-profile release_hardened \
+  --source-date-epoch "$ARTEMIS_SOURCE_DATE_EPOCH" \
+  --target darwin/arm64 \
+  --toolchain-digest "$ARTEMIS_TOOLCHAIN_DIGEST" \
+  --artifact artemis=/tmp/artemis-build/artemis
+```
+
+`ARTEMIS_TOOLCHAIN_DIGEST` comes from the trusted pinned toolchain attestation, not from the source tree or release generator. The supplied source-date epoch must equal the HEAD committer timestamp. Repeating the command from identical committed inputs with a different fresh output path produces a byte-identical set. The generator creates `artifacts/`, `licenses/`, `checksums.txt`, `license-report.json`, `sbom.cdx.json`, then writes `release-manifest.json` last; it verifies the entire staged set before one exclusive atomic rename and verifies it again after publication. Existing destinations are never deleted or overwritten.
+
 ## Signing
 
 ### Tag Signing
@@ -21,15 +53,15 @@ git tag -v v0.1.0
 
 ### Artifact Signing
 
-Release artifacts (binaries, checksums, SBOM) are signed with the operator's
+Release artifacts (binaries, checksums, SBOM, license report and manifest) are signed with the operator's
 GPG key. The signature is published alongside the artifacts.
 
 ```bash
 # Sign the checksums file
-gpg --detach-sign --armor dist/checksums.txt
+gpg --detach-sign --armor /tmp/artemis-release-set/checksums.txt
 
 # Verify the signature
-gpg --verify dist/checksums.txt.asc dist/checksums.txt
+gpg --verify /tmp/artemis-release-set/checksums.txt.asc /tmp/artemis-release-set/checksums.txt
 ```
 
 ### Provenance Attestation
@@ -39,7 +71,7 @@ version, OS, architecture, and checksums. The operator signs the manifest
 and publishes the signature:
 
 ```bash
-gpg --detach-sign --armor dist/release-manifest.json
+gpg --detach-sign --armor /tmp/artemis-release-set/release-manifest.json
 ```
 
 ## Rollback

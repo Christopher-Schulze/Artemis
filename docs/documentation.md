@@ -49,6 +49,10 @@ Artemis is a browser engine written in Go for AI-agent extraction and automation
 
 Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require the reproducible TASK-2360 artifact.
 
+`cmd/artemis-release` accepts a clean committed Artemis source root, an exact full Git HEAD, semantic version, `release_hardened` build profile, the exact HEAD committer epoch as source-date epoch, supported target, pinned toolchain digest, fresh output root outside the source Git worktree, and one or more explicit non-empty regular deliverables. The source root may be the standalone repository root or the nested Artemis module in Golem; committed subtree-object digests preserve the distinction. Artifact source bytes are hashed before and after copying, the source worktree is revalidated before publication, and any drift aborts.
+
+The release set is staged in a sibling directory, validated, and published by one exclusive atomic rename. `release-manifest.json` binds the exact deliverable paths, file modes, sizes and SHA-256 digests; `checksums.txt` covers every shipped non-manifest file; `sbom.cdx.json` is emitted by the pinned official CycloneDX Go encoder and validated without network access against the pinned CycloneDX 1.7 JSON, SPDX, JSF and cryptography schemas; `license-report.json` correlates every selected Go module and replacement with exact copied license texts and rejects unreferenced or duplicate evidence; `licenses/` contains those immutable texts. Unknown Git identity, source or artifact mutation, incomplete module edges, missing license evidence, malformed schema data, existing output, partial writes and publication failures leave no visible partial release set.
+
 ## License
 
 License: [MIT](../LICENSE). Artemis is original Go code.
