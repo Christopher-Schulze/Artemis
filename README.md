@@ -7,7 +7,7 @@
 > **A renderless web engine built for AI agents.** Artemis fetches HTML, executes JavaScript in V8, maintains a DOM, and extracts agent-ready content without a layout or paint engine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev)
+[![Go 1.27+](https://img.shields.io/badge/Go-1.27+-00ADD8.svg)](https://go.dev)
 [![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
 
 Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, and a low-level owned or externally attached Chromium/CDP lifecycle. Hybrid routing, high-level Chromium actions, browser screenshots, persistent authenticated profiles, and verified anti-detection remain unavailable release capabilities. Package symbols for those future surfaces are not a support claim.
@@ -92,7 +92,7 @@ artemis serve
 
 ## Build
 
-Requires **Go 1.26+** and a C toolchain (for V8 via cgo).
+Requires **Go 1.27+** and a C toolchain (for V8 via cgo).
 
 ```sh
 make build      # build the artemis binary

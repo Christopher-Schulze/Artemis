@@ -16,8 +16,8 @@ func TestParseModuleGraphMapsRequirementsToSelectedVersions(t *testing.T) {
 	}
 	graph := strings.Join([]string{
 		"example.com/main example.com/dependency@v1.0.0",
-		"example.com/main go@1.26",
-		"go@1.26 toolchain@go1.26",
+		"example.com/main go@1.27",
+		"go@1.27 toolchain@go1.27",
 		"example.com/dependency@v1.0.0 example.com/transitive@v0.1.0",
 	}, "\n")
 	edges, err := parseModuleGraph([]byte(graph), modules)

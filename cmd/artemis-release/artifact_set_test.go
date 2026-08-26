@@ -380,10 +380,10 @@ func newReleaseFixture(t *testing.T, localLicense bool) releaseFixture {
 func writeReleaseFixtureModule(t *testing.T, sourceRoot string, localLicense bool) {
 	t.Helper()
 	localRoot := filepath.Join(sourceRoot, "local")
-	writeTestFile(t, filepath.Join(sourceRoot, "go.mod"), "module example.com/artemisfixture\n\ngo 1.26\n\nrequire example.com/local v0.0.0\n\nreplace example.com/local => ./local\n", 0o644)
+	writeTestFile(t, filepath.Join(sourceRoot, "go.mod"), "module example.com/artemisfixture\n\ngo 1.27\n\nrequire example.com/local v0.0.0\n\nreplace example.com/local => ./local\n", 0o644)
 	writeTestFile(t, filepath.Join(sourceRoot, "main.go"), "package artemisfixture\n\nimport _ \"example.com/local\"\n", 0o644)
 	writeTestFile(t, filepath.Join(sourceRoot, "LICENSE"), "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n", 0o644)
-	writeTestFile(t, filepath.Join(localRoot, "go.mod"), "module example.com/local\n\ngo 1.26\n", 0o644)
+	writeTestFile(t, filepath.Join(localRoot, "go.mod"), "module example.com/local\n\ngo 1.27\n", 0o644)
 	writeTestFile(t, filepath.Join(localRoot, "local.go"), "package local\n", 0o644)
 	if localLicense {
 		writeTestFile(t, filepath.Join(localRoot, "LICENSE"), "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n", 0o644)

@@ -122,7 +122,7 @@ artemis/
 
 ## Build and Run
 
-Requires Go 1.26+. Cgo toolchain (clang/clang++) is required for the vendored v8go fork.
+Requires Go 1.27+. Cgo toolchain (clang/clang++) is required for the vendored v8go fork.
 
 ```sh
 make build       # produces ./artemis
