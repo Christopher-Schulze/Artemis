@@ -190,9 +190,9 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		contexts: make(map[string]*BrowserContext), pages: make(map[string]*Page), sessionMap: make(map[string]*Page),
 		maxPages: defaultChromiumMaxPages, policy: policy, policyProxy: proxy,
 	}
-	if err := transport.Call(ctx, "Browser.getVersion", nil, &browser.version); err != nil {
+	if versionErr := transport.Call(ctx, "Browser.getVersion", nil, &browser.version); versionErr != nil {
 		_ = transport.Close()
-		return nil, fmt.Errorf("validate browser identity: %w", err)
+		return nil, fmt.Errorf("validate browser identity: %w", versionErr)
 	}
 	if browser.version.ProtocolVersion == "" || browser.version.Product == "" {
 		_ = transport.Close()

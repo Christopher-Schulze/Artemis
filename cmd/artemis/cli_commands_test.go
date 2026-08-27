@@ -84,8 +84,8 @@ func TestTraceEmitsJSON(t *testing.T) {
 	}
 
 	var result TraceResult
-	if err := json.NewDecoder(r).Decode(&result); err != nil {
-		t.Fatalf("decode trace result: %v", err)
+	if decodeErr := json.NewDecoder(r).Decode(&result); decodeErr != nil {
+		t.Fatalf("decode trace result: %v", decodeErr)
 	}
 	if result.URL != page.URL {
 		t.Errorf("trace URL = %q, want %q", result.URL, page.URL)

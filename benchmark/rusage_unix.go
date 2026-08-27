@@ -59,8 +59,8 @@ func measureFunc(f func() error) (MetricSet, error) {
 		return MetricSet{}, err
 	}
 	t0 := time.Now()
-	if err := f(); err != nil {
-		return MetricSet{}, err
+	if measureErr := f(); measureErr != nil {
+		return MetricSet{}, measureErr
 	}
 	wall := float64(time.Since(t0).Microseconds()) / 1000.0
 	end, err := currentRusage()

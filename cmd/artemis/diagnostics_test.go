@@ -15,11 +15,11 @@ func TestDiagnosticsCommandFiltersAndBoundsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AppendPolicy(diagnostics.PolicyDecision{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "policy_match"}); err != nil {
-		t.Fatal(err)
+	if policyErr := store.AppendPolicy(diagnostics.PolicyDecision{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "policy_match"}); policyErr != nil {
+		t.Fatal(policyErr)
 	}
-	if err := store.AppendResource(diagnostics.ResourceUsage{Scope: "renderless", Requests: 1}); err != nil {
-		t.Fatal(err)
+	if resourceErr := store.AppendResource(diagnostics.ResourceUsage{Scope: "renderless", Requests: 1}); resourceErr != nil {
+		t.Fatal(resourceErr)
 	}
 	reader, writer, err := os.Pipe()
 	if err != nil {

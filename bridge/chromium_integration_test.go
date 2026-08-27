@@ -44,11 +44,11 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 	if browser.Version().Product == "" || browser.Version().ProtocolVersion == "" {
 		t.Fatalf("version=%+v", browser.Version())
 	}
-	if err := browser.SetMaxPages(0); !IsCDPError(err, CDPErrorInvalidConfig) {
-		t.Fatalf("invalid page limit error=%v", err)
+	if invalidLimitErr := browser.SetMaxPages(0); !IsCDPError(invalidLimitErr, CDPErrorInvalidConfig) {
+		t.Fatalf("invalid page limit error=%v", invalidLimitErr)
 	}
-	if err := browser.SetMaxPages(2); err != nil {
-		t.Fatal(err)
+	if setLimitErr := browser.SetMaxPages(2); setLimitErr != nil {
+		t.Fatal(setLimitErr)
 	}
 
 	events, err := browser.Transport().Subscribe(32)
@@ -67,21 +67,21 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 	if page.SessionID() == "" || browserContext.ID() == "" {
 		t.Fatalf("missing ownership identity: context=%q session=%q", browserContext.ID(), page.SessionID())
 	}
-	if err := browser.SetMaxPages(0); !IsCDPError(err, CDPErrorInvalidConfig) {
-		t.Fatalf("invalid admitted page limit error=%v", err)
+	if invalidAdmittedLimitErr := browser.SetMaxPages(0); !IsCDPError(invalidAdmittedLimitErr, CDPErrorInvalidConfig) {
+		t.Fatalf("invalid admitted page limit error=%v", invalidAdmittedLimitErr)
 	}
 	secondPage, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := browser.SetMaxPages(1); !IsCDPError(err, CDPErrorOverloaded) {
-		t.Fatalf("lowered admitted page limit error=%v", err)
+	if lowerLimitErr := browser.SetMaxPages(1); !IsCDPError(lowerLimitErr, CDPErrorOverloaded) {
+		t.Fatalf("lowered admitted page limit error=%v", lowerLimitErr)
 	}
-	if err := secondPage.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := secondPage.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if err := browser.SetMaxPages(1); err != nil {
-		t.Fatalf("page limit did not accept released slot: %v", err)
+	if releasedLimitErr := browser.SetMaxPages(1); releasedLimitErr != nil {
+		t.Fatalf("page limit did not accept released slot: %v", releasedLimitErr)
 	}
 	waitForTargetCreated(t, ctx, events, page.TargetID())
 	frameID, _, err := page.Navigate(ctx, fixture.URL)
@@ -89,11 +89,11 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 		t.Fatalf("navigate frame=%q err=%v", frameID, err)
 	}
 	waitForDocumentTitle(t, ctx, page, "Artemis Fixture")
-	if _, err := browserContext.NewPage(ctx, "about:blank"); !IsCDPError(err, CDPErrorOverloaded) {
-		t.Fatalf("page limit error=%v", err)
+	if _, pageErr := browserContext.NewPage(ctx, "about:blank"); !IsCDPError(pageErr, CDPErrorOverloaded) {
+		t.Fatalf("page limit error=%v", pageErr)
 	}
-	if err := page.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := page.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	replacement, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {

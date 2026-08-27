@@ -21,7 +21,7 @@ func cmdDiagnostics(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: artemis diagnostics [flags]")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if parseErr := fs.Parse(args); parseErr != nil {
 		return 2
 	}
 	if *path == "" || *limit < 1 || *limit > diagnostics.DefaultMaxRecords {

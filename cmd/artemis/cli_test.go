@@ -94,14 +94,14 @@ func TestProcessDiagnosticsCorrelatePolicyAndResourceRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := policySink(network.Decision{
+	if policyErr := policySink(network.Decision{
 		Action: network.DecisionAllow, Kind: network.TargetSocket, Scheme: "tcp",
 		Host: "example.test", Port: 443, Reason: "policy_match", SessionID: "proxy-internal",
-	}); err != nil {
-		t.Fatal(err)
+	}); policyErr != nil {
+		t.Fatal(policyErr)
 	}
-	if err := resourceSink(browserprocess.ResourceUsage{CPUPercent: 1, MemoryBytes: 2, ProfileDiskBytes: 3}); err != nil {
-		t.Fatal(err)
+	if resourceErr := resourceSink(browserprocess.ResourceUsage{CPUPercent: 1, MemoryBytes: 2, ProfileDiskBytes: 3}); resourceErr != nil {
+		t.Fatal(resourceErr)
 	}
 	records, err := store.Snapshot()
 	if err != nil {

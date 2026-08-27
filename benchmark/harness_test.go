@@ -69,11 +69,11 @@ func TestHarnessArtemisOnly(t *testing.T) {
 	jsonPath := filepath.Join(tmpDir, "scorecard.json")
 	mdPath := filepath.Join(tmpDir, "scorecard.md")
 
-	if _, err := os.Stat(jsonPath); err != nil {
-		t.Errorf("scorecard.json not written: %v", err)
+	if _, statErr := os.Stat(jsonPath); statErr != nil {
+		t.Errorf("scorecard.json not written: %v", statErr)
 	}
-	if _, err := os.Stat(mdPath); err != nil {
-		t.Errorf("scorecard.md not written: %v", err)
+	if _, statErr := os.Stat(mdPath); statErr != nil {
+		t.Errorf("scorecard.md not written: %v", statErr)
 	}
 
 	// Verify JSON is valid by reading it back

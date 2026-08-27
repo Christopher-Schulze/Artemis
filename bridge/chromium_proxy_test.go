@@ -29,8 +29,8 @@ func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := proxy.Close(); err != nil {
-			t.Errorf("close policy proxy: %v", err)
+		if closeErr := proxy.Close(); closeErr != nil {
+			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
 	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
@@ -52,8 +52,8 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := proxy.Close(); err != nil {
-			t.Errorf("close policy proxy: %v", err)
+		if closeErr := proxy.Close(); closeErr != nil {
+			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
 	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
@@ -104,8 +104,8 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := proxy.Close(); err != nil {
-			t.Errorf("close policy proxy: %v", err)
+		if closeErr := proxy.Close(); closeErr != nil {
+			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
 	connection, err := net.DialTimeout("tcp", strings.TrimPrefix(proxy.URL(), "http://"), time.Second)
@@ -113,8 +113,8 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	if _, err := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", listener.Addr(), listener.Addr()); err != nil {
-		t.Fatal(err)
+	if _, writeErr := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", listener.Addr(), listener.Addr()); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	response, err := http.ReadResponse(bufio.NewReader(connection), &http.Request{Method: http.MethodConnect})
 	if err != nil {
@@ -211,9 +211,9 @@ func openProxyTunnel(t *testing.T, rawProxyURL, target string) net.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+	if _, writeErr := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); writeErr != nil {
 		connection.Close()
-		t.Fatal(err)
+		t.Fatal(writeErr)
 	}
 	reader := bufio.NewReader(connection)
 	status, err := reader.ReadString('\n')
