@@ -85,7 +85,7 @@ func startServer(t *testing.T) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
-	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS)}
+	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			t.Errorf("serve test server: %v", serveErr)
@@ -143,7 +143,7 @@ func startServerWithAuth(t *testing.T, token string) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
-	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS)}
+	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			t.Errorf("serve test server: %v", serveErr)

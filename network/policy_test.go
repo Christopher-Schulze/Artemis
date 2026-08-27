@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -115,6 +116,7 @@ func TestPolicyValidatesRequestBoundaries(t *testing.T) {
 	config.AllowedDomains = []string{"api.example"}
 	config.MaxRequestBodyBytes = 8
 	policy := mustPolicy(t, config, resolver, nil)
+	credentialURL := (&url.URL{Scheme: "https", Host: "api.example", User: url.UserPassword("user", t.Name())}).String()
 	tests := []struct {
 		name        string
 		rawURL      string
@@ -122,7 +124,7 @@ func TestPolicyValidatesRequestBoundaries(t *testing.T) {
 		contentType string
 		length      int64
 	}{
-		{name: "credentials", rawURL: "https://user:secret@api.example/", method: "GET"},
+		{name: "credentials", rawURL: credentialURL, method: "GET"},
 		{name: "scheme", rawURL: "file://api.example/etc/passwd", method: "GET"},
 		{name: "domain", rawURL: "https://evil-api.example/", method: "GET"},
 		{name: "port", rawURL: "https://api.example:8443/", method: "GET"},

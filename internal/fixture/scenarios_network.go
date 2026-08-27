@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"fmt"
+	"html"
 	"net/http"
 )
 
@@ -64,12 +65,7 @@ func cookieScenarios() []Scenario {
 			Kind:        KindCookie,
 			Description: "Set a deterministic cookie",
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				http.SetCookie(w, &http.Cookie{
-					Name:   "fixture-test",
-					Value:  "1",
-					Path:   "/",
-					MaxAge: 3600,
-				})
+				w.Header().Add("Set-Cookie", "fixture-test=1; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax")
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
 				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Cookie Set</title></head><body>cookie-set</body></html>"); err != nil {
@@ -95,7 +91,7 @@ func cookieScenarios() []Scenario {
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Cookie Read</title></head><body>cookie:%s</body></html>", pair); err != nil {
+				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Cookie Read</title></head><body>cookie:%s</body></html>", html.EscapeString(pair)); err != nil {
 					return
 				}
 			}),

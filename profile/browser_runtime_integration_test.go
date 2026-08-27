@@ -16,7 +16,7 @@ import (
 func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			http.SetCookie(w, &http.Cookie{Name: "auth", Value: "retained", Path: "/", MaxAge: 3600, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+			w.Header().Add("Set-Cookie", "auth=retained; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

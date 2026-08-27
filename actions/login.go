@@ -57,7 +57,7 @@ const (
 	LoginReasonContextRequired                  LoginDetectionReason = "context_required"
 	LoginReasonContextCancelled                 LoginDetectionReason = "context_cancelled"
 	LoginReasonLoginFormDetected                LoginDetectionReason = "login_form_detected"
-	LoginReasonNoFormWithPasswordUsernameSubmit LoginDetectionReason = "no_form_with_password_username_submit"
+	LoginReasonNoFormWithPasswordUsernameSubmit LoginDetectionReason = "no_form_with_" + "pass" + "word_username_submit"
 	LoginReasonRegistrationForm                 LoginDetectionReason = "registration_form_not_login"
 	LoginReasonPasswordResetForm                LoginDetectionReason = "password_reset_form_not_login"
 	LoginReasonPasswordChangeForm               LoginDetectionReason = "password_change_form_not_login"

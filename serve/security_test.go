@@ -33,7 +33,7 @@ func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
 		cancel()
 		t.Fatalf("listen: %v", err)
 	}
-	httpServer := &http.Server{Handler: http.HandlerFunc(server.handleWS)}
+	httpServer := &http.Server{Handler: http.HandlerFunc(server.handleWS), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := httpServer.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			t.Errorf("serve security test server: %v", serveErr)

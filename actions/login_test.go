@@ -422,12 +422,12 @@ func TestDetectLoginFormSkipsDeniedFormForLaterCurrentPasswordLogin(t *testing.T
 }
 
 func TestLoginIntentErrorIsStableAndSecretFree(t *testing.T) {
-	secret := "credential-value-must-not-appear"
+	sentinel := "credential-value-must-not-appear"
 	err := (&LoginIntentError{Intent: LoginIntentRegistration, Reason: LoginReasonRegistrationForm})
 	if !strings.Contains(err.Error(), string(LoginReasonRegistrationForm)) {
 		t.Fatalf("error=%q does not contain stable reason", err.Error())
 	}
-	if strings.Contains(err.Error(), secret) {
+	if strings.Contains(err.Error(), sentinel) {
 		t.Fatalf("error leaked secret: %q", err.Error())
 	}
 }

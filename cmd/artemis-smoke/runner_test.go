@@ -42,7 +42,7 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr = ln.Addr().String()
-	httpSrv := &http.Server{Handler: http.HandlerFunc(srv.HandleWSForTest)}
+	httpSrv := &http.Server{Handler: http.HandlerFunc(srv.HandleWSForTest), ReadHeaderTimeout: 5 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
 	cleanup = func() {

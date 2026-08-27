@@ -90,7 +90,7 @@ func TestOnRequestInterceptionMocks(t *testing.T) {
 
 func TestDocumentCookieGetSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.SetCookie(w, &http.Cookie{Name: "k", Value: "v", Path: "/"})
+		w.Header().Add("Set-Cookie", "k=v; Path=/; SameSite=Lax")
 		writeTestBody(t, w, `<!doctype html><html><body><script>
 			globalThis.captured = document.cookie;
 			document.cookie = "extra=1; Path=/";

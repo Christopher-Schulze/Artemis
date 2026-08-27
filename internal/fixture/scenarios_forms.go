@@ -1,8 +1,10 @@
 package fixture
 
 import (
+	"errors"
 	"fmt"
 	"html"
+	"html/template"
 	"io"
 	"net/http"
 	"strings"
@@ -104,7 +106,56 @@ func formScenarios() []Scenario {
 	}
 }
 
+const fixtureUploadMaxBytes int64 = 32 << 20
+
+func readFixtureUpload(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, errors.New("multipart upload: positive size limit required")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, fmt.Errorf("multipart upload: reader: %w", err)
+	}
+
+	var fileData []byte
+	found := false
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return nil, fmt.Errorf("multipart upload: next part: %w", nextErr)
+		}
+		if part.FormName() != "file" || found {
+			if closeErr := part.Close(); closeErr != nil {
+				return nil, fmt.Errorf("multipart upload: close ignored part: %w", closeErr)
+			}
+			continue
+		}
+
+		found = true
+		fileData, err = io.ReadAll(io.LimitReader(part, maxBytes+1))
+		closeErr := part.Close()
+		if err != nil {
+			return nil, fmt.Errorf("multipart upload: read file: %w", err)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("multipart upload: close file: %w", closeErr)
+		}
+		if int64(len(fileData)) > maxBytes {
+			return nil, fmt.Errorf("multipart upload: file exceeds %d bytes", maxBytes)
+		}
+	}
+	if !found {
+		return nil, errors.New("multipart upload: file field required")
+	}
+	return fileData, nil
+}
+
 func fileScenarios() []Scenario {
+	const uploadResponse = `<!doctype html><html><head><title>Uploaded</title></head><body>Received file size: {{.Size}} contents: {{.Contents}}</body></html>`
 	return []Scenario{
 		{
 			ID:          "file-001",
@@ -136,29 +187,22 @@ func fileScenarios() []Scenario {
 					http.Error(w, "POST required", http.StatusMethodNotAllowed)
 					return
 				}
-				if err := r.ParseMultipartForm(32 << 20); err != nil {
+				data, err := readFixtureUpload(w, r, fixtureUploadMaxBytes)
+				if err != nil {
 					http.Error(w, "bad multipart", http.StatusBadRequest)
 					return
 				}
-				file, _, err := r.FormFile("file")
-				if err != nil {
-					http.Error(w, "missing file", http.StatusBadRequest)
-					return
-				}
-				data, readErr := io.ReadAll(file)
-				closeErr := file.Close()
-				if readErr != nil {
-					http.Error(w, "read error", http.StatusInternalServerError)
-					return
-				}
-				if closeErr != nil {
-					http.Error(w, "close error", http.StatusInternalServerError)
+				uploadTemplate, templateErr := template.New("file-upload").Parse(uploadResponse)
+				if templateErr != nil {
+					http.Error(w, "upload response unavailable", http.StatusInternalServerError)
 					return
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Uploaded</title></head><body>Received file size: %d contents: %s</body></html>",
-					len(data), html.EscapeString(strings.TrimSpace(string(data)))); err != nil {
+				if err := uploadTemplate.Execute(w, struct {
+					Size     int
+					Contents string
+				}{Size: len(data), Contents: strings.TrimSpace(string(data))}); err != nil {
 					return
 				}
 			}),

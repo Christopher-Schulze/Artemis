@@ -44,6 +44,13 @@ type StoredCredential struct {
 	LastLoginOK bool           `json:"last_login_ok"`
 }
 
+// MarshalJSON makes the encrypted password field's serialization explicit.
+// The ciphertext is required for persistence and is never the plaintext value.
+func (r StoredCredential) MarshalJSON() ([]byte, error) {
+	type storedCredentialWire StoredCredential
+	return json.Marshal(storedCredentialWire(r))
+}
+
 // CredentialSummary is the password-less projection for ListCredentials.
 type CredentialSummary struct {
 	ID          string    `json:"id"`

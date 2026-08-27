@@ -19,7 +19,7 @@ func TestBrowserLoginExecutorRealChromiumCredentialAndPostcondition(t *testing.T
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.FormValue("username") == "user@example.com" && r.FormValue("password") == "secret-password" {
-			http.SetCookie(w, &http.Cookie{Name: "auth_session", Value: "opaque", Path: "/", HttpOnly: true})
+			w.Header().Add("Set-Cookie", "auth_session=opaque; Path=/; HttpOnly; SameSite=Lax")
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = fmt.Fprint(w, `<!doctype html><title>Account</title><a href="/logout">Log out</a><main>authenticated</main>`)
 			return

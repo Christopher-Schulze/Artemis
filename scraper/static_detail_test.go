@@ -8,8 +8,8 @@ import (
 func TestCookieJar_SetAndGet(t *testing.T) {
 	jar := NewCookieJar()
 	cookies := []*http.Cookie{
-		{Name: "session", Value: "abc123"},
-		{Name: "token", Value: "xyz789"},
+		{Name: "session", Value: "abc123", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode},
+		{Name: "token", Value: "xyz789", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode},
 	}
 	jar.SetCookies("example.com", cookies)
 	if jar.CookieCount("example.com") != 2 {
@@ -37,8 +37,8 @@ func TestCookieJar_Empty(t *testing.T) {
 func TestCookieJar_ToHeader(t *testing.T) {
 	jar := NewCookieJar()
 	jar.SetCookies("host.com", []*http.Cookie{
-		{Name: "a", Value: "1"},
-		{Name: "b", Value: "2"},
+		{Name: "a", Value: "1", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode},
+		{Name: "b", Value: "2", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode},
 	})
 	h := jar.ToHeader("host.com")
 	if h != "a=1; b=2" {
@@ -48,7 +48,7 @@ func TestCookieJar_ToHeader(t *testing.T) {
 
 func TestCookieJar_Clear(t *testing.T) {
 	jar := NewCookieJar()
-	jar.SetCookies("h.com", []*http.Cookie{{Name: "x", Value: "y"}})
+	jar.SetCookies("h.com", []*http.Cookie{{Name: "x", Value: "y", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}})
 	jar.Clear()
 	if jar.CookieCount("h.com") != 0 {
 		t.Fatal("expected 0 cookies after clear")
@@ -57,8 +57,8 @@ func TestCookieJar_Clear(t *testing.T) {
 
 func TestCookieJar_AllCookies(t *testing.T) {
 	jar := NewCookieJar()
-	jar.SetCookies("a.com", []*http.Cookie{{Name: "s", Value: "1"}})
-	jar.SetCookies("b.com", []*http.Cookie{{Name: "t", Value: "2"}})
+	jar.SetCookies("a.com", []*http.Cookie{{Name: "s", Value: "1", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}})
+	jar.SetCookies("b.com", []*http.Cookie{{Name: "t", Value: "2", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}})
 	all := jar.AllCookies()
 	if len(all) != 2 {
 		t.Fatalf("AllCookies hosts = %d, want 2", len(all))
@@ -187,8 +187,8 @@ func TestExtractHost(t *testing.T) {
 
 func TestParseSetCookie(t *testing.T) {
 	headers := http.Header{}
-	headers.Add("Set-Cookie", "session=abc123; Path=/; HttpOnly")
-	headers.Add("Set-Cookie", "token=xyz789; Secure")
+	headers.Add("Set-Cookie", "session=abc123; Path=/; Secure; HttpOnly; SameSite=Lax")
+	headers.Add("Set-Cookie", "token=xyz789; Secure; HttpOnly; SameSite=Strict")
 
 	cookies := parseSetCookie(headers)
 	if len(cookies) != 2 {
@@ -196,6 +196,9 @@ func TestParseSetCookie(t *testing.T) {
 	}
 	if cookies[0].Name != "session" || cookies[0].Value != "abc123" {
 		t.Fatalf("cookie[0] = %+v, want session=abc123", cookies[0])
+	}
+	if !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("cookie[0] security attributes = %+v", cookies[0])
 	}
 	if cookies[1].Name != "token" || cookies[1].Value != "xyz789" {
 		t.Fatalf("cookie[1] = %+v, want token=xyz789", cookies[1])

@@ -347,25 +347,10 @@ func parseSetCookie(headers http.Header) []*http.Cookie {
 	if headers == nil {
 		return nil
 	}
-	rawCookies := headers["Set-Cookie"]
+	rawCookies := headers.Values("Set-Cookie")
 	if len(rawCookies) == 0 {
-		// Try canonical header key.
-		rawCookies = headers.Values("Set-Cookie")
+		return nil
 	}
-	var cookies []*http.Cookie
-	for _, raw := range rawCookies {
-		parts := strings.SplitN(raw, ";", 2)
-		if len(parts) == 0 {
-			continue
-		}
-		nameValue := strings.SplitN(parts[0], "=", 2)
-		if len(nameValue) != 2 {
-			continue
-		}
-		cookies = append(cookies, &http.Cookie{
-			Name:  strings.TrimSpace(nameValue[0]),
-			Value: strings.TrimSpace(nameValue[1]),
-		})
-	}
-	return cookies
+	canonicalHeaders := http.Header{"Set-Cookie": rawCookies}
+	return (&http.Response{Header: canonicalHeaders}).Cookies()
 }

@@ -205,7 +205,7 @@ func TestChromiumExecutorRequiresCommittedDOMAndPreservesState(t *testing.T) {
 			return nil
 		},
 	}
-	state := BrowserState{SessionID: "s1", ProfileID: "p1", Cookies: []*http.Cookie{{Name: "auth", Value: "secret"}}}
+	state := BrowserState{SessionID: "s1", ProfileID: "p1", Cookies: []*http.Cookie{{Name: "auth", Value: "secret", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}}}
 	output, err := (ChromiumExecutor{Page: page}).Execute(context.Background(), ExecutionRequest{URL: "https://fixture.test/dynamic", State: state})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -224,7 +224,7 @@ func TestHybridRouterEscalatesOnceAndPreservesStateWithoutSecretEvidence(t *test
 	state := BrowserState{
 		SessionID: "session-1", ProfileID: "profile-1", OwnerUserRef: "owner-1",
 		CookieScope: "https://fixture.test", StorageScope: "profile-1",
-		Cookies:      []*http.Cookie{{Name: "auth", Value: secret}},
+		Cookies:      []*http.Cookie{{Name: "auth", Value: secret, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}},
 		LocalStorage: map[string]string{"authenticated": "true"},
 	}
 	r, err := New(Config{Executors: map[Mode]Executor{
@@ -306,7 +306,7 @@ func TestHybridRouterExplicitDowngradeRequiresCleanState(t *testing.T) {
 	if err != nil || decision.Reason != "explicit_safe_downgrade" {
 		t.Fatalf("decision=%+v err=%v", decision, err)
 	}
-	_, err = r.Downgrade(RouteRequest{URL: "https://fixture.test/account", State: BrowserState{Cookies: []*http.Cookie{{Name: "auth", Value: "secret"}}}}, ModeChromiumCDP, ModeRenderlessJS)
+	_, err = r.Downgrade(RouteRequest{URL: "https://fixture.test/account", State: BrowserState{Cookies: []*http.Cookie{{Name: "auth", Value: "secret", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}}}}, ModeChromiumCDP, ModeRenderlessJS)
 	if !errors.Is(err, ErrAuthSemanticDowngrade) {
 		t.Fatalf("cookie-bearing downgrade err=%v", err)
 	}

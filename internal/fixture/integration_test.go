@@ -572,7 +572,7 @@ func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 		t.Fatalf("listen: %v", err)
 	}
 	r.addr = ln.Addr().String()
-	r.httpServer = &http.Server{Handler: http.HandlerFunc(r.server.HandleWSForTest)}
+	r.httpServer = &http.Server{Handler: http.HandlerFunc(r.server.HandleWSForTest), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := r.httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			t.Errorf("fixture HTTP server: %v", serveErr)
