@@ -34,7 +34,11 @@ func TestRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close runner: %v", err)
+		}
+	}()
 
 	results, err := r.Run(context.Background(), DefaultSubset())
 	if err != nil {
@@ -65,7 +69,11 @@ func TestRunnerUnregisteredPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close runner: %v", err)
+		}
+	}()
 
 	_, err = r.RunCase(context.Background(), TestCase{
 		Path:     "not-in-testdata.html",
@@ -86,7 +94,11 @@ func TestRunnerRejectsInvalidInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close runner: %v", err)
+		}
+	}()
 
 	if _, err := r.Run(context.Background(), Subset{}); err == nil {
 		t.Fatal("invalid subset was accepted")
@@ -101,7 +113,11 @@ func TestRunnerRejectsMissingHarnessResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close runner: %v", err)
+		}
+	}()
 	r.Server.RegisterHTML("/no-results.html", "<html><head><title>No results</title></head><body></body></html>")
 
 	_, err = r.RunCase(context.Background(), TestCase{
