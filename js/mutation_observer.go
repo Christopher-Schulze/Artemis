@@ -262,8 +262,8 @@ func mutationsToJSArray(v8ctx *v8.Context, iso *v8.Isolate, recs []mutationRecor
 		_ = obj.Set("attributeName", r.AttributeName)
 		added, _ := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
 		for j, id := range r.AddedIDs {
-			jsID, ok := checkedUint32ToInt32(id)
-			if !ok {
+			jsID, valid := checkedUint32ToInt32(id)
+			if !valid {
 				return v8.Null(iso)
 			}
 			_ = added.SetIdx(uint32(j), jsID)
@@ -276,8 +276,8 @@ func mutationsToJSArray(v8ctx *v8.Context, iso *v8.Isolate, recs []mutationRecor
 		_ = obj.Set("addedIds", added)
 		removed, _ := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
 		for j, id := range r.RemovedIDs {
-			jsID, ok := checkedUint32ToInt32(id)
-			if !ok {
+			jsID, valid := checkedUint32ToInt32(id)
+			if !valid {
 				return v8.Null(iso)
 			}
 			_ = removed.SetIdx(uint32(j), jsID)

@@ -571,8 +571,8 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 		"ARTEMIS_PROCESS_GUARDIAN_SCRIPT="+scriptPath,
 		"ARTEMIS_PROCESS_GUARDIAN_STATE="+stateFile,
 	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("owner helper: %v: %s", err, output)
+	if output, commandErr := cmd.CombinedOutput(); commandErr != nil {
+		t.Fatalf("owner helper: %v: %s", commandErr, output)
 	}
 	pidData, err := os.ReadFile(filepath.Clean(pidFile))
 	if err != nil {

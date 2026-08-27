@@ -15,11 +15,11 @@ func TestReadFixtureUploadRejectsBoundExceeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	if _, err := part.Write([]byte("fixture content")); err != nil {
-		t.Fatalf("write form file: %v", err)
+	if _, partWriteErr := part.Write([]byte("fixture content")); partWriteErr != nil {
+		t.Fatalf("write form file: %v", partWriteErr)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
+	if writerCloseErr := writer.Close(); writerCloseErr != nil {
+		t.Fatalf("close multipart writer: %v", writerCloseErr)
 	}
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://fixture.test/file-upload", bytes.NewReader(body.Bytes()))
 	if err != nil {
