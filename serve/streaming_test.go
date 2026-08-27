@@ -133,7 +133,7 @@ func TestStartBindsPort(t *testing.T) {
 	if port != 18765 {
 		t.Fatalf("port=%d", port)
 	}
-	defer s.Stop()
+	defer stopTestStreamingServer(t, s)
 	if s.Port() != port {
 		t.Fatalf("Port()=%d", s.Port())
 	}
@@ -148,14 +148,14 @@ func TestStartPortFallback(t *testing.T) {
 	if _, err := blocker.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer blocker.Stop()
+	defer stopTestStreamingServer(t, blocker)
 
 	s := NewStreamingServer(StreamingConfig{BasePort: 18780, MaxRetries: 3, Enabled: true})
 	port, err := s.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestStreamingServer(t, s)
 	if port == 18780 {
 		t.Fatalf("expected fallback port, got %d", port)
 	}
@@ -170,12 +170,18 @@ func TestStartDisabled(t *testing.T) {
 
 func TestStartIdempotent(t *testing.T) {
 	s := NewStreamingServer(StreamingConfig{BasePort: 18800, MaxRetries: 1, Enabled: true})
-	p1, _ := s.Start()
-	p2, _ := s.Start()
+	p1, err := s.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := s.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if p1 != p2 {
 		t.Fatalf("p1=%d p2=%d", p1, p2)
 	}
-	defer s.Stop()
+	defer stopTestStreamingServer(t, s)
 }
 
 func TestStopWithoutStart(t *testing.T) {
@@ -230,7 +236,7 @@ func TestPortString(t *testing.T) {
 	if _, err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestStreamingServer(t, s)
 	if s.PortString() != "18810" {
 		t.Fatalf("portString=%q", s.PortString())
 	}

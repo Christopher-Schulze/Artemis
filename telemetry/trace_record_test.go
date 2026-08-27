@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+func stopTestRecorder(t *testing.T, recorder *TraceRecorder) {
+	t.Helper()
+	if _, err := recorder.Stop(); err != nil {
+		t.Errorf("stop trace recorder: %v", err)
+	}
+}
+
+func stopTestTracingSession(t *testing.T, session *TracingSession) {
+	t.Helper()
+	if _, err := session.Stop(); err != nil {
+		t.Errorf("stop tracing session: %v", err)
+	}
+}
+
 func TestDefaultTraceRecordConfig(t *testing.T) {
 	cfg := DefaultTraceRecordConfig("/tmp/traces")
 	if !cfg.Screenshots || !cfg.Snapshots || cfg.Sources {
@@ -48,7 +62,7 @@ func TestTraceRecordStartAlreadyActive(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
+	defer stopTestRecorder(t, r)
 	if err := r.Start(); err == nil {
 		t.Fatal("expected error on double start")
 	}
@@ -66,7 +80,7 @@ func TestTraceRecordAddScreenshot(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
+	defer stopTestRecorder(t, r)
 	if err := r.AddScreenshot([]byte("png data")); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +101,7 @@ func TestTraceRecordAddSnapshot(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
+	defer stopTestRecorder(t, r)
 	if err := r.AddSnapshot([]byte("<html>snapshot</html>")); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +117,7 @@ func TestTraceRecordAddSource(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
+	defer stopTestRecorder(t, r)
 	if err := r.AddSource([]byte("source code")); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +131,7 @@ func TestTraceRecordAddSourceDisabled(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
+	defer stopTestRecorder(t, r)
 	if err := r.AddSource([]byte("source")); err != nil {
 		t.Fatal("should not error when sources disabled, just skip")
 	}
@@ -132,9 +146,15 @@ func TestTraceRecordZipContents(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	r.AddScreenshot([]byte("screenshot1"))
-	r.AddScreenshot([]byte("screenshot2"))
-	r.AddSnapshot([]byte("<html>snapshot1</html>"))
+	if err := r.AddScreenshot([]byte("screenshot1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddScreenshot([]byte("screenshot2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddSnapshot([]byte("<html>snapshot1</html>")); err != nil {
+		t.Fatal(err)
+	}
 	path, err := r.Stop()
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +197,9 @@ func TestTraceRecordZipAtomicWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open zip: %v", err)
 	}
-	zr.Close()
+	if err := zr.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
 
 	// Verify no temp files remain.
 	files, err := os.ReadDir(dir)
@@ -200,7 +222,9 @@ func TestTraceRecordDuration(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Millisecond)
-	r.Stop()
+	if _, err := r.Stop(); err != nil {
+		t.Fatal(err)
+	}
 	if r.Duration() <= 0 {
 		t.Fatal("stopped duration should be positive")
 	}
@@ -236,7 +260,9 @@ func TestTraceRecordDefaultTempDir(t *testing.T) {
 	if !strings.Contains(path, os.TempDir()) {
 		t.Fatalf("path=%q should be in temp dir", path)
 	}
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove trace archive: %v", err)
+	}
 }
 
 func TestReadTraceZipInvalidPath(t *testing.T) {
@@ -253,7 +279,9 @@ func TestTraceRecordMultipleSessions(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	r.AddScreenshot([]byte("first"))
+	if err := r.AddScreenshot([]byte("first")); err != nil {
+		t.Fatal(err)
+	}
 	path1, err := r.Stop()
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +291,9 @@ func TestTraceRecordMultipleSessions(t *testing.T) {
 	if startSecondErr := r.Start(); startSecondErr != nil {
 		t.Fatal(startSecondErr)
 	}
-	r.AddScreenshot([]byte("second"))
+	if err := r.AddScreenshot([]byte("second")); err != nil {
+		t.Fatal(err)
+	}
 	path2, err := r.Stop()
 	if err != nil {
 		t.Fatal(err)
@@ -281,8 +311,10 @@ func TestTraceRecordScreenshotsDisabled(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer r.Stop()
-	r.AddScreenshot([]byte("data"))
+	defer stopTestRecorder(t, r)
+	if err := r.AddScreenshot([]byte("data")); err != nil {
+		t.Fatal(err)
+	}
 	if r.ScreenshotCount() != 0 {
 		t.Fatalf("count=%d should be 0 when disabled", r.ScreenshotCount())
 	}
@@ -296,7 +328,9 @@ func TestTraceRecordSourcesInZip(t *testing.T) {
 	if err := r.Start(); err != nil {
 		t.Fatal(err)
 	}
-	r.AddSource([]byte("source code"))
+	if err := r.AddSource([]byte("source code")); err != nil {
+		t.Fatal(err)
+	}
 	path, err := r.Stop()
 	if err != nil {
 		t.Fatal(err)

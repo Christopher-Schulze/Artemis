@@ -47,7 +47,7 @@ func TestStartAlreadyStarted(t *testing.T) {
 	if err := s.Start(DefaultTracingConfig); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestTracingSession(t, s)
 	if err := s.Start(DefaultTracingConfig); err == nil {
 		t.Fatal("expected error on double start")
 	}
@@ -83,7 +83,7 @@ func TestAddEvent(t *testing.T) {
 	if err := s.Start(DefaultTracingConfig); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestTracingSession(t, s)
 	if !s.AddEvent(NewTraceEvent("devtools.timeline", "X", "b", 1, 1, nil)) {
 		t.Fatal("event should be accepted")
 	}
@@ -106,6 +106,7 @@ func TestMaxEventsCap(t *testing.T) {
 	if err := s.Start(cfg); err != nil {
 		t.Fatal(err)
 	}
+	defer stopTestTracingSession(t, s)
 	for i := 0; i < 5; i++ {
 		s.AddEvent(NewTraceEvent("cat", "n", "b", 1, 1, nil))
 	}
@@ -189,7 +190,7 @@ func TestCategories(t *testing.T) {
 	if err := s.Start(DefaultTracingConfig); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestTracingSession(t, s)
 	cats := s.Categories()
 	if len(cats) != 15 {
 		t.Fatalf("cats=%d", len(cats))
@@ -212,7 +213,9 @@ func TestDuration(t *testing.T) {
 	if s.Duration() <= 0 {
 		t.Fatal("running duration should be positive")
 	}
-	s.Stop()
+	if _, err := s.Stop(); err != nil {
+		t.Fatal(err)
+	}
 	if s.Duration() <= 0 {
 		t.Fatal("stopped duration should be positive")
 	}
@@ -235,7 +238,7 @@ func TestStartZeroMaxEventsUsesDefault(t *testing.T) {
 	if err := s.Start(cfg); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Stop()
+	defer stopTestTracingSession(t, s)
 	// Should not panic and should accept events.
 	if !s.AddEvent(NewTraceEvent("c", "n", "b", 1, 1, nil)) {
 		t.Fatal("event rejected")

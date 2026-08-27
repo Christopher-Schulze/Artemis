@@ -2,7 +2,6 @@ package serve
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +15,7 @@ func TestProtocolVersionHandshake(t *testing.T) {
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	resp := roundTrip(t, c, Request{ID: "v", Cmd: "version"})
 	if !resp.OK {
@@ -107,14 +106,14 @@ func TestDecodeTypedResultOK(t *testing.T) {
 // required by TASK-2326.
 func TestConformanceFullOpSet(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>Conformance</title></head><body><h1 id="hi">Hello</h1><input id="q" type="text" value=""></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><head><title>Conformance</title></head><body><h1 id="hi">Hello</h1><input id="q" type="text" value=""></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	// 1. version handshake
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "version"})
@@ -131,7 +130,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	mustDecode(t, resp, &snr)
 
 	// 3. page.open
-	openReq, _ := MarshalTyped("3", CmdPageOpen, PageOpenParams{
+	openReq := mustMarshalTyped(t, "3", CmdPageOpen, PageOpenParams{
 		SessionID:  snr.SessionID,
 		URL:        page.URL,
 		RunScripts: false,
@@ -150,7 +149,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 4. page.eval
-	evalReq, _ := MarshalTyped("4", CmdPageEval, PageEvalParams{
+	evalReq := mustMarshalTyped(t, "4", CmdPageEval, PageEvalParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Expr:      "document.title",
@@ -166,7 +165,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 5. page.dump markdown
-	dumpReq, _ := MarshalTyped("5", CmdPageDump, PageDumpParams{
+	dumpReq := mustMarshalTyped(t, "5", CmdPageDump, PageDumpParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Format:    string(DumpMarkdown),
@@ -177,7 +176,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 6. page.type
-	typeReq, _ := MarshalTyped("6", CmdPageType, PageTypeParams{
+	typeReq := mustMarshalTyped(t, "6", CmdPageType, PageTypeParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Selector:  "#q",
@@ -190,7 +189,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 
 	// 7. page.assert selector_exists
 	wantTrue := true
-	assertReq, _ := MarshalTyped("7", CmdPageAssert, PageAssertParams{
+	assertReq := mustMarshalTyped(t, "7", CmdPageAssert, PageAssertParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Mode:      string(AssertSelectorExists),
@@ -208,7 +207,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 8. page.wait_idle
-	waitReq, _ := MarshalTyped("8", CmdPageWaitIdle, PageWaitIdleParams{
+	waitReq := mustMarshalTyped(t, "8", CmdPageWaitIdle, PageWaitIdleParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 	})
@@ -218,7 +217,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 9. page.close
-	closeReq, _ := MarshalTyped("9", CmdPageClose, PageCloseParams{
+	closeReq := mustMarshalTyped(t, "9", CmdPageClose, PageCloseParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 	})
@@ -228,7 +227,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 10. session.close
-	scloseReq, _ := MarshalTyped("10", CmdSessionClose, SessionCloseParams(snr))
+	scloseReq := mustMarshalTyped(t, "10", CmdSessionClose, SessionCloseParams(snr))
 	resp = roundTrip(t, c, scloseReq)
 	if !resp.OK {
 		t.Fatalf("session.close: %+v", resp)
@@ -241,7 +240,7 @@ func TestConformanceErrorTaxonomy(t *testing.T) {
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	// unknown_cmd
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "bogus"})
@@ -250,7 +249,7 @@ func TestConformanceErrorTaxonomy(t *testing.T) {
 	}
 
 	// no_session (page.open without session.new)
-	openReq, _ := MarshalTyped("2", CmdPageOpen, PageOpenParams{
+	openReq := mustMarshalTyped(t, "2", CmdPageOpen, PageOpenParams{
 		SessionID: "nonexistent",
 		URL:       "http://127.0.0.1:1/nope",
 	})
@@ -275,6 +274,15 @@ func mustDecode(t *testing.T, resp Response, target interface{}) {
 	if err := DecodeTypedResult(&resp, target); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
+}
+
+func mustMarshalTyped(t *testing.T, id string, cmd Command, params interface{}) Request {
+	t.Helper()
+	request, err := MarshalTyped(id, cmd, params)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", cmd, err)
+	}
+	return request
 }
 
 func contains(s, sub string) bool {

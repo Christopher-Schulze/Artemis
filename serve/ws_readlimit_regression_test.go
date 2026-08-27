@@ -29,14 +29,14 @@ func TestWSReadLimitLargePageDump(t *testing.T) {
 	}
 
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, largeHTML)
+		writeTestResponse(t, w, largeHTML)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	// session.new
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
@@ -47,7 +47,7 @@ func TestWSReadLimitLargePageDump(t *testing.T) {
 	mustDecode(t, resp, &snr)
 
 	// page.open
-	openReq, _ := MarshalTyped("2", CmdPageOpen, PageOpenParams{
+	openReq := mustMarshalTyped(t, "2", CmdPageOpen, PageOpenParams{
 		SessionID:  snr.SessionID,
 		URL:        page.URL,
 		RunScripts: false,
@@ -64,7 +64,7 @@ func TestWSReadLimitLargePageDump(t *testing.T) {
 
 	// page.dump html — this is the operation that failed with the old
 	// 32KB read limit because the HTML dump exceeded the limit.
-	dumpReq, _ := MarshalTyped("3", CmdPageDump, PageDumpParams{
+	dumpReq := mustMarshalTyped(t, "3", CmdPageDump, PageDumpParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Format:    string(DumpHTML),
@@ -81,7 +81,7 @@ func TestWSReadLimitLargePageDump(t *testing.T) {
 	}
 
 	// page.dump markdown — also must succeed for large pages.
-	dumpMdReq, _ := MarshalTyped("4", CmdPageDump, PageDumpParams{
+	dumpMdReq := mustMarshalTyped(t, "4", CmdPageDump, PageDumpParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Format:    string(DumpMarkdown),
@@ -92,15 +92,19 @@ func TestWSReadLimitLargePageDump(t *testing.T) {
 	}
 
 	// Cleanup.
-	closeReq, _ := MarshalTyped("5", CmdPageClose, PageCloseParams{
+	closeReq := mustMarshalTyped(t, "5", CmdPageClose, PageCloseParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 	})
-	_ = roundTrip(t, c, closeReq)
-	scloseReq, _ := MarshalTyped("6", CmdSessionClose, SessionCloseParams{
+	if closeResp := roundTrip(t, c, closeReq); !closeResp.OK {
+		t.Errorf("page.close: %+v", closeResp)
+	}
+	scloseReq := mustMarshalTyped(t, "6", CmdSessionClose, SessionCloseParams{
 		SessionID: snr.SessionID,
 	})
-	_ = roundTrip(t, c, scloseReq)
+	if closeResp := roundTrip(t, c, scloseReq); !closeResp.OK {
+		t.Errorf("session.close: %+v", closeResp)
+	}
 }
 
 // TestWSReadLimitBoundary verifies that a message just under the 8MB
@@ -111,14 +115,14 @@ func TestWSReadLimitBoundary(t *testing.T) {
 	mediumHTML := fmt.Sprintf(`<!doctype html><html><head><title>Boundary</title></head><body>%s</body></html>`, mediumBody)
 
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, mediumHTML)
+		writeTestResponse(t, w, mediumHTML)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
 	if !resp.OK {
@@ -127,7 +131,7 @@ func TestWSReadLimitBoundary(t *testing.T) {
 	var snr SessionNewResult
 	mustDecode(t, resp, &snr)
 
-	openReq, _ := MarshalTyped("2", CmdPageOpen, PageOpenParams{
+	openReq := mustMarshalTyped(t, "2", CmdPageOpen, PageOpenParams{
 		SessionID:  snr.SessionID,
 		URL:        page.URL,
 		RunScripts: false,
@@ -139,7 +143,7 @@ func TestWSReadLimitBoundary(t *testing.T) {
 	var por PageOpenResult
 	mustDecode(t, resp, &por)
 
-	dumpReq, _ := MarshalTyped("3", CmdPageDump, PageDumpParams{
+	dumpReq := mustMarshalTyped(t, "3", CmdPageDump, PageDumpParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Format:    string(DumpHTML),
@@ -150,10 +154,12 @@ func TestWSReadLimitBoundary(t *testing.T) {
 	}
 
 	// Cleanup.
-	scloseReq, _ := MarshalTyped("4", CmdSessionClose, SessionCloseParams{
+	scloseReq := mustMarshalTyped(t, "4", CmdSessionClose, SessionCloseParams{
 		SessionID: snr.SessionID,
 	})
-	_ = roundTrip(t, c, scloseReq)
+	if closeResp := roundTrip(t, c, scloseReq); !closeResp.OK {
+		t.Errorf("session.close: %+v", closeResp)
+	}
 }
 
 // Ensure engine import is used.

@@ -22,12 +22,15 @@ func TestServeSessionUsesAuthoritativeProfileRuntime(t *testing.T) {
 	if startErr := agent.Start(context.Background()); startErr != nil {
 		t.Fatalf("agent start: %v", startErr)
 	}
-	defer agent.Stop()
+	defer stopTestAgent(t, agent)
 	agent.SetProfileRuntime(runtime)
 
 	server := New(agent, Opts{AuthToken: testAuthToken})
 	client := clientIdentity{id: "client.test", ownerRef: "serve:test", rateKey: "127.0.0.1"}
-	params, _ := json.Marshal(SessionNewParams{ProfileID: "serve-profile", Class: string(profile.ProfileEphemeral)})
+	params, err := json.Marshal(SessionNewParams{ProfileID: "serve-profile", Class: string(profile.ProfileEphemeral)})
+	if err != nil {
+		t.Fatalf("marshal session params: %v", err)
+	}
 	created := server.cmdSessionNew(context.Background(), client, &Request{ID: "1", Params: params})
 	if !created.OK {
 		t.Fatalf("create: %+v", created.Error)
@@ -37,7 +40,10 @@ func TestServeSessionUsesAuthoritativeProfileRuntime(t *testing.T) {
 	if len(runtime.List(client.ownerRef)) != 1 {
 		t.Fatal("session absent from profile runtime")
 	}
-	closeParams, _ := json.Marshal(SessionCloseParams{SessionID: id})
+	closeParams, err := json.Marshal(SessionCloseParams{SessionID: id})
+	if err != nil {
+		t.Fatalf("marshal close params: %v", err)
+	}
 	closed := server.cmdSessionClose(client, &Request{ID: "2", Params: closeParams})
 	if !closed.OK {
 		t.Fatalf("close: %+v", closed.Error)

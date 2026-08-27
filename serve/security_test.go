@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -33,12 +34,17 @@ func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	httpServer := &http.Server{Handler: http.HandlerFunc(server.handleWS)}
-	go func() { _ = httpServer.Serve(listener) }()
+	go func() {
+		if serveErr := httpServer.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			t.Errorf("serve security test server: %v", serveErr)
+		}
+	}()
 	cleanup := func() {
-		_ = httpServer.Close()
-		_ = listener.Close()
+		if closeErr := httpServer.Close(); closeErr != nil {
+			t.Errorf("close security test server: %v", closeErr)
+		}
 		cancel()
-		_ = agent.Stop()
+		stopTestAgent(t, agent)
 	}
 	return listener.Addr().String(), server, cleanup
 }
@@ -107,7 +113,7 @@ func TestServeOriginRestriction(t *testing.T) {
 	defer cleanup()
 
 	if connection, response, err := dialSecurityClient(t, addr, testAuthToken, "", "https://evil.example"); err == nil {
-		_ = connection.CloseNow()
+		closeTestWebsocketNow(t, connection)
 		t.Fatal("disallowed browser origin connected")
 	} else if response == nil || response.StatusCode != http.StatusForbidden {
 		t.Fatalf("disallowed origin status = %v, err = %v", response, err)
@@ -117,13 +123,16 @@ func TestServeOriginRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loopback origin rejected: %v", err)
 	}
-	_ = connection.CloseNow()
-	_, port, _ := net.SplitHostPort(addr)
+	closeTestWebsocketNow(t, connection)
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("split server address: %v", err)
+	}
 	connection, _, err = dialSecurityClient(t, addr, testAuthToken, "", "http://localhost:"+port)
 	if err != nil {
 		t.Fatalf("configured localhost origin rejected: %v", err)
 	}
-	_ = connection.CloseNow()
+	closeTestWebsocketNow(t, connection)
 }
 
 func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
@@ -144,7 +153,7 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	}
 	tampered := clientID[:len(clientID)-1] + replacement
 	if invalid, response, authErr := dialSecurityClient(t, addr, testAuthToken, tampered, ""); authErr == nil {
-		_ = invalid.CloseNow()
+		closeTestWebsocketNow(t, invalid)
 		t.Fatal("tampered client capability connected")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("tampered client response = %+v, err = %v", response, authErr)
@@ -162,7 +171,10 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	params, _ := json.Marshal(PageDumpParams{SessionID: session.SessionID, PageID: "unknown", Format: string(DumpText)})
+	params, err := json.Marshal(PageDumpParams{SessionID: session.SessionID, PageID: "unknown", Format: string(DumpText)})
+	if err != nil {
+		t.Fatalf("marshal page.dump params: %v", err)
+	}
 	denied := roundTrip(t, other, Request{ID: "cross", Cmd: string(CmdPageDump), Params: params})
 	if denied.OK || denied.Error == nil || denied.Error.Code != string(ErrOwnershipDenied) {
 		t.Fatalf("cross-client session access = %+v, want ownership_denied", denied)
@@ -175,14 +187,14 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	if len(list.Sessions) != 0 {
 		t.Fatalf("other client listed owned sessions: %+v", list.Sessions)
 	}
-	_ = other.CloseNow()
-	_ = owner.CloseNow()
+	closeTestWebsocketNow(t, other)
+	closeTestWebsocketNow(t, owner)
 
 	resumed, _, err := dialSecurityClient(t, addr, testAuthToken, clientID, "")
 	if err != nil {
 		t.Fatalf("resume with issued client capability: %v", err)
 	}
-	defer resumed.CloseNow()
+	defer closeTestWebsocketNow(t, resumed)
 	listed = roundTrip(t, resumed, Request{ID: "resume-list", Cmd: string(CmdSessionList)})
 	if err := DecodeTypedResult(&listed, &list); err != nil {
 		t.Fatal(err)
@@ -204,10 +216,10 @@ func TestServeRateLimitUsesNormalizedClientAcrossReconnects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first connection: %v", err)
 	}
-	defer first.CloseNow()
+	defer closeTestWebsocketNow(t, first)
 	second, response, err := dialSecurityClient(t, addr, testAuthToken, "", "")
 	if err == nil {
-		_ = second.CloseNow()
+		closeTestWebsocketNow(t, second)
 		t.Fatal("reconnect bypassed normalized-client rate limit")
 	}
 	if response == nil || response.StatusCode != http.StatusTooManyRequests || response.Header.Get("Retry-After") == "" {
@@ -234,10 +246,10 @@ func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
 	if result.Token == "" || result.Token == testAuthToken {
 		t.Fatalf("rotated token = %q", result.Token)
 	}
-	_ = connection.CloseNow()
+	closeTestWebsocketNow(t, connection)
 
 	if oldConnection, response, authErr := dialSecurityClient(t, addr, testAuthToken, "", ""); authErr == nil {
-		_ = oldConnection.CloseNow()
+		closeTestWebsocketNow(t, oldConnection)
 		t.Fatal("old token remained valid after rotation")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old token response = %+v, err = %v", response, authErr)
@@ -246,7 +258,7 @@ func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new token rejected: %v", err)
 	}
-	defer newConnection.CloseNow()
+	defer closeTestWebsocketNow(t, newConnection)
 	listed := roundTrip(t, newConnection, Request{ID: "list", Cmd: string(CmdSessionList)})
 	var sessions SessionListResult
 	if err := DecodeTypedResult(&listed, &sessions); err != nil {

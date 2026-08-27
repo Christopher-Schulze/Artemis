@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,6 +32,41 @@ func allTestPorts() []int {
 	return ports
 }
 
+func writeTestResponse(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := fmt.Fprint(w, body); err != nil {
+		t.Errorf("write fixture response: %v", err)
+	}
+}
+
+func closeTestWebsocketNow(t *testing.T, c *websocket.Conn) {
+	t.Helper()
+	if err := c.CloseNow(); err != nil {
+		t.Errorf("close websocket: %v", err)
+	}
+}
+
+func closeTestWebsocket(t *testing.T, c *websocket.Conn) {
+	t.Helper()
+	if err := c.Close(websocket.StatusNormalClosure, ""); err != nil {
+		t.Errorf("close websocket: %v", err)
+	}
+}
+
+func stopTestAgent(t *testing.T, agent *artemis.Agent) {
+	t.Helper()
+	if err := agent.Stop(); err != nil {
+		t.Errorf("stop agent: %v", err)
+	}
+}
+
+func stopTestStreamingServer(t *testing.T, server *StreamingServer) {
+	t.Helper()
+	if err := server.Stop(); err != nil {
+		t.Errorf("stop streaming server: %v", err)
+	}
+}
+
 func startServer(t *testing.T) (string, func()) {
 	t.Helper()
 	agent, err := artemis.NewAgent(testAgentConfig())
@@ -49,13 +85,18 @@ func startServer(t *testing.T) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
+	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS)}
 	go func() {
-		_ = (&http.Server{Handler: http.HandlerFunc(srv.handleWS)}).Serve(ln)
+		if serveErr := httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			t.Errorf("serve test server: %v", serveErr)
+		}
 	}()
 	cleanup := func() {
-		_ = ln.Close()
+		if closeErr := httpServer.Close(); closeErr != nil {
+			t.Errorf("close test server: %v", closeErr)
+		}
 		cancel()
-		_ = agent.Stop()
+		stopTestAgent(t, agent)
 	}
 	return addr, cleanup
 }
@@ -97,13 +138,18 @@ func startServerWithAuth(t *testing.T, token string) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
+	httpServer := &http.Server{Handler: http.HandlerFunc(srv.handleWS)}
 	go func() {
-		_ = (&http.Server{Handler: http.HandlerFunc(srv.handleWS)}).Serve(ln)
+		if serveErr := httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			t.Errorf("serve test server: %v", serveErr)
+		}
 	}()
 	cleanup := func() {
-		_ = ln.Close()
+		if closeErr := httpServer.Close(); closeErr != nil {
+			t.Errorf("close test server: %v", closeErr)
+		}
 		cancel()
-		_ = agent.Stop()
+		stopTestAgent(t, agent)
 	}
 	return addr, cleanup
 }
@@ -118,14 +164,14 @@ func TestServerAuthTokenEnforced(t *testing.T) {
 
 	// No Authorization header -> rejected.
 	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", nil); err == nil {
-		_ = c.Close(websocket.StatusNormalClosure, "")
+		closeTestWebsocket(t, c)
 		t.Fatal("connection without token was accepted, want rejected")
 	}
 
 	// Wrong token -> rejected.
 	badOpts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer wrong"}}}
 	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", badOpts); err == nil {
-		_ = c.Close(websocket.StatusNormalClosure, "")
+		closeTestWebsocket(t, c)
 		t.Fatal("connection with wrong token was accepted, want rejected")
 	}
 
@@ -135,12 +181,15 @@ func TestServerAuthTokenEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connection with correct token was rejected: %v", err)
 	}
-	_ = c.Close(websocket.StatusNormalClosure, "")
+	closeTestWebsocket(t, c)
 }
 
 func roundTrip(t *testing.T, c *websocket.Conn, req Request) Response {
 	t.Helper()
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
 	if err := c.Write(context.Background(), websocket.MessageText, body); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -157,7 +206,7 @@ func roundTrip(t *testing.T, c *websocket.Conn, req Request) Response {
 
 func TestSessionOpenEvalDump(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>SrvTest</title></head><body><h1>Hi</h1></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><head><title>SrvTest</title></head><body><h1>Hi</h1></body></html>`)
 	}))
 	defer page.Close()
 
@@ -165,7 +214,7 @@ func TestSessionOpenEvalDump(t *testing.T) {
 	defer cleanup()
 
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
 	if !resp.OK {
@@ -209,7 +258,10 @@ func TestSessionOpenEvalDump(t *testing.T) {
 		t.Errorf("page.close: %+v", r)
 	}
 
-	closeS, _ := json.Marshal(SessionCloseParams{SessionID: sid})
+	closeS, err := json.Marshal(SessionCloseParams{SessionID: sid})
+	if err != nil {
+		t.Fatalf("marshal session close: %v", err)
+	}
 	if r := roundTrip(t, c, Request{ID: "6", Cmd: "session.close", Params: closeS}); !r.OK {
 		t.Errorf("session.close: %+v", r)
 	}
@@ -219,7 +271,7 @@ func TestUnknownCommand(t *testing.T) {
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "garbage"})
 	if resp.OK || resp.Error == nil || resp.Error.Code != "unknown_cmd" {
 		t.Errorf("got %+v, want unknown_cmd", resp)
@@ -234,7 +286,7 @@ func TestServerLifecycleListenAndShutdown(t *testing.T) {
 	if err := agent.Start(context.Background()); err != nil {
 		t.Fatalf("agent start: %v", err)
 	}
-	defer agent.Stop()
+	defer stopTestAgent(t, agent)
 	srv := New(agent, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -267,14 +319,14 @@ func openSessionPage(t *testing.T, addr string, pageURL string) (sid, pid string
 
 func TestPageType(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><input id="q" type="text" value=""></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><body><input id="q" type="text" value=""></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	typeP := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"selector":"#q","text":"hello"}`, sid, pid))
 	resp := roundTrip(t, c, Request{ID: "t", Cmd: "page.type", Params: typeP})
@@ -296,14 +348,14 @@ func TestPageType(t *testing.T) {
 
 func TestPageTypeMissingSelectorErrors(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	typeP := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"selector":"#missing","text":"x"}`, sid, pid))
 	resp := roundTrip(t, c, Request{ID: "t", Cmd: "page.type", Params: typeP})
@@ -314,14 +366,14 @@ func TestPageTypeMissingSelectorErrors(t *testing.T) {
 
 func TestPageAssertSelectorExists(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><h1 id="hi">Hi</h1></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><body><h1 id="hi">Hi</h1></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	// Positive: selector exists.
 	p1 := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"selector_exists","selector":"#hi"}`, sid, pid))
@@ -359,14 +411,14 @@ func TestPageAssertSelectorExists(t *testing.T) {
 
 func TestPageAssertTitleContains(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>Hello World</title></head><body></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><head><title>Hello World</title></head><body></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"title_contains","substring":"Hello"}`, sid, pid))
 	resp := roundTrip(t, c, Request{ID: "a", Cmd: "page.assert", Params: p})
@@ -391,14 +443,14 @@ func TestPageAssertTitleContains(t *testing.T) {
 
 func TestPageAssertBadMode(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q,"mode":"bogus"}`, sid, pid))
 	resp := roundTrip(t, c, Request{ID: "a", Cmd: "page.assert", Params: p})
@@ -410,14 +462,14 @@ func TestPageAssertBadMode(t *testing.T) {
 func TestPageWaitIdle(t *testing.T) {
 	// A page with no JS context (runScripts=false) WaitIdle returns nil.
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><h1>Static</h1></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><body><h1>Static</h1></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	sid, pid, c := openSessionPage(t, addr, page.URL)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	p := []byte(fmt.Sprintf(`{"sessionId":%q,"pageId":%q}`, sid, pid))
 	resp := roundTrip(t, c, Request{ID: "w", Cmd: "page.wait_idle", Params: p})

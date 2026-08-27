@@ -1,7 +1,6 @@
 package serve
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,14 +53,14 @@ func TestTextDriftTolerantAssertion(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				fmt.Fprint(w, tc.html)
+				writeTestResponse(t, w, tc.html)
 			}))
 			defer page.Close()
 
 			addr, cleanup := startServer(t)
 			defer cleanup()
 			c := dial(t, addr)
-			defer c.CloseNow()
+			defer closeTestWebsocketNow(t, c)
 
 			// session.new
 			resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
@@ -72,7 +71,7 @@ func TestTextDriftTolerantAssertion(t *testing.T) {
 			mustDecode(t, resp, &snr)
 
 			// page.open
-			openReq, _ := MarshalTyped("2", CmdPageOpen, PageOpenParams{
+			openReq := mustMarshalTyped(t, "2", CmdPageOpen, PageOpenParams{
 				SessionID:  snr.SessionID,
 				URL:        page.URL,
 				RunScripts: false,
@@ -86,7 +85,7 @@ func TestTextDriftTolerantAssertion(t *testing.T) {
 
 			// page.assert text_contains
 			wantFound := tc.wantFound
-			assertReq, _ := MarshalTyped("3", CmdPageAssert, PageAssertParams{
+			assertReq := mustMarshalTyped(t, "3", CmdPageAssert, PageAssertParams{
 				SessionID: snr.SessionID,
 				PageID:    por.PageID,
 				Mode:      string(AssertTextContains),
@@ -104,10 +103,12 @@ func TestTextDriftTolerantAssertion(t *testing.T) {
 			}
 
 			// Cleanup.
-			scloseReq, _ := MarshalTyped("4", CmdSessionClose, SessionCloseParams{
+			scloseReq := mustMarshalTyped(t, "4", CmdSessionClose, SessionCloseParams{
 				SessionID: snr.SessionID,
 			})
-			_ = roundTrip(t, c, scloseReq)
+			if closeResp := roundTrip(t, c, scloseReq); !closeResp.OK {
+				t.Errorf("session.close: %+v", closeResp)
+			}
 		})
 	}
 }
@@ -116,14 +117,14 @@ func TestTextDriftTolerantAssertion(t *testing.T) {
 // assertions match on partial substrings of the title.
 func TestTitleContainsDriftTolerant(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>Example Domain - Free for Use</title></head><body></body></html>`)
+		writeTestResponse(t, w, `<!doctype html><html><head><title>Example Domain - Free for Use</title></head><body></body></html>`)
 	}))
 	defer page.Close()
 
 	addr, cleanup := startServer(t)
 	defer cleanup()
 	c := dial(t, addr)
-	defer c.CloseNow()
+	defer closeTestWebsocketNow(t, c)
 
 	resp := roundTrip(t, c, Request{ID: "1", Cmd: "session.new"})
 	if !resp.OK {
@@ -132,7 +133,7 @@ func TestTitleContainsDriftTolerant(t *testing.T) {
 	var snr SessionNewResult
 	mustDecode(t, resp, &snr)
 
-	openReq, _ := MarshalTyped("2", CmdPageOpen, PageOpenParams{
+	openReq := mustMarshalTyped(t, "2", CmdPageOpen, PageOpenParams{
 		SessionID:  snr.SessionID,
 		URL:        page.URL,
 		RunScripts: false,
@@ -146,7 +147,7 @@ func TestTitleContainsDriftTolerant(t *testing.T) {
 
 	// Partial title match must pass.
 	want := true
-	assertReq, _ := MarshalTyped("3", CmdPageAssert, PageAssertParams{
+	assertReq := mustMarshalTyped(t, "3", CmdPageAssert, PageAssertParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Mode:      string(AssertTitleContains),
@@ -165,7 +166,7 @@ func TestTitleContainsDriftTolerant(t *testing.T) {
 
 	// Non-matching title must fail (want=true but found=false → pass=false).
 	want = true
-	assertReq2, _ := MarshalTyped("4", CmdPageAssert, PageAssertParams{
+	assertReq2 := mustMarshalTyped(t, "4", CmdPageAssert, PageAssertParams{
 		SessionID: snr.SessionID,
 		PageID:    por.PageID,
 		Mode:      string(AssertTitleContains),
@@ -182,8 +183,10 @@ func TestTitleContainsDriftTolerant(t *testing.T) {
 	}
 
 	// Cleanup.
-	scloseReq, _ := MarshalTyped("5", CmdSessionClose, SessionCloseParams{
+	scloseReq := mustMarshalTyped(t, "5", CmdSessionClose, SessionCloseParams{
 		SessionID: snr.SessionID,
 	})
-	_ = roundTrip(t, c, scloseReq)
+	if closeResp := roundTrip(t, c, scloseReq); !closeResp.OK {
+		t.Errorf("session.close: %+v", closeResp)
+	}
 }
