@@ -76,7 +76,7 @@ func TestHybridRouterStaticUsesRealRenderlessExecutor(t *testing.T) {
 	defer server.Close()
 
 	eng := testEngineConfig(t, time.Second, server)
-	defer eng.Close()
+	defer closeRouterTestResource(t, "engine", eng.Close)
 	r, err := New(Config{Executors: map[Mode]Executor{
 		ModeStaticFetch: RenderlessExecutor{Engine: eng},
 	}})
@@ -89,7 +89,7 @@ func TestHybridRouterStaticUsesRealRenderlessExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	defer result.Close()
+	defer closeRouterTestResource(t, "route result", result.Close)
 	if !result.Success || result.Evidence.FinalMode != ModeStaticFetch {
 		t.Fatalf("result=%+v", result)
 	}
@@ -398,7 +398,7 @@ func TestHybridRouterAllowsDeclaredExecutorDivergenceWithoutFalseParity(t *testi
 	if err != nil {
 		t.Fatalf("static route: %v", err)
 	}
-	defer staticResult.Close()
+	defer closeRouterTestResource(t, "static route result", staticResult.Close)
 	chromiumResult, err := r.Execute(context.Background(), RouteRequest{URL: "https://fixture.test/divergent", ForceMode: ModeChromiumCDP})
 	if err != nil {
 		t.Fatalf("Chromium route: %v", err)

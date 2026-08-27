@@ -22,7 +22,9 @@ func TestChromiumExecutorAgainstRealChromiumFixture(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>Hybrid Fixture</title></head><body><h1>dynamic-ready</h1><script>document.body.dataset.ready="true"</script></body></html>`)
+		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>Hybrid Fixture</title></head><body><h1>dynamic-ready</h1><script>document.body.dataset.ready="true"</script></body></html>`); err != nil {
+			t.Errorf("write Chromium fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -34,22 +36,22 @@ func TestChromiumExecutorAgainstRealChromiumFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeRouterTestResource(t, "browser", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeRouterTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeRouterTestResource(t, "page", page.Close)
 	observer, err := artemisobserve.NewLiveCollector(page, page, artemisobserve.DefaultLiveConfig())
 	if err != nil {
 		t.Fatalf("live observer: %v", err)
 	}
-	defer observer.Close()
+	defer closeRouterTestResource(t, "live observer", observer.Close)
 	output, err := (ChromiumExecutor{Page: page, Observer: observer}).Execute(ctx, ExecutionRequest{URL: fixture.URL})
 	if err != nil {
 		t.Fatalf("ChromiumExecutor.Execute: %v", err)
@@ -69,13 +71,15 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>Parity</title></head><body><h1>same-content</h1></body></html>`)
+		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>Parity</title></head><body><h1>same-content</h1></body></html>`); err != nil {
+			t.Errorf("write parity fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	eng := testEngineConfig(t, time.Second, fixture)
-	defer eng.Close()
+	defer closeRouterTestResource(t, "engine", eng.Close)
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
 		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
 		AllowedPorts: []int{chromiumTestURLPort(t, fixture.URL)},
@@ -83,17 +87,17 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeRouterTestResource(t, "browser", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeRouterTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeRouterTestResource(t, "page", page.Close)
 	hybrid, err := New(Config{Executors: map[Mode]Executor{
 		ModeStaticFetch: RenderlessExecutor{Engine: eng},
 		ModeChromiumCDP: ChromiumExecutor{Page: page},
@@ -105,7 +109,7 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	if err != nil {
 		t.Fatalf("static route: %v", err)
 	}
-	defer staticResult.Close()
+	defer closeRouterTestResource(t, "static route result", staticResult.Close)
 	chromiumResult, err := hybrid.Execute(ctx, RouteRequest{URL: fixture.URL, ForceMode: ModeChromiumCDP})
 	if err != nil {
 		t.Fatalf("Chromium route: %v", err)
@@ -126,4 +130,11 @@ func chromiumTestURLPort(t *testing.T, rawURL string) int {
 		t.Fatal(err)
 	}
 	return port
+}
+
+func closeRouterTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
 }
