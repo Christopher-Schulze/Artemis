@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"hash"
 	"io"
 	"sync"
@@ -107,7 +108,9 @@ func (s *StreamParser) ParseStream(ctx context.Context, input io.Reader) (*Strea
 		go func(n string, c StreamConsumer, pr *io.PipeReader) {
 			defer wg.Done()
 			err := c(ctx, pr)
-			pr.Close()
+			if closeErr := pr.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("consumer %q pipe close: %w", n, closeErr))
+			}
 			errsMu.Lock()
 			errs[n] = err
 			errsMu.Unlock()
@@ -120,8 +123,12 @@ func (s *StreamParser) ParseStream(ctx context.Context, input io.Reader) (*Strea
 	go func() {
 		defer wg.Done()
 		defer func() {
-			for _, p := range pipes {
-				p.pw.Close()
+			for name, p := range pipes {
+				if closeErr := p.pw.Close(); closeErr != nil {
+					errsMu.Lock()
+					errs["_stream"] = errors.Join(errs["_stream"], fmt.Errorf("consumer %q pipe close: %w", name, closeErr))
+					errsMu.Unlock()
+				}
 			}
 		}()
 

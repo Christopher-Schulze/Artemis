@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -67,7 +68,10 @@ type EasyListUpdateConfig struct {
 
 // DefaultEasyListUpdateConfig returns the spec-mandated config.
 func DefaultEasyListUpdateConfig() EasyListUpdateConfig {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "."
+	}
 	return EasyListUpdateConfig{
 		UpdateInterval:        24 * time.Hour,
 		Sources:               EasyListSources,
@@ -123,7 +127,7 @@ func (u *EasyListUpdater) DownloadAndVerify(url string, oldSize int) (*EasyListV
 
 // DownloadAndVerifyContext downloads and verifies a blocklist using ctx for
 // the complete HTTP request lifetime.
-func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url string, oldSize int) (*EasyListVersion, error) {
+func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url string, oldSize int) (version *EasyListVersion, returnErr error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("download %s: context required", url)
 	}
@@ -135,7 +139,12 @@ func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url stri
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			version = nil
+			returnErr = errors.Join(returnErr, fmt.Errorf("download %s: close response body: %w", url, closeErr))
+		}
+	}()
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
 	}
@@ -168,7 +177,9 @@ func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url stri
 	}
 
 	// Prune old versions (spec: max 3 versions).
-	u.pruneOldVersions()
+	if err := u.pruneOldVersions(); err != nil {
+		return nil, err
+	}
 
 	return &EasyListVersion{
 		URL:          url,
@@ -197,10 +208,10 @@ func parseABPRules(content string) []string {
 
 // pruneOldVersions removes old blocklist files, keeping only the
 // most recent MaxVersions (spec L4206: max 3 versions).
-func (u *EasyListUpdater) pruneOldVersions() {
+func (u *EasyListUpdater) pruneOldVersions() error {
 	entries, err := os.ReadDir(u.cfg.StorageDir)
 	if err != nil {
-		return
+		return fmt.Errorf("prune easylist versions: read directory: %w", err)
 	}
 	// Sort by modification time (oldest first) and remove excess
 	type fileInfo struct {
@@ -229,8 +240,12 @@ func (u *EasyListUpdater) pruneOldVersions() {
 	// Remove oldest files beyond MaxVersions
 	excess := len(files) - u.cfg.MaxVersions
 	for i := 0; i < excess; i++ {
-		os.Remove(filepath.Join(u.cfg.StorageDir, files[i].name))
+		path := filepath.Join(u.cfg.StorageDir, files[i].name)
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("prune easylist versions: remove %s: %w", path, err)
+		}
 	}
+	return nil
 }
 
 // RecordBreakage records a breakage event for rollback detection

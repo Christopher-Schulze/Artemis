@@ -2,7 +2,6 @@ package scraper
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,7 +72,7 @@ func (e *EgressRouter) ResolveDNSThroughProxy(ctx context.Context, host string) 
 
 // socks5RemoteDNS implements the SOCKS5 CONNECT method with ATYP=domain
 // to resolve a hostname through the proxy server.
-func (e *EgressRouter) socks5RemoteDNS(ctx context.Context, host string) ([]net.IP, error) {
+func (e *EgressRouter) socks5RemoteDNS(ctx context.Context, host string) (ips []net.IP, returnErr error) {
 	timeout := e.Timeout
 	if timeout == 0 {
 		timeout = defaultEgressTimeout
@@ -84,7 +83,12 @@ func (e *EgressRouter) socks5RemoteDNS(ctx context.Context, host string) ([]net.
 	if err != nil {
 		return nil, fmt.Errorf("egress: socks5 dial: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			ips = nil
+			returnErr = errors.Join(returnErr, fmt.Errorf("egress: close SOCKS5 connection: %w", closeErr))
+		}
+	}()
 
 	// SOCKS5 greeting: version 5, 1 auth method, no auth (0x00)
 	if _, err := conn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
@@ -371,6 +375,3 @@ func proxyAddress(u *url.URL) string {
 	}
 	return host
 }
-
-// init ensures the binary package is valid.
-var _ = binary.BigEndian

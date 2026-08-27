@@ -19,6 +19,7 @@ package scraper
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -174,13 +175,11 @@ func NewHARStream(config HARStreamConfig) (*HARStream, error) {
 		Version: config.CreatorVersion,
 	})
 	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("har stream: marshal creator: %w", err)
+		return nil, fmt.Errorf("har stream: marshal creator: %w", errors.Join(err, f.Close()))
 	}
 	header := `{"log":{"version":"1.2","creator":` + string(creatorBytes) + `,"entries":[`
 	if _, err := f.Write([]byte(header)); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("har stream: write header: %w", err)
+		return nil, fmt.Errorf("har stream: write header: %w", errors.Join(err, f.Close()))
 	}
 
 	return s, nil
@@ -250,8 +249,7 @@ func (s *HARStream) Close() error {
 	s.closed = true
 
 	if _, err := s.writer.Write([]byte("]}}")); err != nil {
-		s.closer.Close()
-		return fmt.Errorf("har stream: write footer: %w", err)
+		return fmt.Errorf("har stream: write footer: %w", errors.Join(err, s.closer.Close()))
 	}
 	return s.closer.Close()
 }

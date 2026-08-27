@@ -137,7 +137,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			s.opts.Logger.Warn("health response write", "err", err)
+		}
 	})
 	s.srv = &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
@@ -146,7 +148,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	case <-ctx.Done():
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = s.srv.Shutdown(shutCtx)
+		if err := s.srv.Shutdown(shutCtx); err != nil {
+			s.opts.Logger.Warn("server shutdown", "err", err)
+		}
 		return ctx.Err()
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -210,7 +214,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.opts.Logger.Warn("ws accept failed", "err", err)
 		return
 	}
-	defer c.CloseNow()
+	defer func() {
+		if closeErr := c.CloseNow(); closeErr != nil {
+			s.opts.Logger.Warn("ws close", "err", closeErr)
+		}
+	}()
 	s.trackConnection(c, authGeneration, true)
 	defer s.trackConnection(c, authGeneration, false)
 	// Page dumps (especially HTML) can easily exceed the default 32KB
@@ -232,7 +240,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			consecutiveRateHits++
 			s.writeResp(ctx, c, errResp("", string(ErrRateExceeded), "rate limit exceeded"))
 			if consecutiveRateHits >= 10 {
-				_ = c.Close(websocket.StatusPolicyViolation, "rate limit exceeded")
+				if closeErr := c.Close(websocket.StatusPolicyViolation, "rate limit exceeded"); closeErr != nil {
+					s.opts.Logger.Warn("close rate-limited websocket", "err", closeErr)
+				}
 				break
 			}
 			continue
@@ -426,10 +436,14 @@ func (s *Server) invalidateAuthenticatedState() {
 	s.sessionOwner = make(map[string]string)
 	s.mu.Unlock()
 	for _, sessionID := range sessionIDs {
-		_ = s.agent.CloseSession(sessionID)
+		if err := s.agent.CloseSession(sessionID); err != nil {
+			s.opts.Logger.Warn("close session after token rotation", "session_id", sessionID, "err", err)
+		}
 	}
 	for _, connection := range connections {
-		_ = connection.CloseNow()
+		if err := connection.CloseNow(); err != nil {
+			s.opts.Logger.Warn("close stale websocket after token rotation", "err", err)
+		}
 	}
 }
 

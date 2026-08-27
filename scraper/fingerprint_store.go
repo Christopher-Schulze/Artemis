@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,8 +22,7 @@ func OpenFingerprintStore(path string) (*FingerprintStore, error) {
 		return nil, fmt.Errorf("fingerprint store: open: %w", err)
 	}
 	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("fingerprint store: wal: %w", err)
+		return nil, fmt.Errorf("fingerprint store: wal: %w", errors.Join(err, db.Close()))
 	}
 	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS scrape_fingerprints (
@@ -34,9 +34,8 @@ CREATE TABLE IF NOT EXISTS scrape_fingerprints (
   last_modified TEXT,
   customer_id TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (url_canonical_hash, region_id, customer_id)
-)`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("fingerprint store: schema: %w", err)
+	)`); err != nil {
+		return nil, fmt.Errorf("fingerprint store: schema: %w", errors.Join(err, db.Close()))
 	}
 	return &FingerprintStore{db: db}, nil
 }
@@ -48,7 +47,7 @@ func (s *FingerprintStore) LoadInto(e *DiffEngine, url string) error {
 }
 
 // LoadIntoContext hydrates an in-memory DiffEngine and binds the query to ctx.
-func (s *FingerprintStore) LoadIntoContext(ctx context.Context, e *DiffEngine, url string) error {
+func (s *FingerprintStore) LoadIntoContext(ctx context.Context, e *DiffEngine, url string) (returnErr error) {
 	if s == nil || s.db == nil || e == nil {
 		return fmt.Errorf("fingerprint store: nil")
 	}
@@ -63,7 +62,11 @@ func (s *FingerprintStore) LoadIntoContext(ctx context.Context, e *DiffEngine, u
 	if err != nil {
 		return fmt.Errorf("fingerprint store: load: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("fingerprint store: close rows: %w", closeErr))
+		}
+	}()
 	for rows.Next() {
 		var regionID, contentHash string
 		var etag, lastMod sql.NullString

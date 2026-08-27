@@ -396,23 +396,31 @@ func ensureTraceRoot(raw string) (string, error) {
 
 // ReadTraceZip opens a trace .zip archive and returns the list of entry
 // names and their contents.
-func ReadTraceZip(path string) (map[string][]byte, error) {
+func ReadTraceZip(path string) (entries map[string][]byte, returnErr error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, fmt.Errorf("open trace zip: %w", err)
 	}
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); closeErr != nil {
+			entries = nil
+			returnErr = errors.Join(returnErr, fmt.Errorf("close trace zip: %w", closeErr))
+		}
+	}()
 
-	entries := make(map[string][]byte)
+	entries = make(map[string][]byte)
 	for _, f := range r.File {
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("open zip entry %s: %w", f.Name, err)
 		}
-		data, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read zip entry %s: %w", f.Name, err)
+		data, readErr := io.ReadAll(rc)
+		closeErr := rc.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read zip entry %s: %w", f.Name, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close zip entry %s: %w", f.Name, closeErr)
 		}
 		entries[f.Name] = data
 	}

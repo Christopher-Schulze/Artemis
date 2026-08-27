@@ -3,6 +3,7 @@ package stealth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -70,7 +71,11 @@ func MeasureConnection(target string) ConnectionInfo {
 			Source:        "fallback",
 		}
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			slog.Warn("network measurement connection close", slog.Any("error", closeErr))
+		}
+	}()
 	// Downlink is estimated from HTTP responses in a real implementation.
 	// For now, we estimate based on RTT (lower RTT -> higher downlink).
 	downlink := estimateDownlink(rtt)
