@@ -3,13 +3,23 @@ package scraper
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/net/proxy"
+)
+
+const (
+	defaultDoHServer     = "https://dns.google/resolve"
+	maxDoHResponseBytes  = 64 << 10
+	defaultEgressTimeout = 10 * time.Second
 )
 
 // EgressRouter ensures DNS resolution goes through the same proxy as
@@ -22,6 +32,16 @@ type EgressRouter struct {
 	ProxyURL *url.URL
 	// Timeout is the per-resolution deadline. Zero means 10s.
 	Timeout time.Duration
+}
+
+type dohResponse struct {
+	Status int         `json:"Status"`
+	Answer []dohAnswer `json:"Answer"`
+}
+
+type dohAnswer struct {
+	Type int    `json:"type"`
+	Data string `json:"data"`
 }
 
 // NewEgressRouter creates an EgressRouter from a proxy URL string.
@@ -56,7 +76,7 @@ func (e *EgressRouter) ResolveDNSThroughProxy(ctx context.Context, host string) 
 func (e *EgressRouter) socks5RemoteDNS(ctx context.Context, host string) ([]net.IP, error) {
 	timeout := e.Timeout
 	if timeout == 0 {
-		timeout = 10 * time.Second
+		timeout = defaultEgressTimeout
 	}
 	dialer := &net.Dialer{Timeout: timeout}
 	proxyAddr := proxyAddress(e.ProxyURL)
@@ -167,9 +187,13 @@ func (e *EgressRouter) EnsureDNSConsistency(ctx context.Context, host string) er
 		return nil // No proxy, no consistency requirement
 	}
 	if !isSOCKS5(e.ProxyURL.Scheme) {
-		// For HTTP/HTTPS proxies, DNS is resolved locally and HTTP
-		// goes through the proxy. This is acceptable for HTTP proxies
-		// but not ideal. DoH fallback should be used.
+		ips, err := e.ResolveWithDoH(ctx, host, "")
+		if err != nil {
+			return fmt.Errorf("egress: DoH consistency check failed: %w", err)
+		}
+		if len(ips) == 0 {
+			return errors.New("egress: DoH consistency check returned no IPs")
+		}
 		return nil
 	}
 	// For SOCKS5, verify we can resolve through the proxy
@@ -187,17 +211,148 @@ func (e *EgressRouter) EnsureDNSConsistency(ctx context.Context, host string) er
 // the proxy. This is the fallback for non-SOCKS5 proxies where remote DNS
 // resolution is not available.
 func (e *EgressRouter) ResolveWithDoH(ctx context.Context, host, dohServer string) ([]net.IP, error) {
-	if dohServer == "" {
-		dohServer = "https://dns.google/resolve"
-	}
-	// For non-SOCKS5 proxies, DoH requests go through the HTTP proxy.
-	// For SOCKS5, DoH requests go through the SOCKS5 proxy.
-	// For no proxy, DoH requests go direct.
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	client, transport, err := e.newDoHHTTPClient()
 	if err != nil {
-		return nil, fmt.Errorf("egress: DoH fallback failed: %w", err)
+		return nil, err
+	}
+	defer transport.CloseIdleConnections()
+	return e.resolveWithDoHClient(ctx, host, dohServer, client)
+}
+
+func (e *EgressRouter) resolveWithDoHClient(ctx context.Context, host, dohServer string, client *http.Client) ([]net.IP, error) {
+	if ctx == nil {
+		return nil, errors.New("egress: DoH context is required")
+	}
+	if host == "" {
+		return nil, errors.New("egress: DoH host is required")
+	}
+	if client == nil {
+		return nil, errors.New("egress: DoH HTTP client is required")
+	}
+	if dohServer == "" {
+		dohServer = defaultDoHServer
+	}
+	endpoint, err := url.Parse(dohServer)
+	if err != nil {
+		return nil, fmt.Errorf("egress: parse DoH server: %w", err)
+	}
+	if endpoint.Scheme != "https" || endpoint.Host == "" {
+		return nil, fmt.Errorf("egress: DoH server must use HTTPS with a host")
+	}
+	query := endpoint.Query()
+	query.Set("name", host)
+	query.Set("type", "A")
+	endpoint.RawQuery = query.Encode()
+
+	ips, err := queryDoH(ctx, endpoint.String(), client)
+	if err == nil {
+		return ips, nil
+	}
+	if e != nil && e.ProxyURL != nil {
+		return nil, err
+	}
+	fallback, fallbackErr := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("egress: DoH failed: %v; system fallback failed: %w", err, fallbackErr)
+	}
+	if len(fallback) == 0 {
+		return nil, fmt.Errorf("egress: DoH failed: %w; system fallback returned no IPs", err)
+	}
+	return fallback, nil
+}
+
+func queryDoH(ctx context.Context, endpoint string, client *http.Client) ([]net.IP, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("egress: build DoH request: %w", err)
+	}
+	req.Header.Set("Accept", "application/dns-json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("egress: DoH request: %w", err)
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxDoHResponseBytes+1))
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("egress: read DoH response: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("egress: close DoH response: %w", closeErr)
+	}
+	if len(body) > maxDoHResponseBytes {
+		return nil, fmt.Errorf("egress: DoH response exceeds %d bytes", maxDoHResponseBytes)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("egress: DoH server returned HTTP %d", resp.StatusCode)
+	}
+	var payload dohResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("egress: decode DoH response: %w", err)
+	}
+	if payload.Status != 0 {
+		return nil, fmt.Errorf("egress: DoH resolver status %d", payload.Status)
+	}
+	ips := make([]net.IP, 0, len(payload.Answer))
+	for _, answer := range payload.Answer {
+		if answer.Type != 1 {
+			continue
+		}
+		ip := net.ParseIP(strings.TrimSpace(answer.Data))
+		if ip == nil || ip.To4() == nil {
+			continue
+		}
+		ips = append(ips, ip.To4())
+	}
+	if len(ips) == 0 {
+		return nil, errors.New("egress: DoH response contained no IPv4 answers")
 	}
 	return ips, nil
+}
+
+func (e *EgressRouter) newDoHHTTPClient() (*http.Client, *http.Transport, error) {
+	timeout := defaultEgressTimeout
+	if e != nil && e.Timeout != 0 {
+		timeout = e.Timeout
+	}
+	if timeout <= 0 {
+		return nil, nil, errors.New("egress: DoH timeout must be positive")
+	}
+	dialer := &net.Dialer{Timeout: timeout}
+	transport := &http.Transport{
+		Proxy:                 nil,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   timeout,
+		ResponseHeaderTimeout: timeout,
+		IdleConnTimeout:       timeout,
+		MaxIdleConns:          1,
+		MaxIdleConnsPerHost:   1,
+	}
+	if e != nil && e.ProxyURL != nil {
+		switch {
+		case isSOCKS5(e.ProxyURL.Scheme):
+			proxyDialer, err := proxy.FromURL(e.ProxyURL, dialer)
+			if err != nil {
+				return nil, nil, fmt.Errorf("egress: configure SOCKS5 DoH proxy: %w", err)
+			}
+			contextDialer, ok := proxyDialer.(proxy.ContextDialer)
+			if !ok {
+				return nil, nil, errors.New("egress: SOCKS5 DoH proxy lacks context-aware dialing")
+			}
+			transport.DialContext = contextDialer.DialContext
+		case e.ProxyURL.Scheme == "http" || e.ProxyURL.Scheme == "https":
+			transport.Proxy = http.ProxyURL(e.ProxyURL)
+		default:
+			return nil, nil, fmt.Errorf("egress: unsupported DoH proxy scheme %q", e.ProxyURL.Scheme)
+		}
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, transport, nil
 }
 
 // isSOCKS5 returns true if the scheme is SOCKS5.

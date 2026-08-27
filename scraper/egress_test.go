@@ -2,8 +2,11 @@ package scraper
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestNewEgressRouterEmpty(t *testing.T) {
@@ -49,10 +52,15 @@ func TestEnsureDNSConsistencyNoProxy(t *testing.T) {
 }
 
 func TestEnsureDNSConsistencyHTTPProxy(t *testing.T) {
-	r, _ := NewEgressRouter("http://127.0.0.1:8080")
-	err := r.EnsureDNSConsistency(context.Background(), "example.com")
+	r, err := NewEgressRouter("http://127.0.0.1:1")
 	if err != nil {
-		t.Fatalf("HTTP proxy should not require SOCKS5 consistency: %v", err)
+		t.Fatal(err)
+	}
+	r.Timeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := r.EnsureDNSConsistency(ctx, "example.com"); err == nil {
+		t.Fatal("HTTP proxy without a reachable DoH path was accepted")
 	}
 }
 
@@ -103,12 +111,50 @@ func TestProxyAddressExplicitPort(t *testing.T) {
 }
 
 func TestResolveWithDoHFallback(t *testing.T) {
-	r, _ := NewEgressRouter("")
-	ips, err := r.ResolveWithDoH(context.Background(), "localhost", "")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	endpoint := server.URL
+	r := &EgressRouter{}
+	ips, err := r.resolveWithDoHClient(context.Background(), "localhost", endpoint, server.Client())
 	if err != nil {
 		t.Fatalf("DoH fallback failed: %v", err)
 	}
 	if len(ips) == 0 {
 		t.Fatal("expected at least one IP")
+	}
+}
+
+func TestResolveWithDoHQueriesIPv4ThroughClient(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("name"); got != "example.test" {
+			t.Errorf("query name = %q, want example.test", got)
+		}
+		if got := r.URL.Query().Get("type"); got != "A" {
+			t.Errorf("query type = %q, want A", got)
+		}
+		w.Header().Set("Content-Type", "application/dns-json")
+		if _, err := w.Write([]byte(`{"Status":0,"Answer":[{"type":1,"data":"192.0.2.7"}]}`)); err != nil {
+			t.Errorf("write DoH response: %v", err)
+		}
+	}))
+	defer server.Close()
+	endpoint := server.URL
+	r := &EgressRouter{}
+	ips, err := r.resolveWithDoHClient(context.Background(), "example.test", endpoint, server.Client())
+	if err != nil {
+		t.Fatalf("DoH query failed: %v", err)
+	}
+	if len(ips) != 1 || ips[0].String() != "192.0.2.7" {
+		t.Fatalf("DoH answers = %v, want [192.0.2.7]", ips)
+	}
+}
+
+func TestResolveWithDoHRejectsInsecureEndpoint(t *testing.T) {
+	r := &EgressRouter{}
+	_, err := r.resolveWithDoHClient(context.Background(), "example.test", "http://dns.example/resolve", &http.Client{})
+	if err == nil {
+		t.Fatal("insecure DoH endpoint was accepted")
 	}
 }
