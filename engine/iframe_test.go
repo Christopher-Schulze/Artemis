@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,10 +11,10 @@ import (
 func TestIFrameContentDocumentAccessible(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inner", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><body><h1 id="inner-h">Inner heading</h1><p>Inner paragraph</p></body></html>`)
+		writeTestBody(t, w, `<html><body><h1 id="inner-h">Inner heading</h1><p>Inner paragraph</p></body></html>`)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 			<h1>Outer</h1>
 			<iframe id="f" src="/inner"></iframe>
 		</body></html>`)
@@ -27,12 +26,12 @@ func TestIFrameContentDocumentAccessible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 
 	v, err := page.Eval(context.Background(), `
 		(() => {
@@ -59,14 +58,14 @@ func TestIFrameContentWindowPostMessage(t *testing.T) {
 	// contentDocument.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inner", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><body><div id="rec"></div><script>
+		writeTestBody(t, w, `<html><body><div id="rec"></div><script>
 			window.addEventListener('message', (ev) => {
 				document.getElementById('rec').setAttribute('data-msg', String(ev.data));
 			});
 		</script></body></html>`)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><body><iframe id="f" src="/inner"></iframe>
+		writeTestBody(t, w, `<html><body><iframe id="f" src="/inner"></iframe>
 		<script>
 			const f = document.getElementById('f');
 			f.contentDocument; // force iframe load + iframe scripts
@@ -77,13 +76,16 @@ func TestIFrameContentWindowPostMessage(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{RunScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
-	v, _ := page.Eval(context.Background(), `document.getElementById('f').contentDocument.getElementById('rec').getAttribute('data-msg')`)
+	defer closeTestResource(t, "page", page.Close)
+	v, err := page.Eval(context.Background(), `document.getElementById('f').contentDocument.getElementById('rec').getAttribute('data-msg')`)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
 	if v.String() != "hello-iframe" {
 		t.Errorf("iframe data-msg = %q, want hello-iframe", v.String())
 	}
