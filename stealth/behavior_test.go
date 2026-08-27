@@ -14,7 +14,11 @@ func TestReferrerDomainMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mem.Close()
+	defer func() {
+		if err := mem.Close(); err != nil {
+			t.Errorf("close domain memory: %v", err)
+		}
+	}()
 	if rememberErr := mem.Remember(DomainMemoryEntry{
 		Domain: "shop.example.com", Purpose: "price_monitor",
 		AckID: "ack-1", Level: StealthParanoid,

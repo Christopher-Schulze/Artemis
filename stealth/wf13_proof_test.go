@@ -34,7 +34,11 @@ func BenchmarkWFReferrerForDomainPerfBaseline(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer mem.Close()
+	defer func() {
+		if err := mem.Close(); err != nil {
+			b.Errorf("close domain memory: %v", err)
+		}
+	}()
 	if err := mem.Remember(DomainMemoryEntry{
 		Domain: "shop.example.com", Purpose: "price",
 		AckID: "ack-1", Level: StealthParanoid,
@@ -97,7 +101,11 @@ func TestWFReferrerForDomainEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mem.Close()
+	defer func() {
+		if err := mem.Close(); err != nil {
+			t.Errorf("close domain memory: %v", err)
+		}
+	}()
 	if rememberErr := mem.Remember(DomainMemoryEntry{
 		Domain: "shop.example.com", Purpose: "price",
 		AckID: "ack-1", Level: StealthParanoid,
