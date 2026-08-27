@@ -163,7 +163,11 @@ func TestBrowserSignalZeroChecksOwnedChromium(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer func() {
+		if err := browser.Close(); err != nil {
+			t.Errorf("close browser: %v", err)
+		}
+	}()
 	if err := browser.Signal(syscall.Signal(0)); err != nil {
 		t.Fatalf("Signal(0): %v", err)
 	}
@@ -636,8 +640,12 @@ func TestCloseForcesUnresponsiveProcessGroup(t *testing.T) {
 
 func TestCappedOutputRetainsTail(t *testing.T) {
 	output := newCappedOutput(5)
-	_, _ = output.Write([]byte("abc"))
-	_, _ = output.Write([]byte("defg"))
+	if _, err := output.Write([]byte("abc")); err != nil {
+		t.Fatalf("write first chunk: %v", err)
+	}
+	if _, err := output.Write([]byte("defg")); err != nil {
+		t.Fatalf("write second chunk: %v", err)
+	}
 	if got := output.String(); got != "cdefg" {
 		t.Fatalf("output=%q", got)
 	}

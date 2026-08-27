@@ -127,7 +127,9 @@ func TestAdBlockerDetectionWhitelist(t *testing.T) {
 func TestAdBlockerDetectionWhitelistPersistence(t *testing.T) {
 	path := t.TempDir() + "/whitelist.json"
 	d1 := NewAdBlockerDetection(path)
-	d1.AddToWhitelist("persist-test.com")
+	if err := d1.AddToWhitelist("persist-test.com"); err != nil {
+		t.Fatalf("AddToWhitelist: %v", err)
+	}
 
 	// Create a new instance that loads from the same file
 	d2 := NewAdBlockerDetection(path)
