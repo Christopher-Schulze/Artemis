@@ -18,20 +18,20 @@ func verifyArtifactSet(root string, inputs releaseInputs, inventory moduleInvent
 	if err != nil {
 		return err
 	}
-	if err := verifyManifestIdentity(manifest, inputs, inventory); err != nil {
+	if err = verifyManifestIdentity(manifest, inputs, inventory); err != nil {
 		return err
 	}
 	files, err := scanReleaseFiles(root)
 	if err != nil {
 		return err
 	}
-	if err := compareReleaseFiles(manifest.Files, files); err != nil {
+	if err = compareReleaseFiles(manifest.Files, files); err != nil {
 		return err
 	}
 	if manifest.ArtifactSetDigest != releaseSetDigest(files) {
 		return errors.New("artifact-set digest mismatch")
 	}
-	if err := verifyChecksums(root, files); err != nil {
+	if err = verifyChecksums(root, files); err != nil {
 		return err
 	}
 	report, err := readLicenseReport(filepath.Join(root, licenseReportFile))

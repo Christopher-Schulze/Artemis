@@ -54,7 +54,7 @@ func loadModuleInventory(ctx context.Context, sourceRoot, version string, runner
 	if err != nil {
 		return moduleInventory{}, err
 	}
-	if err := hydrateModuleSources(ctx, sourceRoot, modules, runner); err != nil {
+	if err = hydrateModuleSources(ctx, sourceRoot, modules, runner); err != nil {
 		return moduleInventory{}, err
 	}
 	graph, err := runner.Output(ctx, sourceRoot, "go", "mod", "graph")

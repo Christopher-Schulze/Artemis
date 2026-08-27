@@ -41,7 +41,7 @@ func normalizeInputs(ctx context.Context, in releaseInputs, runner commandRunner
 	if err != nil {
 		return releaseInputs{}, fmt.Errorf("output root: %w", err)
 	}
-	if err := validateScalarInputs(in); err != nil {
+	if err = validateScalarInputs(in); err != nil {
 		return releaseInputs{}, err
 	}
 	in.Artifacts, err = normalizeArtifacts(in.Artifacts, in.OutputRoot)
@@ -88,7 +88,7 @@ func canonicalFreshOutput(path, sourceRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Lstat(abs); !errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Lstat(abs); !errors.Is(err, os.ErrNotExist) {
 		if err != nil {
 			return "", err
 		}

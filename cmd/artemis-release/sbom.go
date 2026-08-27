@@ -16,7 +16,7 @@ func writeSBOM(path string, inputs releaseInputs, inventory moduleInventory, rep
 	if err != nil {
 		return err
 	}
-	if err := validateCycloneDXSchema(data); err != nil {
+	if err = validateCycloneDXSchema(data); err != nil {
 		return err
 	}
 	if err := writeFile(path, data, 0o644); err != nil {
@@ -172,7 +172,7 @@ func validateSBOMFile(path string, inputs releaseInputs, inventory moduleInvento
 	if err != nil {
 		return err
 	}
-	if err := validateCycloneDXSchema(data); err != nil {
+	if err = validateCycloneDXSchema(data); err != nil {
 		return err
 	}
 	expected, err := encodeSBOM(inputs, inventory, report)

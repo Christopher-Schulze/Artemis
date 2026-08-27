@@ -72,17 +72,17 @@ func populateReleaseStage(stageRoot string, inputs releaseInputs, inventory modu
 	if err != nil {
 		return err
 	}
-	if err := writeJSONFile(filepath.Join(stageRoot, licenseReportFile), report, writer); err != nil {
+	if err = writeJSONFile(filepath.Join(stageRoot, licenseReportFile), report, writer); err != nil {
 		return fmt.Errorf("write license report: %w", err)
 	}
-	if err := writeSBOM(filepath.Join(stageRoot, sbomFile), inputs, inventory, report, writer); err != nil {
+	if err = writeSBOM(filepath.Join(stageRoot, sbomFile), inputs, inventory, report, writer); err != nil {
 		return err
 	}
 	files, err := scanReleaseFiles(stageRoot)
 	if err != nil {
 		return err
 	}
-	if err := writeChecksums(filepath.Join(stageRoot, checksumsFile), files, writer); err != nil {
+	if err = writeChecksums(filepath.Join(stageRoot, checksumsFile), files, writer); err != nil {
 		return err
 	}
 	files, err = scanReleaseFiles(stageRoot)
