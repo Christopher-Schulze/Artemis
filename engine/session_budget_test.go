@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -23,14 +22,16 @@ func TestSessionBudgetDefaultsAndValidation(t *testing.T) {
 	if cfg.MaxDownloadDiskBytes != cfg.SessionBudget.MaxDiskBytes {
 		t.Fatalf("download limit %d does not follow session disk limit %d", cfg.MaxDownloadDiskBytes, cfg.SessionBudget.MaxDiskBytes)
 	}
-	_ = eng.Close()
+	closeTestResource(t, "engine close", eng.Close)
 	if _, err := New(Config{SessionBudget: SessionBudget{MaxTabs: -1}}); err == nil {
 		t.Fatal("negative session budget accepted")
 	}
 }
 
 func TestSessionBudgetRequestBreachCancelsSession(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "<html></html>") }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeTestBody(t, w, "<html></html>")
+	}))
 	defer srv.Close()
 	cfg := testConfig(srv)
 	cfg.SessionBudget = SessionBudget{MaxRequests: 1}
@@ -38,12 +39,12 @@ func TestSessionBudgetRequestBreachCancelsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	_, err = eng.Fetch(context.Background(), srv.URL, FetchOpts{})
 	if !IsBudgetExceeded(err) {
 		t.Fatalf("request breach error=%v", err)
@@ -58,7 +59,9 @@ func TestSessionBudgetRequestBreachCancelsSession(t *testing.T) {
 }
 
 func TestSessionBudgetResponseBytesFailClosed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "123456789") }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeTestBody(t, w, "123456789")
+	}))
 	defer srv.Close()
 	cfg := testConfig(srv)
 	cfg.SessionBudget = SessionBudget{MaxResponseBytes: 8}
@@ -66,7 +69,7 @@ func TestSessionBudgetResponseBytesFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	if _, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{}); !IsBudgetExceeded(err) {
 		t.Fatalf("response breach error=%v", err)
 	}
@@ -81,7 +84,7 @@ func TestSessionBudgetTabLeaseIsReleased(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	fetch := func() (*Page, error) {
 		return eng.Fetch(context.Background(), "https://example.test/", FetchOpts{OnRequest: func(req *RequestInfo) (*ResponseInfo, error) {
 			return &ResponseInfo{Status: http.StatusOK, Body: []byte("<html></html>"), FinalURL: req.URL}, nil
@@ -101,7 +104,7 @@ func TestSessionBudgetTabLeaseIsReleased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("released tab was not reusable: %v", err)
 	}
-	_ = second.Close()
+	closeTestResource(t, "second page close", second.Close)
 }
 
 func TestSessionBudgetConcurrencyBreachCancelsInflightRequest(t *testing.T) {
@@ -118,7 +121,7 @@ func TestSessionBudgetConcurrencyBreachCancelsInflightRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	firstDone := make(chan error, 1)
 	go func() {
 		_, fetchErr := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
@@ -147,14 +150,14 @@ func TestSessionBudgetTimeoutCancelsPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	page, err := eng.Fetch(context.Background(), "https://example.test/", FetchOpts{OnRequest: func(req *RequestInfo) (*ResponseInfo, error) {
 		return &ResponseInfo{Status: http.StatusOK, Body: []byte("<html></html>"), FinalURL: req.URL}, nil
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	time.Sleep(40 * time.Millisecond)
 	if _, err := page.Eval(context.Background(), "1+1"); !IsBudgetExceeded(err) {
 		t.Fatalf("timeout error=%v", err)
@@ -164,10 +167,10 @@ func TestSessionBudgetTimeoutCancelsPage(t *testing.T) {
 func TestSessionBudgetExternalScriptBreachAbortsFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/script.js" {
-			fmt.Fprint(w, "globalThis.loaded = true")
+			writeTestBody(t, w, "globalThis.loaded = true")
 			return
 		}
-		fmt.Fprint(w, `<html><script src="/script.js"></script></html>`)
+		writeTestBody(t, w, `<html><script src="/script.js"></script></html>`)
 	}))
 	defer srv.Close()
 	cfg := testConfig(srv)
@@ -176,7 +179,7 @@ func TestSessionBudgetExternalScriptBreachAbortsFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	if page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{RunScripts: true}); !IsBudgetExceeded(err) || page != nil {
 		t.Fatalf("page=%v script budget error=%v", page, err)
 	}
