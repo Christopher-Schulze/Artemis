@@ -72,7 +72,9 @@ func cookieScenarios() []Scenario {
 				})
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "<!doctype html><html><head><title>Cookie Set</title></head><body>cookie-set</body></html>")
+				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Cookie Set</title></head><body>cookie-set</body></html>"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,
@@ -93,7 +95,9 @@ func cookieScenarios() []Scenario {
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintf(w, "<!doctype html><html><head><title>Cookie Read</title></head><body>cookie:%s</body></html>", pair)
+				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Cookie Read</title></head><body>cookie:%s</body></html>", pair); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,

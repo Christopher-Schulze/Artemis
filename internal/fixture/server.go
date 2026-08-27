@@ -190,7 +190,9 @@ func (s *Server) contentHandler(sc Scenario) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 		w.WriteHeader(status)
-		w.Write(body)
+		if _, err := w.Write(body); err != nil {
+			return
+		}
 	})
 }
 
@@ -206,9 +208,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "<!doctype html><html><head><title>Artemis Fixture Server</title></head><body>")
-	fmt.Fprintf(w, "<h1>Artemis Fixture Server v%s</h1>", Version)
-	fmt.Fprint(w, "<ul>")
+	if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Artemis Fixture Server</title></head><body>"); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "<h1>Artemis Fixture Server v%s</h1>", Version); err != nil {
+		return
+	}
+	if _, err := fmt.Fprint(w, "<ul>"); err != nil {
+		return
+	}
 	for _, sc := range s.Scenarios() {
 		label := sc.ID
 		if label == "" {
@@ -217,8 +225,12 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		if sc.Description != "" {
 			label += " - " + sc.Description
 		}
-		fmt.Fprintf(w, "<li><a href=\"%s\">%s</a> [%s]</li>\n",
-			html.EscapeString(sc.Path), html.EscapeString(label), sc.Kind)
+		if _, err := fmt.Fprintf(w, "<li><a href=\"%s\">%s</a> [%s]</li>\n",
+			html.EscapeString(sc.Path), html.EscapeString(label), sc.Kind); err != nil {
+			return
+		}
 	}
-	fmt.Fprint(w, "</ul></body></html>")
+	if _, err := fmt.Fprint(w, "</ul></body></html>"); err != nil {
+		return
+	}
 }

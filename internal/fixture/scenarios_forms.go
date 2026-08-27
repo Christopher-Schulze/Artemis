@@ -67,9 +67,11 @@ func formScenarios() []Scenario {
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintf(w, "<!doctype html><html><head><title>Submitted</title></head><body>Submitted name=%s email=%s</body></html>",
+				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Submitted</title></head><body>Submitted name=%s email=%s</body></html>",
 					html.EscapeString(r.FormValue("name")),
-					html.EscapeString(r.FormValue("email")))
+					html.EscapeString(r.FormValue("email"))); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   405,
@@ -89,8 +91,10 @@ func formScenarios() []Scenario {
 				q := r.URL.Query().Get("q")
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintf(w, "<!doctype html><html><head><title>Search Result</title></head><body>Search: %s</body></html>",
-					html.EscapeString(q))
+				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Search Result</title></head><body>Search: %s</body></html>",
+					html.EscapeString(q)); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,
@@ -141,16 +145,22 @@ func fileScenarios() []Scenario {
 					http.Error(w, "missing file", http.StatusBadRequest)
 					return
 				}
-				defer file.Close()
-				data, err := io.ReadAll(file)
-				if err != nil {
+				data, readErr := io.ReadAll(file)
+				closeErr := file.Close()
+				if readErr != nil {
 					http.Error(w, "read error", http.StatusInternalServerError)
+					return
+				}
+				if closeErr != nil {
+					http.Error(w, "close error", http.StatusInternalServerError)
 					return
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintf(w, "<!doctype html><html><head><title>Uploaded</title></head><body>Received file size: %d contents: %s</body></html>",
-					len(data), html.EscapeString(strings.TrimSpace(string(data))))
+				if _, err := fmt.Fprintf(w, "<!doctype html><html><head><title>Uploaded</title></head><body>Received file size: %d contents: %s</body></html>",
+					len(data), html.EscapeString(strings.TrimSpace(string(data)))); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   405,

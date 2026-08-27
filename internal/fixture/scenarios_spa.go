@@ -41,7 +41,9 @@ func spaScenarios() []Scenario {
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, `{"text":"Hello SPA"}`)
+				if _, err := fmt.Fprint(w, `{"text":"Hello SPA"}`); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,

@@ -34,7 +34,9 @@ func cssScenarios() []Scenario {
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/css; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "#styled { color: red; } .muted { color: gray; } body { font-family: sans-serif; }")
+				if _, err := fmt.Fprint(w, "#styled { color: red; } .muted { color: gray; } body { font-family: sans-serif; }"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,

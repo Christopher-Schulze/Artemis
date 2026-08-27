@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -46,7 +47,11 @@ func websocketScenarios() []Scenario {
 				if err != nil {
 					return
 				}
-				defer c.CloseNow()
+				defer func() {
+					if closeErr := c.CloseNow(); closeErr != nil {
+						slog.Warn("fixture websocket close", slog.Any("error", closeErr))
+					}
+				}()
 				for {
 					typ, data, err := c.Read(r.Context())
 					if err != nil {
@@ -99,7 +104,9 @@ func serviceWorkerScenarios() []Scenario {
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/javascript")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "self.addEventListener('install', function() {});")
+				if _, err := fmt.Fprint(w, "self.addEventListener('install', function() {});"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,
@@ -125,7 +132,9 @@ func authScenarios() []Scenario {
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "<!doctype html><html><head><title>Authorized</title></head><body>Authorized</body></html>")
+				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Authorized</title></head><body>Authorized</body></html>"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   401,
@@ -150,7 +159,9 @@ func challengeScenarios() []Scenario {
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "<!doctype html><html><head><title>Challenge OK</title></head><body>Challenge passed</body></html>")
+				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Challenge OK</title></head><body>Challenge passed</body></html>"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   403,
@@ -176,7 +187,9 @@ func largeScenarios() []Scenario {
 					fmt.Fprintf(&b, "<p>Line %d</p>\n", i+1)
 				}
 				b.WriteString("<p id=\"end\">End</p></body></html>")
-				w.Write([]byte(b.String()))
+				if _, err := w.Write([]byte(b.String())); err != nil {
+					return
+				}
 			}),
 			BodyBytes: 1000*len("<p>Line 0000</p>\n") + 100,
 			Expect: Expect{
@@ -198,7 +211,9 @@ func malformedScenarios() []Scenario {
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "<!doctype html><html><head><title>Malformed</title></head><body><p>Start <div>not closed</body></html>")
+				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Malformed</title></head><body><p>Start <div>not closed</body></html>"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,
@@ -220,7 +235,9 @@ func slowScenarios() []Scenario {
 				time.Sleep(500 * time.Millisecond)
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, "<!doctype html><html><head><title>Slow</title></head><body>slow response</body></html>")
+				if _, err := fmt.Fprint(w, "<!doctype html><html><head><title>Slow</title></head><body>slow response</body></html>"); err != nil {
+					return
+				}
 			}),
 			Expect: Expect{
 				Status:   200,
