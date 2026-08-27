@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/pjbgf/sha1cd"
 	v8 "rogchap.com/v8go"
 )
 
@@ -312,7 +312,7 @@ func curveFromName(n string) elliptic.Curve {
 func hashByName(n string) (hash.Hash, crypto.Hash) {
 	switch strings.ToUpper(n) {
 	case "SHA1":
-		return sha1.New(), crypto.SHA1
+		return sha1cd.New(), crypto.SHA1
 	case "SHA256":
 		return sha256.New(), crypto.SHA256
 	case "SHA384":

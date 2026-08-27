@@ -7,7 +7,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -18,6 +17,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/pjbgf/sha1cd"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/pbkdf2"
 	v8 "rogchap.com/v8go"
@@ -603,7 +603,9 @@ func pkcs7Unpad(b []byte) ([]byte, error) {
 
 // hash factory references usable by hashConstructor.
 var (
-	sha1NewFunc   = func() hash.Hash { return sha1.New() }
+	// SHA-1 is retained only for explicit WebCrypto compatibility and uses
+	// collision-detecting SHA-1 rather than the standard weak implementation.
+	sha1NewFunc   = sha1cd.New
 	sha256NewFunc = func() hash.Hash { return sha256.New() }
 	sha384NewFunc = func() hash.Hash { return sha512.New384() }
 	sha512NewFunc = func() hash.Hash { return sha512.New() }

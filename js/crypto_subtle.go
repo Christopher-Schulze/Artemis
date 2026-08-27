@@ -3,7 +3,6 @@ package js
 import (
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pjbgf/sha1cd"
 	v8 "rogchap.com/v8go"
 )
 
@@ -138,7 +138,9 @@ func newSubtleDigestTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		var h hash.Hash
 		switch algo {
 		case "SHA1":
-			h = sha1.New()
+			// SHA-1 is retained only for explicitly requested WebCrypto
+			// compatibility; sha1cd detects known collision attacks.
+			h = sha1cd.New()
 		case "SHA256":
 			h = sha256.New()
 		case "SHA384":
@@ -519,7 +521,8 @@ func hmacSign(k *cryptoKey, data []byte) []byte {
 	var h func() hash.Hash
 	switch k.algoHash {
 	case "SHA1":
-		h = sha1.New
+		// SHA-1 is an explicit legacy WebCrypto choice, never a default.
+		h = sha1cd.New
 	case "SHA256":
 		h = sha256.New
 	case "SHA384":

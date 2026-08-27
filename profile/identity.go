@@ -11,7 +11,6 @@
 package profile
 
 import (
-	"crypto/sha1"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,19 +40,7 @@ type ProfileIdentity struct {
 // uuid.NewSHA1 but is exported here as a stable, documented surface for
 // the identity subsystem.
 func GenerateUUID5(namespace uuid.UUID, name string) uuid.UUID {
-	h := sha1.New()
-	h.Write(namespace[:])
-	h.Write([]byte(name))
-	sum := h.Sum(nil)
-
-	var id uuid.UUID
-	copy(id[:], sum[:16])
-
-	// Version 5 (name-based with SHA-1).
-	id[6] = (id[6] & 0x0f) | 0x50
-	// Variant RFC 4122.
-	id[8] = (id[8] & 0x3f) | 0x80
-	return id
+	return uuid.NewSHA1(namespace, []byte(name))
 }
 
 // Persistence durably stores and retrieves ProfileIdentity records.
