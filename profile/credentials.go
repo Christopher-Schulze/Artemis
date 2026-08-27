@@ -183,8 +183,8 @@ func (s *CredentialStore) save() error {
 		dir = "."
 	}
 	if dir != "" {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("credential store: mkdir: %w", err)
+		if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
+			return fmt.Errorf("credential store: mkdir: %w", mkdirErr)
 		}
 	}
 	tmp, err := os.CreateTemp(dir, ".credentials-*.tmp")

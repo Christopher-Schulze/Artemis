@@ -175,8 +175,8 @@ func (a *Authenticator) Authenticate(ctx context.Context, request Authentication
 	if record == nil {
 		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "credential_lease_closed", ProfileName: request.ProfileName, Domain: request.Domain}, nil
 	}
-	if mfa, err := a.Executor.MFAFieldVisible(operationCtx, record); err != nil {
-		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "mfa_detection_error", ProfileName: request.ProfileName, Domain: request.Domain}, safeAuthError(err)
+	if mfa, detectErr := a.Executor.MFAFieldVisible(operationCtx, record); detectErr != nil {
+		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "mfa_detection_error", ProfileName: request.ProfileName, Domain: request.Domain}, safeAuthError(detectErr)
 	} else if mfa {
 		return a.mfaOutcome(operationCtx, request, record)
 	}
@@ -220,9 +220,9 @@ func (a *Authenticator) mfaOutcome(ctx context.Context, request AuthenticationRe
 		_ = a.Store.UpdateLastUsed(record.ID, false)
 		return AuthenticationOutcome{Status: AuthStatusCancelled, Reason: "mfa_cancelled", ProfileName: request.ProfileName, Domain: request.Domain, CredentialID: record.ID, Handoff: handoff}, nil
 	}
-	if err := a.Executor.SubmitMFA(ctx, response.Code); err != nil {
+	if submitErr := a.Executor.SubmitMFA(ctx, response.Code); submitErr != nil {
 		_ = a.Store.UpdateLastUsed(record.ID, false)
-		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "mfa_submit_error", ProfileName: request.ProfileName, Domain: request.Domain, CredentialID: record.ID}, safeAuthError(err)
+		return AuthenticationOutcome{Status: AuthStatusFailed, Reason: "mfa_submit_error", ProfileName: request.ProfileName, Domain: request.Domain, CredentialID: record.ID}, safeAuthError(submitErr)
 	}
 	evidence, err := a.Executor.VerifyAuthenticated(ctx, record)
 	if err != nil || !evidence.Verified() {

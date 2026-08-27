@@ -52,8 +52,8 @@ func TestBrowserLoginExecutorRealChromiumCredentialAndPostcondition(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StoreCredential("profile", "127.0.0.1", "user@example.com", "secret-password", LoginSelectors{}); err != nil {
-		t.Fatal(err)
+	if _, storeErr := store.StoreCredential("profile", "127.0.0.1", "user@example.com", "secret-password", LoginSelectors{}); storeErr != nil {
+		t.Fatal(storeErr)
 	}
 	executor, err := NewBrowserLoginExecutor(page, LoginSelectors{})
 	if err != nil {

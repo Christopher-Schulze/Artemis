@@ -208,8 +208,8 @@ func SaveStorageStateFile(state *StorageState, path string) error {
 	}
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("storage state: mkdir: %w", err)
+		if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
+			return fmt.Errorf("storage state: mkdir: %w", mkdirErr)
 		}
 	}
 	tmp, err := os.CreateTemp(dir, ".storage-state-*.tmp")

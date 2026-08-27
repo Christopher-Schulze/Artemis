@@ -20,8 +20,8 @@ func TestEmbeddedAssetsAreCompleteAndHashed(t *testing.T) {
 		if asset.Ref == "" || asset.SourcePath == "" || asset.MIME == "" || asset.Size <= 0 {
 			t.Fatalf("incomplete asset=%+v", asset)
 		}
-		digest, err := hex.DecodeString(asset.SHA256)
-		if err != nil || len(digest) != 32 {
+		digest, decodeErr := hex.DecodeString(asset.SHA256)
+		if decodeErr != nil || len(digest) != 32 {
 			t.Fatalf("invalid digest for %s: %q", asset.Ref, asset.SHA256)
 		}
 	}

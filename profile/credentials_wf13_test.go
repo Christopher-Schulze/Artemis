@@ -165,8 +165,8 @@ func TestWFArtemisProfile_CredentialStoreDeniesInvalidInput(t *testing.T) {
 	}
 
 	// Baseline: DeleteCredential succeeds for valid ID
-	if err := store.DeleteCredential(id); err != nil {
-		t.Fatalf("valid DeleteCredential must succeed, got: %v", err)
+	if deleteErr := store.DeleteCredential(id); deleteErr != nil {
+		t.Fatalf("valid DeleteCredential must succeed, got: %v", deleteErr)
 	}
 
 	// Baseline: file permissions are 0600

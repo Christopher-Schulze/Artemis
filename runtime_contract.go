@@ -417,16 +417,16 @@ func (a *Agent) CloseSession(id string) error {
 	if closed {
 		a.mu.RLock()
 		runtime := a.runtime
-		profileRuntime := a.profileRuntime
+		profileManager := a.profileRuntime
 		a.mu.RUnlock()
 		if releaser, ok := runtime.(interface{ ReleaseSession(string) }); ok {
 			releaser.ReleaseSession(id)
 		}
 		a.telemetry.Record(AgentEvent{Type: AgentEventSessionClosed, SessionID: id, At: time.Now()})
-		if session.managed && profileRuntime != nil {
+		if session.managed && profileManager != nil {
 			closeCtx, cancel := context.WithTimeout(context.Background(), defaultProfileCloseTimeout)
 			defer cancel()
-			if err := profileRuntime.Close(closeCtx, profile.SessionID(session.id), session.userID); err != nil {
+			if err := profileManager.Close(closeCtx, profile.SessionID(session.id), session.userID); err != nil {
 				closeErr = errors.Join(closeErr, err)
 			}
 		}
@@ -478,14 +478,14 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 	a.mu.Lock()
 	state := a.state
 	maxSessions := a.config.MaxSessions
-	profileRuntime := a.profileRuntime
+	profileManager := a.profileRuntime
 	runCtx := a.runCtx
 	generation := a.lifecycleGeneration
 	if state != AgentStateRunning {
 		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorInvalidTransition, "create_session", fmt.Errorf("state %s", state))
 	}
-	if profileRuntime == nil {
+	if profileManager == nil {
 		a.mu.Unlock()
 		return nil, newTaskError(TaskErrorCapabilityUnavailable, "create_session", fmt.Errorf("profile runtime is not configured"))
 	}
@@ -514,10 +514,10 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 		stopRun()
 		cancelOpen()
 	}()
-	rs, openErr := profileRuntime.Open(openCtx, req)
+	rs, openErr := profileManager.Open(openCtx, req)
 	if openErr != nil {
 		lifecycleErr := a.finishProfileSessionAdmission(generation)
-		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		closeErr := closeOpenedProfileSession(profileManager, rs, req.OwnerUserRef)
 		if lifecycleErr != nil {
 			return nil, profileSessionError(lifecycleErr, openErr, closeErr)
 		}
@@ -546,13 +546,13 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 	if lifecycleErr != nil {
 		a.mu.Unlock()
 		a.profileSessionPublicationMu.Unlock()
-		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		closeErr := closeOpenedProfileSession(profileManager, rs, req.OwnerUserRef)
 		return nil, profileSessionError(lifecycleErr, closeErr)
 	}
 	if ctxErr := openCtx.Err(); ctxErr != nil {
 		a.mu.Unlock()
 		a.profileSessionPublicationMu.Unlock()
-		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		closeErr := closeOpenedProfileSession(profileManager, rs, req.OwnerUserRef)
 		return nil, profileSessionError(classifyTaskError("create_session", ctxErr), closeErr)
 	}
 	sessionCtx, sessionCancel := context.WithCancel(runCtx)
@@ -567,7 +567,7 @@ func (a *Agent) CreateSessionForProfile(ctx context.Context, req profile.OpenSes
 		a.mu.Unlock()
 		a.profileSessionPublicationMu.Unlock()
 		sessionCancel()
-		closeErr := closeOpenedProfileSession(profileRuntime, rs, req.OwnerUserRef)
+		closeErr := closeOpenedProfileSession(profileManager, rs, req.OwnerUserRef)
 		return nil, profileSessionError(storeErr, closeErr)
 	}
 	a.mu.Unlock()

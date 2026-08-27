@@ -27,11 +27,11 @@ func TestRuntimeManagerPersistentOwnershipRestartAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target, err := manager.ResolvePage(session.ID, pageID, "user-a"); err != nil || target != "target-1" {
-		t.Fatalf("resolve: target=%q err=%v", target, err)
+	if target, resolveErr := manager.ResolvePage(session.ID, pageID, "user-a"); resolveErr != nil || target != "target-1" {
+		t.Fatalf("resolve: target=%q err=%v", target, resolveErr)
 	}
-	if _, err := manager.Get(session.ID, "user-b"); !isRuntimeClass(err, FailureDenied) {
-		t.Fatalf("cross-owner get must deny: %v", err)
+	if _, getErr := manager.Get(session.ID, "user-b"); !isRuntimeClass(getErr, FailureDenied) {
+		t.Fatalf("cross-owner get must deny: %v", getErr)
 	}
 
 	restarted, err := NewRuntimeManager(root)
@@ -58,26 +58,26 @@ func TestRuntimeManagerEphemeralCleanupLimitsAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(session.DataDir, "secret"), []byte("ephemeral"), 0o600); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(filepath.Join(session.DataDir, "secret"), []byte("ephemeral"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if _, err := manager.RegisterPage(session.ID, "user-a", "target-1"); err != nil {
-		t.Fatal(err)
+	if _, registerErr := manager.RegisterPage(session.ID, "user-a", "target-1"); registerErr != nil {
+		t.Fatal(registerErr)
 	}
-	if _, err := manager.RegisterPage(session.ID, "user-a", "target-2"); !isRuntimeClass(err, FailureLimit) {
-		t.Fatalf("page budget must fail: %v", err)
+	if _, registerErr := manager.RegisterPage(session.ID, "user-a", "target-2"); !isRuntimeClass(registerErr, FailureLimit) {
+		t.Fatalf("page budget must fail: %v", registerErr)
 	}
-	if err := manager.Account(session.ID, "user-a", ResourceUsage{MemoryBytes: 11}); !isRuntimeClass(err, FailureLimit) {
-		t.Fatalf("memory budget must fail: %v", err)
+	if accountErr := manager.Account(session.ID, "user-a", ResourceUsage{MemoryBytes: 11}); !isRuntimeClass(accountErr, FailureLimit) {
+		t.Fatalf("memory budget must fail: %v", accountErr)
 	}
-	if err := manager.RecordPermission(session.ID, "user-a", "https://example.com", []string{"notifications", "camera"}); err != nil {
-		t.Fatal(err)
+	if permissionErr := manager.RecordPermission(session.ID, "user-a", "https://example.com", []string{"notifications", "camera"}); permissionErr != nil {
+		t.Fatal(permissionErr)
 	}
-	if err := manager.RecordDownload(session.ID, "user-a", DownloadRecord{Filename: "report.pdf", MIME: "application/pdf", Size: 30, SHA256: "abc"}); err != nil {
-		t.Fatal(err)
+	if downloadErr := manager.RecordDownload(session.ID, "user-a", DownloadRecord{Filename: "report.pdf", MIME: "application/pdf", Size: 30, SHA256: "abc"}); downloadErr != nil {
+		t.Fatal(downloadErr)
 	}
-	if err := manager.RecordDownload(session.ID, "user-a", DownloadRecord{Filename: "overflow", Size: 1}); !isRuntimeClass(err, FailureLimit) {
-		t.Fatalf("download budget must fail: %v", err)
+	if overflowErr := manager.RecordDownload(session.ID, "user-a", DownloadRecord{Filename: "overflow", Size: 1}); !isRuntimeClass(overflowErr, FailureLimit) {
+		t.Fatalf("download budget must fail: %v", overflowErr)
 	}
 	now = now.Add(2 * time.Minute)
 	expired, err := manager.Expire(context.Background())
@@ -222,8 +222,8 @@ func TestRuntimeManagerMigratesVersionZeroManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Get("ses_legacy", "owner"); err != nil {
-		t.Fatal(err)
+	if _, getErr := manager.Get("ses_legacy", "owner"); getErr != nil {
+		t.Fatal(getErr)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "sessions.json"))
 	if err != nil {

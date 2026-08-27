@@ -351,8 +351,8 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 		return failedTaskResult(task.ID, start, err)
 	}
 	defer a.operations.Done()
-	if err := validateTask(task); err != nil {
-		return failedTaskResult(task.ID, start, err)
+	if taskErr := validateTask(task); taskErr != nil {
+		return failedTaskResult(task.ID, start, taskErr)
 	}
 	sessionCtx, done, err := a.beginSessionExecution(task.SessionID)
 	if err != nil {

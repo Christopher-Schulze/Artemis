@@ -35,12 +35,12 @@ func TestAgentDiagnosticsUseTriggeringSessionReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.Start(context.Background()); err != nil {
-		t.Fatal(err)
+	if startErr := agent.Start(context.Background()); startErr != nil {
+		t.Fatal(startErr)
 	}
 	defer func() {
-		if err := agent.Stop(); err != nil {
-			t.Errorf("stop: %v", err)
+		if stopErr := agent.Stop(); stopErr != nil {
+			t.Errorf("stop: %v", stopErr)
 		}
 	}()
 	session, err := agent.CreateSession("owner")

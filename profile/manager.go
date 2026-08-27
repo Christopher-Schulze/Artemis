@@ -403,8 +403,8 @@ func (m *ProfileManager) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(m.baseDir, 0o700); err != nil {
-		return err
+	if mkdirErr := os.MkdirAll(m.baseDir, 0o700); mkdirErr != nil {
+		return mkdirErr
 	}
 	tmp, err := os.CreateTemp(m.baseDir, ".profiles-*.tmp")
 	if err != nil {

@@ -666,8 +666,8 @@ func (m *RuntimeManager) lockProfile(id ProfileID) error {
 		if !staleProcessLock(lockPath) {
 			return &RuntimeError{Class: FailureConflict, Op: "lock", Msg: "profile locked by another process"}
 		}
-		if err := os.Remove(lockPath); err != nil {
-			return err
+		if removeErr := os.Remove(lockPath); removeErr != nil {
+			return removeErr
 		}
 		file, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	}

@@ -55,13 +55,13 @@ func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 			Value any `json:"value"`
 		} `json:"result"`
 	}
-	if err := page.Call(context.Background(), "Runtime.evaluate", map[string]any{"expression": `fetch("/",{method:"POST"}).then(()=>{localStorage.setItem("token","retained");return true})`, "returnByValue": true, "awaitPromise": true}, &set); err != nil {
-		t.Fatal(err)
+	if callErr := page.Call(context.Background(), "Runtime.evaluate", map[string]any{"expression": `fetch("/",{method:"POST"}).then(()=>{localStorage.setItem("token","retained");return true})`, "returnByValue": true, "awaitPromise": true}, &set); callErr != nil {
+		t.Fatal(callErr)
 	}
 	assertStoredState(t, page)
 	time.Sleep(500 * time.Millisecond)
-	if err := runtime.Close(context.Background(), first.ID, "owner"); err != nil {
-		t.Fatal(err)
+	if closeErr := runtime.Close(context.Background(), first.ID, "owner"); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	second, err := runtime.Open(context.Background(), request, launch)

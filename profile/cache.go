@@ -230,8 +230,8 @@ func (m *CacheControlManager) Get(profileName string) *BrowserCacheControl {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if c, ok := m.controls[profileName]; ok {
-		return c
+	if control, ok := m.controls[profileName]; ok {
+		return control
 	}
 	c = NewBrowserCacheControl(profileName)
 	m.controls[profileName] = c
