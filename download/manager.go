@@ -148,12 +148,12 @@ func NewDownloadManager(config DownloadConfig) (*DownloadManager, error) {
 		return nil, err
 	}
 	sessionDir := filepath.Join(root, config.SessionID)
-	if err := ensurePrivateDirectory(sessionDir); err != nil {
-		return nil, fmt.Errorf("download manager: create session directory: %w", err)
+	if sessionDirErr := ensurePrivateDirectory(sessionDir); sessionDirErr != nil {
+		return nil, fmt.Errorf("download manager: create session directory: %w", sessionDirErr)
 	}
 	dir := filepath.Join(sessionDir, "downloads")
-	if err := ensurePrivateDirectory(dir); err != nil {
-		return nil, fmt.Errorf("download manager: create download directory: %w", err)
+	if downloadDirErr := ensurePrivateDirectory(dir); downloadDirErr != nil {
+		return nil, fmt.Errorf("download manager: create download directory: %w", downloadDirErr)
 	}
 	canonicalDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
@@ -222,13 +222,13 @@ func (s *BrowserStage) AdoptContext(ctx context.Context, filename, declaredType 
 	}
 	s.manager.mu.Lock()
 	defer s.manager.mu.Unlock()
-	if _, err := os.Lstat(target); err == nil {
+	if _, targetStatErr := os.Lstat(target); targetStatErr == nil {
 		return nil, errors.New("download target already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("download target: %w", err)
+	} else if !errors.Is(targetStatErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("download target: %w", targetStatErr)
 	}
-	if err := os.Link(source, target); err != nil {
-		return nil, fmt.Errorf("download stage commit: %w", err)
+	if linkErr := os.Link(source, target); linkErr != nil {
+		return nil, fmt.Errorf("download stage commit: %w", linkErr)
 	}
 	download, err := s.manager.adoptLocked(ctx, target, declaredType)
 	if err != nil {
@@ -322,13 +322,13 @@ func (m *DownloadManager) StoreContext(ctx context.Context, filename, declaredTy
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	mimeType := sniffContentType(content, declaredType)
-	if err := m.validateLocked(int64(len(content)), mimeType, ""); err != nil {
-		return nil, err
+	if validateErr := m.validateLocked(int64(len(content)), mimeType, ""); validateErr != nil {
+		return nil, validateErr
 	}
-	if _, err := os.Lstat(target); err == nil {
+	if _, targetStatErr := os.Lstat(target); targetStatErr == nil {
 		return nil, errors.New("download target already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("download target: %w", err)
+	} else if !errors.Is(targetStatErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("download target: %w", targetStatErr)
 	}
 	hashSum := sha256.Sum256(content)
 	hashHex := hex.EncodeToString(hashSum[:])
@@ -467,11 +467,11 @@ func (m *DownloadManager) adoptLocked(ctx context.Context, target, declaredType 
 		return nil, fmt.Errorf("download sniff: %w", readErr)
 	}
 	mimeType := sniffContentType(prefix[:read], declaredType)
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("download rewind: %w", err)
+	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+		return nil, fmt.Errorf("download rewind: %w", seekErr)
 	}
-	if err := m.validateLocked(info.Size(), mimeType, target); err != nil {
-		return nil, err
+	if validateErr := m.validateLocked(info.Size(), mimeType, target); validateErr != nil {
+		return nil, validateErr
 	}
 	hash := sha256.New()
 	written, err := io.Copy(hash, file)
@@ -623,8 +623,8 @@ func canonicalDownloadRoot(root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("download manager: resolve root: %w", err)
 	}
-	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return "", fmt.Errorf("download manager: create root: %w", err)
+	if mkdirErr := os.MkdirAll(abs, 0o700); mkdirErr != nil {
+		return "", fmt.Errorf("download manager: create root: %w", mkdirErr)
 	}
 	canonical, err := filepath.EvalSymlinks(abs)
 	if err != nil {

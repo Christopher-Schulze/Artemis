@@ -116,18 +116,18 @@ func TestDownloadManagerAdoptsAndCleansBrowserFiles(t *testing.T) {
 	}
 	stageDir := stage.Directory()
 	path := filepath.Join(stageDir, "browser.txt")
-	if err := os.WriteFile(path, []byte("browser"), 0o600); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(path, []byte("browser"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	download, err := stage.Adopt("browser.txt", "application/octet-stream")
 	if err != nil || download.SHA256 == "" {
 		t.Fatalf("download=%#v err=%v", download, err)
 	}
-	if err := stage.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := stage.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if _, err := os.Stat(stageDir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("completed stage remains: %v", err)
+	if _, statErr := os.Stat(stageDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("completed stage remains: %v", statErr)
 	}
 	rejectedStage, err := manager.NewBrowserStage()
 	if err != nil {
@@ -135,17 +135,17 @@ func TestDownloadManagerAdoptsAndCleansBrowserFiles(t *testing.T) {
 	}
 	rejectedDir := rejectedStage.Directory()
 	oversize := filepath.Join(rejectedDir, "oversize.txt")
-	if err := os.WriteFile(oversize, []byte("too-large"), 0o600); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(oversize, []byte("too-large"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if _, err := rejectedStage.Adopt("oversize.txt", ""); err == nil {
+	if _, adoptErr := rejectedStage.Adopt("oversize.txt", ""); adoptErr == nil {
 		t.Fatal("oversize browser file accepted")
 	}
-	if err := rejectedStage.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := rejectedStage.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if _, err := os.Stat(rejectedDir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rejected stage remains: %v", err)
+	if _, statErr := os.Stat(rejectedDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("rejected stage remains: %v", statErr)
 	}
 	entries, err := os.ReadDir(manager.Directory())
 	if err != nil || len(entries) != 1 || entries[0].Name() != "browser.txt" {
