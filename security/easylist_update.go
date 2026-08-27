@@ -293,8 +293,8 @@ func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
 		if u.current != nil && e.Name() == filepath.Base(u.current.FilePath) {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
+		info, infoErr := e.Info()
+		if infoErr != nil {
 			continue
 		}
 		if bestFile == nil || info.ModTime().After(bestTime) {

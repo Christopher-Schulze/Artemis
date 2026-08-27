@@ -82,17 +82,17 @@ func TestTraceRecorderArchiveCarriesIdentityAndDebug(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := recorder.Start(); err != nil {
-		t.Fatal(err)
+	if startErr := recorder.Start(); startErr != nil {
+		t.Fatal(startErr)
 	}
-	if err := recorder.AddNamedSource(TraceSource{URL: "https://example.test/app.js", Data: []byte("source")}); err != nil {
-		t.Fatal(err)
+	if sourceErr := recorder.AddNamedSource(TraceSource{URL: "https://example.test/app.js", Data: []byte("source")}); sourceErr != nil {
+		t.Fatal(sourceErr)
 	}
-	if err := recorder.SetDebugEvidence(TraceDebugEvidence{
+	if evidenceErr := recorder.SetDebugEvidence(TraceDebugEvidence{
 		Target:  TargetIdentity{TargetID: "target", SessionID: "session", BrowserContextID: "context"},
 		Console: []TraceConsoleEntry{{Type: "log", Text: "ready", Timestamp: time.Unix(0, 0).UTC()}},
-	}); err != nil {
-		t.Fatal(err)
+	}); evidenceErr != nil {
+		t.Fatal(evidenceErr)
 	}
 	path, err := recorder.Stop()
 	if err != nil {

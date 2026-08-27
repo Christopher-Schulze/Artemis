@@ -178,14 +178,14 @@ func TestLaunchPreservesConfiguredProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := browser.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := browser.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if _, err := os.Stat(profile); err != nil {
-		t.Fatalf("configured profile removed: %v", err)
+	if _, statErr := os.Stat(profile); statErr != nil {
+		t.Fatalf("configured profile removed: %v", statErr)
 	}
-	if _, err := os.Stat(filepath.Join(profile, "DevToolsActivePort")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stale DevTools endpoint survived close: %v", err)
+	if _, endpointErr := os.Stat(filepath.Join(profile, "DevToolsActivePort")); !errors.Is(endpointErr, os.ErrNotExist) {
+		t.Fatalf("stale DevTools endpoint survived close: %v", endpointErr)
 	}
 	restarted, err := Launch(context.Background(), LaunchConfig{
 		BinaryPath: writeBrowserScript(t, browserReadyScript), UserDataDir: profile,
@@ -309,11 +309,11 @@ func TestConfiguredProfileLeasePreventsParallelOwnership(t *testing.T) {
 	if !IsCode(err, ErrorInvalidConfig) {
 		t.Fatalf("parallel profile ownership error=%v", err)
 	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := first.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if _, err := os.Stat(filepath.Join(profile, profileLeaseName)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("profile lease survived close: %v", err)
+	if _, statErr := os.Stat(filepath.Join(profile, profileLeaseName)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("profile lease survived close: %v", statErr)
 	}
 }
 
@@ -371,8 +371,8 @@ func TestUnexpectedCrashAutomaticallyCleansDisposableProfile(t *testing.T) {
 	}
 	profile := browser.ProfileDir()
 	<-browser.Done()
-	if _, err := os.Stat(profile); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("crashed browser retained disposable profile: %v", err)
+	if _, statErr := os.Stat(profile); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("crashed browser retained disposable profile: %v", statErr)
 	}
 }
 

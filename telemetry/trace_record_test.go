@@ -22,8 +22,8 @@ func TestDefaultTraceRecordConfig(t *testing.T) {
 func TestTraceRecordStartStop(t *testing.T) {
 	dir := t.TempDir()
 	r := NewTraceRecorder(DefaultTraceRecordConfig(dir))
-	if err := r.Start(); err != nil {
-		t.Fatal(err)
+	if startErr := r.Start(); startErr != nil {
+		t.Fatal(startErr)
 	}
 	if !r.IsActive() {
 		t.Fatal("should be active")
@@ -260,8 +260,8 @@ func TestTraceRecordMultipleSessions(t *testing.T) {
 	}
 
 	// Second session.
-	if err := r.Start(); err != nil {
-		t.Fatal(err)
+	if startSecondErr := r.Start(); startSecondErr != nil {
+		t.Fatal(startSecondErr)
 	}
 	r.AddScreenshot([]byte("second"))
 	path2, err := r.Stop()

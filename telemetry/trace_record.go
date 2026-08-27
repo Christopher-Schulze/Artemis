@@ -276,29 +276,29 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 		return err
 	}
 	defer func() {
-		if err := f.Close(); writeErr == nil && err != nil {
-			writeErr = err
+		if closeFileErr := f.Close(); writeErr == nil && closeFileErr != nil {
+			writeErr = closeFileErr
 		}
 	}()
 
 	zw := zip.NewWriter(f)
 	defer func() {
-		if err := zw.Close(); writeErr == nil && err != nil {
-			writeErr = err
+		if closeZipErr := zw.Close(); writeErr == nil && closeZipErr != nil {
+			writeErr = closeZipErr
 		}
 	}()
 
 	for i, data := range r.screenshots {
 		entry := fmt.Sprintf("screenshots/screenshot-%04d.png", i+1)
-		if err := writeZipEntry(zw, entry, data); err != nil {
-			return err
+		if entryErr := writeZipEntry(zw, entry, data); entryErr != nil {
+			return entryErr
 		}
 	}
 
 	for i, data := range r.snapshots {
 		entry := fmt.Sprintf("snapshots/snapshot-%04d.html", i+1)
-		if err := writeZipEntry(zw, entry, data); err != nil {
-			return err
+		if entryErr := writeZipEntry(zw, entry, data); entryErr != nil {
+			return entryErr
 		}
 	}
 
@@ -307,8 +307,8 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 		if source.URL != "" {
 			entry = fmt.Sprintf("sources/source-%04d-%s.txt", i+1, safeTraceName(source.URL))
 		}
-		if err := writeZipEntry(zw, entry, source.Data); err != nil {
-			return err
+		if entryErr := writeZipEntry(zw, entry, source.Data); entryErr != nil {
+			return entryErr
 		}
 	}
 
@@ -377,8 +377,8 @@ func ensureTraceRoot(raw string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve trace dir: %w", err)
 	}
-	if err := os.MkdirAll(absolute, 0o755); err != nil {
-		return "", fmt.Errorf("create trace dir: %w", err)
+	if mkdirErr := os.MkdirAll(absolute, 0o755); mkdirErr != nil {
+		return "", fmt.Errorf("create trace dir: %w", mkdirErr)
 	}
 	root, err := filepath.EvalSymlinks(absolute)
 	if err != nil {

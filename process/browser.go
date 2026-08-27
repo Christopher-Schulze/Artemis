@@ -111,8 +111,8 @@ func Launch(ctx context.Context, config LaunchConfig) (*Browser, error) {
 		if artifact == "" {
 			artifact = "chromium"
 		}
-		if err := normalized.DependencyAuthorizer.Authorize(ctx, artifact, normalized.ArtifactVersion, binary.Path); err != nil {
-			return nil, &Error{Code: ErrorLaunchFailed, Op: "authorize Chromium", Err: err}
+		if authorizeErr := normalized.DependencyAuthorizer.Authorize(ctx, artifact, normalized.ArtifactVersion, binary.Path); authorizeErr != nil {
+			return nil, &Error{Code: ErrorLaunchFailed, Op: "authorize Chromium", Err: authorizeErr}
 		}
 	}
 	profileDir, removeProfile, profileLease, err := prepareProfile(normalized.UserDataDir)
@@ -211,9 +211,9 @@ func prepareProfile(configured string) (string, bool, string, error) {
 	if err != nil {
 		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "create profile", Err: err}
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if chmodErr := os.Chmod(dir, 0o700); chmodErr != nil {
 		_ = os.RemoveAll(dir)
-		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "secure profile", Err: err}
+		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "secure profile", Err: chmodErr}
 	}
 	lease, err := acquireProfileLease(dir)
 	if err != nil {
@@ -228,8 +228,8 @@ func prepareConfiguredProfile(configured string) (string, bool, string, error) {
 	if err != nil {
 		return "", false, "", invalidConfig(fmt.Sprintf("profile path: %v", err))
 	}
-	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "create configured profile", Err: err}
+	if mkdirErr := os.MkdirAll(abs, 0o700); mkdirErr != nil {
+		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "create configured profile", Err: mkdirErr}
 	}
 	lease, err := acquireProfileLease(abs)
 	if err != nil {
