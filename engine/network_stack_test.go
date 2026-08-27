@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,11 +14,11 @@ func TestObeyRobotsBlocksDisallowed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/robots.txt":
-			fmt.Fprint(w, "User-agent: *\nDisallow: /secret/\n")
+			writeTestBody(t, w, "User-agent: *\nDisallow: /secret/\n")
 		case "/secret/page":
-			fmt.Fprint(w, "<html>secret</html>")
+			writeTestBody(t, w, "<html>secret</html>")
 		default:
-			fmt.Fprint(w, "<html>ok</html>")
+			writeTestBody(t, w, "<html>ok</html>")
 		}
 	}))
 	defer srv.Close()
@@ -30,14 +29,14 @@ func TestObeyRobotsBlocksDisallowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	// Allowed
 	p, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{})
 	if err != nil {
 		t.Fatalf("fetch /: %v", err)
 	}
-	p.Close()
+	closeTestResource(t, "allowed page close", p.Close)
 
 	// Disallowed
 	_, err = eng.Fetch(context.Background(), srv.URL+"/secret/page", FetchOpts{})
@@ -51,7 +50,7 @@ func TestBlockPrivateIPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	_, err = eng.Fetch(context.Background(), "http://127.0.0.1/", FetchOpts{})
 	if err == nil {
 		t.Error("expected error for loopback")
@@ -63,7 +62,7 @@ func TestOnRequestInterceptionMocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	intercepted := false
 	page, err := eng.Fetch(context.Background(), "https://example.test/", FetchOpts{
@@ -80,7 +79,7 @@ func TestOnRequestInterceptionMocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if !intercepted {
 		t.Error("OnRequest not invoked")
 	}
@@ -92,7 +91,7 @@ func TestOnRequestInterceptionMocks(t *testing.T) {
 func TestDocumentCookieGetSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "k", Value: "v", Path: "/"})
-		fmt.Fprint(w, `<!doctype html><html><body><script>
+		writeTestBody(t, w, `<!doctype html><html><body><script>
 			globalThis.captured = document.cookie;
 			document.cookie = "extra=1; Path=/";
 		</script></body></html>`)
@@ -103,13 +102,13 @@ func TestDocumentCookieGetSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{RunInlineScripts: true})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	v, err := page.Eval(context.Background(), `globalThis.captured`)
 	if err != nil {
@@ -133,7 +132,7 @@ func TestEnginePropagatesNetworkPolicyToJavaScriptWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 	page, err := eng.Fetch(context.Background(), "https://example.test/", FetchOpts{
 		OnRequest: func(req *RequestInfo) (*ResponseInfo, error) {
 			return &ResponseInfo{
@@ -147,7 +146,7 @@ func TestEnginePropagatesNetworkPolicyToJavaScriptWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if _, err := page.Eval(context.Background(), `
 		var enginePolicyTrace = '';
 		const ws = new WebSocket('ws://127.0.0.1:80/socket');

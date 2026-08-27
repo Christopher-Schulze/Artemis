@@ -11,15 +11,63 @@ import (
 	"time"
 )
 
+func generateTestWebBotAuthKey(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	return pub, priv
+}
+
+func mustNewTestWebBotAuth(t *testing.T, config WebBotAuthConfig) *WebBotAuth {
+	t.Helper()
+	webBotAuth, err := NewWebBotAuth(config)
+	if err != nil {
+		t.Fatalf("NewWebBotAuth: %v", err)
+	}
+	return webBotAuth
+}
+
+func mustNewTestRequest(t *testing.T, method, target string) *http.Request {
+	t.Helper()
+	request, err := http.NewRequest(method, target, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	return request
+}
+
+func signTestRequest(t *testing.T, signer *WebBotAuth, request *http.Request) {
+	t.Helper()
+	if err := signer.Sign(request); err != nil {
+		t.Fatalf("sign request: %v", err)
+	}
+}
+
+func mustComputeTestKeyID(t *testing.T, publicKey ed25519.PublicKey) string {
+	t.Helper()
+	keyID, err := computeKeyID(publicKey)
+	if err != nil {
+		t.Fatalf("compute key ID: %v", err)
+	}
+	return keyID
+}
+
+func closeTestResponse(t *testing.T, response *http.Response) {
+	t.Helper()
+	if err := response.Body.Close(); err != nil {
+		t.Errorf("close response body: %v", err)
+	}
+}
+
 func TestWebBotAuthDisabledNoOp(t *testing.T) {
 	w, err := NewWebBotAuth(WebBotAuthConfig{Enabled: false})
 	if err != nil {
 		t.Fatalf("NewWebBotAuth: %v", err)
 	}
-	req, _ := http.NewRequest("GET", "https://example.com/path", nil)
-	if err := w.Sign(req); err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	req := mustNewTestRequest(t, "GET", "https://example.com/path")
+	signTestRequest(t, w, req)
 	if req.Header.Get("Signature-Input") != "" {
 		t.Error("disabled signer should not set Signature-Input")
 	}
@@ -36,7 +84,7 @@ func TestWebBotAuthDisabledNoOp(t *testing.T) {
 }
 
 func TestWebBotAuthEnabledRequiresAgentURL(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
+	_, priv := generateTestWebBotAuthKey(t)
 	_, err := NewWebBotAuth(WebBotAuthConfig{Enabled: true, PrivateKey: priv})
 	if err == nil {
 		t.Error("expected error for enabled without AgentURL")
@@ -62,7 +110,7 @@ func TestWebBotAuthEnabledRequiresValidKeyLen(t *testing.T) {
 }
 
 func TestWebBotAuthSignAddsHeaders(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
+	_, priv := generateTestWebBotAuthKey(t)
 	w, err := NewWebBotAuth(WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
@@ -71,10 +119,8 @@ func TestWebBotAuthSignAddsHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWebBotAuth: %v", err)
 	}
-	req, _ := http.NewRequest("GET", "https://example.com/path", nil)
-	if err := w.Sign(req); err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	req := mustNewTestRequest(t, "GET", "https://example.com/path")
+	signTestRequest(t, w, req)
 	if req.Header.Get("Signature-Agent") == "" {
 		t.Error("Signature-Agent header not set")
 	}
@@ -121,8 +167,8 @@ func TestWebBotAuthSignAddsHeaders(t *testing.T) {
 }
 
 func TestWebBotAuthSignDeterministic(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -131,10 +177,10 @@ func TestWebBotAuthSignDeterministic(t *testing.T) {
 	// Since created/expires use time.Now(), we test determinism by signing
 	// twice in rapid succession and verifying the signatures are valid
 	// Ed25519 (which is deterministic for the same input).
-	req1, _ := http.NewRequest("GET", "https://example.com/path", nil)
-	req2, _ := http.NewRequest("GET", "https://example.com/path", nil)
-	w.Sign(req1)
-	w.Sign(req2)
+	req1 := mustNewTestRequest(t, "GET", "https://example.com/path")
+	req2 := mustNewTestRequest(t, "GET", "https://example.com/path")
+	signTestRequest(t, w, req1)
+	signTestRequest(t, w, req2)
 	// Both should have valid base64 signatures.
 	sig1 := req1.Header.Get("Signature")
 	sig2 := req2.Header.Get("Signature")
@@ -144,8 +190,14 @@ func TestWebBotAuthSignDeterministic(t *testing.T) {
 	// Decode and verify both are valid Ed25519 signatures.
 	sig1B64 := sig1[3 : len(sig1)-1]
 	sig2B64 := sig2[3 : len(sig2)-1]
-	sig1Bytes, _ := base64.StdEncoding.DecodeString(sig1B64)
-	sig2Bytes, _ := base64.StdEncoding.DecodeString(sig2B64)
+	sig1Bytes, err := base64.StdEncoding.DecodeString(sig1B64)
+	if err != nil {
+		t.Fatalf("decode signature 1: %v", err)
+	}
+	sig2Bytes, err := base64.StdEncoding.DecodeString(sig2B64)
+	if err != nil {
+		t.Fatalf("decode signature 2: %v", err)
+	}
 	if len(sig1Bytes) != ed25519.SignatureSize {
 		t.Errorf("sig1 len = %d, want %d", len(sig1Bytes), ed25519.SignatureSize)
 	}
@@ -155,8 +207,8 @@ func TestWebBotAuthSignDeterministic(t *testing.T) {
 }
 
 func TestWebBotAuthSignNilRequest(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -171,8 +223,8 @@ func TestWebBotAuthSignNilRequest(t *testing.T) {
 }
 
 func TestWebBotAuthKeyIDDerivedFromPublicKey(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	expectedKID, _ := computeKeyID(pub)
+	pub, priv := generateTestWebBotAuthKey(t)
+	expectedKID := mustComputeTestKeyID(t, pub)
 	w, err := NewWebBotAuth(WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
@@ -185,8 +237,8 @@ func TestWebBotAuthKeyIDDerivedFromPublicKey(t *testing.T) {
 		t.Errorf("KeyID = %q, want %q", w.KeyID(), expectedKID)
 	}
 	// Verify keyid appears in Signature-Input.
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
-	w.Sign(req)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
+	signTestRequest(t, w, req)
 	si := req.Header.Get("Signature-Input")
 	if !strings.Contains(si, expectedKID) {
 		t.Errorf("Signature-Input %q does not contain keyid %q", si, expectedKID)
@@ -194,8 +246,8 @@ func TestWebBotAuthKeyIDDerivedFromPublicKey(t *testing.T) {
 }
 
 func TestWebBotAuthExplicitKeyID(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -207,48 +259,46 @@ func TestWebBotAuthExplicitKeyID(t *testing.T) {
 }
 
 func TestWebBotAuthVerifyRoundTrip(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/api/data", nil)
+	req := mustNewTestRequest(t, "GET", "https://example.com/api/data")
 	req.Host = "example.com"
-	if err := w.Sign(req); err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	signTestRequest(t, w, req)
 	if err := VerifyWebBotAuthSignature(req, pub); err != nil {
 		t.Errorf("VerifyWebBotAuthSignature: %v", err)
 	}
 }
 
 func TestWebBotAuthVerifyFailsWithWrongKey(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	wrongPub, _, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	wrongPub, _ := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/api/data", nil)
+	req := mustNewTestRequest(t, "GET", "https://example.com/api/data")
 	req.Host = "example.com"
-	w.Sign(req)
+	signTestRequest(t, w, req)
 	if err := VerifyWebBotAuthSignature(req, wrongPub); err == nil {
 		t.Error("verification should fail with wrong public key")
 	}
 }
 
 func TestWebBotAuthVerifyFailsWithTamperedAuthority(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/api/data", nil)
+	req := mustNewTestRequest(t, "GET", "https://example.com/api/data")
 	req.Host = "example.com"
-	w.Sign(req)
+	signTestRequest(t, w, req)
 	// Tamper with the Host after signing.
 	req.Host = "evil.com"
 	if err := VerifyWebBotAuthSignature(req, pub); err == nil {
@@ -257,19 +307,19 @@ func TestWebBotAuthVerifyFailsWithTamperedAuthority(t *testing.T) {
 }
 
 func TestWebBotAuthVerifyMissingHeaders(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
+	pub, _ := generateTestWebBotAuthKey(t)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
 	if err := VerifyWebBotAuthSignature(req, pub); err == nil {
 		t.Error("verification should fail with missing headers")
 	}
 }
 
 func TestWebBotAuthVerifyRejectsNilAndExpiredRequests(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
+	pub, priv := generateTestWebBotAuthKey(t)
 	if err := VerifyWebBotAuthSignature(nil, pub); err == nil {
 		t.Fatal("nil request accepted")
 	}
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
 	req.Host = "example.com"
 	now := time.Now().Unix()
 	input := buildSignatureInput(req.Host, now-120, now-60, "expired-key")
@@ -285,7 +335,7 @@ func TestWebBotAuthVerifyRejectsNilAndExpiredRequests(t *testing.T) {
 }
 
 func TestVerifyRequestHeadersRejectsFutureSignature(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
+	pub, priv := generateTestWebBotAuthKey(t)
 	now := time.Now().Unix()
 	input := buildSignatureInput("example.com", now+600, now+1200, "future-key")
 	base, err := buildSignatureBase("example.com", input)
@@ -299,8 +349,8 @@ func TestVerifyRequestHeadersRejectsFutureSignature(t *testing.T) {
 }
 
 func TestWebBotAuthMiddleware(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -318,7 +368,7 @@ func TestWebBotAuthMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeTestResponse(t, resp)
 	if capturedReq == nil {
 		t.Fatal("inner transport did not receive request")
 	}
@@ -332,7 +382,7 @@ func TestWebBotAuthMiddleware(t *testing.T) {
 }
 
 func TestWebBotAuthMiddlewareDisabledPassThrough(t *testing.T) {
-	w, _ := NewWebBotAuth(WebBotAuthConfig{Enabled: false})
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{Enabled: false})
 	inner := &mockTransport{
 		fn: func(req *http.Request) (*http.Response, error) {
 			if req.Header.Get("Signature-Input") != "" {
@@ -347,12 +397,12 @@ func TestWebBotAuthMiddlewareDisabledPassThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeTestResponse(t, resp)
 }
 
 func TestWebBotAuthSignRequest(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -385,8 +435,8 @@ func TestWebBotAuthSignRequest(t *testing.T) {
 }
 
 func TestWebBotAuthSignRequestURL(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -404,7 +454,7 @@ func TestWebBotAuthSignRequestURL(t *testing.T) {
 }
 
 func TestWebBotAuthSignRequestURLDisabled(t *testing.T) {
-	w, _ := NewWebBotAuth(WebBotAuthConfig{Enabled: false})
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{Enabled: false})
 	sa, si, sv, err := SignRequestURL(w, "GET", "https://example.com/")
 	if err != nil {
 		t.Fatalf("SignRequestURL: %v", err)
@@ -415,8 +465,8 @@ func TestWebBotAuthSignRequestURLDisabled(t *testing.T) {
 }
 
 func TestWebBotAuthPublishPublicKey(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -456,7 +506,7 @@ func TestWebBotAuthPublishPublicKey(t *testing.T) {
 }
 
 func TestWebBotAuthPublishPublicKeyDisabled(t *testing.T) {
-	w, _ := NewWebBotAuth(WebBotAuthConfig{Enabled: false})
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{Enabled: false})
 	if _, err := w.PublishPublicKey(); err == nil {
 		t.Error("expected error for disabled signer")
 	}
@@ -474,14 +524,17 @@ func TestGenerateWebBotAuthKey(t *testing.T) {
 		t.Error("empty key ID")
 	}
 	// Verify the key ID matches the public key.
-	expected, _ := computeKeyID(pub)
+	expected := mustComputeTestKeyID(t, pub)
 	if kid != expected {
 		t.Errorf("kid = %s, want %s", kid, expected)
 	}
 }
 
 func TestEncodeDecodePrivateKey(t *testing.T) {
-	priv, _, _, _ := GenerateWebBotAuthKey()
+	priv, _, _, err := GenerateWebBotAuthKey()
+	if err != nil {
+		t.Fatalf("GenerateWebBotAuthKey: %v", err)
+	}
 	encoded := EncodePrivateKey(priv)
 	decoded, err := DecodePrivateKey(encoded)
 	if err != nil {
@@ -493,7 +546,10 @@ func TestEncodeDecodePrivateKey(t *testing.T) {
 }
 
 func TestEncodeDecodePublicKey(t *testing.T) {
-	_, pub, _, _ := GenerateWebBotAuthKey()
+	_, pub, _, err := GenerateWebBotAuthKey()
+	if err != nil {
+		t.Fatalf("GenerateWebBotAuthKey: %v", err)
+	}
 	encoded := EncodePublicKey(pub)
 	decoded, err := DecodePublicKey(encoded)
 	if err != nil {
@@ -523,14 +579,14 @@ func TestDecodePublicKeyInvalid(t *testing.T) {
 }
 
 func TestParseWebBotAuthSignatureInput(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
-	w.Sign(req)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
+	signTestRequest(t, w, req)
 	si := req.Header.Get("Signature-Input")
 	created, expires, keyID, tag, err := ParseWebBotAuthSignatureInput(si)
 	if err != nil {
@@ -567,16 +623,19 @@ func TestParseWebBotAuthSignatureInputMissingKeyID(t *testing.T) {
 }
 
 func TestWebBotAuthMaxExpiryDefault24h(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
-	w.Sign(req)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
+	signTestRequest(t, w, req)
 	si := req.Header.Get("Signature-Input")
-	created, expires, _, _, _ := ParseWebBotAuthSignatureInput(si)
+	created, expires, _, _, err := ParseWebBotAuthSignatureInput(si)
+	if err != nil {
+		t.Fatalf("parse signature input: %v", err)
+	}
 	diff := time.Duration(expires-created) * time.Second
 	if diff > 24*time.Hour+10*time.Second {
 		t.Errorf("expiry window = %v, want ~24h", diff)
@@ -587,17 +646,20 @@ func TestWebBotAuthMaxExpiryDefault24h(t *testing.T) {
 }
 
 func TestWebBotAuthCustomMaxExpiry(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	_, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 		MaxExpiry:  1 * time.Hour,
 	})
-	req, _ := http.NewRequest("GET", "https://example.com/", nil)
-	w.Sign(req)
+	req := mustNewTestRequest(t, "GET", "https://example.com/")
+	signTestRequest(t, w, req)
 	si := req.Header.Get("Signature-Input")
-	created, expires, _, _, _ := ParseWebBotAuthSignatureInput(si)
+	created, expires, _, _, err := ParseWebBotAuthSignatureInput(si)
+	if err != nil {
+		t.Fatalf("parse signature input: %v", err)
+	}
 	diff := time.Duration(expires-created) * time.Second
 	if diff > 1*time.Hour+10*time.Second || diff < 50*time.Minute {
 		t.Errorf("expiry window = %v, want ~1h", diff)
@@ -605,20 +667,20 @@ func TestWebBotAuthCustomMaxExpiry(t *testing.T) {
 }
 
 func TestWebBotAuthSignDifferentDomains(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
 	// Sign for example.com.
-	req1, _ := http.NewRequest("GET", "https://example.com/path", nil)
+	req1 := mustNewTestRequest(t, "GET", "https://example.com/path")
 	req1.Host = "example.com"
-	w.Sign(req1)
+	signTestRequest(t, w, req1)
 	// Sign for api.example.com.
-	req2, _ := http.NewRequest("GET", "https://api.example.com/path", nil)
+	req2 := mustNewTestRequest(t, "GET", "https://api.example.com/path")
 	req2.Host = "api.example.com"
-	w.Sign(req2)
+	signTestRequest(t, w, req2)
 	// Verify each with its own authority.
 	if err := VerifyWebBotAuthSignature(req1, pub); err != nil {
 		t.Errorf("verify req1: %v", err)
@@ -638,36 +700,42 @@ func TestWebBotAuthSignDifferentDomains(t *testing.T) {
 }
 
 func TestWebBotAuthVerifyRequestHeaders(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	sa, si, sv, _ := SignRequestURL(w, "GET", "https://example.com/")
-	err := VerifyRequestHeaders(sa, si, sv, "example.com", pub)
+	sa, si, sv, err := SignRequestURL(w, "GET", "https://example.com/")
+	if err != nil {
+		t.Fatalf("SignRequestURL: %v", err)
+	}
+	err = VerifyRequestHeaders(sa, si, sv, "example.com", pub)
 	if err != nil {
 		t.Errorf("VerifyRequestHeaders: %v", err)
 	}
 }
 
 func TestWebBotAuthVerifyRequestHeadersTampered(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	sa, si, sv, _ := SignRequestURL(w, "GET", "https://example.com/")
+	sa, si, sv, err := SignRequestURL(w, "GET", "https://example.com/")
+	if err != nil {
+		t.Fatalf("SignRequestURL: %v", err)
+	}
 	// Tamper with authority.
-	err := VerifyRequestHeaders(sa, si, sv, "evil.com", pub)
+	err = VerifyRequestHeaders(sa, si, sv, "evil.com", pub)
 	if err == nil {
 		t.Error("verification should fail with tampered authority")
 	}
 }
 
 func TestWebBotAuthVerifyRequestHeadersMissingHeaders(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
+	pub, _ := generateTestWebBotAuthKey(t)
 	err := VerifyRequestHeaders("", "", "", "example.com", pub)
 	if err == nil {
 		t.Error("verification should fail with missing headers")
@@ -675,8 +743,8 @@ func TestWebBotAuthVerifyRequestHeadersMissingHeaders(t *testing.T) {
 }
 
 func TestWebBotAuthEndToEndWithHTTPServer(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
@@ -697,7 +765,7 @@ func TestWebBotAuthEndToEndWithHTTPServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeTestResponse(t, resp)
 	if receivedSigInput == "" {
 		t.Fatal("server did not receive Signature-Input")
 	}
@@ -708,7 +776,7 @@ func TestWebBotAuthEndToEndWithHTTPServer(t *testing.T) {
 }
 
 func TestComputeKeyID(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
+	pub, _ := generateTestWebBotAuthKey(t)
 	kid, err := computeKeyID(pub)
 	if err != nil {
 		t.Fatalf("computeKeyID: %v", err)
@@ -723,19 +791,19 @@ func TestComputeKeyID(t *testing.T) {
 }
 
 func TestComputeKeyIDDeterministic(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
-	kid1, _ := computeKeyID(pub)
-	kid2, _ := computeKeyID(pub)
+	pub, _ := generateTestWebBotAuthKey(t)
+	kid1 := mustComputeTestKeyID(t, pub)
+	kid2 := mustComputeTestKeyID(t, pub)
 	if kid1 != kid2 {
 		t.Error("key ID should be deterministic for same public key")
 	}
 }
 
 func TestComputeKeyIDDifferentKeys(t *testing.T) {
-	pub1, _, _ := ed25519.GenerateKey(nil)
-	pub2, _, _ := ed25519.GenerateKey(nil)
-	kid1, _ := computeKeyID(pub1)
-	kid2, _ := computeKeyID(pub2)
+	pub1, _ := generateTestWebBotAuthKey(t)
+	pub2, _ := generateTestWebBotAuthKey(t)
+	kid1 := mustComputeTestKeyID(t, pub1)
+	kid2 := mustComputeTestKeyID(t, pub2)
 	if kid1 == kid2 {
 		t.Error("different keys should have different key IDs")
 	}
@@ -805,14 +873,20 @@ func TestExtractSigB64FromHeaderMissingSuffix(t *testing.T) {
 }
 
 func TestWebBotAuthVerifySignatureBase(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	w, _ := NewWebBotAuth(WebBotAuthConfig{
+	pub, priv := generateTestWebBotAuthKey(t)
+	w := mustNewTestWebBotAuth(t, WebBotAuthConfig{
 		Enabled:    true,
 		AgentURL:   "https://agent.example.com",
 		PrivateKey: priv,
 	})
-	_, si, sv, _ := SignRequestURL(w, "GET", "https://example.com/")
-	sigB64, _ := extractSigB64FromHeader(sv)
+	_, si, sv, err := SignRequestURL(w, "GET", "https://example.com/")
+	if err != nil {
+		t.Fatalf("SignRequestURL: %v", err)
+	}
+	sigB64, err := extractSigB64FromHeader(sv)
+	if err != nil {
+		t.Fatalf("extract signature: %v", err)
+	}
 	if err := VerifySignatureBase("example.com", si, sigB64, pub); err != nil {
 		t.Errorf("VerifySignatureBase: %v", err)
 	}
