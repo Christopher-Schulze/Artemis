@@ -77,7 +77,9 @@ func TestAuditHook_LogAction_LoggerError(t *testing.T) {
 func TestAuditHook_LogNavigation_Success(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogNavigation(context.Background(), "https://example.com", "agent", 50, nil)
+	if err := hook.LogNavigation(context.Background(), "https://example.com", "agent", 50, nil); err != nil {
+		t.Fatal(err)
+	}
 	if logger.events[0].Action != "navigate" {
 		t.Errorf("expected action=navigate, got %s", logger.events[0].Action)
 	}
@@ -89,7 +91,9 @@ func TestAuditHook_LogNavigation_Success(t *testing.T) {
 func TestAuditHook_LogNavigation_Error(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogNavigation(context.Background(), "https://example.com", "agent", 50, errors.New("timeout"))
+	if err := hook.LogNavigation(context.Background(), "https://example.com", "agent", 50, errors.New("timeout")); err != nil {
+		t.Fatal(err)
+	}
 	if logger.events[0].Result != "error: timeout" {
 		t.Errorf("expected result=error: timeout, got %s", logger.events[0].Result)
 	}
@@ -98,7 +102,9 @@ func TestAuditHook_LogNavigation_Error(t *testing.T) {
 func TestAuditHook_LogClick(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogClick(context.Background(), "https://example.com", "agent", "#button", 30, nil)
+	if err := hook.LogClick(context.Background(), "https://example.com", "agent", "#button", 30, nil); err != nil {
+		t.Fatal(err)
+	}
 	if logger.events[0].Action != "click" {
 		t.Errorf("expected action=click, got %s", logger.events[0].Action)
 	}
@@ -110,7 +116,9 @@ func TestAuditHook_LogClick(t *testing.T) {
 func TestAuditHook_LogInput(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogInput(context.Background(), "https://example.com", "agent", "#field", 20, nil)
+	if err := hook.LogInput(context.Background(), "https://example.com", "agent", "#field", 20, nil); err != nil {
+		t.Fatal(err)
+	}
 	if logger.events[0].Action != "input" {
 		t.Errorf("expected action=input, got %s", logger.events[0].Action)
 	}
@@ -119,8 +127,12 @@ func TestAuditHook_LogInput(t *testing.T) {
 func TestAuditHook_Stats(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogAction(context.Background(), "navigate", "url1", "agent", "success", 10, nil)
-	hook.LogAction(context.Background(), "click", "url2", "agent", "success", 20, nil)
+	if err := hook.LogAction(context.Background(), "navigate", "url1", "agent", "success", 10, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := hook.LogAction(context.Background(), "click", "url2", "agent", "success", 20, nil); err != nil {
+		t.Fatal(err)
+	}
 	if hook.Stats().Total != 2 {
 		t.Errorf("expected total=2, got %d", hook.Stats().Total)
 	}
@@ -132,7 +144,9 @@ func TestAuditHook_Stats(t *testing.T) {
 func TestAuditHook_ResetStats(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogAction(context.Background(), "navigate", "url", "agent", "success", 10, nil)
+	if err := hook.LogAction(context.Background(), "navigate", "url", "agent", "success", 10, nil); err != nil {
+		t.Fatal(err)
+	}
 	hook.ResetStats()
 	if hook.Stats().Total != 0 {
 		t.Error("expected total=0 after reset")
@@ -153,7 +167,9 @@ func TestAuditHook_Enabled(t *testing.T) {
 func TestAuditHook_TimestampSet(t *testing.T) {
 	logger := &mockOCSFLogger{}
 	hook := NewAuditHook(logger)
-	hook.LogAction(context.Background(), "navigate", "url", "agent", "success", 10, nil)
+	if err := hook.LogAction(context.Background(), "navigate", "url", "agent", "success", 10, nil); err != nil {
+		t.Fatal(err)
+	}
 	if logger.events[0].Timestamp.IsZero() {
 		t.Error("expected non-zero timestamp")
 	}

@@ -30,7 +30,7 @@ func TestCDPTransportCorrelatesConcurrentResponses(t *testing.T) {
 		return writeCDPMessage(ctx, conn, map[string]any{"id": first.ID, "result": map[string]any{"value": first.Method}})
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 
 	type result struct {
 		Value string `json:"value"`
@@ -67,7 +67,7 @@ func TestCDPTransportPropagatesProtocolError(t *testing.T) {
 		return writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "error": map[string]any{"code": -32601, "message": "unknown method"}})
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	err := transport.Call(context.Background(), "Missing.method", nil, nil)
 	if !IsCDPError(err, CDPErrorProtocol) {
 		t.Fatalf("error=%v", err)
@@ -85,7 +85,7 @@ func TestCDPTransportDispatchesSessionEvent(t *testing.T) {
 		})
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	subscription, err := transport.Subscribe(1)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestCDPTransportSubscriptionOverflowIsExplicit(t *testing.T) {
 		return nil
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	subscription, err := transport.Subscribe(1)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestCDPTransportBoundsPendingCallsAndCancellation(t *testing.T) {
 		return nil
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{MaxPendingCalls: 1})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	ctx, cancel := context.WithCancel(context.Background())
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- transport.Call(ctx, "First.call", nil, nil) }()
@@ -176,7 +176,7 @@ func TestCDPTransportCallerWriteCancellationKeepsTransportUsable(t *testing.T) {
 		}
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -240,7 +240,7 @@ func TestCDPTransportRejectsNilCallContextAndBadResult(t *testing.T) {
 		return writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "result": "wrong-shape"})
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	//lint:ignore SA1012 nil context is the invalid input under test.
 	if err := transport.Call(nil, "Test.call", nil, nil); !IsCDPError(err, CDPErrorInvalidConfig) {
 		t.Fatalf("nil call context error=%v", err)
@@ -283,7 +283,7 @@ func TestCDPTransportCarriesFlattenedSessionID(t *testing.T) {
 		return writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "result": map[string]any{}})
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	if err := transport.CallSession(context.Background(), "session-9", "Runtime.enable", nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestCDPTransportConcurrentCallsRace(t *testing.T) {
 		return nil
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
-	defer transport.Close()
+	defer closeTestCDPTransport(t, transport)
 	var wait sync.WaitGroup
 	errs := make(chan error, 32)
 	for range 32 {
@@ -339,8 +339,11 @@ func cdpTestServer(t *testing.T, run func(context.Context, *websocket.Conn) erro
 			errs <- err
 			return
 		}
-		defer conn.CloseNow()
-		errs <- run(serverCtx, conn)
+		runErr := run(serverCtx, conn)
+		if closeErr := conn.CloseNow(); closeErr != nil && websocket.CloseStatus(closeErr) == -1 {
+			runErr = errors.Join(runErr, closeErr)
+		}
+		errs <- runErr
 	}))
 	t.Cleanup(func() {
 		cancel()
@@ -384,4 +387,11 @@ func writeCDPMessage(ctx context.Context, conn *websocket.Conn, message any) err
 		return err
 	}
 	return conn.Write(ctx, websocket.MessageText, payload)
+}
+
+func closeTestCDPTransport(t *testing.T, transport *CDPTransport) {
+	t.Helper()
+	if err := transport.Close(); err != nil {
+		t.Errorf("close CDP transport: %v", err)
+	}
 }
