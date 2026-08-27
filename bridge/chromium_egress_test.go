@@ -36,8 +36,8 @@ func TestPolicyTargetKindClassifiesBrowserEgress(t *testing.T) {
 
 func TestNavigateRequiresContextBeforePolicyEvaluation(t *testing.T) {
 	page := &Page{}
-	//lint:ignore SA1012 nil context is the invalid input under test.
-	if _, _, err := page.Navigate(nil, "https://example.com"); !IsCDPError(err, CDPErrorInvalidConfig) {
+	var invalidContext context.Context
+	if _, _, err := page.Navigate(invalidContext, "https://example.com"); !IsCDPError(err, CDPErrorInvalidConfig) {
 		t.Fatalf("nil context error=%v", err)
 	}
 	if _, _, err := page.Navigate(context.Background(), ""); err == nil {

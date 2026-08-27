@@ -18,7 +18,11 @@ func TestServerIndex(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.BaseURL())
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.BaseURL(), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
@@ -46,7 +50,11 @@ func TestServerStaticHTML(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/html-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/html-001"), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET html-001: %v", err)
 	}
@@ -72,7 +80,11 @@ func TestServerRedirectChain(t *testing.T) {
 	defer s.Close()
 
 	client := &http.Client{CheckRedirect: nil}
-	resp, err := client.Get(s.URL("/redirect-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/redirect-001"), nil)
+	if err != nil {
+		t.Fatalf("new redirect request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("GET redirect-001: %v", err)
 	}
@@ -98,14 +110,22 @@ func TestServerCookiePersistence(t *testing.T) {
 		t.Fatalf("cookie jar: %v", err)
 	}
 	client := &http.Client{Jar: jar}
-	firstResponse, requestErr := client.Get(s.URL("/cookie-001"))
+	firstRequest, requestErr := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/cookie-001"), nil)
+	if requestErr != nil {
+		t.Fatalf("new cookie-001 request: %v", requestErr)
+	}
+	firstResponse, requestErr := client.Do(firstRequest)
 	if requestErr != nil {
 		t.Fatalf("GET cookie-001: %v", requestErr)
 	}
 	if closeErr := firstResponse.Body.Close(); closeErr != nil {
 		t.Fatalf("close cookie-001 response: %v", closeErr)
 	}
-	resp, err := client.Get(s.URL("/cookie-002"))
+	secondRequest, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/cookie-002"), nil)
+	if err != nil {
+		t.Fatalf("new cookie-002 request: %v", err)
+	}
+	resp, err := client.Do(secondRequest)
 	if err != nil {
 		t.Fatalf("GET cookie-002: %v", err)
 	}
@@ -127,7 +147,11 @@ func TestServerBasicAuth(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/auth-basic-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/auth-basic-001"), nil)
+	if err != nil {
+		t.Fatalf("new auth request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET auth: %v", err)
 	}
@@ -141,7 +165,7 @@ func TestServerBasicAuth(t *testing.T) {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, s.URL("/auth-basic-001"), nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/auth-basic-001"), nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -171,10 +195,16 @@ func TestServerFormPOST(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.PostForm(s.URL("/form-submit"), url.Values{
+	form := url.Values{
 		"name":  {"Alice"},
 		"email": {"alice@fixture.test"},
-	})
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL("/form-submit"), strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("new form request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST form: %v", err)
 	}
@@ -212,7 +242,7 @@ func TestServerFileUpload(t *testing.T) {
 		t.Fatalf("close multipart writer: %v", closeErr)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, s.URL("/file-upload"), strings.NewReader(b.String()))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL("/file-upload"), strings.NewReader(b.String()))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -272,7 +302,11 @@ func TestServerSlow(t *testing.T) {
 	defer s.Close()
 
 	start := time.Now()
-	resp, err := http.Get(s.URL("/slow-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/slow-001"), nil)
+	if err != nil {
+		t.Fatalf("new slow request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET slow: %v", err)
 	}
@@ -293,7 +327,11 @@ func TestServerCrash(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/crash-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/crash-001"), nil)
+	if err != nil {
+		t.Fatalf("new crash request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET crash: %v", err)
 	}
@@ -311,7 +349,11 @@ func TestServerMalformed(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/malformed-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/malformed-001"), nil)
+	if err != nil {
+		t.Fatalf("new malformed request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET malformed: %v", err)
 	}
@@ -372,7 +414,11 @@ func TestServerChallenge(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/challenge-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/challenge-001"), nil)
+	if err != nil {
+		t.Fatalf("new challenge request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET challenge: %v", err)
 	}
@@ -386,7 +432,7 @@ func TestServerChallenge(t *testing.T) {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, s.URL("/challenge-001"), nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/challenge-001"), nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -416,7 +462,11 @@ func TestServerLarge(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/large-001"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/large-001"), nil)
+	if err != nil {
+		t.Fatalf("new large request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET large: %v", err)
 	}
@@ -456,7 +506,11 @@ func TestServerFormGET(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/form-search?q=fixture"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/form-search?q=fixture"), nil)
+	if err != nil {
+		t.Fatalf("new form search request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET search: %v", err)
 	}
@@ -478,7 +532,11 @@ func TestServerSPAJSON(t *testing.T) {
 	s := NewServerWithDefaults()
 	defer s.Close()
 
-	resp, err := http.Get(s.URL("/api/spa-data"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/api/spa-data"), nil)
+	if err != nil {
+		t.Fatalf("new API request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET api: %v", err)
 	}

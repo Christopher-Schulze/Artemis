@@ -31,7 +31,7 @@ func mustNewTestWebBotAuth(t *testing.T, config WebBotAuthConfig) *WebBotAuth {
 
 func mustNewTestRequest(t *testing.T, method, target string) *http.Request {
 	t.Helper()
-	request, err := http.NewRequest(method, target, nil)
+	request, err := http.NewRequestWithContext(t.Context(), method, target, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -364,7 +364,11 @@ func TestWebBotAuthMiddleware(t *testing.T) {
 	}
 	mw := NewWebBotAuthTransport(inner, w)
 	client := &http.Client{Transport: mw}
-	resp, err := client.Get("https://example.com/path")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/path", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -393,7 +397,11 @@ func TestWebBotAuthMiddlewareDisabledPassThrough(t *testing.T) {
 	}
 	mw := NewWebBotAuthTransport(inner, w)
 	client := &http.Client{Transport: mw}
-	resp, err := client.Get("https://example.com/path")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/path", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -761,7 +769,11 @@ func TestWebBotAuthEndToEndWithHTTPServer(t *testing.T) {
 	// Use the middleware to sign requests.
 	mw := NewWebBotAuthTransport(http.DefaultTransport, w)
 	client := &http.Client{Transport: mw}
-	resp, err := client.Get(server.URL + "/test")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/test", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

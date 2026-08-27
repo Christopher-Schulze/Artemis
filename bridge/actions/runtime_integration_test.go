@@ -365,7 +365,7 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	childListener, err := net.Listen("tcp6", "[::1]:0")
+	childListener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp6", "[::1]:0")
 	if err != nil {
 		t.Fatalf("IPv6 loopback required for OOPIF fixture: %v", err)
 	}

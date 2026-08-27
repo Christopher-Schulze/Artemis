@@ -96,7 +96,11 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 
 	// The regression scenario should be servable and reproduce the title.
 	srv.Register(reg)
-	res, err := http.Get(srv.URL(reg.Path))
+	replayRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL(reg.Path), nil)
+	if err != nil {
+		t.Fatalf("new replay request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(replayRequest)
 	if err != nil {
 		t.Fatalf("http.Get: %v", err)
 	}

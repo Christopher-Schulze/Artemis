@@ -41,7 +41,7 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 	// Build the binary
 	binDir := t.TempDir()
 	binPath := filepath.Join(binDir, "benchmark")
-	cmd := exec.Command("go", "build", "-o", binPath, ".")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", binPath, ".")
 	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
@@ -49,7 +49,7 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 
 	// Run it in Artemis-only mode with a temp output dir
 	outDir := t.TempDir()
-	runCmd := exec.Command(binPath, "--skip-competitor", "--iterations", "2", "--output", outDir)
+	runCmd := exec.CommandContext(t.Context(), binPath, "--skip-competitor", "--iterations", "2", "--output", outDir)
 	runCmd.Dir = "."
 	if out, err := runCmd.CombinedOutput(); err != nil {
 		t.Fatalf("benchmark run: %v\n%s", err, out)

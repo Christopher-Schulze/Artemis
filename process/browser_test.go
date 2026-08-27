@@ -561,7 +561,7 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 	stateFile := filepath.Join(dir, "state")
 	script := strings.ReplaceAll(browserRecordsPIDScript, "BROWSER_PID_FILE", pidFile)
 	scriptPath := writeBrowserScript(t, script)
-	cmd := exec.Command(os.Args[0], "-test.run=TestProcessGuardianReapsBrowserAfterOwnerDeath")
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=TestProcessGuardianReapsBrowserAfterOwnerDeath")
 	cmd.Env = append(os.Environ(),
 		"ARTEMIS_PROCESS_GUARDIAN_HELPER=1",
 		"ARTEMIS_PROCESS_GUARDIAN_SCRIPT="+scriptPath,

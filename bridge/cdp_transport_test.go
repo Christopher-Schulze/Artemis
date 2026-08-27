@@ -224,8 +224,8 @@ func TestCDPTransportRejectsInvalidConfig(t *testing.T) {
 			t.Fatalf("config=%+v error=%v", config, err)
 		}
 	}
-	//lint:ignore SA1012 nil context is the invalid input under test.
-	_, err := DialCDPTransport(nil, CDPTransportConfig{URL: "ws://localhost:9222"})
+	var invalidContext context.Context
+	_, err := DialCDPTransport(invalidContext, CDPTransportConfig{URL: "ws://localhost:9222"})
 	if !IsCDPError(err, CDPErrorInvalidConfig) {
 		t.Fatalf("nil context error=%v", err)
 	}
@@ -241,8 +241,8 @@ func TestCDPTransportRejectsNilCallContextAndBadResult(t *testing.T) {
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
 	defer closeTestCDPTransport(t, transport)
-	//lint:ignore SA1012 nil context is the invalid input under test.
-	if err := transport.Call(nil, "Test.call", nil, nil); !IsCDPError(err, CDPErrorInvalidConfig) {
+	var invalidContext context.Context
+	if err := transport.Call(invalidContext, "Test.call", nil, nil); !IsCDPError(err, CDPErrorInvalidConfig) {
 		t.Fatalf("nil call context error=%v", err)
 	}
 	var result struct {

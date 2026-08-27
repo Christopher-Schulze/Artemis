@@ -28,7 +28,7 @@ func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
 		t.Fatalf("agent start: %v", startErr)
 	}
 	server := New(agent, opts)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
 		t.Fatalf("listen: %v", err)
@@ -86,7 +86,7 @@ func TestServeRejectsNonLoopbackBindAndHost(t *testing.T) {
 
 	_, server, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	defer cleanup()
-	request := httptest.NewRequest(http.MethodGet, "http://evil.example/", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://evil.example/", nil)
 	request.Host = "evil.example"
 	recorder := httptest.NewRecorder()
 	server.handleWS(recorder, request)
@@ -99,7 +99,7 @@ func TestServeRejectsQueryCredentials(t *testing.T) {
 	_, server, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	defer cleanup()
 	for _, key := range []string{"token", "auth_token", "access_token", "session_token", "sessionToken", "csrf_token", "csrfToken"} {
-		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/?"+key+"=secret", nil)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1/?"+key+"=secret", nil)
 		recorder := httptest.NewRecorder()
 		server.handleWS(recorder, request)
 		if recorder.Code != http.StatusBadRequest {

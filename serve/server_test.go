@@ -79,7 +79,7 @@ func startServer(t *testing.T) (string, func()) {
 		t.Fatalf("agent start: %v", startErr)
 	}
 	srv := New(agent, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
 		t.Fatalf("listen: %v", err)
@@ -137,7 +137,7 @@ func startServerWithAuth(t *testing.T, token string) (string, func()) {
 		t.Fatalf("agent start: %v", startErr)
 	}
 	srv := New(agent, Opts{AuthToken: token, RateLimit: testRateLimit()})
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
 		t.Fatalf("listen: %v", err)

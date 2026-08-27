@@ -19,7 +19,7 @@ func TestServeStartupAndShutdown(t *testing.T) {
 	if defaultServeHost != "127.0.0.1" {
 		t.Fatalf("default serve host = %q, want numeric loopback", defaultServeHost)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestServeStartupAndShutdown(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	var connected bool
 	for time.Now().Before(deadline) {
-		conn, derr := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		conn, derr := (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(t.Context(), "tcp", addr)
 		if derr == nil {
 			if err := conn.Close(); err != nil {
 				t.Errorf("close probe connection: %v", err)

@@ -33,7 +33,11 @@ func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
 			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
-	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, backend.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := proxyHTTPClient(t, proxy.URL()).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +64,11 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
-	response, err := proxyHTTPClient(t, proxy.URL()).Get(backend.URL)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, backend.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := proxyHTTPClient(t, proxy.URL()).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +109,7 @@ func TestChromiumPolicyProxyRewriteRemovesProxyHeaders(t *testing.T) {
 }
 
 func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +124,7 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 			t.Errorf("close policy proxy: %v", closeErr)
 		}
 	})
-	connection, err := net.DialTimeout("tcp", strings.TrimPrefix(proxy.URL(), "http://"), time.Second)
+	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", strings.TrimPrefix(proxy.URL(), "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +183,7 @@ func proxyHTTPClient(t *testing.T, rawProxyURL string) *http.Client {
 }
 
 func TestChromiumPolicyProxyClosesActiveTunnel(t *testing.T) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

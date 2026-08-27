@@ -52,7 +52,7 @@ func TestTASK1599_RoutesReturnsHandler(t *testing.T) {
 
 func TestTASK1599_GetProfiles(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
-	req := httptest.NewRequest(http.MethodGet, "/api/browser/profiles", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -64,7 +64,7 @@ func TestTASK1599_GetProfiles(t *testing.T) {
 func TestTASK1599_PostProfile(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	body := `{"name":"test","owner_user_ref":"user1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/browser/profiles", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/browser/profiles", strings.NewReader(body))
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -74,7 +74,7 @@ func TestTASK1599_PostProfile(t *testing.T) {
 
 func TestTASK1599_GetSettings(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
-	req := httptest.NewRequest(http.MethodGet, "/api/browser/settings", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/settings", nil)
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -92,7 +92,7 @@ func TestTASK1599_GetSettings(t *testing.T) {
 func TestTASK1599_PutSettings(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	body := `{"headless":false,"download_dir":"/tmp","user_agent":"test","viewport_width":1920,"viewport_height":1080}`
-	req := httptest.NewRequest(http.MethodPut, "/api/browser/settings", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/browser/settings", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -116,7 +116,7 @@ func TestTASK1599_GetSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
-	req := httptest.NewRequest(http.MethodGet, "/api/browser/sessions", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/sessions", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -131,7 +131,7 @@ func TestTASK1599_PostSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
-	req := httptest.NewRequest(http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"api-profile","class":"ephemeral"}`))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"api-profile","class":"ephemeral"}`))
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -150,7 +150,7 @@ func TestTASK1599_DeleteSessionByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := NewBrowserAPI(nil, nil, nil, nil).WithRuntime(runtime)
-	req := httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/"+string(session.ID), nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/browser/sessions/"+string(session.ID), nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -173,7 +173,7 @@ func TestBrowserAPILoginExecutesSessionManager(t *testing.T) {
 	}
 	sessions := NewSessionManager(credentials, &fakeDetector{visible: true}, &fakeExecutor{fillOK: true})
 	api := NewBrowserAPI(manager, sessions, NewCookieStore(), NewStorageManager(t.TempDir()))
-	req := httptest.NewRequest(http.MethodPost, "/api/browser/profiles/login-profile/login", strings.NewReader(`{"domain":"example.com","purpose":"support"}`))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/browser/profiles/login-profile/login", strings.NewReader(`{"domain":"example.com","purpose":"support"}`))
 	req.Header.Set("X-Artemis-Owner", "owner")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -188,7 +188,7 @@ func TestBrowserAPILoginExecutesSessionManager(t *testing.T) {
 
 func TestTASK1599_MethodNotAllowed(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
-	req := httptest.NewRequest(http.MethodPatch, "/api/browser/profiles", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	api.Routes().ServeHTTP(w, req)
@@ -206,7 +206,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	h := api.Routes()
 
 	// 1. GET /api/browser/profiles
-	req := httptest.NewRequest(http.MethodGet, "/api/browser/profiles", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -215,7 +215,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 2. GET /api/browser/settings
-	req = httptest.NewRequest(http.MethodGet, "/api/browser/settings", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/settings", nil)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -224,7 +224,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 
 	// 3. PUT /api/browser/settings
 	body := `{"headless":true,"download_dir":"","user_agent":"","viewport_width":1280,"viewport_height":720}`
-	req = httptest.NewRequest(http.MethodPut, "/api/browser/settings", strings.NewReader(body))
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/browser/settings", strings.NewReader(body))
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -232,7 +232,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 4. GET /api/browser/sessions
-	req = httptest.NewRequest(http.MethodGet, "/api/browser/sessions", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/sessions", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -241,7 +241,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 5. POST /api/browser/sessions
-	req = httptest.NewRequest(http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"full-spec","class":"ephemeral"}`))
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/browser/sessions", strings.NewReader(`{"profile_id":"full-spec","class":"ephemeral"}`))
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -254,7 +254,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 6. DELETE /api/browser/sessions/:id
-	req = httptest.NewRequest(http.MethodDelete, "/api/browser/sessions/"+string(created.ID), nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/browser/sessions/"+string(created.ID), nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -263,7 +263,7 @@ func TestTASK1599_FullSpecParity(t *testing.T) {
 	}
 
 	// 7. Method not allowed
-	req = httptest.NewRequest(http.MethodPatch, "/api/browser/profiles", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)

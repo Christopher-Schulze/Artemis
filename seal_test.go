@@ -138,8 +138,8 @@ func TestSealNoSyntheticSuccessInAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	//lint:ignore SA1012 nil context is the invalid input under test.
-	if err := agent.Start(nil); err == nil {
+	var invalidContext context.Context
+	if err := agent.Start(invalidContext); err == nil {
 		t.Fatal("agent.Start(nil) should fail")
 	}
 	// Verify the agent does not claim to support Chromium when it's unavailable.

@@ -43,7 +43,7 @@ func moduleRoot(t *testing.T) string {
 // excluded and the guard reflects what will actually be committed.
 func trackedFiles(t *testing.T, root string) []string {
 	t.Helper()
-	cmd := exec.Command("git", "ls-files", ".")
+	cmd := exec.CommandContext(t.Context(), "git", "ls-files", ".")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
