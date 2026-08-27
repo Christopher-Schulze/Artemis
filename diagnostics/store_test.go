@@ -20,11 +20,11 @@ func TestStorePersistsClosedRedactedSchema(t *testing.T) {
 		Operation: "navigation", Transport: "https", Host: "example.test", Port: 443,
 		Result: "allow", ReasonCode: "policy_match", SessionRef: HashSession("raw-session"),
 	}
-	if err := store.AppendPolicy(decision); err != nil {
-		t.Fatal(err)
+	if appendPolicyErr := store.AppendPolicy(decision); appendPolicyErr != nil {
+		t.Fatal(appendPolicyErr)
 	}
-	if err := store.AppendResource(ResourceUsage{Scope: "renderless", SessionRef: HashSession("raw-session"), Requests: 2, ResponseBytes: 64, DiskBytes: 32}); err != nil {
-		t.Fatal(err)
+	if appendResourceErr := store.AppendResource(ResourceUsage{Scope: "renderless", SessionRef: HashSession("raw-session"), Requests: 2, ResponseBytes: 64, DiskBytes: 32}); appendResourceErr != nil {
+		t.Fatal(appendResourceErr)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -62,11 +62,11 @@ func TestStoreEnforcesAgeCountAndByteRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index := 0; index < 4; index++ {
-		if err := store.AppendPolicy(PolicyDecision{
+		if appendErr := store.AppendPolicy(PolicyDecision{
 			Operation: "navigation", Transport: "https", Host: "example.test", Port: 443,
 			Result: "deny", ReasonCode: "host_not_allowed", SessionRef: HashSession(string(rune('a' + index))),
-		}); err != nil {
-			t.Fatal(err)
+		}); appendErr != nil {
+			t.Fatal(appendErr)
 		}
 	}
 	records, err := store.Snapshot()
@@ -99,11 +99,11 @@ func TestStoreEnforcesByteRetentionIndependently(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, host := range []string{"one.example", "two.example", "three.example"} {
-		if err := store.AppendPolicy(PolicyDecision{
+		if appendErr := store.AppendPolicy(PolicyDecision{
 			Operation: "navigation", Transport: "https", Host: host, Port: 443,
 			Result: "allow", ReasonCode: "policy_match", SessionRef: HashSession(host),
-		}); err != nil {
-			t.Fatal(err)
+		}); appendErr != nil {
+			t.Fatal(appendErr)
 		}
 	}
 	records, err := store.Snapshot()
@@ -129,7 +129,7 @@ func TestStoreRejectsSensitiveOrCorruptRecords(t *testing.T) {
 		{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "raw reason with spaces"},
 		{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "policy_match", SessionRef: "raw-session"},
 	} {
-		if err := store.AppendPolicy(decision); err == nil {
+		if appendErr := store.AppendPolicy(decision); appendErr == nil {
 			t.Fatalf("accepted unsafe decision %+v", decision)
 		}
 	}
@@ -154,8 +154,8 @@ func TestStoreRefreshesConcurrentWriterWithoutLosingRecords(t *testing.T) {
 	}
 	appendDecision := func(store *Store, host string) {
 		t.Helper()
-		if err := store.AppendPolicy(PolicyDecision{Operation: "navigation", Transport: "https", Host: host, Port: 443, Result: "allow", ReasonCode: "policy_match"}); err != nil {
-			t.Fatal(err)
+		if appendErr := store.AppendPolicy(PolicyDecision{Operation: "navigation", Transport: "https", Host: host, Port: 443, Result: "allow", ReasonCode: "policy_match"}); appendErr != nil {
+			t.Fatal(appendErr)
 		}
 	}
 	appendDecision(first, "one.example")
@@ -176,8 +176,8 @@ func TestStoreRefreshesSameSizeExternalReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AppendPolicy(PolicyDecision{Operation: "navigation", Transport: "https", Host: "one.example", Port: 443, Result: "allow", ReasonCode: "policy_match"}); err != nil {
-		t.Fatal(err)
+	if appendErr := store.AppendPolicy(PolicyDecision{Operation: "navigation", Transport: "https", Host: "one.example", Port: 443, Result: "allow", ReasonCode: "policy_match"}); appendErr != nil {
+		t.Fatal(appendErr)
 	}
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -187,12 +187,12 @@ func TestStoreRefreshesSameSizeExternalReplacement(t *testing.T) {
 	if len(replacement) != len(original) {
 		t.Fatalf("replacement size=%d, want %d", len(replacement), len(original))
 	}
-	if err := os.WriteFile(path, replacement, 0o600); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(path, replacement, 0o600); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	changed := time.Now().Add(time.Second)
-	if err := os.Chtimes(path, changed, changed); err != nil {
-		t.Fatal(err)
+	if chtimesErr := os.Chtimes(path, changed, changed); chtimesErr != nil {
+		t.Fatal(chtimesErr)
 	}
 	records, err := store.Snapshot()
 	if err != nil {

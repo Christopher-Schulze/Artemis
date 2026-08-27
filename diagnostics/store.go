@@ -494,30 +494,30 @@ func (s *Store) rewriteLocked() error {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
-	if err := temporary.Chmod(0o600); err != nil {
-		return fmt.Errorf("diagnostics temporary permissions: %w", err)
+	if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
+		return fmt.Errorf("diagnostics temporary permissions: %w", chmodErr)
 	}
 	writer := bufio.NewWriter(temporary)
 	for _, record := range s.records {
-		line, err := json.Marshal(record)
-		if err != nil {
-			return fmt.Errorf("diagnostics encode: %w", err)
+		line, marshalErr := json.Marshal(record)
+		if marshalErr != nil {
+			return fmt.Errorf("diagnostics encode: %w", marshalErr)
 		}
-		if _, err := writer.Write(append(line, '\n')); err != nil {
-			return fmt.Errorf("diagnostics rewrite: %w", err)
+		if _, writeErr := writer.Write(append(line, '\n')); writeErr != nil {
+			return fmt.Errorf("diagnostics rewrite: %w", writeErr)
 		}
 	}
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("diagnostics flush: %w", err)
+	if flushErr := writer.Flush(); flushErr != nil {
+		return fmt.Errorf("diagnostics flush: %w", flushErr)
 	}
-	if err := temporary.Sync(); err != nil {
-		return fmt.Errorf("diagnostics sync: %w", err)
+	if syncErr := temporary.Sync(); syncErr != nil {
+		return fmt.Errorf("diagnostics sync: %w", syncErr)
 	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("diagnostics close temporary: %w", err)
+	if closeErr := temporary.Close(); closeErr != nil {
+		return fmt.Errorf("diagnostics close temporary: %w", closeErr)
 	}
-	if err := os.Rename(temporaryPath, s.config.Path); err != nil {
-		return fmt.Errorf("diagnostics replace: %w", err)
+	if renameErr := os.Rename(temporaryPath, s.config.Path); renameErr != nil {
+		return fmt.Errorf("diagnostics replace: %w", renameErr)
 	}
 	committed = true
 	info, err := os.Stat(s.config.Path)
