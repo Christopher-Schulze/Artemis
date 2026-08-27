@@ -377,7 +377,7 @@ func ensureTraceRoot(raw string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve trace dir: %w", err)
 	}
-	if mkdirErr := os.MkdirAll(absolute, 0o755); mkdirErr != nil {
+	if mkdirErr := os.MkdirAll(absolute, 0o750); mkdirErr != nil {
 		return "", fmt.Errorf("create trace dir: %w", mkdirErr)
 	}
 	root, err := filepath.EvalSymlinks(absolute)

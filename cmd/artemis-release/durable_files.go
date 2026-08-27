@@ -26,7 +26,7 @@ func copyDurableFile(source, destination string) (returnErr error) {
 	if info.Mode().Perm()&0o111 != 0 {
 		mode = 0o755
 	}
-	if err = os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
 		return err
 	}
 	destinationFile, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
@@ -51,7 +51,7 @@ func copyDurableFile(source, destination string) (returnErr error) {
 }
 
 func writeDurableFile(path string, data []byte, mode os.FileMode) (returnErr error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)

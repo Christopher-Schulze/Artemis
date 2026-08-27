@@ -183,10 +183,6 @@ func (m *DownloadManager) NewBrowserStage() (*BrowserStage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download stage: %w", err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		cleanupErr := os.RemoveAll(dir)
-		return nil, errors.Join(fmt.Errorf("download stage permissions: %w", err), cleanupErr)
-	}
 	return &BrowserStage{manager: m, dir: dir}, nil
 }
 
@@ -584,7 +580,14 @@ func ensurePrivateDirectory(path string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("path is not a private directory")
 	}
-	return os.Chmod(path, 0o700)
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := directory.Chmod(0o700); err != nil {
+		return errors.Join(err, directory.Close())
+	}
+	return directory.Close()
 }
 
 func (m *DownloadManager) diskUsageLocked(exclude string) (int64, error) {

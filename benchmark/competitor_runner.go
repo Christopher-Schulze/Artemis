@@ -104,7 +104,7 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
 		return fmt.Errorf("competitor binary not available: no download URL configured")
 	}
 
-	if err := os.MkdirAll(r.cfg.BinaryDir, 0o755); err != nil {
+	if err := os.MkdirAll(r.cfg.BinaryDir, 0o750); err != nil {
 		return fmt.Errorf("competitor binary mkdir: %w", err)
 	}
 
@@ -132,11 +132,19 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
 		return fmt.Errorf("competitor binary create: %w", err)
 	}
 	_, copyErr := io.Copy(out, resp.Body)
-	closeErr := out.Close()
 	if copyErr != nil {
+		closeErr := out.Close()
 		removeErr := os.Remove(r.BinaryPath())
 		return errors.Join(fmt.Errorf("competitor binary write: %w", copyErr), closeErr, removeErr)
 	}
+	if runtime.GOOS != "windows" {
+		if chmodErr := out.Chmod(0o700); chmodErr != nil {
+			closeErr := out.Close()
+			removeErr := os.Remove(r.BinaryPath())
+			return errors.Join(fmt.Errorf("competitor binary chmod: %w", chmodErr), closeErr, removeErr)
+		}
+	}
+	closeErr := out.Close()
 	if closeErr != nil {
 		removeErr := os.Remove(r.BinaryPath())
 		return errors.Join(fmt.Errorf("competitor binary close: %w", closeErr), removeErr)
@@ -147,13 +155,13 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
 		return errors.Join(err, removeErr)
 	}
 
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(r.BinaryPath(), 0o755); err != nil {
-			return fmt.Errorf("competitor binary chmod: %w", err)
-		}
-	}
-
 	return nil
+}
+
+func newCompetitorCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, executable)
+	command.Args = append(command.Args, args...)
+	return command
 }
 
 func (r *CompetitorRunner) verifyChecksum() error {
@@ -194,7 +202,7 @@ func (r *CompetitorRunner) Version() (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, r.BinaryPath(), r.cfg.VersionArgs...).CombinedOutput()
+	out, err := newCompetitorCommand(ctx, r.BinaryPath(), r.cfg.VersionArgs...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("competitor version: %w", err)
 	}
@@ -209,7 +217,7 @@ func (r *CompetitorRunner) Start(ctx context.Context) error {
 		return fmt.Errorf("competitor binary not available: run EnsureBinary first")
 	}
 
-	r.cmd = exec.CommandContext(ctx, r.BinaryPath(),
+	r.cmd = newCompetitorCommand(ctx, r.BinaryPath(),
 		"--port", fmt.Sprintf("%d", r.cfg.Port),
 		"--headless",
 	)

@@ -561,7 +561,11 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 	stateFile := filepath.Join(dir, "state")
 	script := strings.ReplaceAll(browserRecordsPIDScript, "BROWSER_PID_FILE", pidFile)
 	scriptPath := writeBrowserScript(t, script)
-	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=TestProcessGuardianReapsBrowserAfterOwnerDeath")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := newBrowserTestCommand(t.Context(), executable, "-test.run=TestProcessGuardianReapsBrowserAfterOwnerDeath")
 	cmd.Env = append(os.Environ(),
 		"ARTEMIS_PROCESS_GUARDIAN_HELPER=1",
 		"ARTEMIS_PROCESS_GUARDIAN_SCRIPT="+scriptPath,
@@ -764,8 +768,26 @@ func pathExists(path string) bool {
 func writeBrowserScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "browser-fixture")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(body)+"\n"), 0o700); err != nil {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Chmod(0o700); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte(strings.TrimSpace(body) + "\n")); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func newBrowserTestCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, executable)
+	command.Args = append(command.Args, args...)
+	return command
 }

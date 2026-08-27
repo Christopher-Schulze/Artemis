@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +42,7 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 	// Build the binary
 	binDir := t.TempDir()
 	binPath := filepath.Join(binDir, "benchmark")
-	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", binPath, ".")
+	cmd := newBenchmarkTestCommand(t.Context(), "go", "build", "-o", binPath, ".")
 	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
@@ -49,7 +50,7 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 
 	// Run it in Artemis-only mode with a temp output dir
 	outDir := t.TempDir()
-	runCmd := exec.CommandContext(t.Context(), binPath, "--skip-competitor", "--iterations", "2", "--output", outDir)
+	runCmd := newBenchmarkTestCommand(t.Context(), binPath, "--skip-competitor", "--iterations", "2", "--output", outDir)
 	runCmd.Dir = "."
 	if out, err := runCmd.CombinedOutput(); err != nil {
 		t.Fatalf("benchmark run: %v\n%s", err, out)
@@ -64,4 +65,10 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 	if _, err := os.Stat(mdPath); err != nil {
 		t.Errorf("scorecard.md not written: %v", err)
 	}
+}
+
+func newBenchmarkTestCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, executable)
+	command.Args = append(command.Args, args...)
+	return command
 }

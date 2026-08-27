@@ -304,10 +304,10 @@ func (s *Scorecard) WriteJSON(path string) error {
 	if err != nil {
 		return fmt.Errorf("scorecard json: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("scorecard json mkdir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("scorecard json write: %w", err)
 	}
 	return nil
@@ -398,8 +398,8 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("scorecard md mkdir: %w", err)
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }

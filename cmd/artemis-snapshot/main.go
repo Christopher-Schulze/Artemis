@@ -69,7 +69,7 @@ func runMode(checkOnly bool) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o750); err != nil {
 		return fmt.Errorf("create snapshot directory: %w", err)
 	}
 	if err := writeFileAtomic(snapshotPath, blob, 0o644); err != nil {

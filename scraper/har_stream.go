@@ -154,7 +154,7 @@ func NewHARStream(config HARStreamConfig) (*HARStream, error) {
 		config.CreatorVersion = "1.0"
 	}
 
-	f, err := os.OpenFile(config.Path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(config.Path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("har stream: open %s: %w", config.Path, err)
 	}

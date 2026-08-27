@@ -136,5 +136,5 @@ func WriteReport(outputDir string) error {
 		return err
 	}
 	path := filepath.Join(outputDir, "report.md")
-	return os.WriteFile(path, []byte(report), 0o644)
+	return os.WriteFile(path, []byte(report), 0o600)
 }

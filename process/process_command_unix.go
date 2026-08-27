@@ -55,5 +55,7 @@ func newProcessCommand(ctx context.Context, binaryPath, profileDir string, remov
 	}
 	commandArgs := []string{"-c", processGuardianScript, "artemis-process-owner", strconv.Itoa(os.Getpid()), profileDir, remove, binaryPath}
 	commandArgs = append(commandArgs, args...)
-	return exec.CommandContext(ctx, "/bin/sh", commandArgs...)
+	command := exec.CommandContext(ctx, "/bin/sh")
+	command.Args = append(command.Args, commandArgs...)
+	return command
 }

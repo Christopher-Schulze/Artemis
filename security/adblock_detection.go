@@ -206,12 +206,12 @@ func (d *AdBlockerDetection) saveWhitelist() error {
 	for domain := range d.whitelist {
 		domains = append(domains, domain)
 	}
-	if err := os.MkdirAll(filepath.Dir(d.filePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(d.filePath), 0o750); err != nil {
 		return err
 	}
 	data, err := json.Marshal(domains)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(d.filePath, data, 0o644)
+	return os.WriteFile(d.filePath, data, 0o600)
 }

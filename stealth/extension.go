@@ -78,7 +78,7 @@ func (e *StealthExtension) GenerateStealthExtension(dir string) error {
 	if dir == "" {
 		return fmt.Errorf("stealth extension: directory required")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("stealth extension: mkdir: %w", err)
 	}
 
@@ -102,14 +102,14 @@ func (e *StealthExtension) GenerateStealthExtension(dir string) error {
 		return fmt.Errorf("stealth extension: marshal manifest: %w", err)
 	}
 	manifestPath := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
+	if err := os.WriteFile(manifestPath, manifestData, 0o600); err != nil {
 		return fmt.Errorf("stealth extension: write manifest: %w", err)
 	}
 
 	// Write content.js with the assembled stealth patch script
 	script := Script(e.Profile)
 	contentPath := filepath.Join(dir, "content.js")
-	if err := os.WriteFile(contentPath, []byte(script), 0o644); err != nil {
+	if err := os.WriteFile(contentPath, []byte(script), 0o600); err != nil {
 		return fmt.Errorf("stealth extension: write content: %w", err)
 	}
 

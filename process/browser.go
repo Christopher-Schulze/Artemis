@@ -211,10 +211,6 @@ func prepareProfile(configured string) (string, bool, string, error) {
 	if err != nil {
 		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "create profile", Err: err}
 	}
-	if chmodErr := os.Chmod(dir, 0o700); chmodErr != nil {
-		_ = os.RemoveAll(dir)
-		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "secure profile", Err: chmodErr}
-	}
 	lease, err := acquireProfileLease(dir)
 	if err != nil {
 		_ = os.RemoveAll(dir)

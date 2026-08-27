@@ -168,11 +168,11 @@ func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url stri
 	rules := parseABPRules(string(data))
 
 	// Save to storage dir
-	if err := os.MkdirAll(u.cfg.StorageDir, 0o755); err != nil {
+	if err := os.MkdirAll(u.cfg.StorageDir, 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", u.cfg.StorageDir, err)
 	}
 	filePath := filepath.Join(u.cfg.StorageDir, fmt.Sprintf("easylist_%d.txt", time.Now().Unix()))
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write %s: %w", filePath, err)
 	}
 

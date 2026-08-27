@@ -22,7 +22,7 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 	}
 
 	if cfg.CPUProfilePath != "" {
-		if err := os.MkdirAll(filepath.Dir(cfg.CPUProfilePath), 0o755); cfg.CPUProfilePath != "" && filepath.Dir(cfg.CPUProfilePath) != "." && err != nil {
+		if err := os.MkdirAll(filepath.Dir(cfg.CPUProfilePath), 0o750); cfg.CPUProfilePath != "" && filepath.Dir(cfg.CPUProfilePath) != "." && err != nil {
 			return nil, fmt.Errorf("profile dir: %w", err)
 		}
 		f, err := os.Create(cfg.CPUProfilePath)
@@ -43,7 +43,7 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 			pprof.StopCPUProfile()
 		}
 		if cfg.MemProfilePath != "" {
-			if err := os.MkdirAll(filepath.Dir(cfg.MemProfilePath), 0o755); cfg.MemProfilePath != "" && filepath.Dir(cfg.MemProfilePath) != "." && err != nil {
+			if err := os.MkdirAll(filepath.Dir(cfg.MemProfilePath), 0o750); cfg.MemProfilePath != "" && filepath.Dir(cfg.MemProfilePath) != "." && err != nil {
 				return fmt.Errorf("mem profile dir: %w", err)
 			}
 			f, err := os.Create(cfg.MemProfilePath)

@@ -15,13 +15,9 @@ func TestDownloadManagerReportsRejectedFileCleanupFailure(t *testing.T) {
 	if err := os.WriteFile(target, []byte("plain text"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(manager.Directory(), 0o500); err != nil {
-		t.Fatal(err)
-	}
+	chmodTestDirectory(t, manager.Directory(), 0o500)
 	t.Cleanup(func() {
-		if err := os.Chmod(manager.Directory(), 0o700); err != nil {
-			t.Errorf("restore directory mode: %v", err)
-		}
+		chmodTestDirectory(t, manager.Directory(), 0o700)
 	})
 	_, err := manager.Adopt(target, "")
 	if err == nil || !strings.Contains(err.Error(), "cleanup rejected target") {
@@ -29,5 +25,18 @@ func TestDownloadManagerReportsRejectedFileCleanupFailure(t *testing.T) {
 	}
 	if _, statErr := os.Stat(target); statErr != nil {
 		t.Fatalf("rejected file should remain when cleanup fails: %v", statErr)
+	}
+}
+
+func chmodTestDirectory(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	directory, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chmodErr := directory.Chmod(mode)
+	closeErr := directory.Close()
+	if chmodErr != nil || closeErr != nil {
+		t.Fatalf("chmod directory: chmod=%v close=%v", chmodErr, closeErr)
 	}
 }

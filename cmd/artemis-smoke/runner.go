@@ -95,6 +95,12 @@ func NewRunner(cfg RunnerConfig) *Runner {
 	return &Runner{cfg: cfg, logger: cfg.Logger}
 }
 
+func newSmokeCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, executable)
+	command.Args = append(command.Args, args...)
+	return command
+}
+
 // BuildArtemis builds cmd/artemis into cfg.ArtemisBinPath (or a temp path).
 func (r *Runner) BuildArtemis(ctx context.Context) error {
 	if r.cfg.ArtemisBinPath != "" {
@@ -118,7 +124,7 @@ func (r *Runner) BuildArtemis(ctx context.Context) error {
 		_ = f.Close()
 	}
 	r.logger.Info("building artemis", "dir", buildDir, "out", out)
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/artemis")
+	cmd := newSmokeCommand(ctx, "go", "build", "-o", out, "./cmd/artemis")
 	cmd.Dir = buildDir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -131,7 +137,7 @@ func (r *Runner) BuildArtemis(ctx context.Context) error {
 
 // RunAll runs every scenario and writes the scorecard + evidence to OutDir.
 func (r *Runner) RunAll(ctx context.Context, sf *ScenarioFile) (*Scorecard, error) {
-	if err := os.MkdirAll(r.cfg.OutDir, 0o755); err != nil {
+	if err := os.MkdirAll(r.cfg.OutDir, 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir outdir: %w", err)
 	}
 	sc := &Scorecard{
@@ -165,7 +171,7 @@ func (r *Runner) writeScorecard(sc *Scorecard) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return err
 	}
 	r.logger.Info("scorecard written", "path", path,
@@ -202,7 +208,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 	}
 
 	scenarioDir := filepath.Join(r.cfg.OutDir, s.ID)
-	if err := os.MkdirAll(scenarioDir, 0o755); err != nil {
+	if err := os.MkdirAll(scenarioDir, 0o750); err != nil {
 		res.Pass = false
 		res.Steps = append(res.Steps, StepResult{
 			Name: "mkdir", Cmd: "mkdir", OK: false, Error: err.Error(),
@@ -216,7 +222,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		srvCtx, srvCancel := context.WithCancel(ctx)
 		defer srvCancel()
 		addr = fmt.Sprintf("%s:%d", r.cfg.Host, r.cfg.Port)
-		artemisProc := exec.CommandContext(srvCtx, r.binPath, "serve",
+		artemisProc := newSmokeCommand(srvCtx, r.binPath, "serve",
 			"--host", r.cfg.Host, "--port", fmt.Sprintf("%d", r.cfg.Port))
 		artemisProc.Env = append(os.Environ(), "ARTEMIS_SERVE_TOKEN="+r.cfg.AuthToken)
 		var srvLog bytes.Buffer
@@ -232,7 +238,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		defer func() {
 			_ = artemisProc.Process.Kill()
 			_ = artemisProc.Wait()
-			_ = os.WriteFile(filepath.Join(scenarioDir, "serve.log"), srvLog.Bytes(), 0o644)
+			_ = os.WriteFile(filepath.Join(scenarioDir, "serve.log"), srvLog.Bytes(), 0o600)
 		}()
 		// Wait for /healthz.
 		if err := waitForHealth(ctx, "http://"+addr+"/healthz", 10*time.Second); err != nil {
@@ -326,7 +332,7 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		if st.Cmd == "page.dump" {
 			if data, ok := extractString(sr.Got, "data"); ok {
 				art := filepath.Join(scenarioDir, fmt.Sprintf("step-%02d-%s.txt", i, sanitize(st.Name)))
-				if err := os.WriteFile(art, []byte(data), 0o644); err != nil {
+				if err := os.WriteFile(art, []byte(data), 0o600); err != nil {
 					res.Pass = false
 					res.Steps[len(res.Steps)-1].OK = false
 					res.Steps[len(res.Steps)-1].Error = "write page dump: " + err.Error()

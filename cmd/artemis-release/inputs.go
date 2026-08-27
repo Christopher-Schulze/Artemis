@@ -22,7 +22,8 @@ type commandRunner interface {
 type execCommandRunner struct{}
 
 func (execCommandRunner) Output(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := exec.CommandContext(ctx, name)
+	command.Args = append(command.Args, args...)
 	command.Dir = dir
 	out, err := command.CombinedOutput()
 	if err != nil {
