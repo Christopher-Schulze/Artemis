@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -316,35 +315,35 @@ func (s *Scorecard) WriteJSON(path string) error {
 
 // WriteMarkdown writes the scorecard as a human-readable markdown report.
 func (s *Scorecard) WriteMarkdown(path string) error {
-	var b strings.Builder
-	b.WriteString("# Artemis Benchmark Scorecard\n\n")
-	b.WriteString(fmt.Sprintf("- **Date:** %s\n", s.Date.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("- **Host:** %s\n", s.Host))
-	b.WriteString(fmt.Sprintf("- **Matrix Version:** %s\n", s.MatrixVersion))
-	b.WriteString(fmt.Sprintf("- **Scorecard Version:** %s\n", s.Version))
-	b.WriteString(fmt.Sprintf("- **Mode:** %s\n", s.Mode))
-	b.WriteString(fmt.Sprintf("- **Honest:** %v\n", s.Honest))
+	var b []byte
+	b = append(b, "# Artemis Benchmark Scorecard\n\n"...)
+	b = fmt.Appendf(b, "- **Date:** %s\n", s.Date.Format(time.RFC3339))
+	b = fmt.Appendf(b, "- **Host:** %s\n", s.Host)
+	b = fmt.Appendf(b, "- **Matrix Version:** %s\n", s.MatrixVersion)
+	b = fmt.Appendf(b, "- **Scorecard Version:** %s\n", s.Version)
+	b = fmt.Appendf(b, "- **Mode:** %s\n", s.Mode)
+	b = fmt.Appendf(b, "- **Honest:** %v\n", s.Honest)
 	if s.HonestReason != "" {
-		b.WriteString(fmt.Sprintf("- **Honest Reason:** %s\n", s.HonestReason))
+		b = fmt.Appendf(b, "- **Honest Reason:** %s\n", s.HonestReason)
 	}
-	b.WriteString(fmt.Sprintf("- **Environment:** Go %s, %s/%s, %d CPU, tag=%q\n\n",
-		s.Environment.GoVersion, s.Environment.OS, s.Environment.Arch, s.Environment.NumCPU, s.Environment.BenchmarkTag))
+	b = fmt.Appendf(b, "- **Environment:** Go %s, %s/%s, %d CPU, tag=%q\n\n",
+		s.Environment.GoVersion, s.Environment.OS, s.Environment.Arch, s.Environment.NumCPU, s.Environment.BenchmarkTag)
 
 	// Summary table
 	summaries := s.Summarize()
-	b.WriteString("## Summary\n\n")
-	b.WriteString("| Engine | Scenarios | Wins | Losses | Errors | Total ms | Avg ms |\n")
-	b.WriteString("|--------|-----------|------|--------|--------|----------|--------|\n")
+	b = append(b, "## Summary\n\n"...)
+	b = append(b, "| Engine | Scenarios | Wins | Losses | Errors | Total ms | Avg ms |\n"...)
+	b = append(b, "|--------|-----------|------|--------|--------|----------|--------|\n"...)
 	for _, su := range summaries {
-		b.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %d | %.2f | %.2f |\n",
-			su.Engine, su.Scenarios, su.Wins, su.Losses, su.Errors, su.TotalMs, su.AvgMs))
+		b = fmt.Appendf(b, "| %s | %d | %d | %d | %d | %.2f | %.2f |\n",
+			su.Engine, su.Scenarios, su.Wins, su.Losses, su.Errors, su.TotalMs, su.AvgMs)
 	}
-	b.WriteString("\n")
+	b = append(b, '\n')
 
 	// Per-scenario results
-	b.WriteString("## Per-Scenario Results\n\n")
-	b.WriteString("| Scenario | Engine | Mode | Wall ms | CPU ms | RSS | Allocs | Bytes | OK | Valid | Error |\n")
-	b.WriteString("|----------|--------|------|---------|--------|-----|--------|-------|----|-------|-------|\n")
+	b = append(b, "## Per-Scenario Results\n\n"...)
+	b = append(b, "| Scenario | Engine | Mode | Wall ms | CPU ms | RSS | Allocs | Bytes | OK | Valid | Error |\n"...)
+	b = append(b, "|----------|--------|------|---------|--------|-----|--------|-------|----|-------|-------|\n"...)
 
 	// Sort results by scenario ID then engine
 	sorted := make([]ScenarioResult, len(s.Results))
@@ -361,14 +360,14 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 		if errMsg == "" {
 			errMsg = "-"
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %.3f | %.3f | %d | %d | %d | %v | %v | %s |\n",
-			r.ScenarioID, r.Engine, r.EngineMode, r.WallMs, r.CPUMs, r.RSSBytes, r.AllocCount, r.AllocBytes, r.OK, r.Validated, errMsg))
+		b = fmt.Appendf(b, "| %s | %s | %s | %.3f | %.3f | %d | %d | %d | %v | %v | %s |\n",
+			r.ScenarioID, r.Engine, r.EngineMode, r.WallMs, r.CPUMs, r.RSSBytes, r.AllocCount, r.AllocBytes, r.OK, r.Validated, errMsg)
 	}
-	b.WriteString("\n")
+	b = append(b, '\n')
 
 	// Win/loss detail only for honest head-to-head
 	if s.Mode == ModeHeadToHead && s.Honest {
-		b.WriteString("## Win/Loss Detail\n\n")
+		b = append(b, "## Win/Loss Detail\n\n"...)
 		byScenario := map[string]map[EngineName]ScenarioResult{}
 		for _, r := range s.Results {
 			if _, ok := byScenario[r.ScenarioID]; !ok {
@@ -395,12 +394,12 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 					winnerMs = r.WallMs
 				}
 			}
-			b.WriteString(fmt.Sprintf("- **%s**: winner = %s (%.3f ms)\n", id, winner, winnerMs))
+			b = fmt.Appendf(b, "- **%s**: winner = %s (%.3f ms)\n", id, winner, winnerMs)
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("scorecard md mkdir: %w", err)
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	return os.WriteFile(path, b, 0o644)
 }

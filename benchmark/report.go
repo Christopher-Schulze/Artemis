@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -44,37 +43,37 @@ func GenerateReport(artifacts RawArtifacts) (string, error) {
 		return "", fmt.Errorf("parse scorecard json: %w", err)
 	}
 
-	var b strings.Builder
-	b.WriteString("# Artemis Benchmark Report\n\n")
-	b.WriteString(fmt.Sprintf("Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	var b []byte
+	b = append(b, "# Artemis Benchmark Report\n\n"...)
+	b = fmt.Appendf(b, "Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
-	b.WriteString("## Reproducibility\n\n")
-	b.WriteString(fmt.Sprintf("- Scorecard path: `%s`\n", artifacts.ScorecardPath))
-	b.WriteString(fmt.Sprintf("- Scorecard version: %s\n", sc.Version))
-	b.WriteString(fmt.Sprintf("- Matrix version: %s\n", sc.MatrixVersion))
-	b.WriteString(fmt.Sprintf("- Go: %s, OS: %s, Arch: %s, CPUs: %d\n",
-		sc.Environment.GoVersion, sc.Environment.OS, sc.Environment.Arch, sc.Environment.NumCPU))
-	b.WriteString(fmt.Sprintf("- Mode: %s, Honest: %v\n", sc.Mode, sc.Honest))
+	b = append(b, "## Reproducibility\n\n"...)
+	b = fmt.Appendf(b, "- Scorecard path: `%s`\n", artifacts.ScorecardPath)
+	b = fmt.Appendf(b, "- Scorecard version: %s\n", sc.Version)
+	b = fmt.Appendf(b, "- Matrix version: %s\n", sc.MatrixVersion)
+	b = fmt.Appendf(b, "- Go: %s, OS: %s, Arch: %s, CPUs: %d\n",
+		sc.Environment.GoVersion, sc.Environment.OS, sc.Environment.Arch, sc.Environment.NumCPU)
+	b = fmt.Appendf(b, "- Mode: %s, Honest: %v\n", sc.Mode, sc.Honest)
 	if sc.HonestReason != "" {
-		b.WriteString(fmt.Sprintf("- Honest reason: %s\n", sc.HonestReason))
+		b = fmt.Appendf(b, "- Honest reason: %s\n", sc.HonestReason)
 	}
-	b.WriteString("\n")
+	b = append(b, '\n')
 
-	b.WriteString("## Command\n\n")
-	b.WriteString("```bash\n")
-	b.WriteString("go run ./cmd/benchmark")
+	b = append(b, "## Command\n\n"...)
+	b = append(b, "```bash\n"...)
+	b = append(b, "go run ./cmd/benchmark"...)
 	if sc.Mode == ModeHeadToHead {
-		b.WriteString(" --require-head-to-head")
+		b = append(b, " --require-head-to-head"...)
 	} else {
-		b.WriteString(" --skip-competitor")
+		b = append(b, " --skip-competitor"...)
 	}
 	if sc.Environment.BenchmarkTag != "" {
-		b.WriteString(fmt.Sprintf(" --benchmark-tag=%s", sc.Environment.BenchmarkTag))
+		b = fmt.Appendf(b, " --benchmark-tag=%s", sc.Environment.BenchmarkTag)
 	}
-	b.WriteString("\n")
-	b.WriteString("```\n\n")
+	b = append(b, "\n"...)
+	b = append(b, "```\n\n"...)
 
-	b.WriteString("## Per-Metric Aggregates\n\n")
+	b = append(b, "## Per-Metric Aggregates\n\n"...)
 	byEngine := map[EngineName][]float64{}
 	byMetric := map[MetricKind][]float64{}
 	for _, r := range sc.Results {
@@ -87,25 +86,25 @@ func GenerateReport(artifacts RawArtifacts) (string, error) {
 		}
 	}
 
-	b.WriteString("### Engine Wall-Time Distributions\n\n")
-	b.WriteString("| Engine | Count | Mean (ms) | StdDev | Min | Max | Median | P95 | P99 |\n")
-	b.WriteString("|--------|-------|-----------|--------|-----|-----|--------|-----|-----|\n")
+	b = append(b, "### Engine Wall-Time Distributions\n\n"...)
+	b = append(b, "| Engine | Count | Mean (ms) | StdDev | Min | Max | Median | P95 | P99 |\n"...)
+	b = append(b, "|--------|-------|-----------|--------|-----|-----|--------|-----|-----|\n"...)
 	for engine, vals := range byEngine {
 		agg := ComputeAggregate(vals)
-		b.WriteString(fmt.Sprintf("| %s | %d | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f |\n",
-			engine, agg.Count, agg.Mean, agg.StdDev, agg.Min, agg.Max, agg.Median, agg.P95, agg.P99))
+		b = fmt.Appendf(b, "| %s | %d | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f |\n",
+			engine, agg.Count, agg.Mean, agg.StdDev, agg.Min, agg.Max, agg.Median, agg.P95, agg.P99)
 	}
 
-	b.WriteString("\n### Metric Distributions\n\n")
-	b.WriteString("| Metric | Count | Mean | StdDev | Min | Max | Median | P95 | P99 |\n")
-	b.WriteString("|--------|-------|------|--------|-----|-----|--------|-----|-----|\n")
+	b = append(b, "\n### Metric Distributions\n\n"...)
+	b = append(b, "| Metric | Count | Mean | StdDev | Min | Max | Median | P95 | P99 |\n"...)
+	b = append(b, "|--------|-------|------|--------|-----|-----|--------|-----|-----|\n"...)
 	for _, kind := range []MetricKind{MetricWallMs, MetricCPUMs, MetricAllocBytes, MetricAllocCount, MetricRSSBytes, MetricThroughput, MetricErrorRate} {
 		vals := byMetric[kind]
 		if len(vals) == 0 {
 			continue
 		}
 		agg := ComputeAggregate(vals)
-		b.WriteString(fmt.Sprintf("| %s | %d | %s | %s | %s | %s | %s | %s | %s |\n",
+		b = fmt.Appendf(b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s |\n",
 			kind, agg.Count,
 			FormatMetric(kind, agg.Mean),
 			FormatMetric(kind, agg.StdDev),
@@ -114,16 +113,16 @@ func GenerateReport(artifacts RawArtifacts) (string, error) {
 			FormatMetric(kind, agg.Median),
 			FormatMetric(kind, agg.P95),
 			FormatMetric(kind, agg.P99),
-		))
+		)
 	}
 
-	b.WriteString("\n## Methodology Notes\n\n")
-	b.WriteString("All numbers are produced from the same source scorecard artifact. " +
-		"Wall time is the median across iterations. " +
-		"Allocations are measured from the Go runtime. " +
-		"The scorecard is marked honest only when both engines complete all scenarios with matching semantic success criteria.\n")
+	b = append(b, "\n## Methodology Notes\n\n"...)
+	b = append(b, "All numbers are produced from the same source scorecard artifact. "+
+		"Wall time is the median across iterations. "+
+		"Allocations are measured from the Go runtime. "+
+		"The scorecard is marked honest only when both engines complete all scenarios with matching semantic success criteria.\n"...)
 
-	return b.String(), nil
+	return string(b), nil
 }
 
 // WriteReport writes a report to the output directory alongside the scorecard.
