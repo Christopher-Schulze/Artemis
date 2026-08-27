@@ -55,7 +55,10 @@ func TestInferenceHubHook_Solve_Success(t *testing.T) {
 func TestInferenceHubHook_Solve_Failed(t *testing.T) {
 	hub := &mockInferenceHub{resp: InferenceHubResponse{Solved: false, Error: "no solution"}}
 	hook := NewInferenceHubHook(hub)
-	resp, _ := hook.Solve(context.Background(), InferenceHubRequest{})
+	resp, err := hook.Solve(context.Background(), InferenceHubRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if resp.Solved {
 		t.Error("expected solved=false")
 	}
@@ -87,7 +90,9 @@ func TestInferenceHubHook_Solve_HubError(t *testing.T) {
 func TestInferenceHubHook_RemoteUsed(t *testing.T) {
 	hub := &mockInferenceHub{resp: InferenceHubResponse{Solved: true, Answer: "X", Local: false}}
 	hook := NewInferenceHubHook(hub)
-	hook.Solve(context.Background(), InferenceHubRequest{})
+	if _, err := hook.Solve(context.Background(), InferenceHubRequest{}); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
 	if hook.Stats().RemoteUsed != 1 {
 		t.Errorf("expected remote_used=1, got %d", hook.Stats().RemoteUsed)
 	}
@@ -130,7 +135,9 @@ func TestInferenceHubHook_IsAvailable(t *testing.T) {
 
 func TestInferenceHubHook_ResetStats(t *testing.T) {
 	hook := NewInferenceHubHook(&mockInferenceHub{resp: InferenceHubResponse{Solved: true, Answer: "X", Local: true}})
-	hook.Solve(context.Background(), InferenceHubRequest{})
+	if _, err := hook.Solve(context.Background(), InferenceHubRequest{}); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
 	hook.ResetStats()
 	if hook.Stats().Total != 0 {
 		t.Error("expected total=0 after reset")
@@ -140,8 +147,11 @@ func TestInferenceHubHook_ResetStats(t *testing.T) {
 func TestInferenceHubHook_Stats(t *testing.T) {
 	hub := &mockInferenceHub{resp: InferenceHubResponse{Solved: true, Answer: "X", Local: true}}
 	hook := NewInferenceHubHook(hub)
-	hook.Solve(context.Background(), InferenceHubRequest{})
-	hook.Solve(context.Background(), InferenceHubRequest{})
+	for i := 0; i < 2; i++ {
+		if _, err := hook.Solve(context.Background(), InferenceHubRequest{}); err != nil {
+			t.Fatalf("solve %d: %v", i, err)
+		}
+	}
 	if hook.Stats().Total != 2 {
 		t.Errorf("expected total=2, got %d", hook.Stats().Total)
 	}

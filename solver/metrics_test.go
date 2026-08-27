@@ -12,7 +12,11 @@ func TestChallengeMetricsPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close metrics store: %v", err)
+		}
+	}()
 	if recordErr := store.Record(MetricRow{
 		Domain: "cf.example.com", ChallengeType: string(TypeCloudflare),
 		StageSolved: sql.NullInt64{Int64: 1, Valid: true},

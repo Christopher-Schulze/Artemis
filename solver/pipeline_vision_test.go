@@ -338,7 +338,9 @@ func TestTASK2247_VisionStats(t *testing.T) {
 		response: InferenceHubResponse{Solved: true, Answer: "solve", Local: true},
 	}
 	v := NewVisionSolver(hub)
-	v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
+	if _, err := v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot")); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
 
 	stats := v.Stats()
 	if stats.TotalAttempts != 1 {
@@ -590,7 +592,11 @@ func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close metrics store: %v", err)
+		}
+	}()
 	p.SetMetricsStore(store)
 
 	challenge := ChallengeInfo{Type: TypeCloudflare, Domain: "example.com"}
@@ -630,7 +636,11 @@ func TestTASK2344_MetricsStoreUserFallbackSolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close metrics store: %v", err)
+		}
+	}()
 	p.SetMetricsStore(store)
 
 	challenge := ChallengeInfo{Type: TypeGeneric, Domain: "test.org"}
@@ -666,7 +676,11 @@ func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close metrics store: %v", err)
+		}
+	}()
 	p.SetMetricsStore(store)
 
 	challenge := ChallengeInfo{Type: TypeRecaptcha, Domain: "unsolved.com"}
@@ -719,7 +733,11 @@ func TestTASK2344_MetricsStoreDefaultDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close metrics store: %v", err)
+		}
+	}()
 	p.SetMetricsStore(store)
 
 	// No Domain field set
