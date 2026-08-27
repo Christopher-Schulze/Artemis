@@ -33,7 +33,7 @@ func TestDefaultScenariosEngine(t *testing.T) {
 		sc := sc
 		t.Run(sc.ID, func(t *testing.T) {
 			eng := newTestEngine(t, srv)
-			defer eng.Close()
+			defer closeTestResource(t, "engine close", eng.Close)
 
 			page, err := eng.Fetch(context.Background(), srv.URL(sc.Path), engine.FetchOpts{
 				RunScripts: sc.RunScripts,
@@ -42,7 +42,7 @@ func TestDefaultScenariosEngine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Fetch %s: %v", sc.Path, err)
 			}
-			defer page.Close()
+			defer closeTestResource(t, "page close", page.Close)
 
 			if sc.RunScripts && sc.WaitForIdle {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -117,19 +117,21 @@ func TestFixtureCookiePersistence(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/cookie-001"), engine.FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch cookie-001: %v", err)
 	}
-	page.Close()
+	if err := page.Close(); err != nil {
+		t.Errorf("page close: %v", err)
+	}
 
 	page, err = eng.Fetch(context.Background(), srv.URL("/cookie-002"), engine.FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch cookie-002: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if !strings.Contains(page.Text(), "fixture-test=1") {
 		t.Errorf("cookie not persisted: %q", page.Text())
 	}
@@ -140,7 +142,7 @@ func TestFixtureBasicAuth(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("fixture:secret"))
 	page, err := eng.Fetch(context.Background(), srv.URL("/auth-basic-001"), engine.FetchOpts{
@@ -151,7 +153,7 @@ func TestFixtureBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch auth: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if page.StatusCode() != 200 {
 		t.Errorf("status = %d, want 200", page.StatusCode())
 	}
@@ -165,7 +167,7 @@ func TestFixtureChallenge(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/challenge-001"), engine.FetchOpts{
 		Headers: map[string][]string{
@@ -175,7 +177,7 @@ func TestFixtureChallenge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch challenge: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if page.StatusCode() != 200 {
 		t.Errorf("status = %d, want 200", page.StatusCode())
 	}
@@ -189,13 +191,13 @@ func TestFixtureFormPOST(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/form-001"), engine.FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch form-001: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	f := agent.FindForm(page.Document(), "#contact")
 	if f == nil {
@@ -215,7 +217,7 @@ func TestFixtureFormPOST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("engine.Submit: %v", err)
 	}
-	defer next.Close()
+	defer closeTestResource(t, "submitted page close", next.Close)
 	if !strings.Contains(next.Text(), "Alice") || !strings.Contains(next.Text(), "alice@fixture.test") {
 		t.Errorf("next page missing form values: %q", next.Text())
 	}
@@ -226,13 +228,13 @@ func TestFixtureFormGET(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/form-002"), engine.FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch form-002: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	f := agent.FindForm(page.Document(), "#search")
 	if f == nil {
@@ -249,7 +251,7 @@ func TestFixtureFormGET(t *testing.T) {
 	if err != nil {
 		t.Fatalf("engine.Submit: %v", err)
 	}
-	defer next.Close()
+	defer closeTestResource(t, "submitted page close", next.Close)
 	if !strings.Contains(next.Text(), "fixture") {
 		t.Errorf("next page missing query: %q", next.Text())
 	}
@@ -260,7 +262,7 @@ func TestFixtureFileUpload(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	var b bytes.Buffer
 	mw := multipart.NewWriter(&b)
@@ -268,8 +270,12 @@ func TestFixtureFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	fw.Write([]byte("hello fixture"))
-	mw.Close()
+	if _, err := fw.Write([]byte("hello fixture")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/file-upload"), engine.FetchOpts{
 		Method:      "POST",
@@ -279,7 +285,7 @@ func TestFixtureFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch file-upload: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if page.StatusCode() != 200 {
 		t.Errorf("status = %d, want 200", page.StatusCode())
 	}
@@ -293,7 +299,7 @@ func TestFixtureSPA(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/spa-001"), engine.FetchOpts{
 		RunScripts: true,
@@ -302,7 +308,7 @@ func TestFixtureSPA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch spa: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -319,13 +325,13 @@ func TestFixtureWebsocketExists(t *testing.T) {
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/websocket-001"), engine.FetchOpts{RunScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch websocket: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

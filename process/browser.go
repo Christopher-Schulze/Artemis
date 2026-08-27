@@ -569,6 +569,12 @@ func (b *Browser) Done() <-chan struct{} {
 	return b.done
 }
 
+// Exited closes as soon as the Chromium process and its guardian have exited.
+// Done remains the stronger signal that profile cleanup has also completed.
+func (b *Browser) Exited() <-chan struct{} {
+	return b.processDone
+}
+
 // Signal forwards a signal to the owned Chromium process. Signal(0) is the
 // non-destructive liveness probe used by the Omnimus browser circuit.
 func (b *Browser) Signal(signal os.Signal) error {

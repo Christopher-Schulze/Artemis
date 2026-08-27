@@ -3,6 +3,7 @@ package fixture
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -147,7 +148,7 @@ func (r *engineRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *engineRunner) stop(ctx context.Context, t *testing.T) {
 	if r.eng != nil {
-		_ = r.eng.Close()
+		closeTestResource(t, "engine close", r.eng.Close)
 	}
 }
 
@@ -162,7 +163,7 @@ func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *
 	if err != nil {
 		t.Fatalf("engine Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 	if sc.RunScripts && sc.WaitForIdle {
 		if err := page.WaitIdle(ctx); err != nil {
 			t.Fatalf("engine WaitIdle: %v", err)
@@ -233,14 +234,14 @@ func (r *bridgeRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	r.browser = browser
 	ctx2, err := browser.NewContext(ctx)
 	if err != nil {
-		browser.Close()
+		closeTestResource(t, "browser close after context failure", browser.Close)
 		t.Fatalf("NewContext: %v", err)
 	}
 	r.ctx = ctx2
 	page, err := ctx2.NewPage(ctx, "about:blank")
 	if err != nil {
-		ctx2.Close()
-		browser.Close()
+		closeTestResource(t, "context close after page failure", ctx2.Close)
+		closeTestResource(t, "browser close after page failure", browser.Close)
 		t.Fatalf("NewPage: %v", err)
 	}
 	r.page = page
@@ -248,13 +249,13 @@ func (r *bridgeRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *bridgeRunner) stop(ctx context.Context, t *testing.T) {
 	if r.page != nil {
-		_ = r.page.Close()
+		closeTestResource(t, "page close", r.page.Close)
 	}
 	if r.ctx != nil {
-		_ = r.ctx.Close()
+		closeTestResource(t, "context close", r.ctx.Close)
 	}
 	if r.browser != nil {
-		_ = r.browser.Close()
+		closeTestResource(t, "browser close", r.browser.Close)
 	}
 }
 
@@ -406,7 +407,7 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 	binary, err := browserprocess.DiscoverBinary("")
 	if err != nil {
-		eng.Close()
+		closeTestResource(t, "engine close after Chromium discovery failure", eng.Close)
 		t.Fatalf("Chromium discovery: %v", err)
 	}
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
@@ -418,20 +419,20 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 		AllowedPorts:         policyConfig.AllowedPorts,
 	})
 	if err != nil {
-		eng.Close()
+		closeTestResource(t, "engine close after Chromium launch failure", eng.Close)
 		t.Fatalf("LaunchChromium: %v", err)
 	}
 	ctx2, err := browser.NewContext(ctx)
 	if err != nil {
-		browser.Close()
-		eng.Close()
+		closeTestResource(t, "browser close after context failure", browser.Close)
+		closeTestResource(t, "engine close after context failure", eng.Close)
 		t.Fatalf("NewContext: %v", err)
 	}
 	page, err := ctx2.NewPage(ctx, "about:blank")
 	if err != nil {
-		ctx2.Close()
-		browser.Close()
-		eng.Close()
+		closeTestResource(t, "context close after page failure", ctx2.Close)
+		closeTestResource(t, "browser close after page failure", browser.Close)
+		closeTestResource(t, "engine close after page failure", eng.Close)
 		t.Fatalf("NewPage: %v", err)
 	}
 	r.browser = browser
@@ -447,10 +448,10 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 		},
 	})
 	if err != nil {
-		page.Close()
-		ctx2.Close()
-		browser.Close()
-		eng.Close()
+		closeTestResource(t, "page close after router failure", page.Close)
+		closeTestResource(t, "context close after router failure", ctx2.Close)
+		closeTestResource(t, "browser close after router failure", browser.Close)
+		closeTestResource(t, "engine close after router failure", eng.Close)
 		t.Fatalf("router.New: %v", err)
 	}
 	r.rtr = rtr
@@ -458,16 +459,16 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *routerRunner) stop(ctx context.Context, t *testing.T) {
 	if r.eng != nil {
-		_ = r.eng.Close()
+		closeTestResource(t, "engine close", r.eng.Close)
 	}
 	if r.page != nil {
-		_ = r.page.Close()
+		closeTestResource(t, "page close", r.page.Close)
 	}
 	if r.ctx != nil {
-		_ = r.ctx.Close()
+		closeTestResource(t, "context close", r.ctx.Close)
 	}
 	if r.browser != nil {
-		_ = r.browser.Close()
+		closeTestResource(t, "browser close", r.browser.Close)
 	}
 }
 
@@ -491,7 +492,7 @@ func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *
 		t.Fatalf("router.Execute: %v", err)
 	}
 	if result.Resource != nil {
-		defer result.Resource.Close()
+		defer closeTestResource(t, "router resource close", result.Resource.Close)
 	}
 	return CrossResult{
 		URL:        result.Output.URL,
@@ -573,10 +574,14 @@ func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	r.addr = ln.Addr().String()
 	r.httpServer = &http.Server{Handler: http.HandlerFunc(r.server.HandleWSForTest)}
 	go func() {
-		_ = r.httpServer.Serve(ln)
+		if serveErr := r.httpServer.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			t.Errorf("fixture HTTP server: %v", serveErr)
+		}
 	}()
 	c := r.dial(t)
-	defer c.Close(websocket.StatusNormalClosure, "")
+	defer closeTestResource(t, "session websocket close", func() error {
+		return c.Close(websocket.StatusNormalClosure, "")
+	})
 	resp := r.call(t, c, serve.CmdSessionNew, serve.SessionNewParams{})
 	var sess serve.SessionNewResult
 	if err := serve.DecodeTypedResult(&resp, &sess); err != nil {
@@ -587,13 +592,13 @@ func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *serveRunner) stop(ctx context.Context, t *testing.T) {
 	if r.httpServer != nil {
-		_ = r.httpServer.Close()
+		closeTestResource(t, "HTTP server close", r.httpServer.Close)
 	}
 	if r.server != nil {
-		_ = r.server.Close()
+		closeTestResource(t, "serve server close", r.server.Close)
 	}
 	if r.agent != nil {
-		_ = r.agent.Stop()
+		closeTestResource(t, "agent stop", r.agent.Stop)
 	}
 }
 
@@ -634,7 +639,9 @@ func (r *serveRunner) call(t *testing.T, c *websocket.Conn, cmd serve.Command, p
 func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	c := r.dial(t)
-	defer c.Close(websocket.StatusNormalClosure, "")
+	defer closeTestResource(t, "scenario websocket close", func() error {
+		return c.Close(websocket.StatusNormalClosure, "")
+	})
 
 	resp := r.call(t, c, serve.CmdPageOpen, serve.PageOpenParams{
 		SessionID:  r.sessID,
@@ -705,7 +712,10 @@ func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 	if err := serve.DecodeTypedResult(&resp, &linksDump); err != nil {
 		t.Fatalf("page.dump links decode: %v", err)
 	}
-	links := linkStrings(linksDump.Data)
+	links, err := linkStrings(linksDump.Data)
+	if err != nil {
+		t.Fatalf("page.dump links: %v", err)
+	}
 
 	closeResp := r.call(t, c, serve.CmdPageClose, serve.PageCloseParams{SessionID: r.sessID, PageID: pageID})
 	if !closeResp.OK {
@@ -733,15 +743,20 @@ func stringifyDump(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
-func linkStrings(v any) []string {
-	raw, _ := json.Marshal(v)
+func linkStrings(v any) ([]string, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal links: %w", err)
+	}
 	var links []struct{ Href string }
-	_ = json.Unmarshal(raw, &links)
+	if err := json.Unmarshal(raw, &links); err != nil {
+		return nil, fmt.Errorf("decode links: %w", err)
+	}
 	out := make([]string, 0, len(links))
 	for _, l := range links {
 		out = append(out, l.Href)
 	}
-	return out
+	return out, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -766,7 +781,7 @@ func (r *agentRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *agentRunner) stop(ctx context.Context, t *testing.T) {
 	if r.agent != nil {
-		_ = r.agent.Stop()
+		closeTestResource(t, "agent stop", r.agent.Stop)
 	}
 }
 
@@ -845,7 +860,9 @@ func (r *omnimusRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 func (r *omnimusRunner) stop(ctx context.Context, t *testing.T) {
 	if r.session != "" {
-		_ = r.runtime.Close(ctx, r.session, "owner")
+		closeTestResource(t, "BrowserRuntime session close", func() error {
+			return r.runtime.Close(ctx, r.session, "owner")
+		})
 	}
 }
 

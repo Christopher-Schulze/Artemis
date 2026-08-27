@@ -39,7 +39,7 @@ const defaultChromiumMaxPages = 32
 // SIGTERM/SIGKILL teardown takes over. A generous window lets the browser reclaim
 // its own macOS code-sign clone under load instead of being force-killed and
 // leaving the clone orphaned.
-const defaultGracefulCloseTimeout = 5 * time.Second
+const defaultGracefulCloseTimeout = 10 * time.Second
 
 // BrowserVersion is the validated Browser.getVersion result.
 type BrowserVersion struct {
@@ -532,7 +532,7 @@ func (b *ChromiumBrowser) close() error {
 		}
 		if b.process != nil && err == nil {
 			select {
-			case <-b.process.Done():
+			case <-b.process.Exited():
 			case <-time.After(defaultGracefulCloseTimeout):
 				result = errors.Join(result, fmt.Errorf("wait for graceful browser close: timeout"))
 			}

@@ -34,13 +34,13 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("engine.New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page, err := eng.Fetch(ctx, srv.URL(sc.Path), engine.FetchOpts{RunScripts: sc.RunScripts})
 	if err != nil {
 		t.Fatalf("engine.Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	result := resultFromEnginePage(ctx, t, page, *sc)
 	dir := t.TempDir()
@@ -100,7 +100,7 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get: %v", err)
 	}
-	defer res.Body.Close()
+	defer closeTestResource(t, "response body close", res.Body.Close)
 	if res.StatusCode != reg.Status {
 		t.Errorf("served regression status = %d, want %d", res.StatusCode, reg.Status)
 	}
