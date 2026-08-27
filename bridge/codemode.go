@@ -133,23 +133,23 @@ func (e *CodeModeExecutor) Execute(ctx context.Context, code string) (*ExecuteRe
 
 // wrapWithProviders wraps the code in an async IIFE with tool proxy setup.
 func (e *CodeModeExecutor) wrapWithProviders(code string) string {
-	var b strings.Builder
-	b.WriteString("(async () => {\n")
+	var b []byte
+	b = append(b, "(async () => {\n"...)
 
 	// Define provider proxies
 	for name, provider := range e.providers {
-		b.WriteString(fmt.Sprintf("  const %s = {\n", name))
+		b = fmt.Appendf(b, "  const %s = {\n", name)
 		for toolName := range provider.Tools {
-			b.WriteString(fmt.Sprintf("    %s: async (...args) => __callTool('%s', '%s', args),\n", toolName, name, toolName))
+			b = fmt.Appendf(b, "    %s: async (...args) => __callTool('%s', '%s', args),\n", toolName, name, toolName)
 		}
-		b.WriteString("  };\n")
+		b = append(b, "  };\n"...)
 	}
 
-	b.WriteString("  // User code:\n")
-	b.WriteString(code)
-	b.WriteString("\n})()")
+	b = append(b, "  // User code:\n"...)
+	b = append(b, code...)
+	b = append(b, "\n})()"...)
 
-	return b.String()
+	return string(b)
 }
 
 // validateProviderUsage checks that referenced providers exist.
@@ -203,19 +203,19 @@ func NormalizeCode(code string) string {
 // GenerateTypeDeclarations generates TypeScript-style type declarations
 // for the registered providers, suitable for inclusion in LLM prompts.
 func (e *CodeModeExecutor) GenerateTypeDeclarations() string {
-	var b strings.Builder
+	var b []byte
 	for name, provider := range e.providers {
-		b.WriteString(fmt.Sprintf("declare const %s: {\n", name))
+		b = fmt.Appendf(b, "declare const %s: {\n", name)
 		for toolName := range provider.Tools {
 			if provider.PositionalArgs {
-				b.WriteString(fmt.Sprintf("  %s(...args: unknown[]): Promise<unknown>;\n", toolName))
+				b = fmt.Appendf(b, "  %s(...args: unknown[]): Promise<unknown>;\n", toolName)
 			} else {
-				b.WriteString(fmt.Sprintf("  %s(args: Record<string, unknown>): Promise<unknown>;\n", toolName))
+				b = fmt.Appendf(b, "  %s(args: Record<string, unknown>): Promise<unknown>;\n", toolName)
 			}
 		}
-		b.WriteString("};\n")
+		b = append(b, "};\n"...)
 	}
-	return b.String()
+	return string(b)
 }
 
 // DefaultBrowserProvider creates the standard browser tool provider with

@@ -3,7 +3,6 @@ package renderless
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 )
 
@@ -158,13 +157,13 @@ func (r *WebAPIRegistry) String() string {
 // FormatGlobals returns a formatted string of all globals
 // (spec L4022: DOM/WebAPI globals).
 func (r *WebAPIRegistry) FormatGlobals() string {
-	var sb strings.Builder
+	var sb []byte
 	for _, g := range r.All() {
 		status := string(g.Category)
 		if status == "" {
 			status = string(CategoryUnsupportedEscalate)
 		}
-		sb.WriteString(fmt.Sprintf("%s (%s): %s\n", g.Name, g.Type, status))
+		sb = fmt.Appendf(sb, "%s (%s): %s\n", g.Name, g.Type, status)
 	}
-	return sb.String()
+	return string(sb)
 }

@@ -349,14 +349,14 @@ func RenderSkillContent(rec *WorkflowRecording) string {
 	if rec == nil {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# %s\n\n", rec.Name))
-	b.WriteString("Category: workflow\n\n")
-	b.WriteString("## Steps\n\n")
+	var b []byte
+	b = fmt.Appendf(b, "# %s\n\n", rec.Name)
+	b = append(b, "Category: workflow\n\n"...)
+	b = append(b, "## Steps\n\n"...)
 	for _, a := range rec.Actions {
-		b.WriteString(fmt.Sprintf("%d. %s (tool: %s)\n", a.Index+1, a.ToolCall.Tool, a.ToolCall.Tool))
+		b = fmt.Appendf(b, "%d. %s (tool: %s)\n", a.Index+1, a.ToolCall.Tool, a.ToolCall.Tool)
 	}
-	return b.String()
+	return string(b)
 }
 
 // SortSelectors sorts selectors by confidence descending (highest first).

@@ -2,7 +2,6 @@ package observe
 
 import (
 	"fmt"
-	"strings"
 )
 
 // AXNode is a simplified accessibility tree node for diffing.
@@ -309,7 +308,7 @@ func UnifiedDiff(before, after []AXNode, contextLines int) string {
 	}
 	hunks = append(hunks, cur)
 
-	var b strings.Builder
+	var b []byte
 	for h, hunk := range hunks {
 		// Expand hunk by contextLines on each side, clamped to [0, len(ops)).
 		hStart := hunk.start - contextLines
@@ -321,25 +320,35 @@ func UnifiedDiff(before, after []AXNode, contextLines int) string {
 			hEnd = len(ops) - 1
 		}
 		if h > 0 {
-			b.WriteString("\n")
+			b = append(b, '\n')
 		}
-		b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hStart+1, hEnd-hStart+1, hStart+1, hEnd-hStart+1))
+		b = fmt.Appendf(b, "@@ -%d,%d +%d,%d @@\n", hStart+1, hEnd-hStart+1, hStart+1, hEnd-hStart+1)
 		for i := hStart; i <= hEnd; i++ {
 			op := ops[i]
 			switch op.Type {
 			case DiffOpEqual:
-				b.WriteString(" " + FormatNode(*op.After) + "\n")
+				b = append(b, ' ')
+				b = append(b, FormatNode(*op.After)...)
+				b = append(b, '\n')
 			case DiffOpAdd:
-				b.WriteString("+" + FormatNode(*op.After) + "\n")
+				b = append(b, '+')
+				b = append(b, FormatNode(*op.After)...)
+				b = append(b, '\n')
 			case DiffOpRemove:
-				b.WriteString("-" + FormatNode(*op.Before) + "\n")
+				b = append(b, '-')
+				b = append(b, FormatNode(*op.Before)...)
+				b = append(b, '\n')
 			case DiffOpChange:
-				b.WriteString("~" + FormatNode(*op.Before) + "\n")
-				b.WriteString("|" + FormatNode(*op.After) + "\n")
+				b = append(b, '~')
+				b = append(b, FormatNode(*op.Before)...)
+				b = append(b, '\n')
+				b = append(b, '|')
+				b = append(b, FormatNode(*op.After)...)
+				b = append(b, '\n')
 			}
 		}
 	}
-	return b.String()
+	return string(b)
 }
 
 // DedupRoleSnapshot removes duplicate role/name pairs preserving order.

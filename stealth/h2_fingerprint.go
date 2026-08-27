@@ -226,15 +226,15 @@ func (c H2FingerprintConfig) Validate() error {
 // FingerprintHash returns a deterministic hash string for the H2
 // fingerprint config, useful for logging and diagnostics.
 func (c H2FingerprintConfig) FingerprintHash() string {
-	var b strings.Builder
+	var b []byte
 	for _, s := range c.Settings.Settings {
-		b.WriteString(fmt.Sprintf("%x=%d;", uint16(s.ID), s.Value))
+		b = fmt.Appendf(b, "%x=%d;", uint16(s.ID), s.Value)
 	}
-	b.WriteString(fmt.Sprintf("wu=%d;", c.WindowUpdate))
-	b.WriteString(fmt.Sprintf("pf=%v;", c.PriorityFrame))
-	b.WriteString("ho=")
-	b.WriteString(strings.Join(c.HeaderOrder, ","))
-	return b.String()
+	b = fmt.Appendf(b, "wu=%d;", c.WindowUpdate)
+	b = fmt.Appendf(b, "pf=%v;", c.PriorityFrame)
+	b = append(b, "ho="...)
+	b = append(b, strings.Join(c.HeaderOrder, ",")...)
+	return string(b)
 }
 
 // IsChromiumFingerprint checks if a config matches the default
