@@ -155,15 +155,25 @@ func newSubtleDigestTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		if err != nil {
 			return v8.Null(iso)
 		}
-		lenVal, _ := dataObj.Get("length")
+		lenVal, err := dataObj.Get("length")
+		if err != nil {
+			return v8.Null(iso)
+		}
 		n := int(lenVal.Integer())
+		if n < 0 {
+			return v8.Null(iso)
+		}
 		buf := make([]byte, n)
 		for i := 0; i < n; i++ {
 			v, getErr := dataObj.GetIdx(uint32(i))
 			if getErr != nil {
 				continue
 			}
-			buf[i] = byte(v.Integer())
+			value, ok := checkedInt64ToByte(v.Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			buf[i] = value
 		}
 		h.Write(buf)
 		out := h.Sum(nil)
@@ -177,8 +187,12 @@ func newSubtleDigestTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		if err != nil {
 			return v8.Null(iso)
 		}
-		_ = arr.Set("length", int32(len(out)))
-		_ = arr.Set("byteLength", int32(len(out)))
+		length, ok := checkedIntToInt32(len(out))
+		if !ok {
+			return v8.Null(iso)
+		}
+		_ = arr.Set("length", length)
+		_ = arr.Set("byteLength", length)
 		for i, b := range out {
 			_ = arr.SetIdx(uint32(i), int32(b))
 		}
@@ -323,7 +337,7 @@ func newSubtleSignTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errStr("sign: unknown key"))
 			return resolver.GetPromise().Value
@@ -359,7 +373,7 @@ func newSubtleVerifyTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errStr("verify: unknown key"))
 			return resolver.GetPromise().Value
@@ -408,7 +422,7 @@ func newSubtleExportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		idVal, _ := keyObj.Get("__id")
-		k := globalKeyStore.get(uint32(idVal.Integer()))
+		k := cryptoKeyFromValue(idVal)
 		if k == nil || !k.extract {
 			rejectErr(iso, resolver, errStr("exportKey: not extractable"))
 			return resolver.GetPromise().Value
@@ -421,6 +435,17 @@ func newSubtleExportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 // helpers shared with crypto.subtle implementation
 
 func errStr(s string) error { return &simpleErr{s} }
+
+func cryptoKeyFromValue(value *v8.Value) *cryptoKey {
+	if value == nil {
+		return nil
+	}
+	id, ok := checkedInt64ToUint32(value.Integer())
+	if !ok {
+		return nil
+	}
+	return globalKeyStore.get(id)
+}
 
 type simpleErr struct{ msg string }
 
@@ -452,7 +477,11 @@ func readByteArray(obj *v8.Object) []byte {
 		if err != nil {
 			continue
 		}
-		out[i] = byte(v.Integer())
+		value, ok := checkedInt64ToByte(v.Integer())
+		if !ok {
+			return nil
+		}
+		out[i] = value
 	}
 	return out
 }
@@ -466,6 +495,9 @@ func readStringArray(obj *v8.Object) []string {
 		return nil
 	}
 	n := int(lenVal.Integer())
+	if n <= 0 {
+		return nil
+	}
 	out := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		v, err := obj.GetIdx(uint32(i))
@@ -482,8 +514,12 @@ func bytesToJSArr(iso *v8.Isolate, ctx *v8.Context, b []byte) *v8.Value {
 	if err != nil {
 		return v8.Null(iso)
 	}
-	_ = arr.Set("length", int32(len(b)))
-	_ = arr.Set("byteLength", int32(len(b)))
+	length, ok := checkedIntToInt32(len(b))
+	if !ok {
+		return v8.Null(iso)
+	}
+	_ = arr.Set("length", length)
+	_ = arr.Set("byteLength", length)
 	for i, x := range b {
 		_ = arr.SetIdx(uint32(i), int32(x))
 	}
@@ -495,7 +531,11 @@ func buildCryptoKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey) (
 	if err != nil {
 		return nil, err
 	}
-	_ = obj.Set("__id", int32(id))
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		return nil, errStr("crypto key handle exceeds JavaScript integer range")
+	}
+	_ = obj.Set("__id", jsID)
 	_ = obj.Set("type", k.keyType)
 	_ = obj.Set("extractable", k.extract)
 	algoObj, err := v8.NewObjectTemplate(iso).NewInstance(ctx)
@@ -509,7 +549,11 @@ func buildCryptoKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey) (
 	for i, u := range k.usages {
 		_ = usagesArr.SetIdx(uint32(i), u)
 	}
-	_ = usagesArr.Set("length", int32(len(k.usages)))
+	length, ok := checkedIntToInt32(len(k.usages))
+	if !ok {
+		return nil, errStr("crypto key usages exceed JavaScript integer range")
+	}
+	_ = usagesArr.Set("length", length)
 	_ = obj.Set("usages", usagesArr)
 	return obj.Value, nil
 }

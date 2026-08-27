@@ -100,7 +100,12 @@ func newAsymGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			privK := &cryptoKey{keyType: "private", algoName: nameU, algoHash: hashName, usages: privUsages, extract: extractable, rsaPriv: priv, rsaPub: &priv.PublicKey}
 			pubID := globalKeyStore.put(pubK)
 			privID := globalKeyStore.put(privK)
-			pair, err := buildKeyPair(iso, info.Context(), pubID, pubK, privID, privK, map[string]any{"name": nameU, "modulusLength": int32(bits), "hash": map[string]string{"name": "SHA-" + strings.TrimPrefix(hashName, "SHA")}})
+			modulusLength, ok := checkedIntToInt32(bits)
+			if !ok {
+				rejectErr(iso, resolver, errors.New("RSA modulus length exceeds JavaScript integer range"))
+				return resolver.GetPromise().Value
+			}
+			pair, err := buildKeyPair(iso, info.Context(), pubID, pubK, privID, privK, map[string]any{"name": nameU, "modulusLength": modulusLength, "hash": map[string]string{"name": "SHA-" + strings.TrimPrefix(hashName, "SHA")}})
 			if err != nil {
 				rejectErr(iso, resolver, err)
 				return resolver.GetPromise().Value
@@ -148,7 +153,7 @@ func newAsymSignTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		name, _ := getStr(algoObj, "name")
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("sign asym: unknown key"))
 			return resolver.GetPromise().Value
@@ -224,7 +229,7 @@ func newAsymVerifyTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		name, _ := getStr(algoObj, "name")
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("verify asym: unknown key"))
 			return resolver.GetPromise().Value
@@ -342,11 +347,19 @@ func buildKeyPair(iso *v8.Isolate, ctx *v8.Context, pubID uint32, pub *cryptoKey
 }
 
 func buildAsymKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey, algoMap map[string]any) (*v8.Value, error) {
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		return nil, errors.New("asymmetric key handle exceeds JavaScript integer range")
+	}
+	usageLength, ok := checkedIntToInt32(len(k.usages))
+	if !ok {
+		return nil, errors.New("asymmetric key usages exceed JavaScript integer range")
+	}
 	obj, err := v8.NewObjectTemplate(iso).NewInstance(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_ = obj.Set("__id", int32(id))
+	_ = obj.Set("__id", jsID)
 	_ = obj.Set("type", k.keyType)
 	_ = obj.Set("extractable", k.extract)
 	algoObj, _ := v8.NewObjectTemplate(iso).NewInstance(ctx)
@@ -369,7 +382,7 @@ func buildAsymKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey, alg
 	for i, u := range k.usages {
 		_ = usages.SetIdx(uint32(i), u)
 	}
-	_ = usages.Set("length", int32(len(k.usages)))
+	_ = usages.Set("length", usageLength)
 	_ = obj.Set("usages", usages)
 	return obj.Value, nil
 }

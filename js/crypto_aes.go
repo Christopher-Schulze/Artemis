@@ -100,7 +100,7 @@ func newCryptoAESEncryptTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil || !strings.HasPrefix(key.algoName, "AES") {
 			rejectErr(iso, resolver, errors.New("encrypt: not an AES key"))
 			return resolver.GetPromise().Value
@@ -164,7 +164,7 @@ func newCryptoAESDecryptTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("decrypt: unknown key"))
 			return resolver.GetPromise().Value
@@ -281,22 +281,34 @@ func newCryptoAESImportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 }
 
 func buildAESKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey, nbits int) (*v8.Value, error) {
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		return nil, errors.New("AES key handle exceeds JavaScript integer range")
+	}
+	jsLength, ok := checkedIntToInt32(nbits)
+	if !ok {
+		return nil, errors.New("AES key length exceeds JavaScript integer range")
+	}
+	usageLength, ok := checkedIntToInt32(len(k.usages))
+	if !ok {
+		return nil, errors.New("AES key usages exceed JavaScript integer range")
+	}
 	obj, err := v8.NewObjectTemplate(iso).NewInstance(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_ = obj.Set("__id", int32(id))
+	_ = obj.Set("__id", jsID)
 	_ = obj.Set("type", "secret")
 	_ = obj.Set("extractable", k.extract)
 	algoObj, _ := v8.NewObjectTemplate(iso).NewInstance(ctx)
 	_ = algoObj.Set("name", k.algoName)
-	_ = algoObj.Set("length", int32(nbits))
+	_ = algoObj.Set("length", jsLength)
 	_ = obj.Set("algorithm", algoObj)
 	usages, _ := v8.NewObjectTemplate(iso).NewInstance(ctx)
 	for i, u := range k.usages {
 		_ = usages.SetIdx(uint32(i), u)
 	}
-	_ = usages.Set("length", int32(len(k.usages)))
+	_ = usages.Set("length", usageLength)
 	_ = obj.Set("usages", usages)
 	return obj.Value, nil
 }

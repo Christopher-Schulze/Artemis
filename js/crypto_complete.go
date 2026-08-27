@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"math"
 	"math/big"
 	"strings"
 
@@ -144,7 +145,7 @@ func newCompleteDeriveTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		algoName, _ := getStr(algoObj, "name")
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil || len(key.rawBytes) == 0 {
 			rejectErr(iso, resolver, errors.New("deriveBits: key has no raw material"))
 			return resolver.GetPromise().Value
@@ -220,7 +221,7 @@ func newCompleteEncMoreTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		name, _ := getStr(algoObj, "name")
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("encrypt-more: unknown key"))
 			return resolver.GetPromise().Value
@@ -286,7 +287,7 @@ func newCompleteDecMoreTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		name, _ := getStr(algoObj, "name")
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("decrypt-more: unknown key"))
 			return resolver.GetPromise().Value
@@ -346,7 +347,7 @@ func newCompletePKCS1SignTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		resolver, _ := v8.NewPromiseResolver(info.Context())
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("pkcs1 sign: unknown key"))
 			return resolver.GetPromise().Value
@@ -378,7 +379,7 @@ func newCompletePKCS1VerifyTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		resolver, _ := v8.NewPromiseResolver(info.Context())
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("pkcs1 verify: unknown key"))
 			return resolver.GetPromise().Value
@@ -453,7 +454,14 @@ func importJWK(jwk map[string]any, algoName, hashName string, extractable bool, 
 			algoMap["hash"] = map[string]string{"name": "SHA-" + strings.TrimPrefix(hashU, "SHA")}
 		}
 		if strings.HasPrefix(algoNameU, "AES") {
-			algoMap["length"] = int32(len(raw) * 8)
+			if len(raw) > int(math.MaxInt32)/8 {
+				return nil, nil, errors.New("jwk AES key length exceeds JavaScript integer range")
+			}
+			length, ok := checkedIntToInt32(len(raw) * 8)
+			if !ok {
+				return nil, nil, errors.New("jwk AES key length exceeds JavaScript integer range")
+			}
+			algoMap["length"] = length
 		}
 		return k, algoMap, nil
 
@@ -493,9 +501,13 @@ func importJWK(jwk map[string]any, algoName, hashName string, extractable bool, 
 			k.keyType = "private"
 			k.rsaPriv = priv
 		}
+		modulusLength, ok := checkedIntToInt32(pub.N.BitLen())
+		if !ok {
+			return nil, nil, errors.New("jwk RSA modulus length exceeds JavaScript integer range")
+		}
 		algoMap := map[string]any{
 			"name":          algoNameU,
-			"modulusLength": int32(pub.N.BitLen()),
+			"modulusLength": modulusLength,
 			"hash":          map[string]string{"name": "SHA-" + strings.TrimPrefix(hashU, "SHA")},
 		}
 		return k, algoMap, nil
@@ -582,10 +594,14 @@ func hashConstructor(name string) func() hash.Hash {
 // pkcs7 padding (AES-CBC).
 func pkcs7Pad(b []byte, blockSize int) []byte {
 	pad := blockSize - len(b)%blockSize
+	padding, ok := checkedInt64ToByte(int64(pad))
+	if !ok {
+		return nil
+	}
 	out := make([]byte, len(b)+pad)
 	copy(out, b)
 	for i := len(b); i < len(out); i++ {
-		out[i] = byte(pad)
+		out[i] = padding
 	}
 	return out
 }

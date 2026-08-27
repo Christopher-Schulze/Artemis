@@ -88,7 +88,12 @@ func newPKCS8ImportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		case *rsa.PrivateKey:
 			k.rsaPriv = p
 			k.rsaPub = &p.PublicKey
-			algoMap["modulusLength"] = int32(p.N.BitLen())
+			modulusLength, ok := checkedIntToInt32(p.N.BitLen())
+			if !ok {
+				rejectErr(iso, resolver, errors.New("pkcs8 RSA modulus length exceeds JavaScript integer range"))
+				return resolver.GetPromise().Value
+			}
+			algoMap["modulusLength"] = modulusLength
 			if hashU != "" {
 				algoMap["hash"] = map[string]string{"name": "SHA-" + strings.TrimPrefix(hashU, "SHA")}
 			}
@@ -153,7 +158,12 @@ func newSPKIImportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		switch p := pub.(type) {
 		case *rsa.PublicKey:
 			k.rsaPub = p
-			algoMap["modulusLength"] = int32(p.N.BitLen())
+			modulusLength, ok := checkedIntToInt32(p.N.BitLen())
+			if !ok {
+				rejectErr(iso, resolver, errors.New("spki RSA modulus length exceeds JavaScript integer range"))
+				return resolver.GetPromise().Value
+			}
+			algoMap["modulusLength"] = modulusLength
 			if hashU != "" {
 				algoMap["hash"] = map[string]string{"name": "SHA-" + strings.TrimPrefix(hashU, "SHA")}
 			}

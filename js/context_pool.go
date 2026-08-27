@@ -1,6 +1,8 @@
 package js
 
 import (
+	"errors"
+
 	v8 "rogchap.com/v8go"
 )
 
@@ -116,7 +118,11 @@ func rebindPooledStorage(c *Context, globalName string, s *memStorage) error {
 	if err != nil {
 		return err
 	}
-	return obj.SetInternalField(0, int32(id))
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		return errors.New("storage handle exceeds JavaScript integer range")
+	}
+	return obj.SetInternalField(0, jsID)
 }
 
 // jsonStringLiteral returns a quoted JSON string suitable for embedding

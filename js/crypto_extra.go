@@ -119,14 +119,14 @@ func newExtraECDHDeriveTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		}
 		peerObj, _ := peerVal.AsObject()
 		peerIDVal, _ := peerObj.Get("__id")
-		peerKey := globalKeyStore.get(uint32(peerIDVal.Integer()))
+		peerKey := cryptoKeyFromValue(peerIDVal)
 		if peerKey == nil || peerKey.algoName != "ECDH" {
 			rejectErr(iso, resolver, errors.New("ECDH: peer not ECDH key"))
 			return resolver.GetPromise().Value
 		}
 		ownObj, _ := args[1].AsObject()
 		ownIDVal, _ := ownObj.Get("__id")
-		ownKey := globalKeyStore.get(uint32(ownIDVal.Integer()))
+		ownKey := cryptoKeyFromValue(ownIDVal)
 		if ownKey == nil || ownKey.algoName != "ECDH" || ownKey.keyType != "private" {
 			rejectErr(iso, resolver, errors.New("ECDH: own key must be private ECDH"))
 			return resolver.GetPromise().Value
@@ -177,7 +177,7 @@ func newExtraAESCTRTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		algoObj, _ := args[0].AsObject()
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil {
 			rejectErr(iso, resolver, errors.New("AES-CTR: unknown key"))
 			return resolver.GetPromise().Value
@@ -216,14 +216,14 @@ func newExtraWrapTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		// args: format, key, wrappingKey, wrapAlgo
 		keyObj, _ := args[1].AsObject()
 		idVal, _ := keyObj.Get("__id")
-		key := globalKeyStore.get(uint32(idVal.Integer()))
+		key := cryptoKeyFromValue(idVal)
 		if key == nil || !key.extract || len(key.rawBytes) == 0 {
 			rejectErr(iso, resolver, errors.New("wrapKey: source key not extractable raw"))
 			return resolver.GetPromise().Value
 		}
 		wrappingObj, _ := args[2].AsObject()
 		wrapIDVal, _ := wrappingObj.Get("__id")
-		wrappingKey := globalKeyStore.get(uint32(wrapIDVal.Integer()))
+		wrappingKey := cryptoKeyFromValue(wrapIDVal)
 		if wrappingKey == nil {
 			rejectErr(iso, resolver, errors.New("wrapKey: unknown wrappingKey"))
 			return resolver.GetPromise().Value
