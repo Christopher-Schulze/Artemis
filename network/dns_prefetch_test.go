@@ -8,13 +8,20 @@ import (
 	"time"
 )
 
+func closeTestDNSCache(t *testing.T, cache *DNSPrefetchCache) {
+	t.Helper()
+	if err := cache.Close(); err != nil {
+		t.Errorf("close DNS cache: %v", err)
+	}
+}
+
 func TestDNSPrefetchCache(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dns.db")
 	cache, err := OpenDNSPrefetchCache(path, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeTestDNSCache(t, cache)
 	cache.resolver = func(ctx context.Context, host string) ([]net.IP, error) {
 		return []net.IP{net.ParseIP("93.184.216.34")}, nil
 	}
@@ -30,7 +37,7 @@ func TestDNSPrefetchCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache2.Close()
+	defer closeTestDNSCache(t, cache2)
 	cache2.resolver = cache.resolver
 	ips3, err := cache2.Resolve(context.Background(), "example.com")
 	if err != nil || len(ips3) == 0 {

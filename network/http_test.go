@@ -4,13 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func writeTestHTTPBody(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := fmt.Fprint(w, body); err != nil {
+		t.Errorf("write HTTP fixture response: %v", err)
+	}
+}
 
 func newTestClient(t *testing.T, cfg HTTPClientConfig) *HTTPClient {
 	t.Helper()
@@ -24,7 +30,11 @@ func newTestClient(t *testing.T, cfg HTTPClientConfig) *HTTPClient {
 	if err != nil {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close HTTP client: %v", err)
+		}
+	})
 	return c
 }
 
@@ -42,7 +52,7 @@ func TestDoStatusHeadersBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Custom", "yes")
 		w.WriteHeader(http.StatusTeapot)
-		fmt.Fprint(w, "hello")
+		writeTestHTTPBody(t, w, "hello")
 	}))
 	defer srv.Close()
 
@@ -73,7 +83,7 @@ func TestDoSendsUserAgentAndCustomHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
 		gotXk = r.Header.Get("X-K")
-		fmt.Fprint(w, "ok")
+		writeTestHTTPBody(t, w, "ok")
 	}))
 	defer srv.Close()
 
@@ -95,7 +105,7 @@ func TestDoSendsUserAgentAndCustomHeaders(t *testing.T) {
 
 func TestDoFollowsRedirects(t *testing.T) {
 	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "landed")
+		writeTestHTTPBody(t, w, "landed")
 	}))
 	defer final.Close()
 
@@ -122,7 +132,11 @@ func TestDoRejectsRedirectToPrivateTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close HTTP client: %v", err)
+		}
+	})
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://127.0.0.1/secret", nil)
 	if err != nil {
 		t.Fatalf("build redirect request: %v", err)
@@ -166,7 +180,7 @@ func TestDoAllowsSameOriginBodyRedirect(t *testing.T) {
 
 func TestDoMaxBodyBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, strings.Repeat("x", 1024))
+		writeTestHTTPBody(t, w, strings.Repeat("x", 1024))
 	}))
 	defer srv.Close()
 
@@ -201,7 +215,7 @@ func TestDoTimeout(t *testing.T) {
 
 func TestDoNilBodyAcceptsLargeUnlimited(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, strings.Repeat("y", 4096))
+		writeTestHTTPBody(t, w, strings.Repeat("y", 4096))
 	}))
 	defer srv.Close()
 
@@ -235,6 +249,3 @@ func TestHTTPClientNilReceiverFailsClosed(t *testing.T) {
 		t.Fatal("nil client returned a cookie jar")
 	}
 }
-
-// silence unused imports in case future refactors drop one
-var _ = io.Discard
