@@ -259,7 +259,7 @@ func TestLiveCollectorKeepsRequestAndResponseHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer collector.Close()
+	defer closeObserveTestResource(t, "live collector", collector.Close)
 
 	collector.recordEvent(bridgeEvent("Network.requestWillBeSent", map[string]any{
 		"requestId": "r1", "type": "Document", "request": map[string]any{

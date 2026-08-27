@@ -166,10 +166,12 @@ func TestWorkflowCaptureDestructive(t *testing.T) {
 
 func TestWorkflowCaptureStopFinalizes(t *testing.T) {
 	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "op1", "test-flow")
-	r.Record(ActionCapture{
+	if err := r.Record(ActionCapture{
 		ToolCall:  CapturedToolCall{Tool: "browser_click", ArgsJSON: "{}"},
 		Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e5", Confidence: 0.9}},
-	})
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
 	rec := r.Stop()
 	if rec.EndTime.IsZero() {
 		t.Error("EndTime should not be zero after Stop")
@@ -183,10 +185,12 @@ func TestWorkflowCaptureSaveToFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "recording.json")
 	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "op1", "test-flow")
-	r.Record(ActionCapture{
+	if err := r.Record(ActionCapture{
 		ToolCall:  CapturedToolCall{Tool: "browser_click", ArgsJSON: `{"ref":"e5"}`},
 		Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e5", Confidence: 0.9}},
-	})
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
 	if err := r.SaveToFile(path); err != nil {
 		t.Fatalf("SaveToFile: %v", err)
 	}
@@ -220,10 +224,12 @@ func TestLoadRecordingFromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "recording.json")
 	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "op1", "test-flow")
-	r.Record(ActionCapture{
+	if err := r.Record(ActionCapture{
 		ToolCall:  CapturedToolCall{Tool: "browser_navigate", ArgsJSON: `{"url":"https://example.com"}`},
 		Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e1", Confidence: 0.9}},
-	})
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
 	if err := r.SaveToFile(path); err != nil {
 		t.Fatalf("SaveToFile: %v", err)
 	}
@@ -399,10 +405,12 @@ func TestWorkflowCaptureSetNow(t *testing.T) {
 	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "op1", "test-flow")
 	fixedTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	r.SetNow(func() time.Time { return fixedTime })
-	r.Record(ActionCapture{
+	if err := r.Record(ActionCapture{
 		ToolCall:  CapturedToolCall{Tool: "browser_click", ArgsJSON: "{}"},
 		Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e5", Confidence: 0.9}},
-	})
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
 	rec := r.Stop()
 	if !rec.EndTime.Equal(fixedTime) {
 		t.Errorf("EndTime = %v, want %v", rec.EndTime, fixedTime)
@@ -411,18 +419,19 @@ func TestWorkflowCaptureSetNow(t *testing.T) {
 
 func TestWorkflowCaptureConcurrentRecord(t *testing.T) {
 	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "op1", "test-flow")
-	done := make(chan struct{}, 20)
+	results := make(chan error, 20)
 	for i := 0; i < 20; i++ {
 		go func() {
-			r.Record(ActionCapture{
+			results <- r.Record(ActionCapture{
 				ToolCall:  CapturedToolCall{Tool: "browser_click", ArgsJSON: "{}"},
 				Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e1", Confidence: 0.9}},
 			})
-			done <- struct{}{}
 		}()
 	}
 	for i := 0; i < 20; i++ {
-		<-done
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent Record: %v", err)
+		}
 	}
 	rec := r.Stop()
 	if len(rec.Actions) != 20 {

@@ -12,6 +12,13 @@ import (
 
 type liveCaller struct{}
 
+func closeObserveTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
+}
+
 func (liveCaller) Call(_ context.Context, method string, _ any, result any) error {
 	var value any
 	switch method {
@@ -72,7 +79,7 @@ func TestLiveCollectorOwnsCompleteBoundedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer collector.Close()
+	defer closeObserveTestResource(t, "live collector", collector.Close)
 	collector.RecordNetwork(NetworkEvent{RequestID: "manual", URL: "https://fixture.test", Status: 200})
 	collector.RecordConsole(ConsoleEntry{Level: ConsoleLevelInfo, Args: []string{"ready"}, Timestamp: time.Now().UTC()})
 	collector.recordEvent(bridgeEvent("Network.requestWillBeSent", map[string]any{
