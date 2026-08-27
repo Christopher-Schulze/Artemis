@@ -96,7 +96,9 @@ func TestStreamPipeTo(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	c.Eval(context.Background(), `0`) // drain microtasks
+	if _, err := c.Eval(context.Background(), `0`); err != nil { // drain microtasks
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `captured.join(',')`)
 	if v.String() != "1,2,3" {
 		t.Errorf("got %q", v.String())
@@ -120,7 +122,9 @@ func TestStreamPipeThroughTransform(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	c.Eval(context.Background(), `0`)
+	if _, err := c.Eval(context.Background(), `0`); err != nil {
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `captured.join(',')`)
 	if v.String() != "20,30" {
 		t.Errorf("got %q", v.String())
@@ -146,7 +150,9 @@ func TestStreamTee(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	c.Eval(context.Background(), `0`)
+	if _, err := c.Eval(context.Background(), `0`); err != nil {
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `a.join(',') + '|' + b.join(',')`)
 	if v.String() != "x,y|x,y" {
 		t.Errorf("got %q", v.String())

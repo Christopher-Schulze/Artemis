@@ -2,6 +2,8 @@ package js
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,7 +25,11 @@ func startEchoWS(t *testing.T) (string, func()) {
 		if err != nil {
 			return
 		}
-		defer c.CloseNow()
+		defer func() {
+			if err := c.CloseNow(); err != nil && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("close WebSocket: %v", err)
+			}
+		}()
 		for {
 			typ, data, err := c.Read(r.Context())
 			if err != nil {
@@ -63,7 +69,9 @@ func waitWebSocketTrace(t *testing.T, c *Context, expression, contains string) s
 	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for {
-		_ = c.WaitIdle(deadline)
+		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {
+			t.Fatalf("WaitIdle: %v", err)
+		}
 		value, err := c.Eval(context.Background(), expression)
 		if err != nil {
 			t.Fatalf("eval trace: %v", err)
@@ -144,7 +152,9 @@ func TestWebSocketReadyStateTransitions(t *testing.T) {
 	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for {
-		_ = c.WaitIdle(deadline)
+		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {
+			t.Fatalf("WaitIdle: %v", err)
+		}
 		v, _ := c.Eval(context.Background(), `states.join(',')`)
 		if strings.Contains(v.String(), "3") {
 			if !strings.HasPrefix(v.String(), "0,") {
@@ -186,7 +196,9 @@ func TestWebSocketSendAfterClose(t *testing.T) {
 	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for i := 0; i < 100; i++ {
-		_ = c.WaitIdle(deadline)
+		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {
+			t.Fatalf("WaitIdle: %v", err)
+		}
 		v, _ := c.Eval(context.Background(), `threw`)
 		if v.Bool() {
 			return
@@ -286,7 +298,9 @@ func TestWebSocketPolicyRevalidatesRedirect(t *testing.T) {
 		}
 		c, err := websocket.Accept(w, r, nil)
 		if err == nil {
-			_ = c.CloseNow()
+			if err := c.CloseNow(); err != nil && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("close WebSocket: %v", err)
+			}
 		}
 	}))
 	defer srv.Close()

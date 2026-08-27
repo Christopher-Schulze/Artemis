@@ -85,7 +85,9 @@ func TestMessageChannelRoundTrip(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 	// Force microtask drain via a no-op eval.
-	c.Eval(context.Background(), `0`)
+	if _, err := c.Eval(context.Background(), `0`); err != nil {
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `captured`)
 	if v.String() != "got:hello" {
 		t.Errorf("got %q", v.String())
@@ -124,7 +126,9 @@ func TestIntersectionObserverFires(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	c.Eval(context.Background(), `0`) // drain microtask
+	if _, err := c.Eval(context.Background(), `0`); err != nil { // drain microtask
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `captured`)
 	if v.String() != "1:true:1" {
 		t.Errorf("got %q", v.String())
@@ -143,7 +147,9 @@ func TestResizeObserverFires(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	c.Eval(context.Background(), `0`)
+	if _, err := c.Eval(context.Background(), `0`); err != nil {
+		t.Fatalf("drain microtasks: %v", err)
+	}
 	v, _ := c.Eval(context.Background(), `captured`)
 	if v.String() != "1:0:0" {
 		t.Errorf("got %q", v.String())

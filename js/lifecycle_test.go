@@ -2,6 +2,8 @@ package js
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -74,7 +76,9 @@ func TestContextCloseCancelsAsyncFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-time.After(5 * time.Second):
-			w.Write([]byte("ok"))
+			if _, err := w.Write([]byte("ok")); err != nil {
+				t.Errorf("write slow response: %v", err)
+			}
 		case <-r.Context().Done():
 			return
 		}
@@ -93,7 +97,11 @@ func TestContextCloseCancelsAsyncFetch(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("close response body: %v", err)
+				}
+			}()
 			return &FetchResponse{Status: resp.StatusCode, URL: req.URL}, nil
 		},
 		AsyncFetch: true,
@@ -126,7 +134,11 @@ func newWSEchoServer(t *testing.T) *httptest.Server {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() {
+			if err := conn.CloseNow(); err != nil && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("close WebSocket: %v", err)
+			}
+		}()
 		_, _, _ = conn.Read(r.Context())
 	}))
 	return srv
