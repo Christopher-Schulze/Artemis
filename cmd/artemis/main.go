@@ -17,14 +17,19 @@ const Version = artemis.Version
 
 func main() {
 	if len(os.Args) < 2 {
-		printUsage(os.Stderr)
+		if err := printUsage(os.Stderr); err != nil {
+			errf("usage: %v", err)
+		}
 		os.Exit(2)
 	}
 	switch os.Args[1] {
 	case "version", "-v", "--version":
 		fmt.Println(Version)
 	case "help", "-h", "--help":
-		printUsage(os.Stdout)
+		if err := printUsage(os.Stdout); err != nil {
+			errf("usage: %v", err)
+			os.Exit(1)
+		}
 	case "capabilities":
 		if err := printCapabilities(os.Stdout); err != nil {
 			errf("capabilities: %v", err)
@@ -56,13 +61,15 @@ func main() {
 		os.Exit(cmdBenchmark(os.Args[2:]))
 	default:
 		errf("unknown command %q", os.Args[1])
-		printUsage(os.Stderr)
+		if err := printUsage(os.Stderr); err != nil {
+			errf("usage: %v", err)
+		}
 		os.Exit(2)
 	}
 }
 
-func printUsage(w io.Writer) {
-	fmt.Fprintf(w, `artemis %s - headless browser engine
+func printUsage(w io.Writer) error {
+	if _, err := fmt.Fprintf(w, `artemis %s - headless browser engine
 
 Usage:
   artemis <command> [flags] [args]
@@ -85,11 +92,18 @@ Commands:
   help       print this help
 
 Run 'artemis <command> --help' for subcommand-specific flags.
-`, Version)
-	fmt.Fprintln(w, "Release capability states:")
-	for _, capability := range artemis.Capabilities() {
-		fmt.Fprintf(w, "  %-24s %-11s %s\n", capability.ID, capability.State, capability.Description)
+`, Version); err != nil {
+		return fmt.Errorf("write usage header: %w", err)
 	}
+	if _, err := fmt.Fprintln(w, "Release capability states:"); err != nil {
+		return fmt.Errorf("write capability heading: %w", err)
+	}
+	for _, capability := range artemis.Capabilities() {
+		if _, err := fmt.Fprintf(w, "  %-24s %-11s %s\n", capability.ID, capability.State, capability.Description); err != nil {
+			return fmt.Errorf("write capability %q: %w", capability.ID, err)
+		}
+	}
+	return nil
 }
 
 func printCapabilities(w io.Writer) error {

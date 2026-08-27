@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -37,7 +38,7 @@ import (
 // ergonomic standalone scripts against a page without the full steering
 // protocol.
 
-func cmdRun(args []string) int {
+func cmdRun(args []string) (exitCode int) {
 	fs := newFlagSet("run")
 	scriptFile := fs.String("script", "", "path to a JavaScript file to execute in the page context (required)")
 	userAgent := fs.String("user-agent", "", "override User-Agent")
@@ -123,7 +124,7 @@ Flags:
 		errf("init engine: %v", err)
 		return 1
 	}
-	defer eng.Close()
+	defer cleanupOnReturn(&exitCode, "run engine close", eng.Close)()
 
 	ctx, cancel := signalContext()
 	defer cancel()
@@ -149,7 +150,7 @@ Flags:
 		errf("fetch %s: %v", targetURL, err)
 		return 1
 	}
-	defer routeResult.Close()
+	defer cleanupOnReturn(&exitCode, "run route resource close", routeResult.Close)()
 	page, ok := routeResult.Resource.(*engine.Page)
 	if !ok || page == nil {
 		errf("fetch %s: router returned no page", targetURL)
@@ -208,21 +209,30 @@ func printResultJSON(v *js.Value) {
 		return
 	}
 	// Otherwise, wrap as a JSON string.
-	out, _ := json.Marshal(s)
+	out, marshalErr := json.Marshal(s)
+	if marshalErr != nil {
+		errf("result JSON: %v", marshalErr)
+		return
+	}
 	fmt.Println(string(out))
 }
 
 // runScriptInPage is the testable core of the `run` subcommand. It fetches
 // a URL, executes a script, and returns the result. This is extracted from
 // cmdRun so tests can verify the logic without spawning the CLI.
-func runScriptInPage(ctx context.Context, eng *engine.Engine, targetURL, scriptSrc string, opts engine.FetchOpts) (string, error) {
+func runScriptInPage(ctx context.Context, eng *engine.Engine, targetURL, scriptSrc string, opts engine.FetchOpts) (result string, resultErr error) {
 	page, err := eng.Fetch(ctx, targetURL, opts)
 	if err != nil {
 		return "", fmt.Errorf("fetch %s: %w", targetURL, err)
 	}
-	defer page.Close()
+	defer func() {
+		if closeErr := page.Close(); closeErr != nil {
+			result = ""
+			resultErr = errors.Join(resultErr, fmt.Errorf("close fetched page: %w", closeErr))
+		}
+	}()
 
-	result, err := page.Eval(ctx, scriptSrc)
+	evalResult, err := page.Eval(ctx, scriptSrc)
 	if err != nil {
 		return "", fmt.Errorf("script execution: %w", err)
 	}
@@ -231,8 +241,8 @@ func runScriptInPage(ctx context.Context, eng *engine.Engine, targetURL, scriptS
 		return "", fmt.Errorf("wait-idle: %w", err)
 	}
 
-	if result == nil {
+	if evalResult == nil {
 		return "", nil
 	}
-	return result.String(), nil
+	return evalResult.String(), nil
 }

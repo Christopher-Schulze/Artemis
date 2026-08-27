@@ -18,7 +18,7 @@ import (
 
 const defaultServeHost = "127.0.0.1"
 
-func cmdServe(args []string) int {
+func cmdServe(args []string) (exitCode int) {
 	fs := newFlagSet("serve")
 	host := fs.String("host", defaultServeHost, "bind host")
 	port := fs.Int("port", 9333, "bind port")
@@ -89,7 +89,7 @@ Flags:
 		errf("init agent: %v", err)
 		return 1
 	}
-	defer agent.Stop()
+	defer cleanupOnReturn(&exitCode, "serve agent stop", agent.Stop)()
 
 	ctx, cancel := signalContext()
 	defer cancel()

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +14,7 @@ import (
 
 func TestRunScriptInPageSimple(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>Test</title></head><body><h1 id="h">Hello</h1></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><head><title>Test</title></head><body><h1 id="h">Hello</h1></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -23,7 +22,7 @@ func TestRunScriptInPageSimple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `document.title`, engine.FetchOpts{})
 	if err != nil {
@@ -36,7 +35,7 @@ func TestRunScriptInPageSimple(t *testing.T) {
 
 func TestRunScriptInPageQuerySelector(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><h1 id="h">Hello World</h1></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><h1 id="h">Hello World</h1></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -44,7 +43,7 @@ func TestRunScriptInPageQuerySelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `document.querySelector('#h').textContent`, engine.FetchOpts{})
 	if err != nil {
@@ -57,7 +56,7 @@ func TestRunScriptInPageQuerySelector(t *testing.T) {
 
 func TestRunScriptInPageMultiLineScript(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><div id="a">1</div><div id="b">2</div></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><div id="a">1</div><div id="b">2</div></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -65,7 +64,7 @@ func TestRunScriptInPageMultiLineScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	script := `
 		var a = document.querySelector('#a').textContent;
@@ -83,7 +82,7 @@ func TestRunScriptInPageMultiLineScript(t *testing.T) {
 
 func TestRunScriptInPageDOMMutation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><div id="target">old</div></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><div id="target">old</div></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -91,7 +90,7 @@ func TestRunScriptInPageDOMMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	script := `
 		document.querySelector('#target').textContent = 'new';
@@ -111,7 +110,7 @@ func TestRunScriptInPageFetchError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	_, err = runScriptInPage(context.Background(), eng, "http://nonexistent.invalid.localhost", `1+1`, engine.FetchOpts{})
 	if err == nil {
@@ -121,7 +120,7 @@ func TestRunScriptInPageFetchError(t *testing.T) {
 
 func TestRunScriptInPageScriptError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -129,7 +128,7 @@ func TestRunScriptInPageScriptError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	_, err = runScriptInPage(context.Background(), eng, srv.URL, `throw new Error("boom")`, engine.FetchOpts{})
 	if err == nil {
@@ -139,7 +138,7 @@ func TestRunScriptInPageScriptError(t *testing.T) {
 
 func TestRunScriptInPageUndefinedResult(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -147,7 +146,7 @@ func TestRunScriptInPageUndefinedResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `undefined`, engine.FetchOpts{})
 	if err != nil {
@@ -161,7 +160,7 @@ func TestRunScriptInPageUndefinedResult(t *testing.T) {
 
 func TestRunScriptInPageArithmetic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -169,7 +168,7 @@ func TestRunScriptInPageArithmetic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `2 + 3 * 4`, engine.FetchOpts{})
 	if err != nil {
@@ -182,7 +181,7 @@ func TestRunScriptInPageArithmetic(t *testing.T) {
 
 func TestRunScriptInPageWithInlineScripts(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><script>globalThis.injected = "from-inline";</script></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><script>globalThis.injected = "from-inline";</script></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -190,7 +189,7 @@ func TestRunScriptInPageWithInlineScripts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `globalThis.injected`, engine.FetchOpts{RunInlineScripts: true})
 	if err != nil {
@@ -203,7 +202,7 @@ func TestRunScriptInPageWithInlineScripts(t *testing.T) {
 
 func TestRunScriptInPageWithoutInlineScripts(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><script>globalThis.injected = "from-inline";</script></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><script>globalThis.injected = "from-inline";</script></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -211,7 +210,7 @@ func TestRunScriptInPageWithoutInlineScripts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	result, err := runScriptInPage(context.Background(), eng, srv.URL, `globalThis.injected`, engine.FetchOpts{RunInlineScripts: false})
 	if err != nil {
@@ -233,7 +232,9 @@ func TestCmdRunMissingScriptFlag(t *testing.T) {
 func TestCmdRunMissingURL(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "script.js")
-	os.WriteFile(scriptPath, []byte("1+1"), 0o600)
+	if err := os.WriteFile(scriptPath, []byte("1+1"), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
 	exitCode := cmdRun([]string{"--script", scriptPath})
 	if exitCode != 2 {
 		t.Errorf("exit code = %d, want 2 for missing URL", exitCode)
@@ -243,7 +244,9 @@ func TestCmdRunMissingURL(t *testing.T) {
 func TestCmdRunEmptyScriptFile(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "empty.js")
-	os.WriteFile(scriptPath, []byte("   "), 0o600)
+	if err := os.WriteFile(scriptPath, []byte("   "), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
 	exitCode := cmdRun([]string{"--script", scriptPath, "https://example.com"})
 	if exitCode != 1 {
 		t.Errorf("exit code = %d, want 1 for empty script", exitCode)
@@ -260,9 +263,17 @@ func TestCmdRunNonexistentScriptFile(t *testing.T) {
 func TestCmdRunScriptFileNotReadable(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "script.js")
-	os.WriteFile(scriptPath, []byte("1+1"), 0o600)
-	os.Chmod(scriptPath, 0o000)
-	defer os.Chmod(scriptPath, 0o600)
+	if err := os.WriteFile(scriptPath, []byte("1+1"), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	if err := os.Chmod(scriptPath, 0o000); err != nil {
+		t.Fatalf("make script unreadable: %v", err)
+	}
+	defer func() {
+		if err := os.Chmod(scriptPath, 0o600); err != nil {
+			t.Errorf("restore script permissions: %v", err)
+		}
+	}()
 	exitCode := cmdRun([]string{"--script", scriptPath, "https://example.com"})
 	if exitCode != 1 {
 		t.Errorf("exit code = %d, want 1 for unreadable script", exitCode)
@@ -271,13 +282,15 @@ func TestCmdRunScriptFileNotReadable(t *testing.T) {
 
 func TestCmdRunValidScript(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>RunTest</title></head><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><head><title>RunTest</title></head><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "script.js")
-	os.WriteFile(scriptPath, []byte(`document.title`), 0o600)
+	if err := os.WriteFile(scriptPath, []byte(`document.title`), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
 
 	exitCode := cmdRun([]string{"--script", scriptPath, "--allow-private-networks", "--allow-port", srvPort(srv), srv.URL})
 	if exitCode != 0 {
@@ -290,13 +303,15 @@ func TestCmdRunWithHeaders(t *testing.T) {
 		if r.Header.Get("X-Custom") != "test" {
 			t.Errorf("missing custom header")
 		}
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "script.js")
-	os.WriteFile(scriptPath, []byte(`1+1`), 0o600)
+	if err := os.WriteFile(scriptPath, []byte(`1+1`), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
 
 	exitCode := cmdRun([]string{"--script", scriptPath, "--header", "X-Custom=test", "--allow-private-networks", "--allow-port", srvPort(srv), srv.URL})
 	if exitCode != 0 {

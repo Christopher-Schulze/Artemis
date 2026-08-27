@@ -13,7 +13,7 @@ import (
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
-func cmdAct(args []string) int {
+func cmdAct(args []string) (exitCode int) {
 	fs := newFlagSet("act")
 	binary := fs.String("binary", "", "Chromium binary path")
 	timeout := fs.Duration("timeout", 30*time.Second, "total action timeout")
@@ -66,18 +66,19 @@ func cmdAct(args []string) int {
 		return 1
 	}
 	emitProcessWarnings(browser)
-	defer browser.Close()
+	defer cleanupOnReturn(&exitCode, "act browser close", browser.Close)()
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		errf("act context: %v", err)
 		return 1
 	}
-	defer owner.Close()
+	defer cleanupOnReturn(&exitCode, "act context close", owner.Close)()
 	page, err := owner.NewPage(ctx, fs.Arg(0))
 	if err != nil {
 		errf("act page: %v", err)
 		return 1
 	}
+	defer cleanupOnReturn(&exitCode, "act page close", page.Close)()
 	if err = waitDocumentReady(ctx, page); err != nil {
 		errf("act readiness: %v", err)
 		return 1

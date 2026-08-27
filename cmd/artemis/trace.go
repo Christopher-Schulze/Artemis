@@ -12,7 +12,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/telemetry"
 )
 
-func cmdTrace(args []string) int {
+func cmdTrace(args []string) (exitCode int) {
 	fs := newFlagSet("trace")
 	url := fs.String("url", "", "URL to fetch (required)")
 	format := fs.String("format", "json", "output format: json or text")
@@ -77,18 +77,19 @@ Flags:
 		return 1
 	}
 	emitProcessWarnings(browser)
-	defer browser.Close()
+	defer cleanupOnReturn(&exitCode, "trace browser close", browser.Close)()
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		errf("trace context: %v", err)
 		return 1
 	}
-	defer owner.Close()
+	defer cleanupOnReturn(&exitCode, "trace context close", owner.Close)()
 	page, err := owner.NewPage(ctx, "about:blank")
 	if err != nil {
 		errf("trace page: %v", err)
 		return 1
 	}
+	defer cleanupOnReturn(&exitCode, "trace page close", page.Close)()
 	trace, err := telemetry.NewBrowserTraceRecorder(page, telemetry.TraceRecordConfig{
 		Screenshots: *screenshots, Snapshots: *snapshots, Sources: *sources, TraceDir: *traceDir,
 	})
@@ -104,6 +105,9 @@ Flags:
 		if trace.IsActive() {
 			if _, cleanupErr := trace.Stop(context.Background()); cleanupErr != nil {
 				errf("trace cleanup: %v", cleanupErr)
+				if exitCode == 0 {
+					exitCode = 1
+				}
 			}
 		}
 	}()

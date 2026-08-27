@@ -24,13 +24,15 @@ func TestServeStartupAndShutdown(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close probe listener: %v", err)
+	}
 
 	agent, err := artemis.NewAgent(artemis.AgentConfig{})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Stop()
+	defer closeTestResource(t, "agent stop", agent.Stop)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -58,7 +60,9 @@ func TestServeStartupAndShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, derr := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if derr == nil {
-			conn.Close()
+			if err := conn.Close(); err != nil {
+				t.Errorf("close probe connection: %v", err)
+			}
 			connected = true
 			break
 		}

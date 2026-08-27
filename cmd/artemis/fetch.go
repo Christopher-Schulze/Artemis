@@ -17,7 +17,7 @@ import (
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
-func cmdFetch(args []string) int {
+func cmdFetch(args []string) (exitCode int) {
 	fs := newFlagSet("fetch")
 	dump := fs.String("dump", "markdown", "what to print: html, markdown, text, title")
 	userAgent := fs.String("user-agent", "", "override User-Agent")
@@ -82,7 +82,7 @@ Flags:
 		errf("init engine: %v", err)
 		return 1
 	}
-	defer eng.Close()
+	defer cleanupOnReturn(&exitCode, "fetch engine close", eng.Close)()
 
 	ctx, cancel := signalContext()
 	defer cancel()
@@ -108,7 +108,7 @@ Flags:
 		errf("fetch %s: %v", url, err)
 		return 1
 	}
-	defer routeResult.Close()
+	defer cleanupOnReturn(&exitCode, "fetch route resource close", routeResult.Close)()
 	page, ok := routeResult.Resource.(*engine.Page)
 	if !ok || page == nil {
 		errf("fetch %s: router returned no page", url)
@@ -139,7 +139,11 @@ Flags:
 			fmt.Printf("%s\t%s\n", l.Href, l.Text)
 		}
 	case "structured":
-		out, _ := json.MarshalIndent(page.StructuredData(), "", "  ")
+		out, marshalErr := json.MarshalIndent(page.StructuredData(), "", "  ")
+		if marshalErr != nil {
+			errf("structured output: %v", marshalErr)
+			return 1
+		}
 		fmt.Println(string(out))
 	case "semantic":
 		fmt.Println(agent.SemanticString(page.SemanticTree()))

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,7 +55,7 @@ func TestCommandsRejectInvalidFormatsAndBoundsBeforeWork(t *testing.T) {
 
 func TestTraceEmitsJSON(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>TraceTest</title></head><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><head><title>TraceTest</title></head><body></body></html>`)
 	}))
 	defer page.Close()
 	traceDir := t.TempDir()
@@ -65,7 +64,7 @@ func TestTraceEmitsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer closeTestResource(t, "trace output reader close", r.Close)
 
 	oldStdout := os.Stdout
 	os.Stdout = w
@@ -76,7 +75,9 @@ func TestTraceEmitsJSON(t *testing.T) {
 		"--trace-dir", traceDir,
 		"--format", "json",
 	})
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Errorf("trace output writer close: %v", err)
+	}
 	os.Stdout = oldStdout
 
 	if code != 0 {
@@ -119,11 +120,13 @@ func TestDownloadEmitsVerifiedOwnedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer closeTestResource(t, "download output reader close", r.Close)
 	oldStdout := os.Stdout
 	os.Stdout = w
 	code := cmdDownload([]string{"--session-id", "cli-test", "--allow-private-networks", "--allow-port", portOf(server.URL), server.URL})
-	_ = w.Close()
+	if err := w.Close(); err != nil {
+		t.Errorf("download output writer close: %v", err)
+	}
 	os.Stdout = oldStdout
 	if code != 0 {
 		t.Fatalf("download exit code = %d, want 0", code)

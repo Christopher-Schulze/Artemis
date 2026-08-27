@@ -15,7 +15,7 @@ import (
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
-func cmdObserve(args []string) int {
+func cmdObserve(args []string) (exitCode int) {
 	fs := newFlagSet("observe")
 	binary := fs.String("binary", "", "Chromium binary path (auto-discovered when empty)")
 	timeout := fs.Duration("timeout", 20*time.Second, "navigation and capture timeout")
@@ -72,18 +72,19 @@ func cmdObserve(args []string) int {
 		return 1
 	}
 	emitProcessWarnings(browser)
-	defer browser.Close()
+	defer cleanupOnReturn(&exitCode, "observe browser close", browser.Close)()
 	browserContext, err := browser.NewContext(ctx)
 	if err != nil {
 		errf("observe context: %v", err)
 		return 1
 	}
-	defer browserContext.Close()
+	defer cleanupOnReturn(&exitCode, "observe context close", browserContext.Close)()
 	page, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {
 		errf("observe page: %v", err)
 		return 1
 	}
+	defer cleanupOnReturn(&exitCode, "observe page close", page.Close)()
 	config := bridgeobserve.DefaultConfig()
 	config.MaxNodes = *maxNodes
 	liveConfig := artemisobserve.DefaultLiveConfig()
@@ -93,7 +94,7 @@ func cmdObserve(args []string) int {
 		errf("observe collector: %v", err)
 		return 1
 	}
-	defer collector.Close()
+	defer cleanupOnReturn(&exitCode, "observe collector close", collector.Close)()
 	if _, _, err = page.Navigate(ctx, fs.Arg(0)); err != nil {
 		errf("observe navigation: %v", err)
 		return 1

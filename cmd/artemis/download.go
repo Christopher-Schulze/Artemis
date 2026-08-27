@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func cmdDownload(args []string) int {
+func cmdDownload(args []string) (exitCode int) {
 	fs := newFlagSet("download")
 	filename := fs.String("filename", "", "owned output filename (paths are rejected)")
 	sessionID := fs.String("session-id", "", "download session ID (default: generated)")
@@ -60,7 +60,7 @@ func cmdDownload(args []string) int {
 		errf("download init: %v", err)
 		return 1
 	}
-	defer eng.Close()
+	defer cleanupOnReturn(&exitCode, "download engine close", eng.Close)()
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	download, err := eng.Download(ctx, fs.Arg(0), *filename)

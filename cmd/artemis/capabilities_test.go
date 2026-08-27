@@ -31,7 +31,9 @@ func TestCapabilitiesCommandUsesCanonicalRegistry(t *testing.T) {
 
 func TestHelpReportsUnavailableCapabilities(t *testing.T) {
 	var output bytes.Buffer
-	printUsage(&output)
+	if err := printUsage(&output); err != nil {
+		t.Fatalf("print usage: %v", err)
+	}
 	help := output.String()
 	for _, required := range []string{artemis.Version, "agent.high_level", "chromium.cdp", string(artemis.SupportUnavailable)} {
 		if !strings.Contains(help, required) {

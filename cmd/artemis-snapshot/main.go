@@ -14,6 +14,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -167,25 +168,26 @@ func validateModuleRoot(root string) error {
 	return fmt.Errorf("working directory is not the Artemis module root")
 }
 
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+func writeFileAtomic(path string, data []byte, mode os.FileMode) (returnErr error) {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".snapshot-*")
 	if err != nil {
 		return fmt.Errorf("create snapshot candidate: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("remove snapshot candidate: %w", removeErr))
+		}
+	}()
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return fmt.Errorf("chmod snapshot candidate: %w", err)
+		return closeSnapshotCandidate(tmp, fmt.Errorf("chmod snapshot candidate: %w", err))
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write snapshot candidate: %w", err)
+		return closeSnapshotCandidate(tmp, fmt.Errorf("write snapshot candidate: %w", err))
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("sync snapshot candidate: %w", err)
+		return closeSnapshotCandidate(tmp, fmt.Errorf("sync snapshot candidate: %w", err))
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close snapshot candidate: %w", err)
@@ -194,4 +196,11 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("publish snapshot: %w", err)
 	}
 	return nil
+}
+
+func closeSnapshotCandidate(tmp *os.File, operationErr error) error {
+	if closeErr := tmp.Close(); closeErr != nil {
+		return errors.Join(operationErr, fmt.Errorf("close snapshot candidate: %w", closeErr))
+	}
+	return operationErr
 }

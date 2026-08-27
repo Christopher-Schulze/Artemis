@@ -28,9 +28,11 @@ func TestDiagnosticsCommandFiltersAndBoundsOutput(t *testing.T) {
 	oldStdout := os.Stdout
 	os.Stdout = writer
 	code := cmdDiagnostics([]string{"--file", path, "--type", "policy", "--limit", "1"})
-	_ = writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Errorf("diagnostics output writer close: %v", err)
+	}
 	os.Stdout = oldStdout
-	defer reader.Close()
+	defer closeTestResource(t, "diagnostics output reader close", reader.Close)
 	if code != 0 {
 		t.Fatalf("diagnostics exit code=%d", code)
 	}

@@ -60,6 +60,17 @@ func errf(format string, args ...any) {
 	fmt.Fprintln(os.Stderr, "artemis: "+fmt.Sprintf(format, args...))
 }
 
+func cleanupOnReturn(exitCode *int, label string, close func() error) func() {
+	return func() {
+		if closeErr := close(); closeErr != nil {
+			errf("%s: %v", label, closeErr)
+			if *exitCode == 0 {
+				*exitCode = 1
+			}
+		}
+	}
+}
+
 func newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)

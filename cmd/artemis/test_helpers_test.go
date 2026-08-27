@@ -1,14 +1,31 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strconv"
+	"testing"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
+
+func closeTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("%s: %v", label, err)
+	}
+}
+
+func writeTestBody(t *testing.T, w io.Writer, body string) {
+	t.Helper()
+	if _, err := fmt.Fprint(w, body); err != nil {
+		t.Errorf("write test response: %v", err)
+	}
+}
 
 // testConfig returns an engine.Config that allows the provided httptest
 // fixture servers in addition to the default public ports 80/443. It is

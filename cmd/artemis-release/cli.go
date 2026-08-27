@@ -31,15 +31,21 @@ func (values *artifactFlags) Set(value string) error {
 func runCLI(args []string, stdout, stderr io.Writer) int {
 	inputs, err := parseCLIInputs(args, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "artemis-release: %v\n", err)
+		if _, reportErr := fmt.Fprintf(stderr, "artemis-release: %v\n", err); reportErr != nil {
+			return 1
+		}
 		return 2
 	}
 	if err := buildReleaseArtifactSet(context.Background(), inputs, execCommandRunner{}, productionReleaseOperations()); err != nil {
-		fmt.Fprintf(stderr, "artemis-release: %v\n", err)
+		if _, reportErr := fmt.Fprintf(stderr, "artemis-release: %v\n", err); reportErr != nil {
+			return 1
+		}
 		return 1
 	}
 	if _, err := fmt.Fprintf(stdout, "published Artemis release set: %s\n", inputs.OutputRoot); err != nil {
-		fmt.Fprintf(stderr, "artemis-release: report success: %v\n", err)
+		if _, reportErr := fmt.Fprintf(stderr, "artemis-release: report success: %v\n", err); reportErr != nil {
+			return 1
+		}
 		return 1
 	}
 	return 0
