@@ -52,7 +52,7 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 			if root == nil {
 				return v8.Null(iso)
 			}
-			return mustValue(iso, int32(c.nodes.Handle(root)))
+			return nodeHandleValue(iso, c.nodes.Handle(root))
 		}),
 		listOnAttrs: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
 			c := r.contextFor(info.Context())
@@ -75,11 +75,15 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 					}
 					ev := lower[2:]
 					id := c.nodes.Handle(n)
+					jsID, ok := checkedUint32ToInt32(id)
+					if !ok {
+						continue
+					}
 					obj, err := v8.NewObjectTemplate(iso).NewInstance(info.Context())
 					if err != nil {
 						continue
 					}
-					_ = obj.Set("id", int32(id))
+					_ = obj.Set("id", jsID)
 					_ = obj.Set("event", ev)
 					_ = obj.Set("body", a.Val)
 					triples = append(triples, obj.Value)

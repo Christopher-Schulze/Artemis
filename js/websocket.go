@@ -183,7 +183,11 @@ func (r *wsRegistry) fireEvent(c *Context, ev wsEvent) {
 		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'error', null, false, 0, "+jsStringLit(ev.reason)+")", "<artemis-ws-dispatch>")
 	case wsClose:
 		conn.state.Store(3)
-		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'close', null, false, "+itoa(uint32(ev.code))+", "+jsStringLit(ev.reason)+")", "<artemis-ws-dispatch>")
+		code, ok := checkedIntToUint32(ev.code)
+		if !ok {
+			code = 0
+		}
+		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'close', null, false, "+itoa(code)+", "+jsStringLit(ev.reason)+")", "<artemis-ws-dispatch>")
 		r.remove(ev.connID)
 	}
 }
@@ -196,8 +200,13 @@ func (c *Context) bindWSPayload(connID uint32, data []byte, binary bool) {
 		if err != nil {
 			return
 		}
-		_ = arr.Set("length", int32(len(data)))
-		_ = arr.Set("byteLength", int32(len(data)))
+		length, ok := checkedIntToInt32(len(data))
+		if !ok {
+			_ = c.v8ctx.Global().Set("__wsLastPayload", v8.Null(c.rt.iso))
+			return
+		}
+		_ = arr.Set("length", length)
+		_ = arr.Set("byteLength", length)
 		for i, b := range data {
 			_ = arr.SetIdx(uint32(i), int32(b))
 		}
@@ -333,7 +342,7 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 					}
 				}
 			}()
-			return mustValue(iso, int32(id))
+			return nodeHandleValue(iso, id)
 		}),
 		send: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
 			c := r.contextFor(info.Context())
@@ -341,7 +350,10 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			if c == nil || len(args) < 2 {
 				return v8.Null(iso)
 			}
-			id := uint32(args[0].Integer())
+			id, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
 			data := []byte(args[1].String())
 			conn := c.ws.get(id)
 			if conn == nil {
@@ -364,11 +376,18 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			if c == nil || len(args) < 1 {
 				return v8.Null(iso)
 			}
-			id := uint32(args[0].Integer())
+			id, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
 			code := uint16(1000)
 			reason := ""
 			if len(args) >= 2 && !args[1].IsNullOrUndefined() {
-				code = uint16(args[1].Integer())
+				codeValue, valid := checkedInt64ToUint16(args[1].Integer())
+				if !valid {
+					return v8.Null(iso)
+				}
+				code = codeValue
 			}
 			if len(args) >= 3 {
 				reason = args[2].String()

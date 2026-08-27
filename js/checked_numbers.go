@@ -23,6 +23,13 @@ func checkedIntToInt32(value int) (int32, bool) {
 	return int32(value), true
 }
 
+func checkedInt64ToInt32(value int64) (int32, bool) {
+	if value < math.MinInt32 || value > math.MaxInt32 {
+		return 0, false
+	}
+	return int32(value), true
+}
+
 func checkedIntToUint32(value int) (uint32, bool) {
 	if value < 0 || int64(value) > math.MaxUint32 {
 		return 0, false

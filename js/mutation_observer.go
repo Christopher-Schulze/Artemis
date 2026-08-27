@@ -167,8 +167,12 @@ func (r *Runtime) ensureObserverTemplates() *observerTemplates {
 			if err != nil {
 				return mustValue(iso, int32(0))
 			}
+			targetID, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return mustValue(iso, int32(0))
+			}
 			o := &observer{
-				targetID: uint32(args[0].Integer()),
+				targetID: targetID,
 				callback: callback,
 			}
 			if v, err := optsObj.Get("childList"); err == nil {
@@ -181,7 +185,7 @@ func (r *Runtime) ensureObserverTemplates() *observerTemplates {
 				o.subtree = v.Boolean()
 			}
 			c.observers.add(o)
-			return mustValue(iso, int32(o.id))
+			return nodeHandleValue(iso, o.id)
 		}),
 		disconnect: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
 			c := r.contextFor(info.Context())
@@ -189,7 +193,11 @@ func (r *Runtime) ensureObserverTemplates() *observerTemplates {
 			if c == nil || len(args) < 1 {
 				return v8.Null(iso)
 			}
-			c.observers.disconnect(uint32(args[0].Integer()))
+			id, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			c.observers.disconnect(id)
 			return v8.Null(iso)
 		}),
 		take: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
@@ -198,7 +206,10 @@ func (r *Runtime) ensureObserverTemplates() *observerTemplates {
 			if c == nil || len(args) < 1 {
 				return idsToArray(info.Context(), iso, nil)
 			}
-			id := uint32(args[0].Integer())
+			id, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return idsToArray(info.Context(), iso, nil)
+			}
 			c.observers.mu.Lock()
 			o, ok := c.observers.by[id]
 			var recs []mutationRecord
@@ -238,28 +249,52 @@ func mutationsToJSArray(v8ctx *v8.Context, iso *v8.Isolate, recs []mutationRecor
 		return v8.Null(iso)
 	}
 	for i, r := range recs {
+		targetID, ok := checkedUint32ToInt32(r.TargetID)
+		if !ok {
+			return v8.Null(iso)
+		}
 		obj, err := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
 		if err != nil {
 			continue
 		}
 		_ = obj.Set("type", string(r.Type))
-		_ = obj.Set("targetId", int32(r.TargetID))
+		_ = obj.Set("targetId", targetID)
 		_ = obj.Set("attributeName", r.AttributeName)
 		added, _ := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
 		for j, id := range r.AddedIDs {
-			_ = added.SetIdx(uint32(j), int32(id))
+			jsID, ok := checkedUint32ToInt32(id)
+			if !ok {
+				return v8.Null(iso)
+			}
+			_ = added.SetIdx(uint32(j), jsID)
 		}
-		_ = added.Set("length", int32(len(r.AddedIDs)))
+		addedLength, ok := checkedIntToInt32(len(r.AddedIDs))
+		if !ok {
+			return v8.Null(iso)
+		}
+		_ = added.Set("length", addedLength)
 		_ = obj.Set("addedIds", added)
 		removed, _ := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
 		for j, id := range r.RemovedIDs {
-			_ = removed.SetIdx(uint32(j), int32(id))
+			jsID, ok := checkedUint32ToInt32(id)
+			if !ok {
+				return v8.Null(iso)
+			}
+			_ = removed.SetIdx(uint32(j), jsID)
 		}
-		_ = removed.Set("length", int32(len(r.RemovedIDs)))
+		removedLength, ok := checkedIntToInt32(len(r.RemovedIDs))
+		if !ok {
+			return v8.Null(iso)
+		}
+		_ = removed.Set("length", removedLength)
 		_ = obj.Set("removedIds", removed)
 		_ = arr.SetIdx(uint32(i), obj)
 	}
-	_ = arr.Set("length", int32(len(recs)))
+	length, ok := checkedIntToInt32(len(recs))
+	if !ok {
+		return v8.Null(iso)
+	}
+	_ = arr.Set("length", length)
 	return arr.Value
 }
 

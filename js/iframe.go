@@ -155,7 +155,10 @@ func (r *Runtime) ensureIframeTemplates() *iframeTemplates {
 			if c == nil || len(args) < 1 {
 				return mustValue(iso, false)
 			}
-			handle := uint32(args[0].Integer())
+			handle, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return mustValue(iso, false)
+			}
 			n := c.nodes.Get(handle)
 			if n == nil || n.Tag() != "iframe" {
 				return mustValue(iso, false)
@@ -173,7 +176,10 @@ func (r *Runtime) ensureIframeTemplates() *iframeTemplates {
 			if c == nil || len(args) < 1 {
 				return mustValue(iso, int32(0))
 			}
-			handle := uint32(args[0].Integer())
+			handle, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return mustValue(iso, int32(0))
+			}
 			c.iframes.mu.Lock()
 			doc, ok := c.iframes.docs[handle]
 			c.iframes.mu.Unlock()
@@ -183,7 +189,7 @@ func (r *Runtime) ensureIframeTemplates() *iframeTemplates {
 			// Register the iframe doc's root in PARENT's nodeTable so parent
 			// JS can __wrap it. Mutations via parent or iframe both touch
 			// the same Go-side *html.Node, so DOM state stays consistent.
-			return mustValue(iso, int32(c.nodes.Handle(doc.Root())))
+			return nodeHandleValue(iso, c.nodes.Handle(doc.Root()))
 		}),
 		// Cross-context postMessage: parent's contentWindow.postMessage
 		// pushes data into the iframe's pending message queue. The iframe
@@ -195,7 +201,10 @@ func (r *Runtime) ensureIframeTemplates() *iframeTemplates {
 			if c == nil || len(args) < 2 {
 				return v8.Null(iso)
 			}
-			handle := uint32(args[0].Integer())
+			handle, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
 			jsonGlobal, err := info.Context().Global().Get("JSON")
 			if err != nil {
 				return v8.Null(iso)

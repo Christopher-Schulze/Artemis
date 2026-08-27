@@ -77,6 +77,27 @@ func TestCheckedIntToInt32(t *testing.T) {
 	}
 }
 
+func TestCheckedInt64ToInt32(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		input int64
+		want  int32
+		ok    bool
+	}{
+		{name: "minimum", input: math.MinInt32, want: math.MinInt32, ok: true},
+		{name: "maximum", input: math.MaxInt32, want: math.MaxInt32, ok: true},
+		{name: "negative overflow", input: math.MinInt32 - 1},
+		{name: "positive overflow", input: math.MaxInt32 + 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := checkedInt64ToInt32(tt.input)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("checkedInt64ToInt32(%d) = (%d, %t), want (%d, %t)", tt.input, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
 func TestCheckedIntToUint32(t *testing.T) {
 	for _, tt := range []struct {
 		name  string

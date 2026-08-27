@@ -1,6 +1,7 @@
 package js
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -65,7 +66,10 @@ func storageFromInfo(info *v8.FunctionCallbackInfo, h *storageHandles) *memStora
 	if field == nil {
 		return nil
 	}
-	id := uint32(field.Integer())
+	id, ok := checkedInt64ToUint32(field.Integer())
+	if !ok {
+		return nil
+	}
 	if id == 0 {
 		return nil
 	}
@@ -130,7 +134,11 @@ func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
 		if s == nil {
 			return mustValue(iso, int32(0))
 		}
-		return mustValue(iso, int32(s.length()))
+		length, ok := checkedIntToInt32(s.length())
+		if !ok {
+			return v8.Null(iso)
+		}
+		return mustValue(iso, length)
 	})
 	return st
 }
@@ -161,7 +169,12 @@ func buildStorageCached(c *Context, s *memStorage) (*v8.Value, error) {
 		h.remove(id)
 		return nil, err
 	}
-	if err := obj.SetInternalField(0, int32(id)); err != nil {
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		h.remove(id)
+		return nil, errors.New("storage handle exceeds JavaScript integer range")
+	}
+	if err := obj.SetInternalField(0, jsID); err != nil {
 		h.remove(id)
 		return nil, err
 	}
@@ -171,6 +184,11 @@ func buildStorageCached(c *Context, s *memStorage) (*v8.Value, error) {
 	_ = obj.Set("clear", st.clear.GetFunction(c.v8ctx))
 	_ = obj.Set("key", st.key.GetFunction(c.v8ctx))
 	_ = obj.Set("lengthOf", st.lenOf.GetFunction(c.v8ctx))
-	_ = obj.Set("length", int32(s.length()))
+	length, ok := checkedIntToInt32(s.length())
+	if !ok {
+		h.remove(id)
+		return nil, errors.New("storage length exceeds JavaScript integer range")
+	}
+	_ = obj.Set("length", length)
 	return obj.Value, nil
 }

@@ -54,7 +54,11 @@ func (r *Runtime) ensureDOMBridgeTemplates() *domBridgeTemplates {
 			if c == nil || len(args) < 2 {
 				return v8.Null(iso)
 			}
-			n := c.nodes.Get(uint32(args[0].Integer()))
+			nodeID, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			n := c.nodes.Get(nodeID)
 			if n == nil {
 				return v8.Null(iso)
 			}
@@ -66,7 +70,11 @@ func (r *Runtime) ensureDOMBridgeTemplates() *domBridgeTemplates {
 			if c == nil || len(args) < 3 {
 				return v8.Null(iso)
 			}
-			n := c.nodes.Get(uint32(args[0].Integer()))
+			nodeID, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			n := c.nodes.Get(nodeID)
 			if n == nil {
 				return v8.Null(iso)
 			}
@@ -79,7 +87,11 @@ func (r *Runtime) ensureDOMBridgeTemplates() *domBridgeTemplates {
 			if c == nil || len(args) < 2 {
 				return v8.Null(iso)
 			}
-			n := c.nodes.Get(uint32(args[0].Integer()))
+			nodeID, ok := checkedInt64ToUint32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			n := c.nodes.Get(nodeID)
 			if n == nil {
 				return v8.Null(iso)
 			}
@@ -170,20 +182,20 @@ func nodeGetProp(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node,
 	case "outerHTML":
 		return mustValue(iso, outerHTMLOf(n))
 	case "parentId":
-		return mustValue(iso, int32(c.nodes.Handle(n.Parent())))
+		return nodeHandleValue(iso, c.nodes.Handle(n.Parent()))
 	case "firstChildId":
-		return mustValue(iso, int32(c.nodes.Handle(n.FirstChild())))
+		return nodeHandleValue(iso, c.nodes.Handle(n.FirstChild()))
 	case "lastChildId":
-		return mustValue(iso, int32(c.nodes.Handle(n.LastChild())))
+		return nodeHandleValue(iso, c.nodes.Handle(n.LastChild()))
 	case "nextSiblingId":
-		return mustValue(iso, int32(c.nodes.Handle(n.NextSibling())))
+		return nodeHandleValue(iso, c.nodes.Handle(n.NextSibling()))
 	case "prevSiblingId":
-		return mustValue(iso, int32(c.nodes.Handle(n.PrevSibling())))
+		return nodeHandleValue(iso, c.nodes.Handle(n.PrevSibling()))
 	case "childIds":
 		kids := n.Children()
 		ids := make([]any, len(kids))
 		for i, k := range kids {
-			ids[i] = int32(c.nodes.Handle(k))
+			ids[i] = c.nodes.Handle(k)
 		}
 		return idsToArray(v8ctx, iso, ids)
 	}
@@ -276,7 +288,11 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 		if len(args) < 1 {
 			return v8.Null(iso)
 		}
-		child := c.nodes.Get(uint32(args[0].Integer()))
+		childID, ok := checkedInt64ToUint32(args[0].Integer())
+		if !ok {
+			return v8.Null(iso)
+		}
+		child := c.nodes.Get(childID)
 		if child == nil {
 			return v8.Null(iso)
 		}
@@ -286,12 +302,16 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 			TargetID: c.nodes.Handle(n),
 			AddedIDs: []uint32{c.nodes.Handle(child)},
 		}, n)
-		return mustValue(iso, int32(c.nodes.Handle(child)))
+		return nodeHandleValue(iso, c.nodes.Handle(child))
 	case "removeChild":
 		if len(args) < 1 {
 			return v8.Null(iso)
 		}
-		child := c.nodes.Get(uint32(args[0].Integer()))
+		childID, ok := checkedInt64ToUint32(args[0].Integer())
+		if !ok {
+			return v8.Null(iso)
+		}
+		child := c.nodes.Get(childID)
 		if child == nil {
 			return v8.Null(iso)
 		}
@@ -301,15 +321,23 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 			TargetID:   c.nodes.Handle(n),
 			RemovedIDs: []uint32{c.nodes.Handle(child)},
 		}, n)
-		return mustValue(iso, int32(c.nodes.Handle(child)))
+		return nodeHandleValue(iso, c.nodes.Handle(child))
 	case "insertBefore":
 		if len(args) < 2 {
 			return v8.Null(iso)
 		}
-		newChild := c.nodes.Get(uint32(args[0].Integer()))
+		newChildID, ok := checkedInt64ToUint32(args[0].Integer())
+		if !ok {
+			return v8.Null(iso)
+		}
+		newChild := c.nodes.Get(newChildID)
 		var ref *webapi.Node
 		if !args[1].IsNullOrUndefined() {
-			ref = c.nodes.Get(uint32(args[1].Integer()))
+			refID, ok := checkedInt64ToUint32(args[1].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			ref = c.nodes.Get(refID)
 		}
 		if newChild == nil {
 			return v8.Null(iso)
@@ -320,14 +348,14 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 			TargetID: c.nodes.Handle(n),
 			AddedIDs: []uint32{c.nodes.Handle(newChild)},
 		}, n)
-		return mustValue(iso, int32(c.nodes.Handle(newChild)))
+		return nodeHandleValue(iso, c.nodes.Handle(newChild))
 	case "cloneNode":
 		deep := false
 		if len(args) >= 1 {
 			deep = args[0].Boolean()
 		}
 		clone := webapi.CloneNode(n, deep)
-		return mustValue(iso, int32(c.nodes.Handle(clone)))
+		return nodeHandleValue(iso, c.nodes.Handle(clone))
 	case "querySelector":
 		if len(args) < 1 {
 			return v8.Null(iso)
@@ -336,7 +364,7 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 		if err != nil || m == nil {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, int32(c.nodes.Handle(m)))
+		return nodeHandleValue(iso, c.nodes.Handle(m))
 	case "querySelectorAll":
 		if len(args) < 1 {
 			return idsToArray(v8ctx, iso, nil)
@@ -347,7 +375,7 @@ func nodeCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, n *webapi.Node, me
 		}
 		ids := make([]any, len(matches))
 		for i, m := range matches {
-			ids[i] = int32(c.nodes.Handle(m))
+			ids[i] = c.nodes.Handle(m)
 		}
 		return idsToArray(v8ctx, iso, ids)
 	case "styleGet":
@@ -383,11 +411,11 @@ func docGetProp(iso *v8.Isolate, c *Context, prop string) *v8.Value {
 	case "URL":
 		return mustValue(iso, c.doc.URL())
 	case "bodyId":
-		return mustValue(iso, int32(c.nodes.Handle(c.doc.Body())))
+		return nodeHandleValue(iso, c.nodes.Handle(c.doc.Body()))
 	case "documentElementId":
-		return mustValue(iso, int32(c.nodes.Handle(c.doc.HTMLElement())))
+		return nodeHandleValue(iso, c.nodes.Handle(c.doc.HTMLElement()))
 	case "headId":
-		return mustValue(iso, int32(c.nodes.Handle(c.doc.Head())))
+		return nodeHandleValue(iso, c.nodes.Handle(c.doc.Head()))
 	case "cookie":
 		if c.getCookie != nil {
 			return mustValue(iso, c.getCookie())
@@ -421,7 +449,7 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 		if err != nil || m == nil {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, int32(c.nodes.Handle(m)))
+		return nodeHandleValue(iso, c.nodes.Handle(m))
 	case "querySelectorAll":
 		if len(args) < 1 {
 			return idsToArray(v8ctx, iso, nil)
@@ -432,7 +460,7 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 		}
 		ids := make([]any, len(matches))
 		for i, m := range matches {
-			ids[i] = int32(c.nodes.Handle(m))
+			ids[i] = c.nodes.Handle(m)
 		}
 		return idsToArray(v8ctx, iso, ids)
 	case "getElementById":
@@ -443,7 +471,7 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 		if m == nil {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, int32(c.nodes.Handle(m)))
+		return nodeHandleValue(iso, c.nodes.Handle(m))
 	case "getElementsByTagName":
 		if len(args) < 1 {
 			return idsToArray(v8ctx, iso, nil)
@@ -451,7 +479,7 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 		matches := webapi.GetElementsByTagName(c.doc.Root(), args[0].String())
 		ids := make([]any, len(matches))
 		for i, m := range matches {
-			ids[i] = int32(c.nodes.Handle(m))
+			ids[i] = c.nodes.Handle(m)
 		}
 		return idsToArray(v8ctx, iso, ids)
 	case "getElementsByClassName":
@@ -461,7 +489,7 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 		matches := webapi.GetElementsByClassName(c.doc.Root(), args[0].String())
 		ids := make([]any, len(matches))
 		for i, m := range matches {
-			ids[i] = int32(c.nodes.Handle(m))
+			ids[i] = c.nodes.Handle(m)
 		}
 		return idsToArray(v8ctx, iso, ids)
 	case "createElement":
@@ -469,13 +497,13 @@ func docCall(iso *v8.Isolate, v8ctx *v8.Context, c *Context, method string, args
 			return v8.Null(iso)
 		}
 		el := webapi.CreateElement(args[0].String())
-		return mustValue(iso, int32(c.nodes.Handle(el)))
+		return nodeHandleValue(iso, c.nodes.Handle(el))
 	case "createTextNode":
 		if len(args) < 1 {
 			return v8.Null(iso)
 		}
 		t := webapi.CreateTextNode(args[0].String())
-		return mustValue(iso, int32(c.nodes.Handle(t)))
+		return nodeHandleValue(iso, c.nodes.Handle(t))
 	}
 	return v8.Null(iso)
 }
@@ -488,7 +516,15 @@ func mustValue(iso *v8.Isolate, v any) *v8.Value {
 	return out
 }
 
-// idsToArray converts a slice of int32 handles to a JS array.
+func nodeHandleValue(iso *v8.Isolate, id uint32) *v8.Value {
+	jsID, ok := checkedUint32ToInt32(id)
+	if !ok {
+		return v8.Null(iso)
+	}
+	return mustValue(iso, jsID)
+}
+
+// idsToArray converts native values, including checked node handles, to a JS array.
 func idsToArray(v8ctx *v8.Context, iso *v8.Isolate, ids []any) *v8.Value {
 	tmpl := v8.NewObjectTemplate(iso)
 	obj, err := tmpl.NewInstance(v8ctx)
@@ -496,9 +532,20 @@ func idsToArray(v8ctx *v8.Context, iso *v8.Isolate, ids []any) *v8.Value {
 		return v8.Null(iso)
 	}
 	for i, id := range ids {
+		if nativeID, ok := id.(uint32); ok {
+			jsID, valid := checkedUint32ToInt32(nativeID)
+			if !valid {
+				return v8.Null(iso)
+			}
+			id = jsID
+		}
 		_ = obj.SetIdx(uint32(i), id)
 	}
-	_ = obj.Set("length", int32(len(ids)))
+	length, ok := checkedIntToInt32(len(ids))
+	if !ok {
+		return v8.Null(iso)
+	}
+	_ = obj.Set("length", length)
 	return obj.Value
 }
 

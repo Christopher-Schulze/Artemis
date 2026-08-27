@@ -1,6 +1,7 @@
 package js
 
 import (
+	"errors"
 	"net/url"
 	"sync"
 
@@ -322,7 +323,11 @@ func setNavigatorFields(iso *v8.Isolate, v8ctx *v8.Context, obj *v8.Object, nav 
 	for i, l := range nav.Languages {
 		_ = langs.SetIdx(uint32(i), l)
 	}
-	_ = langs.Set("length", int32(len(nav.Languages)))
+	length, ok := checkedIntToInt32(len(nav.Languages))
+	if !ok {
+		return errors.New("navigator languages exceed JavaScript integer range")
+	}
+	_ = langs.Set("length", length)
 	return obj.SetManyPrepared(navigatorKeys, []interface{}{
 		nav.UserAgent, nav.Language, nav.Platform, langs, true, true, "1",
 	})
@@ -367,7 +372,11 @@ func (r *Runtime) ensureTimerTemplates() *timerTemplates {
 			if c == nil || len(args) < 1 {
 				return v8.Null(iso)
 			}
-			c.timers.cancel(int32(args[0].Integer()))
+			timerID, ok := checkedInt64ToInt32(args[0].Integer())
+			if !ok {
+				return v8.Null(iso)
+			}
+			c.timers.cancel(timerID)
 			return v8.Null(iso)
 		}),
 	}

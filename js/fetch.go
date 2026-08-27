@@ -177,7 +177,10 @@ func bodyFromInfo(info *v8.FunctionCallbackInfo, h *fetchBodyHandles) []byte {
 	if field == nil {
 		return nil
 	}
-	id := uint32(field.Integer())
+	id, ok := checkedInt64ToUint32(field.Integer())
+	if !ok {
+		return nil
+	}
 	if id == 0 {
 		return nil
 	}
@@ -312,7 +315,11 @@ func buildResponseObject(c *Context, v8ctx *v8.Context, r *FetchResponse) (*v8.V
 	}
 	bodyID := c.rt.fetchBodies.put(r.Body)
 	c.fetchBodyIDs = append(c.fetchBodyIDs, bodyID)
-	if setErr := obj.SetInternalField(0, int32(bodyID)); setErr != nil {
+	jsBodyID, ok := checkedUint32ToInt32(bodyID)
+	if !ok {
+		return nil, errors.New("fetch body handle exceeds JavaScript integer range")
+	}
+	if setErr := obj.SetInternalField(0, jsBodyID); setErr != nil {
 		return nil, setErr
 	}
 	_ = obj.Set("status", int32(r.Status))

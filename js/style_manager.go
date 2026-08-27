@@ -90,7 +90,11 @@ func (r *Runtime) ensureCascadeStyleTemplate() *v8.FunctionTemplate {
 		if c == nil || len(args) < 2 {
 			return mustValue(iso, "")
 		}
-		n := c.nodes.Get(uint32(args[0].Integer()))
+		nodeID, ok := checkedInt64ToUint32(args[0].Integer())
+		if !ok {
+			return mustValue(iso, "")
+		}
+		n := c.nodes.Get(nodeID)
 		if n == nil {
 			return mustValue(iso, "")
 		}
