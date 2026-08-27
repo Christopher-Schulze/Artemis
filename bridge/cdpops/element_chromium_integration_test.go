@@ -21,7 +21,7 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := w.Write([]byte(`<!doctype html>
+		if _, writeErr := w.Write([]byte(`<!doctype html>
 <button id="ready">Ready</button>
 <button id="disabled" disabled>Disabled</button>
 <button id="hidden" style="visibility:hidden">Hidden</button>
@@ -29,8 +29,8 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 <div style="position:relative;width:200px;height:50px">
   <button id="covered" style="position:absolute;left:0;top:0">Covered</button>
   <div style="position:absolute;left:0;top:0;width:200px;height:50px;z-index:10">overlay</div>
-</div>`)); err != nil {
-			t.Errorf("write element fixture response: %v", err)
+</div>`)); writeErr != nil {
+			t.Errorf("write element fixture response: %v", writeErr)
 		}
 	}))
 	defer fixture.Close()

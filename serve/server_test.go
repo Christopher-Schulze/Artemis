@@ -190,8 +190,8 @@ func roundTrip(t *testing.T, c *websocket.Conn, req Request) Response {
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	if err := c.Write(context.Background(), websocket.MessageText, body); err != nil {
-		t.Fatalf("write: %v", err)
+	if writeErr := c.Write(context.Background(), websocket.MessageText, body); writeErr != nil {
+		t.Fatalf("write: %v", writeErr)
 	}
 	_, data, err := c.Read(context.Background())
 	if err != nil {

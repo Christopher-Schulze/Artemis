@@ -35,8 +35,8 @@ func TestRunner(t *testing.T) {
 		t.Fatalf("NewRunner: %v", err)
 	}
 	defer func() {
-		if err := r.Close(); err != nil {
-			t.Errorf("close runner: %v", err)
+		if closeErr := r.Close(); closeErr != nil {
+			t.Errorf("close runner: %v", closeErr)
 		}
 	}()
 
@@ -70,8 +70,8 @@ func TestRunnerUnregisteredPath(t *testing.T) {
 		t.Fatalf("NewRunner: %v", err)
 	}
 	defer func() {
-		if err := r.Close(); err != nil {
-			t.Errorf("close runner: %v", err)
+		if closeErr := r.Close(); closeErr != nil {
+			t.Errorf("close runner: %v", closeErr)
 		}
 	}()
 
@@ -95,8 +95,8 @@ func TestRunnerRejectsInvalidInputs(t *testing.T) {
 		t.Fatalf("NewRunner: %v", err)
 	}
 	defer func() {
-		if err := r.Close(); err != nil {
-			t.Errorf("close runner: %v", err)
+		if closeErr := r.Close(); closeErr != nil {
+			t.Errorf("close runner: %v", closeErr)
 		}
 	}()
 
@@ -114,8 +114,8 @@ func TestRunnerRejectsMissingHarnessResults(t *testing.T) {
 		t.Fatalf("NewRunner: %v", err)
 	}
 	defer func() {
-		if err := r.Close(); err != nil {
-			t.Errorf("close runner: %v", err)
+		if closeErr := r.Close(); closeErr != nil {
+			t.Errorf("close runner: %v", closeErr)
 		}
 	}()
 	r.Server.RegisterHTML("/no-results.html", "<html><head><title>No results</title></head><body></body></html>")

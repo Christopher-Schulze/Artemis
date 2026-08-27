@@ -13,8 +13,8 @@ func TestChallengeMetricsPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close metrics store: %v", err)
+		if closeErr := store.Close(); closeErr != nil {
+			t.Errorf("close metrics store: %v", closeErr)
 		}
 	}()
 	if recordErr := store.Record(MetricRow{

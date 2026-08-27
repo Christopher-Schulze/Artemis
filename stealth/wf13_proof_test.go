@@ -35,8 +35,8 @@ func BenchmarkWFReferrerForDomainPerfBaseline(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := mem.Close(); err != nil {
-			b.Errorf("close domain memory: %v", err)
+		if closeErr := mem.Close(); closeErr != nil {
+			b.Errorf("close domain memory: %v", closeErr)
 		}
 	}()
 	if err := mem.Remember(DomainMemoryEntry{
@@ -102,8 +102,8 @@ func TestWFReferrerForDomainEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := mem.Close(); err != nil {
-			t.Errorf("close domain memory: %v", err)
+		if closeErr := mem.Close(); closeErr != nil {
+			t.Errorf("close domain memory: %v", closeErr)
 		}
 	}()
 	if rememberErr := mem.Remember(DomainMemoryEntry{

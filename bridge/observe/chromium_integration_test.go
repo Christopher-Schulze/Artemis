@@ -21,8 +21,8 @@ func TestChromiumObservationFixture(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := w.Write([]byte(`<!doctype html><button id="real">Real geometry</button><button disabled>Disabled</button><button aria-label="Hidden action" style="display:none">Hidden action</button><div style="position:relative"><button style="position:absolute;left:0;top:0">Covered action</button><div style="position:absolute;left:0;top:0;width:180px;height:50px;z-index:10">overlay</div></div><input type="password" value="super-secret"><div id="host"></div><iframe srcdoc="<button>Frame button</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow action">shadow</button>'</script>`)); err != nil {
-			t.Errorf("write observation fixture response: %v", err)
+		if _, writeErr := w.Write([]byte(`<!doctype html><button id="real">Real geometry</button><button disabled>Disabled</button><button aria-label="Hidden action" style="display:none">Hidden action</button><div style="position:relative"><button style="position:absolute;left:0;top:0">Covered action</button><div style="position:absolute;left:0;top:0;width:180px;height:50px;z-index:10">overlay</div></div><input type="password" value="super-secret"><div id="host"></div><iframe srcdoc="<button>Frame button</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow action">shadow</button>'</script>`)); writeErr != nil {
+			t.Errorf("write observation fixture response: %v", writeErr)
 		}
 	}))
 	defer fixture.Close()

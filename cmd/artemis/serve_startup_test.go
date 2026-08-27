@@ -24,8 +24,8 @@ func TestServeStartupAndShutdown(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close probe listener: %v", err)
+	if closeErr := ln.Close(); closeErr != nil {
+		t.Fatalf("close probe listener: %v", closeErr)
 	}
 
 	agent, err := artemis.NewAgent(artemis.AgentConfig{})

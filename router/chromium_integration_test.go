@@ -22,8 +22,8 @@ func TestChromiumExecutorAgainstRealChromiumFixture(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>Hybrid Fixture</title></head><body><h1>dynamic-ready</h1><script>document.body.dataset.ready="true"</script></body></html>`); err != nil {
-			t.Errorf("write Chromium fixture response: %v", err)
+		if _, writeErr := fmt.Fprint(w, `<!doctype html><html><head><title>Hybrid Fixture</title></head><body><h1>dynamic-ready</h1><script>document.body.dataset.ready="true"</script></body></html>`); writeErr != nil {
+			t.Errorf("write Chromium fixture response: %v", writeErr)
 		}
 	}))
 	defer fixture.Close()
@@ -71,8 +71,8 @@ func TestHybridRouterRealFixtureParityAcrossRenderlessAndChromium(t *testing.T) 
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>Parity</title></head><body><h1>same-content</h1></body></html>`); err != nil {
-			t.Errorf("write parity fixture response: %v", err)
+		if _, writeErr := fmt.Fprint(w, `<!doctype html><html><head><title>Parity</title></head><body><h1>same-content</h1></body></html>`); writeErr != nil {
+			t.Errorf("write parity fixture response: %v", writeErr)
 		}
 	}))
 	defer fixture.Close()

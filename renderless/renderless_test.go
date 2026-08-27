@@ -127,8 +127,8 @@ func TestTASK2255_EngineClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	if err := e.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if closeErr := e.Close(); closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
 	}
 	if !e.IsClosed() {
 		t.Error("should be closed")

@@ -111,11 +111,11 @@ func TestServerBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET auth: %v", err)
 	}
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		t.Fatalf("discard unauthorized response: %v", err)
+	if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
+		t.Fatalf("discard unauthorized response: %v", copyErr)
 	}
-	if err := resp.Body.Close(); err != nil {
-		t.Fatalf("close unauthorized response: %v", err)
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		t.Fatalf("close unauthorized response: %v", closeErr)
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
@@ -177,11 +177,11 @@ func TestServerFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	if _, err := fw.Write([]byte("hello fixture")); err != nil {
-		t.Fatalf("write form file: %v", err)
+	if _, writeErr := fw.Write([]byte("hello fixture")); writeErr != nil {
+		t.Fatalf("write form file: %v", writeErr)
 	}
-	if err := mw.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
+	if closeErr := mw.Close(); closeErr != nil {
+		t.Fatalf("close multipart writer: %v", closeErr)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, s.URL("/file-upload"), strings.NewReader(b.String()))
@@ -327,11 +327,11 @@ func TestServerChallenge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET challenge: %v", err)
 	}
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		t.Fatalf("discard forbidden response: %v", err)
+	if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
+		t.Fatalf("discard forbidden response: %v", copyErr)
 	}
-	if err := resp.Body.Close(); err != nil {
-		t.Fatalf("close forbidden response: %v", err)
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		t.Fatalf("close forbidden response: %v", closeErr)
 	}
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)

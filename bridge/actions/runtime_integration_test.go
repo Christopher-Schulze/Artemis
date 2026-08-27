@@ -41,20 +41,20 @@ func newActionFixture(t *testing.T) *actionFixture {
 	server := httptest.NewServer(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><form id="profile"><input aria-label="First" name="first"><input aria-label="Last" name="last"></form><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL); err != nil {
-			t.Errorf("write action fixture response: %v", err)
+		if _, writeErr := fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><form id="profile"><input aria-label="First" name="first"><input aria-label="Last" name="last"></form><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL); writeErr != nil {
+			t.Errorf("write action fixture response: %v", writeErr)
 		}
 	})
 	mux.HandleFunc("/second", func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte("<!doctype html><title>Second</title><p>second</p>")); err != nil {
-			t.Errorf("write second action fixture response: %v", err)
+		if _, writeErr := w.Write([]byte("<!doctype html><title>Second</title><p>second</p>")); writeErr != nil {
+			t.Errorf("write second action fixture response: %v", writeErr)
 		}
 	})
 	mux.HandleFunc("/download", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("Content-Disposition", `attachment; filename="proof.txt"`)
-		if _, err := w.Write([]byte("verified-download")); err != nil {
-			t.Errorf("write action download response: %v", err)
+		if _, writeErr := w.Write([]byte("verified-download")); writeErr != nil {
+			t.Errorf("write action download response: %v", writeErr)
 		}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -295,19 +295,19 @@ func TestRuntimeNavigationHistoryReloadDialogAndDenials(t *testing.T) {
 			if event.Method == "Page.javascriptDialogOpening" && event.SessionID == f.page.SessionID() {
 				goto dialogReady
 			}
-		case err, ok := <-dialogEvents.Errors:
+		case eventErr, ok := <-dialogEvents.Errors:
 			if !ok {
 				t.Fatal("dialog event error channel closed")
 			}
-			t.Fatal(err)
+			t.Fatal(eventErr)
 		case <-dialogCtx.Done():
 			t.Fatal("timed out waiting for JavaScript dialog event")
 		}
 	}
 dialogReady:
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindDialog, Accept: true, PromptText: "accepted"}))
-	if err := <-dialogDone; err != nil {
-		t.Fatal(err)
+	if dialogErr := <-dialogDone; dialogErr != nil {
+		t.Fatal(dialogErr)
 	}
 	denied, err := NewRuntime(f.page, f.observer, func(context.Context, Request) error { return fmt.Errorf("policy says no") })
 	if err != nil {
@@ -370,16 +370,16 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		t.Fatalf("IPv6 loopback required for OOPIF fixture: %v", err)
 	}
 	child := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`)); err != nil {
-			t.Errorf("write OOPIF fixture response: %v", err)
+		if _, writeErr := w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`)); writeErr != nil {
+			t.Errorf("write OOPIF fixture response: %v", writeErr)
 		}
 	}))
 	child.Listener = childListener
 	child.Start()
 	defer child.Close()
 	main := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL); err != nil {
-			t.Errorf("write OOPIF main fixture response: %v", err)
+		if _, writeErr := fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL); writeErr != nil {
+			t.Errorf("write OOPIF main fixture response: %v", writeErr)
 		}
 	}))
 	defer main.Close()

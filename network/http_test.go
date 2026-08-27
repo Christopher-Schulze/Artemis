@@ -133,8 +133,8 @@ func TestDoRejectsRedirectToPrivateTarget(t *testing.T) {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("close HTTP client: %v", err)
+		if closeErr := client.Close(); closeErr != nil {
+			t.Errorf("close HTTP client: %v", closeErr)
 		}
 	})
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://127.0.0.1/secret", nil)

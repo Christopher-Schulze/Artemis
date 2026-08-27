@@ -243,14 +243,14 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeScraperTestResource(t, "cache", cache.Close)
-	if err := cache.Put(AdaptiveEntry{
+	if putErr := cache.Put(AdaptiveEntry{
 		Domain:     "cached.com",
 		URLPattern: "/cached",
 		Selector:   ".cached-selector",
 		Confidence: 0.95,
 		UpdatedAt:  time.Now(),
-	}); err != nil {
-		t.Fatalf("cache Put: %v", err)
+	}); putErr != nil {
+		t.Fatalf("cache Put: %v", putErr)
 	}
 	hub := &mockInferenceHubLLM{}
 	router := &mockPrivacyRouter{}

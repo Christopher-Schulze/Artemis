@@ -64,11 +64,11 @@ func TestPageSubmitPOSTRoundTrip(t *testing.T) {
 	if f == nil {
 		t.Fatal("form not found")
 	}
-	if err := f.Set("user", "ada"); err != nil {
-		t.Fatal(err)
+	if setErr := f.Set("user", "ada"); setErr != nil {
+		t.Fatal(setErr)
 	}
-	if err := f.Set("pass", "lovelace"); err != nil {
-		t.Fatal(err)
+	if setErr := f.Set("pass", "lovelace"); setErr != nil {
+		t.Fatal(setErr)
 	}
 	sub, err := f.Submit()
 	if err != nil {

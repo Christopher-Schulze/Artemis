@@ -123,8 +123,8 @@ func TestFixtureCookiePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch cookie-001: %v", err)
 	}
-	if err := page.Close(); err != nil {
-		t.Errorf("page close: %v", err)
+	if closeErr := page.Close(); closeErr != nil {
+		t.Errorf("page close: %v", closeErr)
 	}
 
 	page, err = eng.Fetch(context.Background(), srv.URL("/cookie-002"), engine.FetchOpts{})
@@ -270,11 +270,11 @@ func TestFixtureFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	if _, err := fw.Write([]byte("hello fixture")); err != nil {
-		t.Fatalf("write form file: %v", err)
+	if _, writeErr := fw.Write([]byte("hello fixture")); writeErr != nil {
+		t.Fatalf("write form file: %v", writeErr)
 	}
-	if err := mw.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
+	if closeErr := mw.Close(); closeErr != nil {
+		t.Fatalf("close multipart writer: %v", closeErr)
 	}
 
 	page, err := eng.Fetch(context.Background(), srv.URL("/file-upload"), engine.FetchOpts{

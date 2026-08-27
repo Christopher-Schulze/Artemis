@@ -197,8 +197,8 @@ func TestTraceRecordZipAtomicWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open zip: %v", err)
 	}
-	if err := zr.Close(); err != nil {
-		t.Fatalf("close zip: %v", err)
+	if closeErr := zr.Close(); closeErr != nil {
+		t.Fatalf("close zip: %v", closeErr)
 	}
 
 	// Verify no temp files remain.
@@ -291,8 +291,8 @@ func TestTraceRecordMultipleSessions(t *testing.T) {
 	if startSecondErr := r.Start(); startSecondErr != nil {
 		t.Fatal(startSecondErr)
 	}
-	if err := r.AddScreenshot([]byte("second")); err != nil {
-		t.Fatal(err)
+	if addErr := r.AddScreenshot([]byte("second")); addErr != nil {
+		t.Fatal(addErr)
 	}
 	path2, err := r.Stop()
 	if err != nil {

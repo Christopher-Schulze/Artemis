@@ -593,8 +593,8 @@ func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close metrics store: %v", err)
+		if closeErr := store.Close(); closeErr != nil {
+			t.Errorf("close metrics store: %v", closeErr)
 		}
 	}()
 	p.SetMetricsStore(store)
@@ -637,8 +637,8 @@ func TestTASK2344_MetricsStoreUserFallbackSolved(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close metrics store: %v", err)
+		if closeErr := store.Close(); closeErr != nil {
+			t.Errorf("close metrics store: %v", closeErr)
 		}
 	}()
 	p.SetMetricsStore(store)
@@ -677,8 +677,8 @@ func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close metrics store: %v", err)
+		if closeErr := store.Close(); closeErr != nil {
+			t.Errorf("close metrics store: %v", closeErr)
 		}
 	}()
 	p.SetMetricsStore(store)
@@ -734,8 +734,8 @@ func TestTASK2344_MetricsStoreDefaultDomain(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close metrics store: %v", err)
+		if closeErr := store.Close(); closeErr != nil {
+			t.Errorf("close metrics store: %v", closeErr)
 		}
 	}()
 	p.SetMetricsStore(store)

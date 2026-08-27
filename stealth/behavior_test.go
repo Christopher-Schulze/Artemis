@@ -15,8 +15,8 @@ func TestReferrerDomainMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := mem.Close(); err != nil {
-			t.Errorf("close domain memory: %v", err)
+		if closeErr := mem.Close(); closeErr != nil {
+			t.Errorf("close domain memory: %v", closeErr)
 		}
 	}()
 	if rememberErr := mem.Remember(DomainMemoryEntry{

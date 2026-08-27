@@ -75,8 +75,8 @@ func TestTraceEmitsJSON(t *testing.T) {
 		"--trace-dir", traceDir,
 		"--format", "json",
 	})
-	if err := w.Close(); err != nil {
-		t.Errorf("trace output writer close: %v", err)
+	if closeErr := w.Close(); closeErr != nil {
+		t.Errorf("trace output writer close: %v", closeErr)
 	}
 	os.Stdout = oldStdout
 

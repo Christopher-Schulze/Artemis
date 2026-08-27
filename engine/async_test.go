@@ -54,8 +54,8 @@ func TestAsyncFetchParallel(t *testing.T) {
 		t.Fatalf("Fetch: %v", err)
 	}
 	defer closeTestResource(t, "page close", p.Close)
-	if err := p.WaitIdle(context.Background()); err != nil {
-		t.Fatalf("WaitIdle: %v", err)
+	if waitErr := p.WaitIdle(context.Background()); waitErr != nil {
+		t.Fatalf("WaitIdle: %v", waitErr)
 	}
 	elapsed := time.Since(start)
 
@@ -110,8 +110,8 @@ func TestAsyncFetchSequentialAwait(t *testing.T) {
 		t.Fatalf("Fetch: %v", err)
 	}
 	defer closeTestResource(t, "page close", p.Close)
-	if err := p.WaitIdle(context.Background()); err != nil {
-		t.Fatalf("WaitIdle: %v", err)
+	if waitErr := p.WaitIdle(context.Background()); waitErr != nil {
+		t.Fatalf("WaitIdle: %v", waitErr)
 	}
 	v, err := p.Eval(context.Background(), `globalThis.captured`)
 	if err != nil {
