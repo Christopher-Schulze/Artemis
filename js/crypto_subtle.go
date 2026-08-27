@@ -157,8 +157,8 @@ func newSubtleDigestTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		n := int(lenVal.Integer())
 		buf := make([]byte, n)
 		for i := 0; i < n; i++ {
-			v, err := dataObj.GetIdx(uint32(i))
-			if err != nil {
+			v, getErr := dataObj.GetIdx(uint32(i))
+			if getErr != nil {
 				continue
 			}
 			buf[i] = byte(v.Integer())
@@ -214,7 +214,7 @@ func newSubtleImportTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		hashName, _ := getStr(algoObj, "hash")
 		if hashName == "" {
 			// hash can also be {name: 'SHA-256'}
-			if h, err := algoObj.Get("hash"); err == nil && h.IsObject() {
+			if h, getErr := algoObj.Get("hash"); getErr == nil && h.IsObject() {
 				hObj, _ := h.AsObject()
 				hashName, _ = getStr(hObj, "name")
 			}
@@ -258,14 +258,14 @@ func newSubtleGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		algoName, _ := getStr(algoObj, "name")
 		hashName, _ := getStr(algoObj, "hash")
 		if hashName == "" {
-			if h, err := algoObj.Get("hash"); err == nil && h.IsObject() {
+			if h, getErr := algoObj.Get("hash"); getErr == nil && h.IsObject() {
 				hObj, _ := h.AsObject()
 				hashName, _ = getStr(hObj, "name")
 			}
 		}
 		// derive default key length for HMAC from hash output size
 		nbits := 256
-		if v, err := algoObj.Get("length"); err == nil && v.IsNumber() {
+		if v, getErr := algoObj.Get("length"); getErr == nil && v.IsNumber() {
 			nbits = int(v.Integer())
 		} else {
 			switch strings.ToUpper(strings.ReplaceAll(hashName, "-", "")) {
@@ -280,7 +280,7 @@ func newSubtleGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			}
 		}
 		raw := make([]byte, (nbits+7)/8)
-		if _, err := rand.Read(raw); err != nil {
+		if _, randErr := rand.Read(raw); randErr != nil {
 			rejectErr(iso, resolver, errors.New("HMAC generateKey: entropy source unavailable"))
 			return resolver.GetPromise().Value
 		}

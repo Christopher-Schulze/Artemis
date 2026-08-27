@@ -123,7 +123,7 @@ func newCryptoAESEncryptTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		var aad []byte
-		if v, err := algoObj.Get("additionalData"); err == nil && v.IsObject() {
+		if v, getErr := algoObj.Get("additionalData"); getErr == nil && v.IsObject() {
 			aadObj, _ := v.AsObject()
 			aad = readByteArray(aadObj)
 		}
@@ -186,7 +186,7 @@ func newCryptoAESDecryptTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		var aad []byte
-		if v, err := algoObj.Get("additionalData"); err == nil && v.IsObject() {
+		if v, getErr := algoObj.Get("additionalData"); getErr == nil && v.IsObject() {
 			aadObj, _ := v.AsObject()
 			aad = readByteArray(aadObj)
 		}
@@ -218,7 +218,7 @@ func newCryptoAESGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 		name, _ := getStr(algoObj, "name")
 		nameU := strings.ToUpper(name)
 		nbits := 256
-		if v, err := algoObj.Get("length"); err == nil && v.IsNumber() {
+		if v, getErr := algoObj.Get("length"); getErr == nil && v.IsNumber() {
 			nbits = int(v.Integer())
 		}
 		if nbits != 128 && nbits != 192 && nbits != 256 {
@@ -226,7 +226,7 @@ func newCryptoAESGenTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		raw := make([]byte, nbits/8)
-		if _, err := rand.Read(raw); err != nil {
+		if _, randErr := rand.Read(raw); randErr != nil {
 			rejectErr(iso, resolver, errors.New("AES generateKey: entropy source unavailable"))
 			return resolver.GetPromise().Value
 		}

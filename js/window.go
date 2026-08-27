@@ -187,8 +187,8 @@ func installWindow(iso *v8.Isolate, v8ctx *v8.Context, c *Context, pageURL strin
 	if err != nil {
 		return err
 	}
-	if err := global.Set("location", loc); err != nil {
-		return err
+	if setErr := global.Set("location", loc); setErr != nil {
+		return setErr
 	}
 
 	// navigator: when a startup snapshot is loaded, navigator already
@@ -198,17 +198,17 @@ func installWindow(iso *v8.Isolate, v8ctx *v8.Context, c *Context, pageURL strin
 	if existing, gerr := global.Get("navigator"); gerr == nil && existing.IsObject() {
 		existingObj, _ := existing.AsObject()
 		if existingObj != nil {
-			if err := setNavigatorFields(iso, v8ctx, existingObj, nav); err != nil {
-				return err
+			if setErr := setNavigatorFields(iso, v8ctx, existingObj, nav); setErr != nil {
+				return setErr
 			}
 		}
 	} else {
-		navObj, err := buildNavigator(iso, v8ctx, nav)
-		if err != nil {
-			return err
+		navObj, buildErr := buildNavigator(iso, v8ctx, nav)
+		if buildErr != nil {
+			return buildErr
 		}
-		if err := global.Set("navigator", navObj); err != nil {
-			return err
+		if setErr := global.Set("navigator", navObj); setErr != nil {
+			return setErr
 		}
 	}
 
@@ -219,15 +219,15 @@ func installWindow(iso *v8.Isolate, v8ctx *v8.Context, c *Context, pageURL strin
 	if err != nil {
 		return err
 	}
-	if err := global.Set("localStorage", lsObj); err != nil {
-		return err
+	if setErr := global.Set("localStorage", lsObj); setErr != nil {
+		return setErr
 	}
 	ssObj, err := buildStorageCached(c, c.sessionStorage)
 	if err != nil {
 		return err
 	}
-	if err := global.Set("sessionStorage", ssObj); err != nil {
-		return err
+	if setErr := global.Set("sessionStorage", ssObj); setErr != nil {
+		return setErr
 	}
 
 	// setTimeout / clearTimeout / setInterval / clearInterval

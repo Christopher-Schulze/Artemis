@@ -96,14 +96,14 @@ func newCompleteJWKTmpl(iso *v8.Isolate) *v8.FunctionTemplate {
 			return resolver.GetPromise().Value
 		}
 		var jwkMap map[string]any
-		if err := json.Unmarshal([]byte(jwk), &jwkMap); err != nil {
+		if unmarshalErr := json.Unmarshal([]byte(jwk), &jwkMap); unmarshalErr != nil {
 			rejectErr(iso, resolver, err)
 			return resolver.GetPromise().Value
 		}
 		algoObj, _ := args[2].AsObject()
 		algoName, _ := getStr(algoObj, "name")
 		hashName := ""
-		if hv, err := algoObj.Get("hash"); err == nil && !hv.IsNullOrUndefined() {
+		if hv, getErr := algoObj.Get("hash"); getErr == nil && !hv.IsNullOrUndefined() {
 			if hv.IsObject() {
 				hObj, _ := hv.AsObject()
 				hashName, _ = getStr(hObj, "name")

@@ -115,10 +115,10 @@ func (r *Runtime) ensureFetchTemplates() *fetchTemplates {
 				return resolver.GetPromise().Value
 			}
 			if len(args) >= 2 && !args[1].IsNullOrUndefined() {
-				if optsObj, err := args[1].AsObject(); err == nil {
-					if sig, err := optsObj.Get("signal"); err == nil && sig.IsObject() {
+				if optsObj, optionsErr := args[1].AsObject(); optionsErr == nil {
+					if sig, signalErr := optsObj.Get("signal"); signalErr == nil && sig.IsObject() {
 						sigObj, _ := sig.AsObject()
-						if ab, err := sigObj.Get("aborted"); err == nil && ab.Boolean() {
+						if ab, abortedErr := sigObj.Get("aborted"); abortedErr == nil && ab.Boolean() {
 							rejectErr(iso, resolver, errors.New("AbortError: fetch aborted before send"))
 							return resolver.GetPromise().Value
 						}
@@ -312,8 +312,8 @@ func buildResponseObject(c *Context, v8ctx *v8.Context, r *FetchResponse) (*v8.V
 	}
 	bodyID := c.rt.fetchBodies.put(r.Body)
 	c.fetchBodyIDs = append(c.fetchBodyIDs, bodyID)
-	if err := obj.SetInternalField(0, int32(bodyID)); err != nil {
-		return nil, err
+	if setErr := obj.SetInternalField(0, int32(bodyID)); setErr != nil {
+		return nil, setErr
 	}
 	_ = obj.Set("status", int32(r.Status))
 	_ = obj.Set("ok", r.Status >= 200 && r.Status < 300)
