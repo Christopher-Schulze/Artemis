@@ -1,11 +1,10 @@
 package js
 
 import (
-	"crypto"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -506,20 +505,46 @@ func importJWK(jwk map[string]any, algoName, hashName string, extractable bool, 
 		curve := curveFromName(crv)
 		xB64, _ := jwk["x"].(string)
 		yB64, _ := jwk["y"].(string)
-		xBytes, _ := base64.RawURLEncoding.DecodeString(xB64)
-		yBytes, _ := base64.RawURLEncoding.DecodeString(yB64)
-		pub := &ecdsa.PublicKey{
-			Curve: curve,
-			X:     new(big.Int).SetBytes(xBytes),
-			Y:     new(big.Int).SetBytes(yBytes),
+		xBytes, err := base64.RawURLEncoding.DecodeString(xB64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("jwk EC x: %w", err)
+		}
+		yBytes, err := base64.RawURLEncoding.DecodeString(yB64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("jwk EC y: %w", err)
+		}
+		coordinateBytes := (curve.Params().BitSize + 7) / 8
+		if len(xBytes) != coordinateBytes || len(yBytes) != coordinateBytes {
+			return nil, nil, fmt.Errorf("jwk EC coordinates: got %d/%d bytes, want %d/%d", len(xBytes), len(yBytes), coordinateBytes, coordinateBytes)
+		}
+		publicBytes := make([]byte, 1+2*coordinateBytes)
+		publicBytes[0] = 4
+		copy(publicBytes[1:], xBytes)
+		copy(publicBytes[1+coordinateBytes:], yBytes)
+		pub, err := ecdsa.ParseUncompressedPublicKey(curve, publicBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("jwk EC public key: %w", err)
 		}
 		k := &cryptoKey{
 			keyType: "public", algoName: algoNameU, curve: crv,
 			usages: usages, extract: extractable, ecPub: pub,
 		}
 		if dB64, ok := jwk["d"].(string); ok && dB64 != "" {
-			dBytes, _ := base64.RawURLEncoding.DecodeString(dB64)
-			priv := &ecdsa.PrivateKey{PublicKey: *pub, D: new(big.Int).SetBytes(dBytes)}
+			dBytes, err := base64.RawURLEncoding.DecodeString(dB64)
+			if err != nil {
+				return nil, nil, fmt.Errorf("jwk EC d: %w", err)
+			}
+			priv, err := ecdsa.ParseRawPrivateKey(curve, dBytes)
+			if err != nil {
+				return nil, nil, fmt.Errorf("jwk EC private key: %w", err)
+			}
+			derivedPublicBytes, err := priv.PublicKey.Bytes()
+			if err != nil {
+				return nil, nil, fmt.Errorf("jwk EC derived public key: %w", err)
+			}
+			if !bytes.Equal(derivedPublicBytes, publicBytes) {
+				return nil, nil, errors.New("jwk EC private key does not match public coordinates")
+			}
 			k.keyType = "private"
 			k.ecPriv = priv
 		}
@@ -575,10 +600,6 @@ func pkcs7Unpad(b []byte) ([]byte, error) {
 	}
 	return b[:len(b)-pad], nil
 }
-
-// silence unused
-var _ = elliptic.P256
-var _ = crypto.SHA256
 
 // hash factory references usable by hashConstructor.
 var (

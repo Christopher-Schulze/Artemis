@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -62,6 +63,32 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d", response.StatusCode)
+	}
+}
+
+func TestChromiumPolicyProxyRewriteRemovesProxyHeaders(t *testing.T) {
+	proxy := &chromiumPolicyProxy{}
+	outbound := &http.Request{
+		URL:        &url.URL{Scheme: "http", Host: "backend.example", Path: "/resource"},
+		RequestURI: "/resource",
+		Header: http.Header{
+			"Proxy-Authorization": []string{"secret"},
+			"Proxy-Connection":    []string{"keep-alive"},
+			"X-Forwarded-For":     []string{"127.0.0.1"},
+		},
+	}
+	proxy.newReverseProxy().Rewrite(&httputil.ProxyRequest{Out: outbound})
+
+	if outbound.RequestURI != "" {
+		t.Fatalf("request URI = %q, want empty", outbound.RequestURI)
+	}
+	if outbound.Host != "backend.example" {
+		t.Fatalf("host = %q, want backend.example", outbound.Host)
+	}
+	for _, header := range []string{"Proxy-Authorization", "Proxy-Connection", "X-Forwarded-For"} {
+		if value := outbound.Header.Get(header); value != "" {
+			t.Fatalf("%s = %q, want removed", header, value)
+		}
 	}
 }
 

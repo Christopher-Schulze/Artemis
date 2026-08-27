@@ -79,7 +79,8 @@ func (p *chromiumPolicyProxy) ServeHTTP(writer http.ResponseWriter, request *htt
 
 func (p *chromiumPolicyProxy) newReverseProxy() *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
-		Director: func(request *http.Request) {
+		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
+			request := proxyRequest.Out
 			request.RequestURI = ""
 			request.Host = request.URL.Host
 			request.Header.Del("Proxy-Authorization")

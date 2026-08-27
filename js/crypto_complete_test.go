@@ -1,7 +1,12 @@
 package js
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/base64"
 	"testing"
 )
 
@@ -190,5 +195,60 @@ func TestJWKImportEC(t *testing.T) {
 	v, _ := c.Eval(context.Background(), `captured`)
 	if v.String() != "public:ECDSA:P-256" {
 		t.Errorf("got %q", v.String())
+	}
+}
+
+func TestImportJWKECDSAPrivateKeyValidatesCoordinates(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicBytes, err := key.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateBytes, err := key.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinateBytes := (elliptic.P256().Params().BitSize + 7) / 8
+	encodeCoordinate := func(offset int) string {
+		return base64.RawURLEncoding.EncodeToString(publicBytes[offset : offset+coordinateBytes])
+	}
+	jwk := map[string]any{
+		"kty": "EC",
+		"crv": "P-256",
+		"x":   encodeCoordinate(1),
+		"y":   encodeCoordinate(1 + coordinateBytes),
+		"d":   base64.RawURLEncoding.EncodeToString(privateBytes),
+	}
+	imported, _, err := importJWK(jwk, "ECDSA", "SHA-256", true, []string{"sign"})
+	if err != nil {
+		t.Fatalf("import valid private JWK: %v", err)
+	}
+	private, ok := imported.ecPriv.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatalf("ecPriv type = %T, want *ecdsa.PrivateKey", imported.ecPriv)
+	}
+	derived, err := private.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(derived, publicBytes) {
+		t.Fatal("imported private key derived different public coordinates")
+	}
+
+	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPublic, err := other.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwk["x"] = base64.RawURLEncoding.EncodeToString(otherPublic[1 : 1+coordinateBytes])
+	jwk["y"] = base64.RawURLEncoding.EncodeToString(otherPublic[1+coordinateBytes:])
+	if _, _, err := importJWK(jwk, "ECDSA", "SHA-256", true, []string{"sign"}); err == nil {
+		t.Fatal("mismatched private and public JWK coordinates were accepted")
 	}
 }
