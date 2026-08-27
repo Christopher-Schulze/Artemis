@@ -426,8 +426,8 @@ func TestWebBotAuthPublishPublicKey(t *testing.T) {
 		t.Fatalf("PublishPublicKey: %v", err)
 	}
 	var ks WebBotAuthKeySet
-	if err := json.Unmarshal(data, &ks); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if unmarshalErr := json.Unmarshal(data, &ks); unmarshalErr != nil {
+		t.Fatalf("unmarshal: %v", unmarshalErr)
 	}
 	if len(ks.Keys) != 1 {
 		t.Fatalf("keys len = %d, want 1", len(ks.Keys))

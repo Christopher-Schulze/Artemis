@@ -94,8 +94,8 @@ func TestSessionBudgetTabLeaseIsReleased(t *testing.T) {
 	if usage := eng.SessionUsage(); usage.ActiveTabs != 1 {
 		t.Fatalf("active tabs=%d", usage.ActiveTabs)
 	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := first.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	second, err := fetch()
 	if err != nil {

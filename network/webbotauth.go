@@ -368,8 +368,8 @@ func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
 		return fmt.Errorf("webbotauth: extract signature: %w", err)
 	}
 	// Extract the signature-params from the Signature-Input header.
-	if err := validateSignatureWindow(sigInput, time.Now()); err != nil {
-		return err
+	if windowErr := validateSignatureWindow(sigInput, time.Now()); windowErr != nil {
+		return windowErr
 	}
 	// Reconstruct the @authority value.
 	authority := req.Host

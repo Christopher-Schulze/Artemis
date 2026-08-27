@@ -179,9 +179,9 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *Robot
 	}
 	var responseBytes int64
 	defer func() {
-		if err := finish(responseBytes); err != nil && resultErr == nil {
+		if finishErr := finish(responseBytes); finishErr != nil && resultErr == nil {
 			result = nil
-			resultErr = err
+			resultErr = finishErr
 		}
 	}()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, robotsURL.String(), nil)

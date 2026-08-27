@@ -234,8 +234,8 @@ func (p *Page) FormSubmit(ctx context.Context, formSelector string) (actions.For
 	if ctx == nil {
 		return actions.FormResult{}, fmt.Errorf("page.FormSubmit: context required")
 	}
-	if err := p.sessionError(); err != nil {
-		return actions.FormResult{}, err
+	if sessionErr := p.sessionError(); sessionErr != nil {
+		return actions.FormResult{}, sessionErr
 	}
 	start := time.Now()
 	err = renderlessFormSubmissionError(form.EncType)

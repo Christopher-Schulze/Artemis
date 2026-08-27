@@ -49,8 +49,8 @@ func TestDNSPrefetchCachePersistError(t *testing.T) {
 		resolveCalls++
 		return []net.IP{net.ParseIP("93.184.216.34")}, nil
 	}
-	if err := cache.db.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := cache.db.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	_, err = cache.Resolve(context.Background(), "example.com")
 	if err == nil {

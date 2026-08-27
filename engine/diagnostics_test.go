@@ -34,8 +34,8 @@ func TestEngineEmitsRedactedPolicyAndResourceDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := page.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := page.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	download, err := engine.Download(context.Background(), server.URL+"/download?credential=secret", "proof.txt")
 	if err != nil {

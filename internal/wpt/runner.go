@@ -125,8 +125,8 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
 	}
 	defer page.Close()
 
-	if _, err := page.Eval(ctx, "window.dispatchEvent(new Event('load'))"); err != nil {
-		return Result{}, fmt.Errorf("dispatch load %s: %w", tc.Path, err)
+	if _, dispatchErr := page.Eval(ctx, "window.dispatchEvent(new Event('load'))"); dispatchErr != nil {
+		return Result{}, fmt.Errorf("dispatch load %s: %w", tc.Path, dispatchErr)
 	}
 
 	v, err := page.Eval(ctx, "JSON.stringify(__wptResults)")

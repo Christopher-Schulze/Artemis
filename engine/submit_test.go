@@ -104,8 +104,8 @@ document.getElementById('b').addEventListener('click', () => {
 	if !ok {
 		t.Fatal("button not found")
 	}
-	if err := page.Click(context.Background(), btn); err != nil {
-		t.Fatalf("Click: %v", err)
+	if clickErr := page.Click(context.Background(), btn); clickErr != nil {
+		t.Fatalf("Click: %v", clickErr)
 	}
 	v, err := page.Eval(context.Background(), `document.getElementById('b').textContent`)
 	if err != nil {

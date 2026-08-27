@@ -180,9 +180,9 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	}
 	var responseBytes int64
 	defer func() {
-		if err := finish(responseBytes); err != nil && resultErr == nil {
+		if finishErr := finish(responseBytes); finishErr != nil && resultErr == nil {
 			result = nil
-			resultErr = err
+			resultErr = finishErr
 		}
 	}()
 	if r.URL == "" {
@@ -204,8 +204,8 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 			req.Header.Add(k, v)
 		}
 	}
-	if err := c.cfg.Policy.ValidateRequest(requestCtx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), kind, SessionID(requestCtx, c.cfg.SessionID)); err != nil {
-		return nil, fmt.Errorf("validate request: %w", err)
+	if validateErr := c.cfg.Policy.ValidateRequest(requestCtx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), kind, SessionID(requestCtx, c.cfg.SessionID)); validateErr != nil {
+		return nil, fmt.Errorf("validate request: %w", validateErr)
 	}
 
 	resp, err := c.client.Do(req)
