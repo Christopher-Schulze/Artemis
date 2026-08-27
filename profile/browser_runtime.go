@@ -72,8 +72,8 @@ func (r *BrowserRuntime) Open(ctx context.Context, request OpenSessionRequest, l
 	}
 	browser, err := bridge.LaunchChromium(ctx, launch)
 	if err != nil {
-		_ = r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
-		return nil, fmt.Errorf("browser runtime: launch: %w", err)
+		cleanupErr := r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
+		return nil, fmt.Errorf("browser runtime: launch: %w", errors.Join(err, cleanupErr))
 	}
 	var browserContext *bridge.BrowserContext
 	if session.Class == ProfilePersistent {
@@ -82,9 +82,9 @@ func (r *BrowserRuntime) Open(ctx context.Context, request OpenSessionRequest, l
 		browserContext, err = browser.NewContext(ctx)
 	}
 	if err != nil {
-		_ = browser.Close()
-		_ = r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
-		return nil, fmt.Errorf("browser runtime: context: %w", err)
+		browserCloseErr := browser.Close()
+		managerCloseErr := r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
+		return nil, fmt.Errorf("browser runtime: context: %w", errors.Join(err, browserCloseErr, managerCloseErr))
 	}
 	r.mu.Lock()
 	r.sessions[session.ID] = &ownedBrowserSession{browser: browser, context: browserContext, pages: make(map[PageID]*bridge.Page)}
@@ -100,14 +100,14 @@ func (r *BrowserRuntime) Attach(ctx context.Context, request OpenSessionRequest,
 	}
 	browser, err := bridge.ConnectChromium(ctx, endpoint)
 	if err != nil {
-		_ = r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
-		return nil, fmt.Errorf("browser runtime: attach: %w", err)
+		cleanupErr := r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
+		return nil, fmt.Errorf("browser runtime: attach: %w", errors.Join(err, cleanupErr))
 	}
 	browserContext, err := browser.DefaultContext()
 	if err != nil {
-		_ = browser.Close()
-		_ = r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
-		return nil, err
+		browserCloseErr := browser.Close()
+		managerCloseErr := r.manager.Close(context.Background(), session.ID, session.OwnerUserRef)
+		return nil, errors.Join(err, browserCloseErr, managerCloseErr)
 	}
 	r.mu.Lock()
 	r.sessions[session.ID] = &ownedBrowserSession{browser: browser, context: browserContext, pages: make(map[PageID]*bridge.Page)}
@@ -135,8 +135,7 @@ func (r *BrowserRuntime) NewPage(ctx context.Context, sessionID SessionID, owner
 	}
 	pageID, err := r.manager.RegisterPage(sessionID, owner, page.TargetID())
 	if err != nil {
-		_ = page.Close()
-		return "", nil, err
+		return "", nil, errors.Join(err, page.Close())
 	}
 	r.mu.Lock()
 	owned.pages[pageID] = page
@@ -209,7 +208,7 @@ type measuredEnvironment struct {
 	NetworkRTT       int      `json:"network_rtt_ms"`
 }
 
-func measureEnvironment(ctx context.Context, browserContext *bridge.BrowserContext) (stealth.EnvironmentFacts, error) {
+func measureEnvironment(ctx context.Context, browserContext *bridge.BrowserContext) (facts stealth.EnvironmentFacts, returnErr error) {
 	if browserContext == nil {
 		return stealth.EnvironmentFacts{}, errors.New("browser context required")
 	}
@@ -217,7 +216,12 @@ func measureEnvironment(ctx context.Context, browserContext *bridge.BrowserConte
 	if err != nil {
 		return stealth.EnvironmentFacts{}, err
 	}
-	defer page.Close()
+	defer func() {
+		if closeErr := page.Close(); closeErr != nil {
+			facts = stealth.EnvironmentFacts{}
+			returnErr = errors.Join(returnErr, fmt.Errorf("browser runtime: close environment page: %w", closeErr))
+		}
+	}()
 	var result struct {
 		ExceptionDetails json.RawMessage `json:"exceptionDetails,omitempty"`
 		Result           struct {

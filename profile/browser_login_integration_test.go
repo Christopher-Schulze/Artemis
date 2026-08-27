@@ -37,17 +37,17 @@ func TestBrowserLoginExecutorRealChromiumCredentialAndPostcondition(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeProfileTestResource(t, "browser close", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeProfileTestResource(t, "browser context close", owner.Close)
 	page, err := owner.NewPage(ctx, server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeProfileTestResource(t, "page close", page.Close)
 	store, err := NewCredentialStore(t.TempDir()+"/credentials.enc", []byte("01234567890123456789012345678901"))
 	if err != nil {
 		t.Fatal(err)

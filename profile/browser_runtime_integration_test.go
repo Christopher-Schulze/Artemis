@@ -68,7 +68,9 @@ func TestBrowserRuntimePersistentCookieAndStorageAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer runtime.Close(context.Background(), second.ID, "owner")
+	defer closeProfileTestResource(t, "runtime close", func() error {
+		return runtime.Close(context.Background(), second.ID, "owner")
+	})
 	_, restored, err := runtime.NewPage(context.Background(), second.ID, "owner", server.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -111,17 +113,17 @@ func TestMeasureEnvironmentUsesChromiumValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeProfileTestResource(t, "browser close", browser.Close)
 	transportBrowser, err := bridge.ConnectChromium(ctx, browser.Endpoint())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer transportBrowser.Close()
+	defer closeProfileTestResource(t, "transport browser close", transportBrowser.Close)
 	browserContext, err := transportBrowser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browserContext.Close()
+	defer closeProfileTestResource(t, "browser context close", browserContext.Close)
 	facts, err := measureEnvironment(ctx, browserContext)
 	if err != nil {
 		t.Fatal(err)
@@ -164,5 +166,12 @@ func assertStoredState(t *testing.T, page cdpPageCaller) {
 	}
 	if result.Result.Value != "retained" {
 		t.Fatalf("state was not written: %q", result.Result.Value)
+	}
+}
+
+func closeProfileTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("%s: %v", label, err)
 	}
 }

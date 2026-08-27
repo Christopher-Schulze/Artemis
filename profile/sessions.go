@@ -169,12 +169,12 @@ func (s *SessionManager) AutoLogin(ctx context.Context, profileName, domain, pur
 
 // CheckSessionHealth performs a HEAD request to the domain and checks for
 // redirect to login, HTTP 401/403, and cookie expiry (spec L4591).
-func (s *SessionManager) CheckSessionHealth(ctx context.Context, domain string, cookies []CookieExpiry) (SessionHealthResult, error) {
+func (s *SessionManager) CheckSessionHealth(ctx context.Context, domain string, cookies []CookieExpiry) (res SessionHealthResult, returnErr error) {
 	if s == nil {
 		return SessionHealthResult{}, errors.New("session: nil manager")
 	}
 	now := time.Now().UTC()
-	res := SessionHealthResult{CheckedAt: now}
+	res = SessionHealthResult{CheckedAt: now}
 
 	// HEAD request.
 	url := normalizeURL(domain)
@@ -188,7 +188,11 @@ func (s *SessionManager) CheckSessionHealth(ctx context.Context, domain string, 
 		res.Reason = "request_failed"
 		return res, nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("session health: close response body: %w", closeErr))
+		}
+	}()
 	res.HTTPStatus = resp.StatusCode
 
 	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther || resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {

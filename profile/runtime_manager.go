@@ -185,13 +185,11 @@ func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (
 	}
 	id, err := newOpaqueID("ses")
 	if err != nil {
-		m.unlockProfile(request.ProfileID)
-		return nil, err
+		return nil, errors.Join(err, m.unlockProfile(request.ProfileID))
 	}
 	contextID, err := newOpaqueID("ctx")
 	if err != nil {
-		m.unlockProfile(request.ProfileID)
-		return nil, err
+		return nil, errors.Join(err, m.unlockProfile(request.ProfileID))
 	}
 	dataDir := request.DataDir
 	if dataDir == "" {
@@ -205,20 +203,17 @@ func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (
 		dataDir = filepath.Join(m.root, base, string(request.ProfileID))
 	}
 	if err := ensureContained(m.root, dataDir); err != nil {
-		m.unlockProfile(request.ProfileID)
-		return nil, err
+		return nil, errors.Join(err, m.unlockProfile(request.ProfileID))
 	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		m.unlockProfile(request.ProfileID)
-		return nil, fmt.Errorf("profile runtime open: data dir: %w", err)
+		return nil, errors.Join(fmt.Errorf("profile runtime open: data dir: %w", err), m.unlockProfile(request.ProfileID))
 	}
 	created := m.now().UTC()
 	s := &RuntimeSession{ID: SessionID(id), ProfileID: request.ProfileID, ContextID: ContextID(contextID), OwnerUserRef: request.OwnerUserRef, Class: request.Class, State: SessionActive, DataDir: dataDir, CreatedAt: created, ExpiresAt: created.Add(lifetime), Limits: limits, Pages: make(map[PageID]string), Permissions: make(map[string][]string), CrashMarker: true}
 	m.sessions[s.ID] = s
 	if err := m.persistLocked(); err != nil {
 		delete(m.sessions, s.ID)
-		m.unlockProfile(request.ProfileID)
-		return nil, err
+		return nil, errors.Join(err, m.unlockProfile(request.ProfileID))
 	}
 	return cloneSession(s), nil
 }
@@ -491,8 +486,8 @@ func (m *RuntimeManager) Close(ctx context.Context, id SessionID, owner string) 
 	s.State = SessionClosed
 	s.ClosedAt = m.now().UTC()
 	s.CrashMarker = false
-	m.unlockProfile(s.ProfileID)
-	return m.persistLocked()
+	unlockErr := m.unlockProfile(s.ProfileID)
+	return errors.Join(unlockErr, m.persistLocked())
 }
 
 func (m *RuntimeManager) Expire(ctx context.Context) ([]SessionID, error) {
@@ -506,6 +501,7 @@ func (m *RuntimeManager) Expire(ctx context.Context) ([]SessionID, error) {
 	defer m.mu.Unlock()
 	now := m.now().UTC()
 	var expired []SessionID
+	var unlockErr error
 	for _, s := range m.sessions {
 		if s.State != SessionActive || now.Before(s.ExpiresAt) {
 			continue
@@ -520,11 +516,11 @@ func (m *RuntimeManager) Expire(ctx context.Context) ([]SessionID, error) {
 				return nil, err
 			}
 		}
-		m.unlockProfile(s.ProfileID)
+		unlockErr = errors.Join(unlockErr, m.unlockProfile(s.ProfileID))
 		expired = append(expired, s.ID)
 	}
 	sort.Slice(expired, func(i, j int) bool { return expired[i] < expired[j] })
-	return expired, m.persistLocked()
+	return expired, errors.Join(unlockErr, m.persistLocked())
 }
 
 func (m *RuntimeManager) DeleteProfile(ctx context.Context, profileID ProfileID, owner string) error {
@@ -612,7 +608,7 @@ func (m *RuntimeManager) load() error {
 	return nil
 }
 
-func (m *RuntimeManager) persistLocked() error {
+func (m *RuntimeManager) persistLocked() (returnErr error) {
 	data, err := json.MarshalIndent(runtimeManifest{Version: runtimeSchemaVersion, Sessions: m.sessions}, "", "  ")
 	if err != nil {
 		return err
@@ -622,18 +618,19 @@ func (m *RuntimeManager) persistLocked() error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		if cleanupErr := removeTemporaryFile(tmpName); cleanupErr != nil {
+			returnErr = errors.Join(returnErr, cleanupErr)
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -675,14 +672,10 @@ func (m *RuntimeManager) lockProfile(id ProfileID) error {
 		return err
 	}
 	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
-		file.Close()
-		os.Remove(lockPath)
-		return err
+		return errors.Join(err, file.Close(), os.Remove(lockPath))
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
-		os.Remove(lockPath)
-		return err
+		return errors.Join(err, file.Close(), os.Remove(lockPath))
 	}
 	m.locks[id] = file
 	return nil
@@ -705,19 +698,27 @@ func staleProcessLock(path string) bool {
 	return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
 }
 
-func (m *RuntimeManager) unlockProfile(id ProfileID) {
+func (m *RuntimeManager) unlockProfile(id ProfileID) error {
 	file, ok := m.locks[id]
 	if !ok {
 		path := filepath.Join(m.root, "locks", string(id)+".lock")
 		if staleProcessLock(path) {
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("remove stale profile lock: %w", err)
+			}
 		}
-		return
+		return nil
 	}
 	name := file.Name()
-	_ = file.Close()
-	_ = os.Remove(name)
 	delete(m.locks, id)
+	var cleanupErr error
+	if err := file.Close(); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close profile lock: %w", err))
+	}
+	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove profile lock: %w", err))
+	}
+	return cleanupErr
 }
 
 func normalizeLimits(limits ResourceLimits) ResourceLimits {

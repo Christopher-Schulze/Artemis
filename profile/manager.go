@@ -392,7 +392,7 @@ func (m *ProfileManager) load() error {
 	return nil
 }
 
-func (m *ProfileManager) persistLocked() error {
+func (m *ProfileManager) persistLocked() (returnErr error) {
 	profiles := make([]*BrowserProfile, 0, len(m.profiles))
 	for _, profile := range m.profiles {
 		copy := *profile
@@ -411,18 +411,19 @@ func (m *ProfileManager) persistLocked() error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() {
+		if cleanupErr := removeTemporaryFile(name); cleanupErr != nil {
+			returnErr = errors.Join(returnErr, cleanupErr)
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return err

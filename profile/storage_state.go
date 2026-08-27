@@ -201,7 +201,7 @@ func DeserializeStorageState(data []byte) (*StorageState, error) {
 // SaveStorageStateFile writes a StorageState to a JSON file (spec L4262).
 // The file is written with 0600 permissions; parent dirs are created with
 // 0700 permissions.
-func SaveStorageStateFile(state *StorageState, path string) error {
+func SaveStorageStateFile(state *StorageState, path string) (returnErr error) {
 	data, err := SerializeStorageState(state)
 	if err != nil {
 		return err
@@ -217,18 +217,19 @@ func SaveStorageStateFile(state *StorageState, path string) error {
 		return fmt.Errorf("storage state: temp: %w", err)
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() {
+		if cleanupErr := removeTemporaryFile(name); cleanupErr != nil {
+			returnErr = errors.Join(returnErr, cleanupErr)
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return err

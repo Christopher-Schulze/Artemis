@@ -168,7 +168,7 @@ func (s *CredentialStore) load() error {
 	return nil
 }
 
-func (s *CredentialStore) save() error {
+func (s *CredentialStore) save() (returnErr error) {
 	records := make([]*StoredCredential, 0, len(s.records))
 	for _, r := range s.records {
 		records = append(records, r)
@@ -192,18 +192,19 @@ func (s *CredentialStore) save() error {
 		return fmt.Errorf("credential store: temp: %w", err)
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() {
+		if cleanupErr := removeTemporaryFile(name); cleanupErr != nil {
+			returnErr = errors.Join(returnErr, cleanupErr)
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("credential store: write: %w", err)
+		return closeTemporaryFile(tmp, fmt.Errorf("credential store: write: %w", err))
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return closeTemporaryFile(tmp, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return err
