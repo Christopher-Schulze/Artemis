@@ -175,6 +175,13 @@ func startSession(t *testing.T, agent *Agent) *Session {
 	return session
 }
 
+func stopContractAgent(t *testing.T, agent *Agent) {
+	t.Helper()
+	if err := agent.Stop(); err != nil {
+		t.Errorf("stop agent: %v", err)
+	}
+}
+
 func TestAgentExecutesFetchWithObservableEvidence(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -878,7 +885,7 @@ func TestCreateSessionForProfileReservesCapacityDuringOpen(t *testing.T) {
 		openID: "reserved-session", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
 	}
 	agent, _ := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
-	defer agent.Stop()
+	defer stopContractAgent(t, agent)
 	firstResult := make(chan error, 1)
 	go func() {
 		_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
@@ -909,7 +916,7 @@ func TestCreateSessionForProfileReservesCapacityDuringOpen(t *testing.T) {
 func TestCreateSessionForProfileDuplicateRollsBackExactlyOnce(t *testing.T) {
 	runtime := &admissionProfileRuntime{openID: "duplicate-session"}
 	agent, telemetry := startAdmissionAgent(t, AgentConfig{MaxSessions: 2}, runtime)
-	defer agent.Stop()
+	defer stopContractAgent(t, agent)
 	request := profile.OpenSessionRequest{ProfileID: "profile-one", OwnerUserRef: "owner-1", Class: profile.ProfileEphemeral}
 	if _, err := agent.CreateSessionForProfile(context.Background(), request); err != nil {
 		t.Fatalf("first create: %v", err)
@@ -960,7 +967,7 @@ func TestCreateSessionForProfileCallerCancellationReleasesAdmission(t *testing.T
 		openID: "cancelled-session", openStarted: make(chan struct{}), openRelease: make(chan struct{}),
 	}
 	agent, telemetry := startAdmissionAgent(t, AgentConfig{MaxSessions: 1}, runtime)
-	defer agent.Stop()
+	defer stopContractAgent(t, agent)
 	ctx, cancel := context.WithCancel(context.Background())
 	createResult := make(chan error, 1)
 	go func() {
@@ -1011,7 +1018,7 @@ func startProfileAgent(t *testing.T, cfg AgentConfig) (*Agent, *fakeProfileRunti
 
 func TestProfileCloseUsesBoundedContext(t *testing.T) {
 	agent, fake := startProfileAgent(t, AgentConfig{})
-	defer agent.Stop()
+	defer stopContractAgent(t, agent)
 
 	session, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
 		ProfileID:    "profile-1",
@@ -1031,13 +1038,14 @@ func TestProfileCloseUsesBoundedContext(t *testing.T) {
 
 func TestCreateSessionRollbackReportsCloseError(t *testing.T) {
 	agent, fake := startProfileAgent(t, AgentConfig{MaxSessions: 1})
-	defer agent.Stop()
 
-	_, _ = agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
+	if _, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
 		ProfileID:    "profile-1",
 		OwnerUserRef: fake.openOwner,
 		Class:        profile.ProfileEphemeral,
-	})
+	}); err != nil {
+		t.Fatalf("first profile session: %v", err)
+	}
 	fake.closeErr = errors.New("profile close failed")
 	_, err := agent.CreateSessionForProfile(context.Background(), profile.OpenSessionRequest{
 		ProfileID:    "profile-2",
@@ -1055,5 +1063,8 @@ func TestCreateSessionRollbackReportsCloseError(t *testing.T) {
 	}
 	if fake.closed.Load() != 1 {
 		t.Fatalf("rollback close not called, got %d calls", fake.closed.Load())
+	}
+	if stopErr := agent.Stop(); stopErr == nil || !strings.Contains(stopErr.Error(), "profile close failed") {
+		t.Fatalf("stop error = %v, want profile close failed", stopErr)
 	}
 }

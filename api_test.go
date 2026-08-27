@@ -67,7 +67,9 @@ func TestTASK2258_AgentStart(t *testing.T) {
 // TestTASK2258_AgentStartTwice verifies double start fails.
 func TestTASK2258_AgentStartTwice(t *testing.T) {
 	a := mustAgent(t, AgentConfig{})
-	a.Start(context.Background())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
 	err := a.Start(context.Background())
 	if err == nil {
 		t.Error("double start should fail")
@@ -77,7 +79,9 @@ func TestTASK2258_AgentStartTwice(t *testing.T) {
 // TestTASK2258_AgentStop verifies stop
 func TestTASK2258_AgentStop(t *testing.T) {
 	a := mustAgent(t, AgentConfig{})
-	a.Start(context.Background())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 	err := a.Stop()
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -304,7 +308,9 @@ func TestTASK2258_FullSpecParity(t *testing.T) {
 	}
 
 	// Start agent
-	a.Start(context.Background())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 	if !a.IsStarted() {
 		t.Error("should be started")
 	}
@@ -327,7 +333,9 @@ func TestTASK2258_FullSpecParity(t *testing.T) {
 	}
 
 	// Stop agent
-	a.Stop()
+	if err := a.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
 	if a.State() != AgentStateStopped {
 		t.Error("should be stopped")
 	}
