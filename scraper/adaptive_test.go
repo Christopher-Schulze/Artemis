@@ -11,7 +11,7 @@ func TestAdaptiveSelectorCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(t, "cache", cache.Close)
 	entry := AdaptiveEntry{
 		Domain: "example.com", URLPattern: "/products/*",
 		Selector: ".product-title", Confidence: 0.9,
@@ -27,7 +27,7 @@ func TestAdaptiveSelectorCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache2.Close()
+	defer closeScraperTestResource(t, "second cache", cache2.Close)
 	got2, ok := cache2.Get("example.com", "/products/*")
 	if !ok || got2.Selector != ".product-title" {
 		t.Fatalf("sqlite L2 miss: %+v", got2)

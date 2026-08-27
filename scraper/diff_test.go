@@ -76,7 +76,7 @@ func TestFingerprintSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer closeScraperTestResource(t, "fingerprint store", store.Close)
 	e := NewDiffEngine()
 	e.DiffRegions("https://example.com/", map[string]string{"price": "10"})
 	if err := PersistDiffEngine(store, e, "https://example.com/", "cust-1"); err != nil {

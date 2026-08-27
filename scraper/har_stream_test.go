@@ -46,7 +46,7 @@ func TestNewHARStreamCreatesFileAndHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHARStream: %v", err)
 	}
-	defer s.Close()
+	defer closeScraperTestResource(t, "HAR stream", s.Close)
 
 	// File must exist immediately after construction.
 	info, err := os.Stat(path)
@@ -76,7 +76,7 @@ func TestNewHARStreamDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHARStream: %v", err)
 	}
-	defer s.Close()
+	defer closeScraperTestResource(t, "HAR stream", s.Close)
 	if s.config.MaxBodyBytes != DefaultHARMaxBodyBytes {
 		t.Fatalf("expected default MaxBodyBytes %d, got %d", DefaultHARMaxBodyBytes, s.config.MaxBodyBytes)
 	}
@@ -237,7 +237,7 @@ func TestEntryCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHARStream: %v", err)
 	}
-	defer s.Close()
+	defer closeScraperTestResource(t, "HAR stream", s.Close)
 
 	if s.EntryCount() != 0 {
 		t.Fatalf("expected 0 entries, got %d", s.EntryCount())
@@ -443,7 +443,9 @@ func TestStreamingFileGrowsIncrementally(t *testing.T) {
 		t.Fatalf("file did not grow after second entry: after1=%d now=%d", sizeAfter1, info2.Size())
 	}
 
-	s.Close()
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 func TestConcurrentAddEntry(t *testing.T) {

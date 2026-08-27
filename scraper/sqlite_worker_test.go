@@ -15,7 +15,11 @@ func startTestWorker(t *testing.T, queue int) *SQLiteWorker {
 	if err != nil {
 		t.Fatalf("StartSQLiteWorker: %v", err)
 	}
-	t.Cleanup(func() { _ = w.Close() })
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("close SQLite worker: %v", err)
+		}
+	})
 	return w
 }
 
@@ -65,7 +69,7 @@ func TestSQLiteWorkerQueryExecutes(t *testing.T) {
 	if rows == nil {
 		t.Fatal("rows must not be nil")
 	}
-	defer rows.Close()
+	defer closeScraperTestResource(t, "rows", rows.Close)
 	if !rows.Next() {
 		t.Fatal("expected one row")
 	}

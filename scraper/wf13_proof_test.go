@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func closeScraperTestResource(t testing.TB, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
+}
+
 // BenchmarkWFAdaptiveCachePerf measures the L1 hot-path Get after a Put,
 // which should be a single map lookup under the RLock. This is the
 // performance claim for the adaptive selector cache.
@@ -15,7 +22,7 @@ func BenchmarkWFAdaptiveCachePerf(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(b, "cache", cache.Close)
 	if err := cache.Put(AdaptiveEntry{
 		Domain: "example.com", URLPattern: "/p/*",
 		Selector: ".title", Confidence: 0.9,
@@ -55,7 +62,7 @@ func BenchmarkWFAdaptiveCachePerfBaseline(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer cold.Close()
+	defer closeScraperTestResource(b, "cold cache", cold.Close)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e, ok := cold.Get("example.com", "/p/*")
@@ -80,7 +87,7 @@ func TestWFAdaptiveCachePerfCorrectness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(t, "cache", cache.Close)
 	entry := AdaptiveEntry{
 		Domain: "shop.example.com", URLPattern: "/items/*",
 		Selector: ".product-name", Confidence: 0.87,
@@ -108,7 +115,7 @@ func TestWFAdaptiveCacheEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c1.Close()
+	defer closeScraperTestResource(t, "first cache", c1.Close)
 	want := AdaptiveEntry{
 		Domain: "news.example.com", URLPattern: "/article/*",
 		Selector: "article h1", Confidence: 0.78,
@@ -120,7 +127,7 @@ func TestWFAdaptiveCacheEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c2.Close()
+	defer closeScraperTestResource(t, "second cache", c2.Close)
 	// L2 path: c2 has an empty L1, so this must hit SQLite.
 	l2, ok := c2.Get("news.example.com", "/article/*")
 	if !ok {
@@ -152,7 +159,7 @@ func TestWFAdaptiveCacheEffectBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(t, "cache", cache.Close)
 	_, ok := cache.Get("never-written.example.com", "/none/*")
 	if ok {
 		t.Fatal("expected miss on empty cache")

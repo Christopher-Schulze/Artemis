@@ -242,14 +242,16 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
-	_ = cache.Put(AdaptiveEntry{
+	defer closeScraperTestResource(t, "cache", cache.Close)
+	if err := cache.Put(AdaptiveEntry{
 		Domain:     "cached.com",
 		URLPattern: "/cached",
 		Selector:   ".cached-selector",
 		Confidence: 0.95,
 		UpdatedAt:  time.Now(),
-	})
+	}); err != nil {
+		t.Fatalf("cache Put: %v", err)
+	}
 	hub := &mockInferenceHubLLM{}
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
@@ -277,7 +279,7 @@ func TestAIFinderStage2_CachesHighConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(t, "cache", cache.Close)
 	hub := &mockInferenceHubLLM{
 		responses: []InferenceHubLLMResponse{
 			{Selector: ".high-conf", Confidence: 0.95},
@@ -304,7 +306,7 @@ func TestAIFinderStage2_DoesNotCacheLowConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Close()
+	defer closeScraperTestResource(t, "cache", cache.Close)
 	hub := &mockInferenceHubLLM{
 		responses: []InferenceHubLLMResponse{
 			{Selector: ".low-conf", Confidence: 0.40},
