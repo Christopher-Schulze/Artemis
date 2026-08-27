@@ -229,7 +229,7 @@ func TestIdentityManagerConcurrentDistinctNames(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			name := "p-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+			name := "p-" + string("abcdefghijklmnopqrstuvwxyz"[i%26]) + string("0123456789"[i/26])
 			id := m.GetOrCreateIdentity(name)
 			mu.Lock()
 			ids[name] = id

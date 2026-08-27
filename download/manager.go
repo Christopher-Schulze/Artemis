@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -660,7 +661,18 @@ func downloadFreeBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &stats); err != nil {
 		return 0, fmt.Errorf("download free-space check: %w", err)
 	}
-	return int64(stats.Bavail) * int64(stats.Bsize), nil
+	if stats.Bsize == 0 {
+		return 0, nil
+	}
+	blockSize := uint64(stats.Bsize)
+	if stats.Bavail > uint64(math.MaxInt64)/blockSize {
+		return 0, errors.New("download free-space check: free-space value exceeds signed range")
+	}
+	freeBytes := stats.Bavail * blockSize
+	if freeBytes > uint64(math.MaxInt64) {
+		return 0, errors.New("download free-space check: free-space value exceeds signed range")
+	}
+	return int64(freeBytes), nil
 }
 
 func syncDownloadDirectory(path string) (returnErr error) {

@@ -209,7 +209,7 @@ func TestRedactConcurrent(t *testing.T) {
 		go func(seed int) {
 			defer wg.Done()
 			for i := 0; i < 50; i++ {
-				in := "email user" + string(rune('a'+seed)) + "@example.com api_key=sk_test_abcdefghijklmnopqrstuv1234"
+				in := "email user" + string("abcdefgh"[seed]) + "@example.com api_key=sk_test_abcdefghijklmnopqrstuv1234"
 				res := r.Redact(in, RedactionPointSnapshotText)
 				if !res.Changed() {
 					t.Errorf("goroutine %d: expected redaction", seed)

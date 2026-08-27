@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -137,12 +138,22 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memAfter)
+	allocBytes := memAfter.TotalAlloc - memBefore.TotalAlloc
+	allocCount := memAfter.Mallocs - memBefore.Mallocs
+	if memAfter.TotalAlloc < memBefore.TotalAlloc || memAfter.Mallocs < memBefore.Mallocs ||
+		allocBytes > uint64(math.MaxInt64) || allocCount > uint64(math.MaxInt64) {
+		result.Error = "memory allocation counters exceeded signed metric range"
+		if closeErr := page.Close(); closeErr != nil {
+			result.Error = fmt.Sprintf("%s; page close: %v", result.Error, closeErr)
+		}
+		return result
+	}
 
 	result.WallMs = ms.WallMs
 	result.CPUMs = ms.CPUMs
 	result.RSSBytes = ms.RSSBytes
-	result.AllocBytes = int64(memAfter.TotalAlloc - memBefore.TotalAlloc)
-	result.AllocCount = int64(memAfter.Mallocs - memBefore.Mallocs)
+	result.AllocBytes = int64(allocBytes)
+	result.AllocCount = int64(allocCount)
 	result.Throughput = ms.Throughput
 	validated := validateScenario(s, title, links, text)
 	if closeErr := page.Close(); closeErr != nil {

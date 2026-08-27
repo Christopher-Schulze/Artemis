@@ -54,7 +54,7 @@ type Server struct {
 	opts             Opts
 	mu               sync.Mutex
 	writeMu          sync.Mutex
-	nextSeq          atomic.Uint64
+	nextSeq          atomic.Int64
 	srv              *http.Server
 	authTokenMu      sync.RWMutex
 	authToken        string
@@ -80,13 +80,13 @@ type streamOutbox struct {
 	events   []streamEvent
 	terminal *Response
 	closed   bool
-	seq      uint64
+	seq      int64
 	reqID    string
 	ownerID  string
 }
 
 type streamEvent struct {
-	seq      uint64
+	seq      int64
 	event    *Event
 	terminal *Response
 }
@@ -299,7 +299,7 @@ func (s *Server) writeResp(ctx context.Context, c *websocket.Conn, r *Response) 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	r.Version = ProtocolVersion
-	r.Seq = int64(s.nextSeq.Add(1))
+	r.Seq = s.nextSeq.Add(1)
 	out, err := json.Marshal(r)
 	if err != nil {
 		s.opts.Logger.Error("marshal resp", "err", err)
@@ -314,7 +314,7 @@ func (s *Server) writeEvent(ctx context.Context, c *websocket.Conn, ev *Event) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	ev.Version = ProtocolVersion
-	ev.Seq = int64(s.nextSeq.Add(1))
+	ev.Seq = s.nextSeq.Add(1)
 	out, err := json.Marshal(ev)
 	if err != nil {
 		s.opts.Logger.Error("marshal event", "err", err)
@@ -928,7 +928,7 @@ func (s *Server) cmdTokenRotate(req *Request) *Response {
 	return okResp(req.ID, TokenRotateResult{Token: token})
 }
 
-func (o *streamOutbox) pushEvent(ev *Event) uint64 {
+func (o *streamOutbox) pushEvent(ev *Event) int64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.seq++
@@ -937,7 +937,7 @@ func (o *streamOutbox) pushEvent(ev *Event) uint64 {
 	return seq
 }
 
-func (o *streamOutbox) pushTerminal(resp *Response) uint64 {
+func (o *streamOutbox) pushTerminal(resp *Response) int64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.seq++
@@ -953,7 +953,7 @@ func (o *streamOutbox) eventsSince(resumeFrom int64) []streamEvent {
 	defer o.mu.Unlock()
 	var out []streamEvent
 	for _, ev := range o.events {
-		if int64(ev.seq) > resumeFrom {
+		if ev.seq > resumeFrom {
 			out = append(out, ev)
 		}
 	}
@@ -965,7 +965,7 @@ func (o *streamOutbox) eventsSince(resumeFrom int64) []streamEvent {
 				break
 			}
 		}
-		if !found && int64(o.seq) > resumeFrom {
+		if !found && o.seq > resumeFrom {
 			out = append(out, streamEvent{seq: o.seq, terminal: o.terminal})
 		}
 	}

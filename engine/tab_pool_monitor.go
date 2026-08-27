@@ -7,6 +7,7 @@ package engine
 
 import (
 	"context"
+	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -236,5 +237,8 @@ func (m *TabPoolMonitor) SetMemStats(fn func() (heapAlloc int64)) {
 func readHeapAlloc() int64 {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
+	if ms.HeapAlloc > uint64(math.MaxInt64) {
+		return math.MaxInt64
+	}
 	return int64(ms.HeapAlloc)
 }
