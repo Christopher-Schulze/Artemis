@@ -469,9 +469,6 @@ func (r *routerRunner) stop(ctx context.Context, t *testing.T) {
 	if r.browser != nil {
 		_ = r.browser.Close()
 	}
-	if r.rtr != nil {
-		// no explicit close needed
-	}
 }
 
 func (r *routerRunner) canRun(sc Scenario) (bool, string) { return Check("hybrid", sc) }

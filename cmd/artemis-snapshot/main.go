@@ -42,10 +42,6 @@ func main() {
 	}
 }
 
-func run() error {
-	return runMode(false)
-}
-
 func runMode(checkOnly bool) error {
 	start := time.Now()
 	if err := validateModuleRoot("."); err != nil {

@@ -208,7 +208,10 @@ func (p *WorkerPool) Stop() {
 	p.stopOnce.Do(func() {
 		p.stopped.Store(true)
 		p.cancel()
+		// This lock/unlock is an intentional barrier that joins any in-flight
+		// Submit call before Stop proceeds to wait for workers.
 		p.sendMu.Lock()
+		//lint:ignore SA2001 synchronization barrier; no work belongs inside this section
 		p.sendMu.Unlock()
 		if p.started.Load() {
 			p.wg.Wait()

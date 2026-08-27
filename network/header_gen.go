@@ -13,7 +13,6 @@ package network
 import (
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // HeaderGenerator produces realistic Chrome 145 request headers
@@ -141,19 +140,4 @@ func (h HeaderGenerator) AllHeaders() http.Header {
 		hh.Set(k, v)
 	}
 	return hh
-}
-
-// uaContainsOS is a helper used by tests to verify the User-Agent
-// string carries the expected OS marker.
-func uaContainsOS(ua, os string) bool {
-	switch os {
-	case "windows":
-		return strings.Contains(ua, "Windows NT")
-	case "macos":
-		return strings.Contains(ua, "Macintosh")
-	case "linux":
-		return strings.Contains(ua, "Linux x86_64")
-	default:
-		return false
-	}
 }

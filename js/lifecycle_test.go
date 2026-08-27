@@ -135,10 +135,3 @@ func newWSEchoServer(t *testing.T) *httptest.Server {
 func wsURL(srv *httptest.Server) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
 }
-
-func timeoutCtx(t *testing.T, d time.Duration) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), d)
-	t.Cleanup(cancel)
-	return ctx
-}

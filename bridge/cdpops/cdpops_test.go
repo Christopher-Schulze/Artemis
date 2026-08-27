@@ -507,7 +507,7 @@ func TestTASK2256_AddJitter(t *testing.T) {
 	p := AddJitter(Point{X: 100, Y: 100}, 5)
 	// Should return a different point (with jitter)
 	if p.X == 100 && p.Y == 100 {
-		// Could be same if jitter is 0, but with maxJitter=5 it should differ
+		t.Fatal("positive jitter did not change the point")
 	}
 	// Zero jitter should return same point
 	p2 := AddJitter(Point{X: 100, Y: 100}, 0)

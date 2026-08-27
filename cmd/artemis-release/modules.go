@@ -399,11 +399,11 @@ func modulePURL(path, version string) string {
 
 func goChecksumHex(checksum string) (string, error) {
 	if !strings.HasPrefix(checksum, "h1:") {
-		return "", errors.New("Go checksum is missing h1 prefix")
+		return "", errors.New("go checksum is missing h1 prefix")
 	}
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(checksum, "h1:"))
 	if err != nil || len(decoded) != 32 {
-		return "", errors.New("Go checksum is not a SHA-256 value")
+		return "", errors.New("go checksum is not a SHA-256 value")
 	}
 	return "sha256:" + hex.EncodeToString(decoded), nil
 }

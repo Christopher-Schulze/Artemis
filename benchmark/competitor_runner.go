@@ -49,9 +49,8 @@ func DefaultCompetitorConfig() CompetitorConfig {
 // CompetitorRunner manages the competitor binary lifecycle: download,
 // start, run scenarios, stop.
 type CompetitorRunner struct {
-	cfg    CompetitorConfig
-	cmd    *exec.Cmd
-	binary string
+	cfg CompetitorConfig
+	cmd *exec.Cmd
 }
 
 // NewCompetitorRunner creates a runner with the given config.

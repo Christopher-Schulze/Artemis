@@ -2,7 +2,6 @@ package benchmark
 
 import (
 	"fmt"
-	"math"
 )
 
 // MetricKind names the dimensions measured for each scenario.
@@ -141,23 +140,4 @@ func MetricKindFromString(s string) (MetricKind, error) {
 	default:
 		return "", fmt.Errorf("unknown metric kind: %s", s)
 	}
-}
-
-// humanReadableBytes returns a short string for a byte count.
-func humanReadableBytes(b int64) string {
-	if b == 0 {
-		return "0 B"
-	}
-	if b < 1024 {
-		return fmt.Sprintf("%d B", b)
-	}
-	if b < 1024*1024 {
-		return fmt.Sprintf("%.2f KB", float64(b)/1024)
-	}
-	return fmt.Sprintf("%.2f MB", float64(b)/(1024*1024))
-}
-
-// round3 returns a float64 rounded to 3 decimal places.
-func round3(v float64) float64 {
-	return math.Round(v*1000) / 1000
 }

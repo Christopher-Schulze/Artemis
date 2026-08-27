@@ -42,7 +42,6 @@ type wsConn struct {
 	ctx    context.Context // canceled when wsRegistry.closeAll runs
 	cancel context.CancelFunc
 	state  atomic.Int32 // 0..3
-	binary bool
 }
 
 func (c *wsConn) attach(conn *websocket.Conn) bool {

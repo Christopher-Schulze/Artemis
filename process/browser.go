@@ -695,6 +695,6 @@ func (b *Browser) terminate() error {
 	case <-b.processDone:
 		return nil
 	case <-timer2.C:
-		return fmt.Errorf("Chromium process %d did not exit after SIGKILL", b.cmd.Process.Pid)
+		return fmt.Errorf("chromium process %d did not exit after SIGKILL", b.cmd.Process.Pid)
 	}
 }

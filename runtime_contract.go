@@ -922,7 +922,7 @@ func (s *Session) ChromiumAct(ctx context.Context, request actions.Request) (act
 	}()
 	ca := s.owner.ChromiumActions()
 	if ca == nil {
-		return actions.Outcome{}, newTaskError(TaskErrorCapabilityUnavailable, "chromium_act", fmt.Errorf("Chromium action runtime is not configured"))
+		return actions.Outcome{}, newTaskError(TaskErrorCapabilityUnavailable, "chromium_act", fmt.Errorf("chromium action runtime is not configured"))
 	}
 	return ca.Execute(execCtx, request), nil
 }

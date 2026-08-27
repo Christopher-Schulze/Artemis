@@ -40,11 +40,6 @@ func (e *ParseError) Error() string {
 // "descendant-or-self::" prefix or an empty prefix.
 const defaultXPathPrefix = "//"
 
-// scraplingPrefix is the prefix Scrapling's Python HTMLTranslator uses
-// by default. It is exposed for callers and tests that want to reproduce
-// Scrapling's exact output.
-const scraplingPrefix = "descendant-or-self::"
-
 // CSSToXPath translates a CSS selector (with Scrapling ::text / ::attr()
 // extensions) into an XPath expression using the default "//" prefix.
 func CSSToXPath(css string) (string, error) {

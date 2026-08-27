@@ -70,9 +70,11 @@ func TestDNSPrefetchRejectsMissingContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	//lint:ignore SA1012 nil context is the invalid input under test.
 	if _, err := cache.Resolve(nil, "example.com"); err == nil {
 		t.Fatal("Resolve accepted nil context")
 	}
+	//lint:ignore SA1012 nil context is the invalid input under test.
 	if err := cache.Prefetch(nil, []string{"example.com"}, 1); err == nil {
 		t.Fatal("Prefetch accepted nil context")
 	}

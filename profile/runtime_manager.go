@@ -196,9 +196,10 @@ func (m *RuntimeManager) Open(ctx context.Context, request OpenSessionRequest) (
 	dataDir := request.DataDir
 	if dataDir == "" {
 		base := "persistent"
-		if request.Class == ProfileEphemeral {
+		switch request.Class {
+		case ProfileEphemeral:
 			base = "ephemeral"
-		} else if request.Class == ProfileAttached {
+		case ProfileAttached:
 			base = "attached"
 		}
 		dataDir = filepath.Join(m.root, base, string(request.ProfileID))

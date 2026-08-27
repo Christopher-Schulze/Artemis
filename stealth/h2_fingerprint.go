@@ -242,5 +242,5 @@ func (c H2FingerprintConfig) FingerprintHash() string {
 func IsChromiumFingerprint(config H2FingerprintConfig) bool {
 	return ValidateH2SettingsStrict(config.Settings) == nil &&
 		config.WindowUpdate == 15663105 &&
-		config.PriorityFrame == true
+		config.PriorityFrame
 }

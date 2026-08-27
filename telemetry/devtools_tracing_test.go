@@ -37,7 +37,7 @@ func TestStartStop(t *testing.T) {
 	if s.IsRunning() {
 		t.Fatal("should not be running after stop")
 	}
-	if events != nil && len(events) != 0 {
+	if len(events) != 0 {
 		t.Fatalf("events=%d", len(events))
 	}
 }

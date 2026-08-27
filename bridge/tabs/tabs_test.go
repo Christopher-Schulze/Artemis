@@ -726,8 +726,11 @@ func TestTASK2254_FullSpecParity(t *testing.T) {
 	// 1. manager.go - tab registry + lifecycle
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
-	if tab == nil || r.Count() != 1 {
-		t.Error("manager.go: tab creation failed")
+	if tab == nil {
+		t.Fatal("manager.go: tab creation failed")
+	}
+	if r.Count() != 1 {
+		t.Fatalf("manager.go: tab count = %d, want 1", r.Count())
 	}
 
 	// 2. executor.go - concurrent tab execution

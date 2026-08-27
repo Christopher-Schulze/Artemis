@@ -191,12 +191,12 @@ func NewHARStream(config HARStreamConfig) (*HARStream, error) {
 // MIME type via ShouldCaptureBody; oversized or binary bodies have their text
 // dropped while their size is preserved. Safe for concurrent use.
 func (s *HARStream) AddEntry(entry HAREntry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s == nil {
 		return fmt.Errorf("har stream: nil stream")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.closed {
 		return fmt.Errorf("har stream: closed")
 	}
@@ -238,12 +238,12 @@ func (s *HARStream) AddEntry(entry HAREntry) error {
 // Close finalizes the HAR file by writing the closing `]}}` and closing the
 // underlying file. After Close, further AddEntry calls return an error.
 func (s *HARStream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s == nil {
 		return fmt.Errorf("har stream: nil stream")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.closed {
 		return nil
 	}

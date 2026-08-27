@@ -47,7 +47,6 @@ type Runtime struct {
 	storageTemplates     *storageTemplates // cached templates for buildStorageCached
 	storageHandles       *storageHandles   // handle table backing internal field 0
 	locationTemplate     *v8.ObjectTemplate
-	navigatorTemplate    *v8.ObjectTemplate
 	timerTemplates       *timerTemplates // cached setTimeout/clearTimeout/setInterval/clearInterval
 	consoleTemplates     *consoleTemplates
 	domBridgeTemplates   *domBridgeTemplates

@@ -94,8 +94,7 @@ func TestDoSendsUserAgentAndCustomHeaders(t *testing.T) {
 }
 
 func TestDoFollowsRedirects(t *testing.T) {
-	var final *httptest.Server
-	final = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "landed")
 	}))
 	defer final.Close()

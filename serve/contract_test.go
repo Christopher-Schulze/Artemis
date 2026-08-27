@@ -228,10 +228,7 @@ func TestConformanceFullOpSet(t *testing.T) {
 	}
 
 	// 10. session.close
-	scloseReq, _ := MarshalTyped("10", CmdSessionClose, SessionCloseParams{
-		SessionID:    snr.SessionID,
-		OwnerUserRef: snr.OwnerUserRef,
-	})
+	scloseReq, _ := MarshalTyped("10", CmdSessionClose, SessionCloseParams(snr))
 	resp = roundTrip(t, c, scloseReq)
 	if !resp.OK {
 		t.Fatalf("session.close: %+v", resp)

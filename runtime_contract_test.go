@@ -376,6 +376,7 @@ func TestAgentCanRecoverFromFailedStart(t *testing.T) {
 func TestAgentLifecycleTransitionsAndIdempotentStop(t *testing.T) {
 	runtime := &contractRuntime{}
 	agent, telemetry := newContractAgent(t, AgentConfig{}, runtime, errorDispatcher{err: errors.New("unused")})
+	//lint:ignore SA1012 nil context is the invalid input under test.
 	if err := agent.Start(nil); taskErrorCode(err) != TaskErrorInvalidInput {
 		t.Fatalf("nil start context = %v", err)
 	}
@@ -413,6 +414,7 @@ func TestAgentRejectsNilExecutionContext(t *testing.T) {
 	runtime := &contractRuntime{}
 	agent, _ := newContractAgent(t, AgentConfig{}, runtime, errorDispatcher{err: errors.New("must not execute")})
 	session := startSession(t, agent)
+	//lint:ignore SA1012 nil context is the invalid input under test.
 	result := agent.ExecuteTask(nil, Task{
 		ID: "nil-context", SessionID: session.SessionID(), Action: FetchAction{URL: "https://example.com"},
 	})

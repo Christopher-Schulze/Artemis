@@ -1,6 +1,7 @@
 package artemis
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func TestSealEngineSecureByDefault(t *testing.T) {
 		{"http://0.0.0.0/", false},
 	}
 	for _, d := range decisions {
-		err := policy.ValidateRequest(nil, d.url, "GET", "", 0, network.TargetNavigation, "")
+		err := policy.ValidateRequest(context.Background(), d.url, "GET", "", 0, network.TargetNavigation, "")
 		if d.allowed && err != nil {
 			t.Errorf("policy should allow %s but got %v", d.url, err)
 		}
@@ -137,6 +138,7 @@ func TestSealNoSyntheticSuccessInAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
+	//lint:ignore SA1012 nil context is the invalid input under test.
 	if err := agent.Start(nil); err == nil {
 		t.Fatal("agent.Start(nil) should fail")
 	}

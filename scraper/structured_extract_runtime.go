@@ -145,7 +145,7 @@ func extractStructuredScalar(schema *StructuredSchema, matches []*html.Node, bas
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d]: %w", path, i, err)
 		}
-		if value == nil || (schema.Kind != KindNumber && strings.TrimSpace(fmt.Sprint(value)) == "") {
+		if schema.Kind != KindNumber && strings.TrimSpace(fmt.Sprint(value)) == "" {
 			if schema.IsRequired {
 				return nil, fmt.Errorf("%s: required value is empty", path)
 			}

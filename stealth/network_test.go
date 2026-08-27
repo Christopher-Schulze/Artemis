@@ -247,8 +247,8 @@ func TestTASK2244_ConnectionMonitorNilSafe(t *testing.T) {
 	if m.IsActive() {
 		t.Error("nil should not be active")
 	}
-	if m.Current().MeasuredAt.IsZero() {
-		// nil Current returns zero-value ConnectionInfo
+	if !m.Current().MeasuredAt.IsZero() {
+		t.Error("nil monitor should return a zero-value connection info")
 	}
 	m.SetRefreshInterval(60 * time.Second)
 	m.SetMeasureTarget("1.1.1.1:443")

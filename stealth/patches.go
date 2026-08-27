@@ -232,14 +232,14 @@ func Script(p Profile) string {
 	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'availHeight', { get: () => %d });\n", p.ViewportHeight-40))
 
 	// 19. Intl.DateTimeFormat timezone
-	b.WriteString(fmt.Sprintf("  const _origDateTimeFormat = Intl.DateTimeFormat;\n"))
-	b.WriteString(fmt.Sprintf("  Intl.DateTimeFormat = function(locales, options) {\n"))
-	b.WriteString(fmt.Sprintf("    options = options || {};\n"))
+	b.WriteString("  const _origDateTimeFormat = Intl.DateTimeFormat;\n")
+	b.WriteString("  Intl.DateTimeFormat = function(locales, options) {\n")
+	b.WriteString("    options = options || {};\n")
 	b.WriteString(fmt.Sprintf("    options.timeZone = options.timeZone || %s;\n", strconv.Quote(p.Timezone)))
-	b.WriteString(fmt.Sprintf("    return _origDateTimeFormat.call(this, locales, options);\n"))
-	b.WriteString(fmt.Sprintf("  };\n"))
-	b.WriteString(fmt.Sprintf("  Intl.DateTimeFormat.prototype = _origDateTimeFormat.prototype;\n"))
-	b.WriteString(fmt.Sprintf("  Intl.DateTimeFormat.supportedLocalesOf = _origDateTimeFormat.supportedLocalesOf;\n"))
+	b.WriteString("    return _origDateTimeFormat.call(this, locales, options);\n")
+	b.WriteString("  };\n")
+	b.WriteString("  Intl.DateTimeFormat.prototype = _origDateTimeFormat.prototype;\n")
+	b.WriteString("  Intl.DateTimeFormat.supportedLocalesOf = _origDateTimeFormat.supportedLocalesOf;\n")
 
 	// 20. PerformanceEntry type filter (no-op, just presence)
 	b.WriteString("  // PerformanceEntry patch: presence only\n")

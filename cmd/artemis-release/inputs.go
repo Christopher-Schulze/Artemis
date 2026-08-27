@@ -325,7 +325,7 @@ func ancestorWithIdentity(path, expected string) (string, error) {
 			return current, nil
 		}
 		if parent := filepath.Dir(current); parent == current {
-			return "", errors.New("Git root is not an ancestor of the source root")
+			return "", errors.New("git root is not an ancestor of the source root")
 		}
 	}
 }
@@ -337,10 +337,7 @@ func withinPath(root, candidate string) bool {
 	}
 	rootInfo, err := os.Stat(root)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false
-		}
-		return true
+		return !errors.Is(err, os.ErrNotExist)
 	}
 	for current := filepath.Clean(candidate); ; current = filepath.Dir(current) {
 		info, statErr := os.Stat(current)

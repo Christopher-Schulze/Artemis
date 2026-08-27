@@ -126,7 +126,7 @@ func (s *StreamParser) ParseStream(ctx context.Context, input io.Reader) (*Strea
 		}()
 
 		// Build TeeReader chain: input -> tee1 -> tee2 -> ... -> last
-		var current io.Reader = input
+		current := input
 		var writers []io.Writer
 
 		names := make([]string, 0, len(pipes))

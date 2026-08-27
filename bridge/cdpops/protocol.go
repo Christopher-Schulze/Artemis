@@ -1,6 +1,5 @@
 package cdpops
 
-type emptyParams struct{}
 type emptyResult struct{}
 
 type navigateParams struct {

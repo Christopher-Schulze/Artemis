@@ -10,7 +10,6 @@ import (
 	"hash"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	v8 "rogchap.com/v8go"
 )
@@ -63,7 +62,6 @@ func (s *cryptoKeyStore) get(id uint32) *cryptoKey {
 // global store (keys are per-Runtime / process scope; we don't expose
 // extractable raw bytes back to JS, so cross-context leak risk is low.)
 var globalKeyStore = newCryptoKeyStore()
-var globalKeyCounter atomic.Uint64
 
 // installCryptoSubtle adds crypto.subtle.digest and exposes a thin
 // native helper used by the JS-side wrapper. Sign/verify/encrypt/decrypt
@@ -535,6 +533,3 @@ func hmacSign(k *cryptoKey, data []byte) []byte {
 	mac.Write(data)
 	return mac.Sum(nil)
 }
-
-// silence unused
-var _ = atomic.Uint64{}

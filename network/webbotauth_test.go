@@ -626,9 +626,9 @@ func TestWebBotAuthSignDifferentDomains(t *testing.T) {
 	if err := VerifyWebBotAuthSignature(req2, pub); err != nil {
 		t.Errorf("verify req2: %v", err)
 	}
-	// Cross-verification should fail (different authority).
+	// Re-verification with the original authority should succeed.
 	if err := VerifyWebBotAuthSignature(req1, pub); err != nil {
-		// req1 should verify fine
+		t.Fatalf("same-authority re-verification: %v", err)
 	}
 	// Tamper: verify req1 with req2's Host.
 	req1.Host = "api.example.com"
