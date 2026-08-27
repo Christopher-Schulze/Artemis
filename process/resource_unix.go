@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,7 +20,7 @@ func platformResourceDefaults() ResourceBudget {
 }
 
 func sampleProcessResources(processGroupID int, profileDir string) (ResourceUsage, error) {
-	cmd := exec.Command("ps", "-axo", "pgid=,%cpu=,rss=")
+	cmd := exec.CommandContext(context.Background(), "ps", "-axo", "pgid=,%cpu=,rss=")
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	output, err := cmd.Output()
 	if err != nil {

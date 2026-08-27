@@ -166,7 +166,7 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 	// Step 1: Check cache.
 	if a.cache != nil {
-		if entry, ok := a.cache.Get(domain, urlPattern); ok && entry.Selector != "" {
+		if entry, ok := a.cache.GetContext(ctx, domain, urlPattern); ok && entry.Selector != "" {
 			a.mu.Lock()
 			a.stats.CacheHits++
 			a.mu.Unlock()
@@ -262,13 +262,15 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 		// Cache if confidence meets threshold.
 		if a.cache != nil && resp.Confidence >= a.config.CacheConfidence && a.config.Mode == FinderModeText {
-			_ = a.cache.Put(AdaptiveEntry{
+			if err := a.cache.PutContext(ctx, AdaptiveEntry{
 				Domain:     domain,
 				URLPattern: urlPattern,
 				Selector:   selector,
 				Confidence: resp.Confidence,
 				UpdatedAt:  time.Now(),
-			})
+			}); err != nil {
+				return result, fmt.Errorf("ai finder stage2: cache selector: %w", err)
+			}
 		}
 
 		a.mu.Lock()

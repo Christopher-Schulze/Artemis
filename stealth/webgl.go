@@ -1,6 +1,7 @@
 package stealth
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -96,7 +97,7 @@ func DetectGPU() GPUInfo {
 // detectGPUMacOS detects GPU on macOS via system_profiler
 // (spec L4091: system_profiler SPDisplaysDataType).
 func detectGPUMacOS() GPUInfo {
-	cmd := exec.Command("system_profiler", "SPDisplaysDataType", "-detailLevel", "mini")
+	cmd := exec.CommandContext(context.Background(), "system_profiler", "SPDisplaysDataType", "-detailLevel", "mini")
 	output, err := cmd.Output()
 	if err != nil {
 		return GPUInfo{Detected: false, Source: "system_profiler"}
@@ -141,7 +142,7 @@ func detectGPUMacOS() GPUInfo {
 // detectGPULinux detects GPU on Linux via lspci
 // (spec L4091: lspci | grep VGA).
 func detectGPULinux() GPUInfo {
-	cmd := exec.Command("lspci")
+	cmd := exec.CommandContext(context.Background(), "lspci")
 	output, err := cmd.Output()
 	if err != nil {
 		return GPUInfo{Detected: false, Source: "lspci"}

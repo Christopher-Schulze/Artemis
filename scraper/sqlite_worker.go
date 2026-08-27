@@ -36,11 +36,14 @@ func StartSQLiteWorker(ctx context.Context, path string, queue int) (*SQLiteWork
 	if queue <= 0 {
 		queue = 64
 	}
+	if ctx == nil {
+		return nil, fmt.Errorf("sqlite worker: context required")
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite worker: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("sqlite worker: wal: %w", err)
 	}
@@ -62,7 +65,7 @@ func (w *SQLiteWorker) loop(ctx context.Context) {
 		case <-w.done:
 			return
 		case q := <-w.queries:
-			rows, err := w.db.Query(q.SQL, q.Args...)
+			rows, err := w.db.QueryContext(ctx, q.SQL, q.Args...)
 			select {
 			case w.results <- SQLiteResult{Rows: rows, Err: err}:
 			case <-ctx.Done():
@@ -79,6 +82,9 @@ func (w *SQLiteWorker) loop(ctx context.Context) {
 func (w *SQLiteWorker) Query(ctx context.Context, q SQLiteQuery) (SQLiteResult, error) {
 	if w == nil {
 		return SQLiteResult{}, fmt.Errorf("sqlite worker: nil")
+	}
+	if ctx == nil {
+		return SQLiteResult{}, fmt.Errorf("sqlite worker: context required")
 	}
 	select {
 	case w.queries <- q:

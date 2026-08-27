@@ -1,6 +1,7 @@
 package solver
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -29,11 +30,11 @@ func OpenMetricsStore(path string) (*MetricsStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("challenge metrics: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("challenge metrics: wal: %w", err)
 	}
-	if _, err := db.Exec(`
+	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS challenge_metrics (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   domain TEXT NOT NULL,
@@ -49,15 +50,23 @@ CREATE TABLE IF NOT EXISTS challenge_metrics (
 	return &MetricsStore{db: db}, nil
 }
 
-// Record inserts a metric row.
+// Record inserts a metric row using a background context for compatibility.
 func (s *MetricsStore) Record(row MetricRow) error {
+	return s.RecordContext(context.Background(), row)
+}
+
+// RecordContext inserts a metric row and binds the SQLite write to ctx.
+func (s *MetricsStore) RecordContext(ctx context.Context, row MetricRow) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("challenge metrics: nil store")
+	}
+	if ctx == nil {
+		return fmt.Errorf("challenge metrics: context required")
 	}
 	if row.CreatedAt.IsZero() {
 		row.CreatedAt = time.Now().UTC()
 	}
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO challenge_metrics(domain,challenge_type,stage_solved,vision_tokens,duration_ms,created_at)
 		 VALUES(?,?,?,?,?,?)`,
 		row.Domain, row.ChallengeType, row.StageSolved, row.VisionTokens, row.DurationMS,
@@ -69,13 +78,23 @@ func (s *MetricsStore) Record(row MetricRow) error {
 	return nil
 }
 
-// SuccessRate returns solved fraction for challenge_type (stage_solved IS NOT NULL).
+// SuccessRate returns solved fraction for challenge_type using a background
+// context for compatibility.
 func (s *MetricsStore) SuccessRate(challengeType string) (float64, int, error) {
+	return s.SuccessRateContext(context.Background(), challengeType)
+}
+
+// SuccessRateContext returns solved fraction for challenge_type and binds the
+// SQLite query to ctx.
+func (s *MetricsStore) SuccessRateContext(ctx context.Context, challengeType string) (float64, int, error) {
 	if s == nil || s.db == nil {
 		return 0, 0, fmt.Errorf("challenge metrics: nil store")
 	}
+	if ctx == nil {
+		return 0, 0, fmt.Errorf("challenge metrics: context required")
+	}
 	var total, solved int
-	row := s.db.QueryRow(
+	row := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN stage_solved IS NOT NULL THEN 1 ELSE 0 END),0)
 		 FROM challenge_metrics WHERE challenge_type=?`, challengeType,
 	)

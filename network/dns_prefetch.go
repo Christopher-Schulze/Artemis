@@ -53,11 +53,11 @@ func OpenDNSPrefetchCache(path string, ttl time.Duration) (*DNSPrefetchCache, er
 	if err != nil {
 		return nil, fmt.Errorf("dns cache: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("dns cache: wal: %w", err)
 	}
-	if _, err := db.Exec(`
+	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS dns_cache (
   host TEXT PRIMARY KEY,
   ips TEXT NOT NULL,
@@ -92,7 +92,7 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 	if c.db != nil {
 		var ipsCSV string
 		var exp int64
-		err := c.db.QueryRow(`SELECT ips, expires_at FROM dns_cache WHERE host=?`, host).Scan(&ipsCSV, &exp)
+		err := c.db.QueryRowContext(ctx, `SELECT ips, expires_at FROM dns_cache WHERE host=?`, host).Scan(&ipsCSV, &exp)
 		if err == nil && now.Unix() < exp {
 			ips := strings.Split(ipsCSV, ",")
 			c.mu.Lock()
@@ -114,7 +114,7 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 	}
 	exp := now.Add(c.ttl)
 	if c.db != nil {
-		if _, err := c.db.Exec(
+		if _, err := c.db.ExecContext(ctx,
 			`INSERT OR REPLACE INTO dns_cache(host,ips,expires_at) VALUES(?,?,?)`,
 			host, strings.Join(strs, ","), exp.Unix(),
 		); err != nil {

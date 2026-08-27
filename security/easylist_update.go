@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -117,7 +118,20 @@ func NewEasyListUpdater(cfg EasyListUpdateConfig) *EasyListUpdater {
 // computes its SHA256 checksum, and verifies size sanity
 // (spec L4206: HTTPS only, SHA256 checksum, size sanity <2x old list).
 func (u *EasyListUpdater) DownloadAndVerify(url string, oldSize int) (*EasyListVersion, error) {
-	resp, err := u.httpClient.Get(url)
+	return u.DownloadAndVerifyContext(context.Background(), url, oldSize)
+}
+
+// DownloadAndVerifyContext downloads and verifies a blocklist using ctx for
+// the complete HTTP request lifetime.
+func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url string, oldSize int) (*EasyListVersion, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("download %s: context required", url)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("download %s: request: %w", url, err)
+	}
+	resp, err := u.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", url, err)
 	}
@@ -314,6 +328,15 @@ func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
 // UpdateIfNeeded checks if an update is needed and downloads a new
 // version if the update interval has elapsed (spec L4206: every 24h).
 func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
+	return u.UpdateIfNeededContext(context.Background())
+}
+
+// UpdateIfNeededContext checks for an update and uses ctx for source
+// downloads.
+func (u *EasyListUpdater) UpdateIfNeededContext(ctx context.Context) (*EasyListVersion, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("easylist update: context required")
+	}
 	u.mu.Lock()
 	current := u.current
 	u.mu.Unlock()
@@ -330,7 +353,7 @@ func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
 	// Try each source until one succeeds (spec L4206: multiple sources)
 	var lastErr error
 	for _, src := range u.cfg.Sources {
-		v, err := u.DownloadAndVerify(src, oldSize)
+		v, err := u.DownloadAndVerifyContext(ctx, src, oldSize)
 		if err != nil {
 			lastErr = err
 			continue

@@ -1,6 +1,7 @@
 package stealth
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -56,7 +57,8 @@ func MeasureConnection(target string) ConnectionInfo {
 		target = DefaultMeasureTarget
 	}
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", target, 5*time.Second)
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "tcp", target)
 	rtt := time.Since(start)
 	if err != nil {
 		// Fallback: can't measure -> conservative values

@@ -28,7 +28,7 @@ func TestSecurityGatePolicyProxyHasNoGoroutineOrFileDescriptorLeak(t *testing.T)
 	baselineGoroutines := runtime.NumGoroutine()
 	for iteration := 0; iteration < 12; iteration++ {
 		policy := newProxyTestPolicy(t, backend.URL, true)
-		proxy, err := newChromiumPolicyProxy(policy)
+		proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 		if err != nil {
 			t.Fatal(err)
 		}

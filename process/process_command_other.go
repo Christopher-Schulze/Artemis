@@ -2,8 +2,11 @@
 
 package process
 
-import "os/exec"
+import (
+	"context"
+	"os/exec"
+)
 
-func newProcessCommand(binaryPath, _ string, _ bool, args []string) *exec.Cmd {
-	return exec.Command(binaryPath, args...)
+func newProcessCommand(ctx context.Context, binaryPath, _ string, _ bool, args []string) *exec.Cmd {
+	return exec.CommandContext(ctx, binaryPath, args...)
 }

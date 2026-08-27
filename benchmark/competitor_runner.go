@@ -210,8 +210,9 @@ func (r *CompetitorRunner) Start(ctx context.Context) error {
 	// Wait for the HTTP endpoint to become reachable
 	addr := fmt.Sprintf("127.0.0.1:%d", r.cfg.Port)
 	deadline := time.Now().Add(r.cfg.Timeout)
+	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			conn.Close()
 			return nil
@@ -255,7 +256,13 @@ func (r *CompetitorRunner) RunScenario(ctx context.Context, s Scenario, scenario
 	// Fetch via the competitor's HTTP API
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d/fetch?url=%s", r.cfg.Port, urlEncode(scenarioURL))
 	start := time.Now()
-	resp, err := http.Get(apiURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		result.WallMs = float64(time.Since(start).Microseconds()) / 1000.0
+		result.Error = fmt.Sprintf("competitor request: %v", err)
+		return result
+	}
+	resp, err := http.DefaultClient.Do(req)
 	wallMs := float64(time.Since(start).Microseconds()) / 1000.0
 
 	if err != nil {

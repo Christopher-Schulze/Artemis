@@ -33,11 +33,14 @@ type chromiumPolicyProxy struct {
 	closeErr  error
 }
 
-func newChromiumPolicyProxy(policy *network.Policy) (*chromiumPolicyProxy, error) {
+func newChromiumPolicyProxy(ctx context.Context, policy *network.Policy) (*chromiumPolicyProxy, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("chromium policy proxy: context required")
+	}
 	if policy == nil {
 		return nil, fmt.Errorf("chromium policy proxy: policy required")
 	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("chromium policy proxy: listen: %w", err)
 	}

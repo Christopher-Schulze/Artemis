@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -173,6 +174,15 @@ func (s *StreamingServer) GetBroadcastCount() int64 {
 // Start binds a TCP listener with port fallback up to MaxRetries. Returns
 // the chosen port.
 func (s *StreamingServer) Start() (int, error) {
+	return s.StartContext(context.Background())
+}
+
+// StartContext binds a TCP listener with port fallback up to MaxRetries.
+// The context controls address resolution before the listener is returned.
+func (s *StreamingServer) StartContext(ctx context.Context) (int, error) {
+	if ctx == nil {
+		return 0, fmt.Errorf("streaming context required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.listener != nil {
@@ -189,7 +199,7 @@ func (s *StreamingServer) Start() (int, error) {
 	var lastErr error
 	for attempt := 0; attempt <= max; attempt++ {
 		port := base + attempt
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			lastErr = err
 			continue

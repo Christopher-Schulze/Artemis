@@ -1,6 +1,7 @@
 package stealth
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -29,11 +30,11 @@ func OpenDomainMemory(path string) (*DomainMemory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("domain memory: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("domain memory: wal: %w", err)
 	}
-	if _, err := db.Exec(`
+	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS domain_stealth (
   domain TEXT PRIMARY KEY,
   purpose TEXT NOT NULL,
@@ -47,10 +48,20 @@ CREATE TABLE IF NOT EXISTS domain_stealth (
 	return &DomainMemory{db: db}, nil
 }
 
-// Remember stores a domain-level stealth preference.
+// Remember stores a domain-level stealth preference using a background
+// context for compatibility.
 func (m *DomainMemory) Remember(e DomainMemoryEntry) error {
+	return m.RememberContext(context.Background(), e)
+}
+
+// RememberContext stores a domain-level stealth preference and binds the
+// SQLite write to ctx.
+func (m *DomainMemory) RememberContext(ctx context.Context, e DomainMemoryEntry) error {
 	if m == nil || m.db == nil {
 		return fmt.Errorf("domain memory: nil store")
+	}
+	if ctx == nil {
+		return fmt.Errorf("domain memory: context required")
 	}
 	domain := strings.ToLower(strings.TrimSpace(e.Domain))
 	if domain == "" {
@@ -59,7 +70,7 @@ func (m *DomainMemory) Remember(e DomainMemoryEntry) error {
 	if e.ExpiresAt.IsZero() {
 		e.ExpiresAt = time.Now().Add(7 * 24 * time.Hour)
 	}
-	_, err := m.db.Exec(
+	_, err := m.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO domain_stealth(domain,purpose,ack_id,level,expires_at) VALUES(?,?,?,?,?)`,
 		domain, e.Purpose, e.AckID, string(e.Level), e.ExpiresAt.UTC().Format(time.RFC3339),
 	)
@@ -69,13 +80,23 @@ func (m *DomainMemory) Remember(e DomainMemoryEntry) error {
 	return nil
 }
 
-// Lookup returns a non-expired entry for domain.
+// Lookup returns a non-expired entry for domain using a background context
+// for compatibility.
 func (m *DomainMemory) Lookup(domain string) (DomainMemoryEntry, bool, error) {
+	return m.LookupContext(context.Background(), domain)
+}
+
+// LookupContext returns a non-expired entry for domain and binds the query to
+// ctx.
+func (m *DomainMemory) LookupContext(ctx context.Context, domain string) (DomainMemoryEntry, bool, error) {
 	if m == nil || m.db == nil {
 		return DomainMemoryEntry{}, false, fmt.Errorf("domain memory: nil store")
 	}
+	if ctx == nil {
+		return DomainMemoryEntry{}, false, fmt.Errorf("domain memory: context required")
+	}
 	domain = strings.ToLower(strings.TrimSpace(domain))
-	row := m.db.QueryRow(
+	row := m.db.QueryRowContext(ctx,
 		`SELECT purpose, ack_id, level, expires_at FROM domain_stealth WHERE domain=?`, domain,
 	)
 	var purpose, ackID, level, exp string

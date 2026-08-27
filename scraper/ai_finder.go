@@ -44,7 +44,7 @@ func (a *AIFinder) Find(ctx context.Context, doc *webapi.Document, domain, urlPa
 		return "", fmt.Errorf("ai finder: nil")
 	}
 	if a.Cache != nil {
-		if e, ok := a.Cache.Get(domain, urlPattern); ok && e.Selector != "" {
+		if e, ok := a.Cache.GetContext(ctx, domain, urlPattern); ok && e.Selector != "" {
 			if a.Validate == nil || a.Validate(doc, e.Selector) {
 				return e.Selector, nil
 			}
@@ -85,9 +85,11 @@ func (a *AIFinder) Find(ctx context.Context, doc *webapi.Document, domain, urlPa
 			continue
 		}
 		if a.Cache != nil {
-			_ = a.Cache.Put(AdaptiveEntry{
+			if err := a.Cache.PutContext(ctx, AdaptiveEntry{
 				Domain: domain, URLPattern: urlPattern, Selector: sel, Confidence: 0.85,
-			})
+			}); err != nil {
+				return "", fmt.Errorf("ai finder: cache selector: %w", err)
+			}
 		}
 		return sel, nil
 	}

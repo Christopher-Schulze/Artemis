@@ -1,13 +1,24 @@
 package stealth
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
 )
 
-// ReferrerForDomain returns a static Referer header for paranoid mode (Patch 29).
+// ReferrerForDomain returns a static Referer header for paranoid mode (Patch
+// 29) using a background context for compatibility.
 func ReferrerForDomain(rawURL string, mem *DomainMemory) (string, error) {
+	return ReferrerForDomainContext(context.Background(), rawURL, mem)
+}
+
+// ReferrerForDomainContext returns a static Referer header and binds domain
+// memory lookup to ctx.
+func ReferrerForDomainContext(ctx context.Context, rawURL string, mem *DomainMemory) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("referrer: context required")
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("referrer: parse: %w", err)
@@ -17,7 +28,7 @@ func ReferrerForDomain(rawURL string, mem *DomainMemory) (string, error) {
 		return "", nil
 	}
 	if mem != nil {
-		if e, ok, err := mem.Lookup(host); err == nil && ok && e.Level == StealthParanoid {
+		if e, ok, err := mem.LookupContext(ctx, host); err == nil && ok && e.Level == StealthParanoid {
 			return googleReferrer(host), nil
 		}
 	}

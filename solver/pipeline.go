@@ -162,7 +162,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 				p.mu.Lock()
 				p.stats.VisionSuccesses++
 				p.mu.Unlock()
-				p.recordMetric(store, challenge, 0, result.Duration)
+				p.recordMetric(ctx, store, challenge, 0, result.Duration)
 				return PipelineResult{
 					Stage:    PipelineStageVision,
 					Solved:   true,
@@ -181,7 +181,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 	p.mu.Unlock()
 
 	if hook == nil {
-		p.recordMetric(store, challenge, -1, time.Since(start))
+		p.recordMetric(ctx, store, challenge, -1, time.Since(start))
 		return PipelineResult{
 			Stage:        PipelineStageUserFallback,
 			Solved:       false,
@@ -194,7 +194,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 
 	escResult, err := hook.Escalate(ctx, challenge, screenshot, p.maxAttempts)
 	if err != nil {
-		p.recordMetric(store, challenge, -1, time.Since(start))
+		p.recordMetric(ctx, store, challenge, -1, time.Since(start))
 		return PipelineResult{
 			Stage:        PipelineStageUserFallback,
 			Solved:       false,
@@ -208,7 +208,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 		p.mu.Lock()
 		p.stats.FallbackSuccesses++
 		p.mu.Unlock()
-		p.recordMetric(store, challenge, 1, time.Since(start))
+		p.recordMetric(ctx, store, challenge, 1, time.Since(start))
 		return PipelineResult{
 			Stage:        PipelineStageUserFallback,
 			Solved:       true,
@@ -222,7 +222,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 	if reason == "" {
 		reason = "user did not solve the challenge"
 	}
-	p.recordMetric(store, challenge, -1, time.Since(start))
+	p.recordMetric(ctx, store, challenge, -1, time.Since(start))
 	return PipelineResult{
 		Stage:        PipelineStageUserFallback,
 		Solved:       false,
@@ -235,7 +235,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 
 // recordMetric writes a challenge_metrics row if a store is configured.
 // stageSolved: 0=vision, 1=user_fallback, -1=not solved (NULL).
-func (p *SolverPipeline) recordMetric(store *MetricsStore, challenge ChallengeInfo, stageSolved int, duration time.Duration) {
+func (p *SolverPipeline) recordMetric(ctx context.Context, store *MetricsStore, challenge ChallengeInfo, stageSolved int, duration time.Duration) {
 	if store == nil {
 		return
 	}
@@ -253,7 +253,9 @@ func (p *SolverPipeline) recordMetric(store *MetricsStore, challenge ChallengeIn
 	if stageSolved >= 0 {
 		row.StageSolved = sql.NullInt64{Int64: int64(stageSolved), Valid: true}
 	}
-	_ = store.Record(row)
+	if err := store.RecordContext(ctx, row); err != nil {
+		return
+	}
 }
 
 // Stats returns the current pipeline statistics

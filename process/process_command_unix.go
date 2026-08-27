@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
@@ -47,12 +48,12 @@ wait "$guard" 2>/dev/null || true
 exit "$status"
 `
 
-func newProcessCommand(binaryPath, profileDir string, removeProfile bool, args []string) *exec.Cmd {
+func newProcessCommand(ctx context.Context, binaryPath, profileDir string, removeProfile bool, args []string) *exec.Cmd {
 	remove := "0"
 	if removeProfile {
 		remove = "1"
 	}
 	commandArgs := []string{"-c", processGuardianScript, "artemis-process-owner", strconv.Itoa(os.Getpid()), profileDir, remove, binaryPath}
 	commandArgs = append(commandArgs, args...)
-	return exec.Command("/bin/sh", commandArgs...)
+	return exec.CommandContext(ctx, "/bin/sh", commandArgs...)
 }

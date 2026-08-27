@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -19,11 +20,11 @@ func OpenFingerprintStore(path string) (*FingerprintStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fingerprint store: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("fingerprint store: wal: %w", err)
 	}
-	if _, err := db.Exec(`
+	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS scrape_fingerprints (
   url_canonical_hash TEXT NOT NULL,
   region_id TEXT NOT NULL,
@@ -40,13 +41,22 @@ CREATE TABLE IF NOT EXISTS scrape_fingerprints (
 	return &FingerprintStore{db: db}, nil
 }
 
-// LoadInto hydrates an in-memory DiffEngine from SQLite.
+// LoadInto hydrates an in-memory DiffEngine from SQLite using a background
+// context for compatibility.
 func (s *FingerprintStore) LoadInto(e *DiffEngine, url string) error {
+	return s.LoadIntoContext(context.Background(), e, url)
+}
+
+// LoadIntoContext hydrates an in-memory DiffEngine and binds the query to ctx.
+func (s *FingerprintStore) LoadIntoContext(ctx context.Context, e *DiffEngine, url string) error {
 	if s == nil || s.db == nil || e == nil {
 		return fmt.Errorf("fingerprint store: nil")
 	}
+	if ctx == nil {
+		return fmt.Errorf("fingerprint store: context required")
+	}
 	hash := hashString(url)
-	rows, err := s.db.Query(
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT region_id, content_hash, last_seen_at, etag, last_modified
 		 FROM scrape_fingerprints WHERE url_canonical_hash=?`, hash,
 	)
@@ -73,12 +83,21 @@ func (s *FingerprintStore) LoadInto(e *DiffEngine, url string) error {
 	return rows.Err()
 }
 
-// SaveRegion persists one region fingerprint.
+// SaveRegion persists one region fingerprint using a background context for
+// compatibility.
 func (s *FingerprintStore) SaveRegion(url, regionID, contentHash, customerID string) error {
+	return s.SaveRegionContext(context.Background(), url, regionID, contentHash, customerID)
+}
+
+// SaveRegionContext persists one region fingerprint and binds the write to ctx.
+func (s *FingerprintStore) SaveRegionContext(ctx context.Context, url, regionID, contentHash, customerID string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("fingerprint store: nil")
 	}
-	_, err := s.db.Exec(
+	if ctx == nil {
+		return fmt.Errorf("fingerprint store: context required")
+	}
+	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO scrape_fingerprints
 		 (url_canonical_hash,region_id,content_hash,last_seen_at,customer_id)
 		 VALUES(?,?,?,?,?)`,
@@ -98,17 +117,27 @@ func (s *FingerprintStore) Close() error {
 	return s.db.Close()
 }
 
-// PersistDiffEngine writes all fingerprints from engine for url.
+// PersistDiffEngine writes all fingerprints from engine for url using a
+// background context for compatibility.
 func PersistDiffEngine(s *FingerprintStore, e *DiffEngine, url, customerID string) error {
+	return PersistDiffEngineContext(context.Background(), s, e, url, customerID)
+}
+
+// PersistDiffEngineContext writes all fingerprints from engine for url and
+// binds every SQLite write to ctx.
+func PersistDiffEngineContext(ctx context.Context, s *FingerprintStore, e *DiffEngine, url, customerID string) error {
 	if s == nil || e == nil {
 		return fmt.Errorf("fingerprint store: nil engine")
+	}
+	if ctx == nil {
+		return fmt.Errorf("fingerprint store: context required")
 	}
 	prefix := url + "|"
 	for k, fp := range e.fingerprints {
 		if !hasPrefix(k, prefix) {
 			continue
 		}
-		if err := s.SaveRegion(url, fp.RegionID, fp.ContentHash, customerID); err != nil {
+		if err := s.SaveRegionContext(ctx, url, fp.RegionID, fp.ContentHash, customerID); err != nil {
 			return err
 		}
 	}

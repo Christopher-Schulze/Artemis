@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,7 +79,7 @@ func removeOrphanClones(base string, inUse map[string]bool) []string {
 // false when lsof cannot be run, so callers can skip the sweep rather than treat
 // "no signal" as "nothing in use".
 func openCloneIDs() (map[string]bool, bool) {
-	out, err := exec.Command("lsof", "-Fn").Output()
+	out, err := exec.CommandContext(context.Background(), "lsof", "-Fn").Output()
 	if err != nil {
 		return nil, false
 	}

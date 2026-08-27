@@ -24,7 +24,7 @@ func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
 	}))
 	defer backend.Close()
 	policy := newProxyTestPolicy(t, backend.URL, true)
-	proxy, err := newChromiumPolicyProxy(policy)
+	proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer backend.Close()
 	policy := newProxyTestPolicy(t, backend.URL, false)
-	proxy, err := newChromiumPolicyProxy(policy)
+	proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 	}
 	defer listener.Close()
 	policy := newProxyTestPolicy(t, "http://"+listener.Addr().String(), false)
-	proxy, err := newChromiumPolicyProxy(policy)
+	proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestChromiumPolicyProxyClosesActiveTunnel(t *testing.T) {
 		}
 	}()
 	policy := newProxyTestPolicy(t, "http://"+listener.Addr().String(), true)
-	proxy, err := newChromiumPolicyProxy(policy)
+	proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}

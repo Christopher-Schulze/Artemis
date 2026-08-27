@@ -280,8 +280,11 @@ func releaseProfileLease(lease string) error {
 // dependency-authority-flow: Launch authorizes binary.Path before delegating
 // the actual process start to this boundary helper.
 func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profileDir, profileLease string, removeProfile bool) (*Browser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, &Error{Code: ErrorCancelled, Op: "start", Err: err}
+	}
 	args := chromiumArgs(config, profileDir)
-	cmd := newProcessCommand(binary.Path, profileDir, removeProfile, args)
+	cmd := newProcessCommand(ctx, binary.Path, profileDir, removeProfile, args)
 	cmd.WaitDelay = config.ShutdownTimeout
 	configureProcessGroup(cmd)
 	output := newCappedOutput(config.OutputLimit)
@@ -295,6 +298,9 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 		browser.warnings = []string{"Chromium sandbox is disabled by explicit policy"}
 	}
 	if err := cmd.Start(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, &Error{Code: ErrorCancelled, Op: "start", Err: ctxErr}
+		}
 		return nil, &Error{Code: ErrorLaunchFailed, Op: "start", Err: err}
 	}
 	unregisterChild := func() {}

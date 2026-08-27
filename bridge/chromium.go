@@ -158,7 +158,7 @@ func LaunchChromium(ctx context.Context, config browserprocess.LaunchConfig) (*C
 	if err != nil {
 		return nil, fmt.Errorf("create browser network policy: %w", err)
 	}
-	proxy, err := newChromiumPolicyProxy(policy)
+	proxy, err := newChromiumPolicyProxy(ctx, policy)
 	if err != nil {
 		return nil, err
 	}

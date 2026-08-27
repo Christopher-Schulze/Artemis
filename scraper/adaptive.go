@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -42,11 +43,11 @@ func OpenAdaptiveCache(path string, maxL1 int) (*AdaptiveSelectorCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("adaptive cache: open: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("adaptive cache: wal: %w", err)
 	}
-	if _, err := db.Exec(`
+	if _, err := db.ExecContext(context.Background(), `
 CREATE TABLE IF NOT EXISTS adaptive (
   url_pattern TEXT NOT NULL,
   selector TEXT NOT NULL,
@@ -64,8 +65,16 @@ func cacheKey(domain, pattern string) string {
 	return strings.ToLower(domain) + "|" + pattern
 }
 
-// Get returns a cached selector.
+// Get returns a cached selector using a background context for compatibility.
 func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, bool) {
+	return c.GetContext(context.Background(), domain, urlPattern)
+}
+
+// GetContext returns a cached selector and binds the SQLite lookup to ctx.
+func (c *AdaptiveSelectorCache) GetContext(ctx context.Context, domain, urlPattern string) (AdaptiveEntry, bool) {
+	if ctx == nil || ctx.Err() != nil {
+		return AdaptiveEntry{}, false
+	}
 	k := l1Key{domain: strings.ToLower(domain), pattern: urlPattern}
 	c.mu.RLock()
 	if e, ok := c.l1[k]; ok {
@@ -76,7 +85,7 @@ func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, b
 	if c.db == nil {
 		return AdaptiveEntry{}, false
 	}
-	row := c.db.QueryRow(
+	row := c.db.QueryRowContext(ctx,
 		`SELECT selector, confidence, updated_at FROM adaptive WHERE url_pattern=?`, cacheKey(domain, urlPattern),
 	)
 	var sel string
@@ -96,8 +105,19 @@ func (c *AdaptiveSelectorCache) Get(domain, urlPattern string) (AdaptiveEntry, b
 	return e, true
 }
 
-// Put stores selector for domain+pattern.
+// Put stores a selector using a background context for compatibility.
 func (c *AdaptiveSelectorCache) Put(e AdaptiveEntry) error {
+	return c.PutContext(context.Background(), e)
+}
+
+// PutContext stores a selector and binds the SQLite write to ctx.
+func (c *AdaptiveSelectorCache) PutContext(ctx context.Context, e AdaptiveEntry) error {
+	if ctx == nil {
+		return fmt.Errorf("adaptive cache: context required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	key := cacheKey(e.Domain, e.URLPattern)
 	if e.UpdatedAt.IsZero() {
 		e.UpdatedAt = time.Now().UTC()
@@ -108,7 +128,7 @@ func (c *AdaptiveSelectorCache) Put(e AdaptiveEntry) error {
 	if c.db == nil {
 		return nil
 	}
-	_, err := c.db.Exec(
+	_, err := c.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO adaptive(url_pattern,selector,confidence,updated_at) VALUES(?,?,?,?)`,
 		key, e.Selector, e.Confidence, e.UpdatedAt.Format(time.RFC3339),
 	)
