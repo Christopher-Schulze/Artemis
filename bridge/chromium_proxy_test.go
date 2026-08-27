@@ -37,7 +37,7 @@ func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "response body", response.Body.Close)
+	defer closeBridgeTestResource(t, "response body", response.Body.Close)
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("status=%d", response.StatusCode)
 	}
@@ -60,7 +60,7 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "response body", response.Body.Close)
+	defer closeBridgeTestResource(t, "response body", response.Body.Close)
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d", response.StatusCode)
 	}
@@ -97,7 +97,7 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "listener", listener.Close)
+	defer closeBridgeTestResource(t, "listener", listener.Close)
 	policy := newProxyTestPolicy(t, "http://"+listener.Addr().String(), false)
 	proxy, err := newChromiumPolicyProxy(context.Background(), policy)
 	if err != nil {
@@ -112,7 +112,7 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "proxy connection", connection.Close)
+	defer closeBridgeTestResource(t, "proxy connection", connection.Close)
 	if _, writeErr := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", listener.Addr(), listener.Addr()); writeErr != nil {
 		t.Fatal(writeErr)
 	}
@@ -120,7 +120,7 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "CONNECT response body", response.Body.Close)
+	defer closeBridgeTestResource(t, "CONNECT response body", response.Body.Close)
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d", response.StatusCode)
 	}
@@ -167,7 +167,7 @@ func TestChromiumPolicyProxyClosesActiveTunnel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeProxyTestResource(t, "listener", listener.Close)
+	defer closeBridgeTestResource(t, "listener", listener.Close)
 	accepted := make(chan net.Conn, 1)
 	go func() {
 		connection, acceptErr := listener.Accept()
@@ -181,9 +181,9 @@ func TestChromiumPolicyProxyClosesActiveTunnel(t *testing.T) {
 		t.Fatal(err)
 	}
 	connection := openProxyTunnel(t, proxy.URL(), listener.Addr().String())
-	defer closeProxyTestResource(t, "proxy connection", connection.Close)
+	defer closeBridgeTestResource(t, "proxy connection", connection.Close)
 	upstream := <-accepted
-	defer closeProxyTestResource(t, "upstream connection", upstream.Close)
+	defer closeBridgeTestResource(t, "upstream connection", upstream.Close)
 	if _, err := connection.Write([]byte("ping")); err != nil {
 		t.Fatal(err)
 	}
@@ -214,23 +214,23 @@ func openProxyTunnel(t *testing.T, rawProxyURL, target string) net.Conn {
 		t.Fatal(err)
 	}
 	if _, writeErr := fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); writeErr != nil {
-		closeProxyTestResource(t, "proxy connection", connection.Close)
+		closeBridgeTestResource(t, "proxy connection", connection.Close)
 		t.Fatal(writeErr)
 	}
 	reader := bufio.NewReader(connection)
 	status, err := reader.ReadString('\n')
 	if err != nil {
-		closeProxyTestResource(t, "proxy connection", connection.Close)
+		closeBridgeTestResource(t, "proxy connection", connection.Close)
 		t.Fatal(err)
 	}
 	if !strings.Contains(status, " 200 ") {
-		closeProxyTestResource(t, "proxy connection", connection.Close)
+		closeBridgeTestResource(t, "proxy connection", connection.Close)
 		t.Fatalf("status=%q", strings.TrimSpace(status))
 	}
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			closeProxyTestResource(t, "proxy connection", connection.Close)
+			closeBridgeTestResource(t, "proxy connection", connection.Close)
 			t.Fatal(err)
 		}
 		if line == "\r\n" {
@@ -240,7 +240,7 @@ func openProxyTunnel(t *testing.T, rawProxyURL, target string) net.Conn {
 	return connection
 }
 
-func closeProxyTestResource(t *testing.T, label string, close func() error) {
+func closeBridgeTestResource(t *testing.T, label string, close func() error) {
 	t.Helper()
 	if err := close(); err != nil {
 		t.Errorf("close %s: %v", label, err)

@@ -98,7 +98,7 @@ func TestTASK2257_BridgeInitStart(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
-			_ = bi.Stop()
+			closeBridgeTestResource(t, "bridge initializer", bi.Stop)
 		}
 	})
 	err := bi.Start(context.Background())
@@ -115,7 +115,7 @@ func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
-			_ = bi.Stop()
+			closeBridgeTestResource(t, "bridge initializer", bi.Stop)
 		}
 	})
 	if err := bi.Start(context.Background()); err != nil {
@@ -300,7 +300,9 @@ func TestTASK2257_BridgeStateCanTransition(t *testing.T) {
 // (spec L4018: Bridge State Machine).
 func TestTASK2257_BridgeStatePrevious(t *testing.T) {
 	sm := NewBridgeStateMachine()
-	sm.Transition(BridgeStateInitializing)
+	if err := sm.Transition(BridgeStateInitializing); err != nil {
+		t.Fatal(err)
+	}
 	if sm.PreviousState() != BridgeStateUninitialized {
 		t.Error("previous should be uninitialized")
 	}
@@ -383,7 +385,9 @@ func TestTASK2257_FullSpecParity(t *testing.T) {
 	if err := bi.Start(context.Background()); err != nil {
 		t.Error("init.go: start failed")
 	}
-	bi.Stop()
+	if err := bi.Stop(); err != nil {
+		t.Error("init.go: stop failed")
+	}
 
 	// 3. state.go - Bridge State Machine
 	sm := NewBridgeStateMachine()

@@ -45,7 +45,7 @@ func TestFormatWebSocketURLPathNoSlash(t *testing.T) {
 func TestDiscoverJSONVersionSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/json/version" {
-			_ = json.NewEncoder(w).Encode(map[string]string{
+			writeDiscoveryTestJSON(t, w, map[string]string{
 				"Browser":              "Chrome/120.0",
 				"webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/abc",
 			})
@@ -75,7 +75,7 @@ func TestDiscoverJSONVersionSuccess(t *testing.T) {
 func TestDiscoverJSONListFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/json/list" {
-			_ = json.NewEncoder(w).Encode([]map[string]string{
+			writeDiscoveryTestJSON(t, w, []map[string]string{
 				{"id": "1", "type": "page", "url": "about:blank", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/1"},
 			})
 			return
@@ -108,14 +108,16 @@ func TestDiscoverDevToolsBrowserFallback(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer conn.CloseNow()
+			defer closeDiscoveryTestWebsocket(t, conn)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			command, err := readCDPCommand(ctx, conn)
 			if err == nil {
-				_ = writeCDPMessage(ctx, conn, map[string]any{
+				if err := writeCDPMessage(ctx, conn, map[string]any{
 					"id": command.ID, "result": map[string]any{"product": "Chrome/136", "protocolVersion": "1.3"},
-				})
+				}); err != nil {
+					t.Errorf("write discovery WebSocket response: %v", err)
+				}
 			}
 			return
 		}
@@ -175,7 +177,9 @@ func TestDiscoverAllThreeMethodsAttempted(t *testing.T) {
 
 	host, port := splitHostPort(t, srv.URL)
 	d := NewChromeDiscoveryWithClient(srv.Client())
-	_, _ = d.Discover(host, port)
+	if _, err := d.Discover(host, port); err == nil {
+		t.Fatal("expected discovery error when all endpoints are unavailable")
+	}
 	if len(paths) < 2 {
 		t.Fatalf("expected multiple attempts, got paths=%v", paths)
 	}
@@ -184,7 +188,7 @@ func TestDiscoverAllThreeMethodsAttempted(t *testing.T) {
 func TestDiscoverJSONVersionNoWebSocket(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/json/version" {
-			_ = json.NewEncoder(w).Encode(map[string]string{"Browser": "Chrome/120"})
+			writeDiscoveryTestJSON(t, w, map[string]string{"Browser": "Chrome/120"})
 			return
 		}
 		http.NotFound(w, r)
@@ -205,7 +209,7 @@ func TestDiscoverJSONVersionNoWebSocket(t *testing.T) {
 func TestDiscoverRejectsNonWebSocketDebuggerURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/json/version" {
-			_ = json.NewEncoder(w).Encode(map[string]string{
+			writeDiscoveryTestJSON(t, w, map[string]string{
 				"Browser": "Chrome/120", "webSocketDebuggerUrl": "http://127.0.0.1:9222/devtools/browser/x",
 			})
 			return
@@ -223,7 +227,7 @@ func TestDiscoverRejectsNonWebSocketDebuggerURL(t *testing.T) {
 func TestDiscoverJSONListEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/json/list" {
-			_ = json.NewEncoder(w).Encode([]map[string]string{})
+			writeDiscoveryTestJSON(t, w, []map[string]string{})
 			return
 		}
 		http.NotFound(w, r)
@@ -259,7 +263,9 @@ func TestDiscoverMalformedJSON(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte("not json"))
+		if _, err := w.Write([]byte("not json")); err != nil {
+			t.Errorf("write malformed discovery response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -300,4 +306,18 @@ func splitHostPort(t *testing.T, url string) (string, int) {
 		t.Fatalf("bad port in %q", url)
 	}
 	return host, port
+}
+
+func writeDiscoveryTestJSON(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Errorf("encode discovery response: %v", err)
+	}
+}
+
+func closeDiscoveryTestWebsocket(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	if err := conn.CloseNow(); err != nil && websocket.CloseStatus(err) == -1 {
+		t.Errorf("close discovery WebSocket: %v", err)
+	}
 }

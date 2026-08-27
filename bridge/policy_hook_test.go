@@ -39,7 +39,10 @@ func TestPolicyHook_Check_Allow(t *testing.T) {
 func TestPolicyHook_Check_Deny(t *testing.T) {
 	engine := &mockPolicyEngine{decision: PolicyDecisionDeny}
 	hook := NewPolicyHook(engine)
-	resp, _ := hook.Check(context.Background(), PolicyRequest{URL: "https://evil.com"})
+	resp, err := hook.Check(context.Background(), PolicyRequest{URL: "https://evil.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("expected deny, got %s", resp.Decision)
 	}
@@ -51,7 +54,10 @@ func TestPolicyHook_Check_Deny(t *testing.T) {
 func TestPolicyHook_Check_Challenge(t *testing.T) {
 	engine := &mockPolicyEngine{decision: PolicyDecisionChallenge}
 	hook := NewPolicyHook(engine)
-	resp, _ := hook.Check(context.Background(), PolicyRequest{URL: "https://suspicious.com"})
+	resp, err := hook.Check(context.Background(), PolicyRequest{URL: "https://suspicious.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if resp.Decision != PolicyDecisionChallenge {
 		t.Errorf("expected challenge, got %s", resp.Decision)
 	}
@@ -102,8 +108,12 @@ func TestPolicyHook_Check_EngineError(t *testing.T) {
 func TestPolicyHook_Stats(t *testing.T) {
 	engine := &mockPolicyEngine{decision: PolicyDecisionAllow}
 	hook := NewPolicyHook(engine)
-	hook.Check(context.Background(), PolicyRequest{URL: "https://a.com"})
-	hook.Check(context.Background(), PolicyRequest{URL: "https://b.com"})
+	if _, err := hook.Check(context.Background(), PolicyRequest{URL: "https://a.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hook.Check(context.Background(), PolicyRequest{URL: "https://b.com"}); err != nil {
+		t.Fatal(err)
+	}
 	if hook.Stats().Total != 2 {
 		t.Errorf("expected total=2, got %d", hook.Stats().Total)
 	}
@@ -111,7 +121,9 @@ func TestPolicyHook_Stats(t *testing.T) {
 
 func TestPolicyHook_ResetStats(t *testing.T) {
 	hook := NewPolicyHook(&mockPolicyEngine{decision: PolicyDecisionAllow})
-	hook.Check(context.Background(), PolicyRequest{URL: "https://a.com"})
+	if _, err := hook.Check(context.Background(), PolicyRequest{URL: "https://a.com"}); err != nil {
+		t.Fatal(err)
+	}
 	hook.ResetStats()
 	if hook.Stats().Total != 0 {
 		t.Error("expected total=0 after reset")

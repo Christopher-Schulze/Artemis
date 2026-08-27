@@ -112,7 +112,9 @@ func TestBatcherTimeout(t *testing.T) {
 	}
 	b := NewBatcher(mock, 0)
 	b.timeout = 1 * time.Millisecond
-	b.Add(context.Background(), "slow", nil)
+	if _, err := b.Add(context.Background(), "slow", nil); err != nil {
+		t.Fatal(err)
+	}
 	err := b.Flush(context.Background())
 	if err == nil {
 		t.Error("expected timeout error")

@@ -22,6 +22,15 @@ func writePolicyFile(t *testing.T, path, content string) {
 	}
 }
 
+func mustEvaluateNavigationPolicy(t *testing.T, policy *NavigationPolicy, ctx context.Context, request PolicyRequest) PolicyResponse {
+	t.Helper()
+	response, err := policy.Evaluate(ctx, request)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	return response
+}
+
 func TestNavigationPolicyAllowByDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "policy.json")
@@ -84,12 +93,12 @@ func TestNavigationPolicyLiteralPrefixMatch(t *testing.T) {
 	}
 	defer p.Stop()
 	// Literal prefix: matches any URL starting with https://localhost.
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://localhost:8080/admin"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://localhost:8080/admin"})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("localhost:8080 Decision = %s, want deny", resp.Decision)
 	}
 	// Non-matching URL should be allowed by default.
-	resp2, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp2 := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp2.Decision != PolicyDecisionAllow {
 		t.Errorf("example.com Decision = %s, want allow", resp2.Decision)
 	}
@@ -110,11 +119,11 @@ func TestNavigationPolicyRegexMatch(t *testing.T) {
 		t.Fatalf("NewNavigationPolicy: %v", err)
 	}
 	defer p.Stop()
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://admin.example.com/dashboard"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://admin.example.com/dashboard"})
 	if resp.Decision != PolicyDecisionChallenge {
 		t.Errorf("admin Decision = %s, want challenge", resp.Decision)
 	}
-	resp2, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com/dashboard"})
+	resp2 := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com/dashboard"})
 	if resp2.Decision != PolicyDecisionAllow {
 		t.Errorf("non-admin Decision = %s, want allow", resp2.Decision)
 	}
@@ -137,17 +146,17 @@ func TestNavigationPolicyFirstMatchWins(t *testing.T) {
 	}
 	defer p.Stop()
 	// First rule matches -> allow (even though second rule would deny).
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://safe.example.com/page"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://safe.example.com/page"})
 	if resp.Decision != PolicyDecisionAllow {
 		t.Errorf("safe.example.com Decision = %s, want allow (first match)", resp.Decision)
 	}
 	// Second rule matches -> deny.
-	resp2, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://other.example.com/page"})
+	resp2 := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://other.example.com/page"})
 	if resp2.Decision != PolicyDecisionDeny {
 		t.Errorf("other.example.com Decision = %s, want deny", resp2.Decision)
 	}
 	// No rule matches -> default deny.
-	resp3, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://other.org/page"})
+	resp3 := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://other.org/page"})
 	if resp3.Decision != PolicyDecisionDeny {
 		t.Errorf("other.org Decision = %s, want deny (default)", resp3.Decision)
 	}
@@ -162,7 +171,7 @@ func TestNavigationPolicyMissingFileFailClosed(t *testing.T) {
 	}
 	defer p.Stop()
 	// Missing file -> degraded mode -> DisabledDefault (deny by default).
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("missing file Decision = %s, want deny (fail-closed)", resp.Decision)
 	}
@@ -179,7 +188,7 @@ func TestNavigationPolicyMissingFileCustomDefault(t *testing.T) {
 		t.Fatalf("NewNavigationPolicy: %v", err)
 	}
 	defer p.Stop()
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp.Decision != PolicyDecisionAllow {
 		t.Errorf("missing file with allow default Decision = %s, want allow", resp.Decision)
 	}
@@ -194,7 +203,7 @@ func TestNavigationPolicyEmptyURL(t *testing.T) {
 		t.Fatalf("NewNavigationPolicy: %v", err)
 	}
 	defer p.Stop()
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: ""})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: ""})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("empty URL Decision = %s, want deny", resp.Decision)
 	}
@@ -210,7 +219,7 @@ func TestNavigationPolicyUnsupportedVersion(t *testing.T) {
 	}
 	defer p.Stop()
 	// Failed load -> degraded mode -> deny.
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("unsupported version Decision = %s, want deny (degraded)", resp.Decision)
 	}
@@ -230,7 +239,7 @@ func TestNavigationPolicyHotReload(t *testing.T) {
 	defer p.Stop()
 
 	// Initial: allow.
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp.Decision != PolicyDecisionAllow {
 		t.Fatalf("initial Decision = %s, want allow", resp.Decision)
 	}
@@ -247,7 +256,7 @@ func TestNavigationPolicyHotReload(t *testing.T) {
 	// Wait for hot-reload to pick up the change.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, _ = p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+		resp = mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 		if resp.Decision == PolicyDecisionDeny {
 			break
 		}
@@ -277,7 +286,7 @@ func TestNavigationPolicyReloadManual(t *testing.T) {
 	if err := p.Reload(); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("after manual reload Decision = %s, want deny", resp.Decision)
 	}
@@ -293,7 +302,9 @@ func TestNavigationPolicyStats(t *testing.T) {
 	}
 	defer p.Stop()
 	for i := 0; i < 5; i++ {
-		p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+		if _, err := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	total, allowed, denied, _, _, _ := p.Stats()
 	if total != 5 {
@@ -405,12 +416,12 @@ func TestWriteDefaultPolicyFile(t *testing.T) {
 	}
 	defer p.Stop()
 	// Default policy denies localhost.
-	resp, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://localhost:8080"})
+	resp := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://localhost:8080"})
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("localhost Decision = %s, want deny", resp.Decision)
 	}
 	// Default policy allows other URLs.
-	resp2, _ := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+	resp2 := mustEvaluateNavigationPolicy(t, p, context.Background(), PolicyRequest{URL: "https://example.com"})
 	if resp2.Decision != PolicyDecisionAllow {
 		t.Errorf("example.com Decision = %s, want allow", resp2.Decision)
 	}
@@ -462,7 +473,10 @@ func TestNavigationPolicyWiredToPolicyHook(t *testing.T) {
 	if resp.Decision != PolicyDecisionDeny {
 		t.Errorf("hook.Check blocked Decision = %s, want deny", resp.Decision)
 	}
-	resp2, _ := hook.Check(context.Background(), PolicyRequest{URL: "https://safe.example.com/page"})
+	resp2, err := hook.Check(context.Background(), PolicyRequest{URL: "https://safe.example.com/page"})
+	if err != nil {
+		t.Fatalf("hook.Check: %v", err)
+	}
 	if resp2.Decision != PolicyDecisionAllow {
 		t.Errorf("hook.Check safe Decision = %s, want allow", resp2.Decision)
 	}
@@ -493,7 +507,9 @@ func TestNavigationPolicyConcurrentEvaluate(t *testing.T) {
 	var done atomic.Int64
 	for i := 0; i < 50; i++ {
 		go func() {
-			p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"})
+			if _, err := p.Evaluate(context.Background(), PolicyRequest{URL: "https://example.com"}); err != nil {
+				t.Errorf("concurrent Evaluate: %v", err)
+			}
 			done.Add(1)
 		}()
 	}

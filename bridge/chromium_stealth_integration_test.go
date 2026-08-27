@@ -19,11 +19,13 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 	binary := requireChromium(t)
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<!doctype html><title>stealth-fixture</title><script>
+		if _, err := fmt.Fprint(w, `<!doctype html><title>stealth-fixture</title><script>
 		window.pageProbe = JSON.stringify({webdriver:navigator.webdriver,ua:navigator.userAgent,platform:navigator.platform,language:navigator.language});
 		const worker = new Worker(URL.createObjectURL(new Blob(["postMessage(JSON.stringify({webdriver:navigator.webdriver,ua:navigator.userAgent,platform:navigator.platform}))"], {type:"text/javascript"})));
 		worker.onmessage = (event) => { document.body.dataset.workerProbe = event.data };
-		</script><body>ready</body>`)
+		</script><body>ready</body>`); err != nil {
+			t.Errorf("write stealth fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -35,7 +37,7 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeBridgeTestResource(t, "browser", browser.Close)
 	version := browser.Version()
 	major := stealth.ParseChromeVersion(version.UserAgent)
 	if major == "" {
@@ -59,12 +61,12 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeBridgeTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPageWithScripts(ctx, fixture.URL, TargetScriptConfig{Version: "integration", PageScript: pageScript, WorkerScript: workerScript})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeBridgeTestResource(t, "page", page.Close)
 	waitForDocumentTitle(t, ctx, page, "stealth-fixture")
 	var result struct {
 		Result struct {

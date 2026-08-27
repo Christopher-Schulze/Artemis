@@ -500,9 +500,15 @@ func TestFormActionsMultipleCommands(t *testing.T) {
 		{Ref: "e2", Handle: 22, Role: "checkbox"},
 		{Ref: "e3", Handle: 33, Role: "slider"},
 	})
-	fa.FillInput(context.Background(), "e1", "hello")
-	fa.SetChecked(context.Background(), "e2", true)
-	fa.FillSlider(context.Background(), "e3", 75.0)
+	if err := fa.FillInput(context.Background(), "e1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fa.SetChecked(context.Background(), "e2", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := fa.FillSlider(context.Background(), "e3", 75.0); err != nil {
+		t.Fatal(err)
+	}
 	cmds := fa.Commands()
 	if len(cmds) != 3 {
 		t.Fatalf("expected 3 commands, got %d", len(cmds))

@@ -20,7 +20,9 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 	binary := requireChromium(t)
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<!doctype html><title>Artemis Fixture</title><main id='ready'>ready</main>"))
+		if _, err := w.Write([]byte("<!doctype html><title>Artemis Fixture</title><main id='ready'>ready</main>")); err != nil {
+			t.Errorf("write Chromium fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 
@@ -34,7 +36,7 @@ func TestChromiumLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile := browser.ProfileDir()
-	defer browser.Close()
+	defer closeBridgeTestResource(t, "browser", browser.Close)
 	if !browser.Owned() || !browser.Healthy() {
 		t.Fatalf("owned=%v healthy=%v", browser.Owned(), browser.Healthy())
 	}
@@ -139,7 +141,7 @@ func TestChromiumExternalAttachDoesNotTerminateBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer processOwner.Close()
+	defer closeBridgeTestResource(t, "process owner", processOwner.Close)
 	browser, err := ConnectChromium(ctx, processOwner.Endpoint())
 	if err != nil {
 		t.Fatal(err)
@@ -165,12 +167,12 @@ func TestChromiumParallelLaunchesIsolateEndpointAndProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer closeBridgeTestResource(t, "first Chromium process", first.Close)
 	second, err := browserprocess.Launch(ctx, browserprocess.LaunchConfig{BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer closeBridgeTestResource(t, "second Chromium process", second.Close)
 	if first.Endpoint() == second.Endpoint() || first.ProfileDir() == second.ProfileDir() {
 		t.Fatalf("parallel launch collision: endpoint %q/%q profile %q/%q", first.Endpoint(), second.Endpoint(), first.ProfileDir(), second.ProfileDir())
 	}
@@ -184,18 +186,20 @@ func TestChromiumTargetCrashTransitionsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeBridgeTestResource(t, "browser", browser.Close)
 	browserContext, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browserContext.Close()
+	defer closeBridgeTestResource(t, "browser context", browserContext.Close)
 	page, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
 	crashCtx, cancelCrash := context.WithTimeout(ctx, time.Second)
-	_ = page.Call(crashCtx, "Page.crash", nil, nil)
+	if err := page.Call(crashCtx, "Page.crash", nil, nil); err != nil {
+		t.Logf("Page.crash returned after target termination: %v", err)
+	}
 	cancelCrash()
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
