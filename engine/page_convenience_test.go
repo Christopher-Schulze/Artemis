@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,15 +10,15 @@ import (
 
 func TestPageTypeBasic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><input id="q" type="text" value=""></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><input id="q" type="text" value=""></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	result, err := page.Type(context.Background(), "#q", "hello world")
 	if err != nil {
@@ -43,15 +42,15 @@ func TestPageTypeEmptySelector(t *testing.T) {
 
 func TestPageTypeEmptyText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><input id="q"></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><input id="q"></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.Type(context.Background(), "#q", "")
 	if err == nil {
@@ -61,15 +60,15 @@ func TestPageTypeEmptyText(t *testing.T) {
 
 func TestPageTypeSelectorNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.Type(context.Background(), "#nonexistent", "text")
 	if err == nil {
@@ -79,15 +78,15 @@ func TestPageTypeSelectorNotFound(t *testing.T) {
 
 func TestPageTypeInvalidSelector(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><input id="q"></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><input id="q"></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.Type(context.Background(), "!!!invalid", "text")
 	if err == nil {
@@ -97,15 +96,15 @@ func TestPageTypeInvalidSelector(t *testing.T) {
 
 func TestPageTypeWithDelayRejectsFakeRenderlessTiming(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><input id="q"></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><input id="q"></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	result, err := page.TypeWithDelay(context.Background(), "#q", "hi", 10*time.Millisecond, 5*time.Millisecond)
 	if err == nil || result.Success {
@@ -123,7 +122,7 @@ func TestPageTypeWithDelayEmptySelector(t *testing.T) {
 
 func TestPageFormFill(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 		<form id="login">
 			<input id="user" type="text">
 			<input id="pass" type="password">
@@ -133,10 +132,10 @@ func TestPageFormFill(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	fields := map[string]string{
 		"#user": "alice",
@@ -158,7 +157,7 @@ func TestPageFormFill(t *testing.T) {
 
 func TestPageFormFillAndSubmit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 		<form id="login">
 			<input id="user" type="text">
 			<input id="pass" type="password">
@@ -169,10 +168,10 @@ func TestPageFormFillAndSubmit(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	fields := map[string]string{
 		"#user": "alice",
@@ -203,7 +202,7 @@ func TestPageFormFillAndSubmit(t *testing.T) {
 
 func TestPageFormMissingField(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 		<form id="login">
 			<input id="user" type="text">
 		</form>
@@ -212,10 +211,10 @@ func TestPageFormMissingField(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	fields := map[string]string{
 		"#user":    "alice",
@@ -242,7 +241,7 @@ func TestPageFormMissingField(t *testing.T) {
 
 func TestPageFormSubmitSkippedOnMissingField(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 		<form id="login">
 			<input id="user" type="text">
 		</form>
@@ -251,10 +250,10 @@ func TestPageFormSubmitSkippedOnMissingField(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	fields := map[string]string{
 		"#user":    "alice",
@@ -286,15 +285,15 @@ func TestPageFormEmptySelector(t *testing.T) {
 
 func TestPageFormNoFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><form id="f"></form></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><form id="f"></form></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.Form(context.Background(), "#f", map[string]string{}, false)
 	if err == nil {
@@ -304,15 +303,15 @@ func TestPageFormNoFields(t *testing.T) {
 
 func TestPageFormSelectorNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.Form(context.Background(), "#nonexistent", map[string]string{"#a": "b"}, false)
 	if err == nil {
@@ -322,7 +321,7 @@ func TestPageFormSelectorNotFound(t *testing.T) {
 
 func TestPageFormSubmitOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body>
+		writeTestBody(t, w, `<!doctype html><html><body>
 		<form id="login">
 			<button type="submit">Login</button>
 		</form>
@@ -331,10 +330,10 @@ func TestPageFormSubmitOnly(t *testing.T) {
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	result, err := page.FormSubmit(context.Background(), "#login")
 	if err == nil || result.Success {
@@ -355,15 +354,15 @@ func TestPageFormSubmitEmptySelector(t *testing.T) {
 
 func TestPageFormSubmitNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	_, err := page.FormSubmit(context.Background(), "#nonexistent")
 	if err == nil {
@@ -373,15 +372,15 @@ func TestPageFormSubmitNotFound(t *testing.T) {
 
 func TestPageClickSelector(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><button id="btn">Click</button></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body><button id="btn">Click</button></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	err := page.ClickSelector(context.Background(), "#btn")
 	if err != nil {
@@ -399,15 +398,15 @@ func TestPageClickSelectorEmptySelector(t *testing.T) {
 
 func TestPageClickSelectorNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><body></body></html>`)
 	}))
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine close", eng.Close)
 
 	page := mustFetch(t, eng, srv.URL, FetchOpts{})
-	defer page.Close()
+	defer closeTestResource(t, "page close", page.Close)
 
 	err := page.ClickSelector(context.Background(), "#nonexistent")
 	if err == nil {
