@@ -31,7 +31,7 @@ func TestProjectHygieneFiles(t *testing.T) {
 
 	for _, f := range files {
 		t.Run(f.path, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join(root, f.path))
+			data, err := os.ReadFile(filepath.Clean(filepath.Join(root, f.path)))
 			if err != nil {
 				t.Fatalf("read %s: %v", f.path, err)
 			}
@@ -65,7 +65,7 @@ func TestGitignoreCoversBuildArtifacts(t *testing.T) {
 // TestSplitArtemisScriptStripsPrivatePlanning verifies the split script
 // contains the private-planning strip logic and the parity assertion.
 func TestSplitArtemisScriptStripsPrivatePlanning(t *testing.T) {
-	scriptPath := filepath.Join("..", "..", "scripts", "build", "split-artemis.sh")
+	scriptPath := filepath.Clean(filepath.Join("..", "..", "scripts", "build", "split-artemis.sh"))
 	data, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read split-artemis.sh: %v", err)

@@ -82,7 +82,7 @@ func isExcluded(rel string) bool {
 // case-insensitive match line/offset, or empty if none.
 func scanForName(t *testing.T, absPath, name string) string {
 	t.Helper()
-	data, err := os.ReadFile(absPath)
+	data, err := os.ReadFile(filepath.Clean(absPath))
 	if err != nil {
 		t.Fatalf("read %s: %v", absPath, err)
 	}

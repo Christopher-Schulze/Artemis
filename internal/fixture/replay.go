@@ -173,11 +173,11 @@ func (r *Replay) Save(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("replay: marshal: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Clean(dir), 0o700); err != nil {
 		return "", fmt.Errorf("replay: mkdir: %w", err)
 	}
-	path := filepath.Join(dir, r.filename())
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	path := filepath.Join(filepath.Clean(dir), r.filename())
+	if err := os.WriteFile(filepath.Clean(path), data, 0o600); err != nil {
 		return "", fmt.Errorf("replay: write: %w", err)
 	}
 	return path, nil
@@ -189,7 +189,7 @@ func (r *Replay) filename() string {
 
 // LoadReplay reads a replay from a JSON file.
 func LoadReplay(path string) (*Replay, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("replay: read %s: %w", path, err)
 	}

@@ -59,7 +59,7 @@ func TestWriteFileAtomicReplacesCompleteSnapshot(t *testing.T) {
 	if err := writeFileAtomic(path, []byte("new-complete-snapshot"), 0o640); err != nil {
 		t.Fatalf("writeFileAtomic: %v", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}

@@ -26,7 +26,7 @@ func TestStorePersistsClosedRedactedSchema(t *testing.T) {
 	if appendResourceErr := store.AppendResource(ResourceUsage{Scope: "renderless", SessionRef: HashSession("raw-session"), Requests: 2, ResponseBytes: 64, DiskBytes: 32}); appendResourceErr != nil {
 		t.Fatal(appendResourceErr)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestStoreRefreshesSameSizeExternalReplacement(t *testing.T) {
 	if appendErr := store.AppendPolicy(PolicyDecision{Operation: "navigation", Transport: "https", Host: "one.example", Port: 443, Result: "allow", ReasonCode: "policy_match"}); appendErr != nil {
 		t.Fatal(appendErr)
 	}
-	original, err := os.ReadFile(path)
+	original, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,9 +187,7 @@ func TestStoreRefreshesSameSizeExternalReplacement(t *testing.T) {
 	if len(replacement) != len(original) {
 		t.Fatalf("replacement size=%d, want %d", len(replacement), len(original))
 	}
-	if writeErr := os.WriteFile(path, replacement, 0o600); writeErr != nil {
-		t.Fatal(writeErr)
-	}
+	writeTestPath(t, path, replacement)
 	changed := time.Now().Add(time.Second)
 	if chtimesErr := os.Chtimes(path, changed, changed); chtimesErr != nil {
 		t.Fatal(chtimesErr)
@@ -200,5 +198,19 @@ func TestStoreRefreshesSameSizeExternalReplacement(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Policy == nil || records[0].Policy.Host != "two.example" {
 		t.Fatalf("records=%+v", records)
+	}
+}
+
+func writeTestPath(t *testing.T, path string, data []byte) {
+	t.Helper()
+	cleanPath := filepath.Clean(path)
+	root, err := os.OpenRoot(filepath.Dir(cleanPath))
+	if err != nil {
+		t.Fatalf("open parent for %s: %v", path, err)
+	}
+	writeErr := root.WriteFile(filepath.Base(cleanPath), data, 0o600)
+	closeErr := root.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("write %s: write=%v close=%v", path, writeErr, closeErr)
 	}
 }

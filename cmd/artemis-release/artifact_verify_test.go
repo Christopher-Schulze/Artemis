@@ -39,7 +39,7 @@ func TestVerifyManifestIdentityRejectsEveryAuthorityDrift(t *testing.T) {
 func TestVerifyChecksumsRejectsCorrelatedManifestTampering(t *testing.T) {
 	_, root, inputs, inventory := verifiedReleaseFixture(t)
 	checksumPath := filepath.Join(root, checksumsFile)
-	checksums, err := os.ReadFile(checksumPath)
+	checksums, err := os.ReadFile(filepath.Clean(checksumPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,14 @@ func writeExistingJSON(t *testing.T, path string, value any) {
 
 func writeExistingTestFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+	cleanPath := filepath.Clean(path)
+	root, err := os.OpenRoot(filepath.Dir(cleanPath))
+	if err != nil {
+		t.Fatalf("open parent for %s: %v", path, err)
+	}
+	writeErr := root.WriteFile(filepath.Base(cleanPath), []byte(content), 0o600)
+	closeErr := root.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("write %s: write=%v close=%v", path, writeErr, closeErr)
 	}
 }

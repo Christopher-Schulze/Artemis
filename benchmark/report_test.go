@@ -21,7 +21,7 @@ func TestWriteReport(t *testing.T) {
 	if err := WriteReport(tmpDir); err != nil {
 		t.Fatalf("write report: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmpDir, "report.md"))
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(tmpDir), "report.md"))
 	if err != nil {
 		t.Fatalf("read report: %v", err)
 	}

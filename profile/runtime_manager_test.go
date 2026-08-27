@@ -225,7 +225,7 @@ func TestRuntimeManagerMigratesVersionZeroManifest(t *testing.T) {
 	if _, getErr := manager.Get("ses_legacy", "owner"); getErr != nil {
 		t.Fatal(getErr)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "sessions.json"))
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(root), "sessions.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

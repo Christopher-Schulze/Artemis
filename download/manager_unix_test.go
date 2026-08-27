@@ -23,13 +23,14 @@ func TestDownloadManagerReportsRejectedFileCleanupFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cleanup rejected target") {
 		t.Fatalf("cleanup error=%v", err)
 	}
-	if _, statErr := os.Stat(target); statErr != nil {
+	if _, statErr := os.Stat(filepath.Clean(target)); statErr != nil {
 		t.Fatalf("rejected file should remain when cleanup fails: %v", statErr)
 	}
 }
 
 func chmodTestDirectory(t *testing.T, path string, mode os.FileMode) {
 	t.Helper()
+	path = filepath.Clean(path)
 	directory, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)

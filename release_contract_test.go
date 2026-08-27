@@ -2,6 +2,7 @@ package artemis
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestReleaseIdentityAndClaimsDoNotDrift(t *testing.T) {
 
 	read := func(path string) string {
 		t.Helper()
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(filepath.Clean(path))
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}

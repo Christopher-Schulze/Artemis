@@ -523,7 +523,7 @@ func TestUnexpectedLeaderExitReapsProcessGroupHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-browser.Done()
-	data, err := os.ReadFile(pidFile)
+	data, err := os.ReadFile(filepath.Clean(pidFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +550,7 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(state, []byte(browser.ProfileDir()+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Clean(state), []byte(browser.ProfileDir()+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		os.Exit(0)
@@ -574,7 +574,7 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("owner helper: %v: %s", err, output)
 	}
-	pidData, err := os.ReadFile(pidFile)
+	pidData, err := os.ReadFile(filepath.Clean(pidFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +582,7 @@ func TestProcessGuardianReapsBrowserAfterOwnerDeath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profileData, err := os.ReadFile(stateFile)
+	profileData, err := os.ReadFile(filepath.Clean(stateFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -761,14 +761,14 @@ func processAlive(pid int) bool {
 }
 
 func pathExists(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Stat(filepath.Clean(path))
 	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
 func writeBrowserScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "browser-fixture")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}

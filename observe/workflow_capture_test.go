@@ -195,7 +195,7 @@ func TestWorkflowCaptureSaveToFile(t *testing.T) {
 		t.Fatalf("SaveToFile: %v", err)
 	}
 	// Verify file permissions.
-	info, err := os.Stat(path)
+	info, err := os.Stat(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestWorkflowCaptureSaveToFile(t *testing.T) {
 		t.Errorf("file perm = %o, want 0600", info.Mode().Perm())
 	}
 	// Verify content is valid JSON.
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

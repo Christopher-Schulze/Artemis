@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -137,7 +138,7 @@ func invalidReleaseInputCases() []invalidReleaseInputCase {
 
 func assertSentinelUnchanged(t *testing.T, output string) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(output, "sentinel"))
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(output), "sentinel"))
 	if err != nil || string(data) != "keep\n" {
 		t.Fatalf("existing destination changed: data=%q err=%v", data, err)
 	}
@@ -283,8 +284,8 @@ func TestReleaseArtifactVerificationRejectsTamperingAndUnknownJSON(t *testing.T)
 
 func assertNonCanonicalSBOMRejected(t *testing.T, output string, inputs releaseInputs, inventory moduleInventory, report licenseReport) {
 	t.Helper()
-	sbomPath := filepath.Join(output, sbomFile)
-	sbom, err := os.ReadFile(sbomPath)
+	sbomPath := filepath.Join(filepath.Clean(output), sbomFile)
+	sbom, err := os.ReadFile(filepath.Clean(sbomPath))
 	if err != nil {
 		t.Fatalf("read SBOM: %v", err)
 	}
@@ -292,15 +293,11 @@ func assertNonCanonicalSBOMRejected(t *testing.T, output string, inputs releaseI
 	if tamperedSBOM == string(sbom) {
 		t.Fatal("SBOM tamper fixture did not change canonical bytes")
 	}
-	if err := os.WriteFile(sbomPath, []byte(tamperedSBOM), 0o600); err != nil {
-		t.Fatalf("tamper SBOM: %v", err)
-	}
+	writeExistingTestFile(t, sbomPath, tamperedSBOM)
 	if err := validateSBOMFile(sbomPath, inputs, inventory, report); err == nil || !strings.Contains(err.Error(), "canonical release inputs") {
 		t.Fatalf("schema-valid non-canonical SBOM error = %v", err)
 	}
-	if err := os.WriteFile(sbomPath, sbom, 0o600); err != nil {
-		t.Fatalf("restore SBOM: %v", err)
-	}
+	writeExistingTestFile(t, sbomPath, string(sbom))
 }
 
 func assertStrictManifestJSON(t *testing.T, base string) {
@@ -360,7 +357,7 @@ func TestRenameExclusiveRejectsExistingDestination(t *testing.T) {
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("failed exclusive rename changed source: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(destination, "sentinel"))
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(destination), "sentinel"))
 	if err != nil || string(data) != "keep\n" {
 		t.Fatalf("failed exclusive rename changed destination: data=%q err=%v", data, err)
 	}
@@ -451,29 +448,31 @@ func normalizeInputsForPublishedSet(inputs releaseInputs) (releaseInputs, error)
 func snapshotTree(t *testing.T, root string) map[string]fileSnapshot {
 	t.Helper()
 	files := make(map[string]fileSnapshot)
-	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+	releaseRoot, err := os.OpenRoot(filepath.Clean(root))
+	if err != nil {
+		t.Fatalf("open release root: %v", err)
+	}
+	walkErr := fs.WalkDir(releaseRoot.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
+		if path == "." || entry.IsDir() {
 			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		data, err := releaseRoot.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(relative)] = fileSnapshot{Mode: uint32(info.Mode().Perm()), Data: string(data)}
+		files[path] = fileSnapshot{Mode: uint32(info.Mode().Perm()), Data: string(data)}
 		return nil
-	}); err != nil {
-		t.Fatalf("snapshot release tree: %v", err)
+	})
+	closeErr := releaseRoot.Close()
+	if walkErr != nil || closeErr != nil {
+		t.Fatalf("snapshot release tree: walk=%v close=%v", walkErr, closeErr)
 	}
 	return files
 }

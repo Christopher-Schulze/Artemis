@@ -66,8 +66,9 @@ func TestHarnessArtemisOnly(t *testing.T) {
 	}
 
 	// Scorecard files should exist
-	jsonPath := filepath.Join(tmpDir, "scorecard.json")
-	mdPath := filepath.Join(tmpDir, "scorecard.md")
+	cleanDir := filepath.Clean(tmpDir)
+	jsonPath := filepath.Join(cleanDir, "scorecard.json")
+	mdPath := filepath.Join(cleanDir, "scorecard.md")
 
 	if _, statErr := os.Stat(jsonPath); statErr != nil {
 		t.Errorf("scorecard.json not written: %v", statErr)

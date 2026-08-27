@@ -22,7 +22,7 @@ func TestStealthExtensionGenerate(t *testing.T) {
 
 	// Verify content.js exists and contains stealth patches
 	contentPath := filepath.Join(dir, "content.js")
-	content, err := os.ReadFile(contentPath)
+	content, err := os.ReadFile(filepath.Clean(contentPath))
 	if err != nil {
 		t.Fatalf("content.js missing: %v", err)
 	}

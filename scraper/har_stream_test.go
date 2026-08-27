@@ -27,7 +27,7 @@ type harFile struct {
 // parseHARFile reads and JSON-parses a finalized HAR file from disk.
 func parseHARFile(t *testing.T, path string) harFile {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("read har file: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestNewHARStreamCreatesFileAndHeader(t *testing.T) {
 	defer closeScraperTestResource(t, "HAR stream", s.Close)
 
 	// File must exist immediately after construction.
-	info, err := os.Stat(path)
+	info, err := os.Stat(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("file not created: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestNewHARStreamCreatesFileAndHeader(t *testing.T) {
 	}
 
 	// Inspect raw bytes before Close to verify header prefix.
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestCloseWritesFooter(t *testing.T) {
 		t.Fatalf("Close: %v", closeErr)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
