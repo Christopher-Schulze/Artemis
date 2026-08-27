@@ -28,6 +28,7 @@ func TestConformanceEngineCreation(t *testing.T) {
 	if e == nil {
 		t.Fatal("conformance: engine should not be nil")
 	}
+	defer closeRenderlessTestResource(t, "engine", e.Close)
 	if e.Config().MaxIsolates != 2 {
 		t.Error("conformance: max isolates should be 2")
 	}
@@ -36,7 +37,11 @@ func TestConformanceEngineCreation(t *testing.T) {
 // TestConformanceEngineDefaults verifies default config
 // (spec L4022: conformance test).
 func TestConformanceEngineDefaults(t *testing.T) {
-	e, _ := NewEngine(EngineConfig{})
+	e, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatalf("conformance: engine creation: %v", err)
+	}
+	defer closeRenderlessTestResource(t, "engine", e.Close)
 	cfg := e.Config()
 	if cfg.MaxIsolates != 4 {
 		t.Error("conformance: default max isolates should be 4")
@@ -49,11 +54,16 @@ func TestConformanceEngineDefaults(t *testing.T) {
 // TestConformanceEngineClose verifies engine can be closed
 // (spec L4022: conformance test).
 func TestConformanceEngineClose(t *testing.T) {
-	e, _ := NewEngine(EngineConfig{})
+	e, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatalf("conformance: engine creation: %v", err)
+	}
 	if e.IsClosed() {
 		t.Error("conformance: engine should not be closed initially")
 	}
-	e.Close()
+	if err := e.Close(); err != nil {
+		t.Fatalf("conformance: close engine: %v", err)
+	}
 	if !e.IsClosed() {
 		t.Error("conformance: engine should be closed after Close()")
 	}
@@ -160,7 +170,9 @@ func TestConformancePage(t *testing.T) {
 func TestConformanceFullEngineFlow(t *testing.T) {
 	// 1. Create engine
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(w, "<html><body>fixture</body></html>")
+		if _, err := fmt.Fprint(w, "<html><body>fixture</body></html>"); err != nil {
+			t.Errorf("conformance: write fixture response: %v", err)
+		}
 	}))
 	defer server.Close()
 	parsed, err := url.Parse(server.URL)
@@ -175,7 +187,7 @@ func TestConformanceFullEngineFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer e.Close()
+	defer closeRenderlessTestResource(t, "engine", e.Close)
 
 	// 2. Fetch a page
 	page, err := e.Fetch(context.Background(), server.URL)
@@ -185,6 +197,7 @@ func TestConformanceFullEngineFlow(t *testing.T) {
 	if page == nil {
 		t.Fatal("conformance: page should not be nil")
 	}
+	defer closeRenderlessTestResource(t, "page", page.Close)
 
 	// 3. Generate capability profile
 	registry := NewWebAPIRegistry()

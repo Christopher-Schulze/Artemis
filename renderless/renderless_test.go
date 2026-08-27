@@ -12,11 +12,20 @@ import (
 	"time"
 )
 
+func closeRenderlessTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
+}
+
 func renderlessFixture(t *testing.T, body string) (*Engine, *httptest.Server) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, body)
+		if _, err := fmt.Fprint(w, body); err != nil {
+			t.Errorf("write renderless fixture response: %v", err)
+		}
 	}))
 	parsed, err := url.Parse(server.URL)
 	if err != nil {
@@ -34,7 +43,9 @@ func renderlessFixture(t *testing.T, body string) (*Engine, *httptest.Server) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = engine.Close()
+		if err := engine.Close(); err != nil {
+			t.Errorf("close fixture engine: %v", err)
+		}
 		server.Close()
 	})
 	return engine, server
@@ -52,6 +63,7 @@ func TestTASK2255_NewEngine(t *testing.T) {
 	if e == nil {
 		t.Fatal("engine should not be nil")
 	}
+	defer closeRenderlessTestResource(t, "engine", e.Close)
 }
 
 // TestTASK2255_EngineConfigDefaults verifies defaults
@@ -75,7 +87,7 @@ func TestTASK2255_EngineFetch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeRenderlessTestResource(t, "page", page.Close)
 	if page.URL != server.URL {
 		t.Error("URL mismatch")
 	}
@@ -90,7 +102,7 @@ func TestTASK2569_EngineFetchExecutesAgainstProductionPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchWithOptions: %v", err)
 	}
-	defer page.Close()
+	defer closeRenderlessTestResource(t, "page", page.Close)
 	if !strings.Contains(page.RealPage().Text(), "after") {
 		t.Fatalf("production page did not reflect script mutation: %q", page.RealPage().Text())
 	}
@@ -98,9 +110,12 @@ func TestTASK2569_EngineFetchExecutesAgainstProductionPage(t *testing.T) {
 
 // TestTASK2255_EngineFetchEmpty verifies empty URL fails.
 func TestTASK2255_EngineFetchEmpty(t *testing.T) {
-	e, _ := NewEngine(EngineConfig{})
-	defer e.Close()
-	_, err := e.Fetch(context.Background(), "")
+	e, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer closeRenderlessTestResource(t, "engine", e.Close)
+	_, err = e.Fetch(context.Background(), "")
 	if err == nil {
 		t.Error("empty URL should error")
 	}
@@ -108,12 +123,17 @@ func TestTASK2255_EngineFetchEmpty(t *testing.T) {
 
 // TestTASK2255_EngineClose verifies close.
 func TestTASK2255_EngineClose(t *testing.T) {
-	e, _ := NewEngine(EngineConfig{})
-	e.Close()
+	e, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	if !e.IsClosed() {
 		t.Error("should be closed")
 	}
-	_, err := e.Fetch(context.Background(), "https://example.com")
+	_, err = e.Fetch(context.Background(), "https://example.com")
 	if err == nil {
 		t.Error("closed engine should error on fetch")
 	}
@@ -225,7 +245,9 @@ func TestTASK2255_ContextPoolClose(t *testing.T) {
 func TestTASK2255_BuilderPool(t *testing.T) {
 	p := NewBuilderPool()
 	b := p.Get()
-	b.WriteString("hello")
+	if _, err := b.WriteString("hello"); err != nil {
+		t.Fatalf("write builder: %v", err)
+	}
 	if b.String() != "hello" {
 		t.Error("string mismatch")
 	}
@@ -256,7 +278,9 @@ func TestTASK2255_IsolatePool(t *testing.T) {
 // TestTASK2255_IsolatePoolExhausted verifies exhaustion.
 func TestTASK2255_IsolatePoolExhausted(t *testing.T) {
 	p := NewIsolatePool(1)
-	_, _ = p.Acquire()
+	if _, err := p.Acquire(); err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
 	_, err := p.Acquire()
 	if err == nil {
 		t.Error("exhausted pool should error")
@@ -596,8 +620,11 @@ func TestTASK2255_CapabilityProfileMissingWebAPIs(t *testing.T) {
 // conformance_test.go).
 func TestTASK2255_FullSpecParity(t *testing.T) {
 	// 1. engine.go
-	e, _ := NewEngine(EngineConfig{})
-	defer e.Close()
+	e, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer closeRenderlessTestResource(t, "engine", e.Close)
 
 	// 2. runtime.go
 	ctx := NewRuntimeContext("ctx-1", 1)
@@ -610,7 +637,9 @@ func TestTASK2255_FullSpecParity(t *testing.T) {
 	// 4. pool.go
 	bp := NewBuilderPool()
 	b := bp.Get()
-	b.WriteString("test")
+	if _, err := b.WriteString("test"); err != nil {
+		t.Fatalf("write builder: %v", err)
+	}
 	bp.Put(b)
 
 	// 5. webapi.go

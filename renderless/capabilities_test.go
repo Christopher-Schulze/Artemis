@@ -191,7 +191,7 @@ func TestCapabilityProfileForEngineUsesProductionAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer backend.Close()
+	defer closeRenderlessTestResource(t, "backend", backend.Close)
 	profile := CapabilityProfileForEngine(backend)
 	if !profile.FetchSupport || !profile.SupportsWebAPI("document") {
 		t.Fatalf("production profile=%+v", profile)
