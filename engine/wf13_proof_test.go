@@ -16,7 +16,7 @@ func BenchmarkWFEngineFetchPerf(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	body := []byte("<html><head><title>perf</title></head><body><p>hello</p></body></html>")
 	opts := FetchOpts{
 		OnRequest: func(*RequestInfo) (*ResponseInfo, error) {
@@ -44,7 +44,7 @@ func BenchmarkWFEngineFetchPerfBaseline(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	body := []byte("<html><head><title>perf</title></head><body><p>hello</p></body></html>")
 	opts := FetchOpts{
 		RunScripts: true,
@@ -72,7 +72,7 @@ func TestWFEngineFetchPerfCorrectness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	body := []byte("<html><head><title>renderless</title></head><body><a href='/x'>link</a></body></html>")
 	opts := FetchOpts{
 		OnRequest: func(*RequestInfo) (*ResponseInfo, error) {

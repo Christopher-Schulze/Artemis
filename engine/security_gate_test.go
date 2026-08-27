@@ -13,7 +13,7 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		limits := securityGateSessionBudget()
 		limits.MaxRequests = 1
 		controller := newSessionBudgetController(limits, "request-gate", nil)
-		defer controller.close()
+		defer closeTestResource(t, "request gate", controller.close)
 		_, finish, err := controller.BeginRequest(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		limits := securityGateSessionBudget()
 		limits.MaxResponseBytes = 4
 		controller := newSessionBudgetController(limits, "response-gate", nil)
-		defer controller.close()
+		defer closeTestResource(t, "response gate", controller.close)
 		_, finish, err := controller.BeginRequest(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -52,7 +52,7 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		limits := securityGateSessionBudget()
 		limits.MaxConcurrency = 1
 		controller := newSessionBudgetController(limits, "concurrency-gate", nil)
-		defer controller.close()
+		defer closeTestResource(t, "concurrency gate", controller.close)
 		requestCtx, finish, err := controller.BeginRequest(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -83,7 +83,7 @@ func TestSecurityGateConcurrentParentCancellationReleasesEveryRequest(t *testing
 	limits.MaxConcurrency = workers
 	limits.MaxRequests = workers
 	controller := newSessionBudgetController(limits, "cancel-gate", nil)
-	defer controller.close()
+	defer closeTestResource(t, "cancellation gate", controller.close)
 	parent, cancel := context.WithCancel(context.Background())
 	contexts := make([]context.Context, workers)
 	finishes := make([]func(int64) error, workers)

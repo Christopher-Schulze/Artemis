@@ -22,7 +22,7 @@ func TestPageFetchRendersAPIData(t *testing.T) {
 	defer api.Close()
 
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `<!doctype html><html><body><div id="list"></div><script>
+		if _, err := fmt.Fprintf(w, `<!doctype html><html><body><div id="list"></div><script>
 			var ready = false;
 			fetch(%q).then(r => r.json()).then(items => {
 				const ul = document.createElement('ul');
@@ -34,7 +34,9 @@ func TestPageFetchRendersAPIData(t *testing.T) {
 				document.getElementById('list').appendChild(ul);
 				ready = true;
 			});
-		</script></body></html>`, api.URL)
+		</script></body></html>`, api.URL); err != nil {
+			t.Errorf("write page fixture response: %v", err)
+		}
 	}))
 	defer page.Close()
 
@@ -42,13 +44,13 @@ func TestPageFetchRendersAPIData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 
 	p, err := eng.Fetch(context.Background(), page.URL, FetchOpts{RunInlineScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer p.Close()
+	defer closeTestResource(t, "fetched page", p.Close)
 
 	md := p.Markdown()
 	for _, want := range []string{"Alpha (#1)", "Beta (#2)", "Gamma (#3)"} {

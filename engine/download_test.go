@@ -15,7 +15,7 @@ func TestEngineDownloadUsesOwnedSessionPathAndResponseFilename(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("Content-Disposition", `attachment; filename="proof.txt"`)
-		_, _ = w.Write([]byte("download-proof"))
+		writeTestBody(t, w, "download-proof")
 	}))
 	defer server.Close()
 	root := t.TempDir()
@@ -28,7 +28,7 @@ func TestEngineDownloadUsesOwnedSessionPathAndResponseFilename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	download, err := engine.Download(context.Background(), server.URL, "")
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestEngineDownloadUsesOwnedSessionPathAndResponseFilename(t *testing.T) {
 func TestPageSaveDownloadUsesSamePolicyBoundary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte("<!doctype html><title>Saved</title>"))
+		writeTestBody(t, w, "<!doctype html><title>Saved</title>")
 	}))
 	defer server.Close()
 	config := testConfig(server)
@@ -61,12 +61,12 @@ func TestPageSaveDownloadUsesSamePolicyBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	page, err := engine.Fetch(context.Background(), server.URL, FetchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 	download, err := page.SaveDownload("page.html")
 	if err != nil || !strings.HasSuffix(download.Path, filepath.Join("page-session", "downloads", "page.html")) {
 		t.Fatalf("download=%#v err=%v", download, err)
@@ -78,7 +78,7 @@ func TestPageSaveDownloadUsesSamePolicyBoundary(t *testing.T) {
 
 func TestEngineDownloadRequiresSessionWithoutLeavingFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("content"))
+		writeTestBody(t, w, "content")
 	}))
 	defer server.Close()
 	root := filepath.Join(t.TempDir(), "not-created")
@@ -88,7 +88,7 @@ func TestEngineDownloadRequiresSessionWithoutLeavingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	if _, err := engine.Download(context.Background(), server.URL, "file.txt"); err == nil || !strings.Contains(err.Error(), "session ID") {
 		t.Fatalf("error=%v", err)
 	}

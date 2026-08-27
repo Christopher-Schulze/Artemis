@@ -47,7 +47,7 @@ func TestEngineDownloadPublishesThroughGovernedIngress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 
 	download, err := eng.Download(context.Background(), srv.URL, "payload.bin")
 	if err != nil {
@@ -88,7 +88,7 @@ func TestEngineRemovesDownloadWhenIngressRejects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	if _, err := eng.Download(context.Background(), srv.URL, "payload.bin"); err == nil {
 		t.Fatal("expected governed ingress rejection")
 	}

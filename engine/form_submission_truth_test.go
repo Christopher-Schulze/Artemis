@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,21 +26,21 @@ func TestEngineSubmitPreservesTextPlainRequest(t *testing.T) {
 			}
 			received.Store(true)
 		}
-		_, _ = fmt.Fprint(w, `<html><body>ok</body></html>`)
+		writeTestBody(t, w, `<html><body>ok</body></html>`)
 	}))
 	defer server.Close()
 	engine, err := New(testConfig(server))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	page, err := engine.Submit(context.Background(), agent.FormSubmission{
 		URL: server.URL, Method: http.MethodPost, ContentType: agent.FormEncodingText, Body: []byte("alpha=one\r\n"),
 	}, FetchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 	if !received.Load() {
 		t.Fatal("text/plain submission did not reach server")
 	}
@@ -53,19 +52,19 @@ func TestFileFormEscalatesBeforeEngineRequest(t *testing.T) {
 		if request.Method == http.MethodPost {
 			postCount.Add(1)
 		}
-		_, _ = fmt.Fprint(w, `<html><body><form id="upload" method="post" enctype="multipart/form-data"><input type="file" name="payload"></form></body></html>`)
+		writeTestBody(t, w, `<html><body><form id="upload" method="post" enctype="multipart/form-data"><input type="file" name="payload"></form></body></html>`)
 	}))
 	defer server.Close()
 	engine, err := New(testConfig(server))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	page, err := engine.Fetch(context.Background(), server.URL, FetchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 	form := agent.FindForm(page.Document(), "#upload")
 	if form == nil {
 		t.Fatal("upload form missing")
