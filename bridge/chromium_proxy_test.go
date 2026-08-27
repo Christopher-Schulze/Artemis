@@ -37,7 +37,11 @@ func TestChromiumPolicyProxyAllowsConfiguredPrivateDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBridgeTestResource(t, "response body", response.Body.Close)
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("status=%d", response.StatusCode)
 	}
@@ -60,7 +64,11 @@ func TestChromiumPolicyProxyDeniesPrivateDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBridgeTestResource(t, "response body", response.Body.Close)
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d", response.StatusCode)
 	}
@@ -120,7 +128,11 @@ func TestChromiumPolicyProxyConnectHonorsPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBridgeTestResource(t, "CONNECT response body", response.Body.Close)
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close CONNECT response body: %v", closeErr)
+		}
+	}()
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d", response.StatusCode)
 	}

@@ -100,7 +100,11 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get: %v", err)
 	}
-	defer closeTestResource(t, "response body close", res.Body.Close)
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if res.StatusCode != reg.Status {
 		t.Errorf("served regression status = %d, want %d", res.StatusCode, reg.Status)
 	}

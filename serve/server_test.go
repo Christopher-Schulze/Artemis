@@ -104,7 +104,12 @@ func startServer(t *testing.T) (string, func()) {
 func dial(t *testing.T, addr string) *websocket.Conn {
 	t.Helper()
 	opts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + testAuthToken}}}
-	c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", opts)
+	c, response, err := websocket.Dial(context.Background(), "ws://"+addr+"/", opts)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -163,21 +168,42 @@ func TestServerAuthTokenEnforced(t *testing.T) {
 	defer cleanup()
 
 	// No Authorization header -> rejected.
-	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", nil); err == nil {
+	if c, response, err := websocket.Dial(context.Background(), "ws://"+addr+"/", nil); response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+		if err == nil {
+			closeTestWebsocket(t, c)
+			t.Fatal("connection without token was accepted, want rejected")
+		}
+	} else if err == nil {
 		closeTestWebsocket(t, c)
 		t.Fatal("connection without token was accepted, want rejected")
 	}
 
 	// Wrong token -> rejected.
 	badOpts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer wrong"}}}
-	if c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", badOpts); err == nil {
+	if c, response, err := websocket.Dial(context.Background(), "ws://"+addr+"/", badOpts); response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+		if err == nil {
+			closeTestWebsocket(t, c)
+			t.Fatal("connection with wrong token was accepted, want rejected")
+		}
+	} else if err == nil {
 		closeTestWebsocket(t, c)
 		t.Fatal("connection with wrong token was accepted, want rejected")
 	}
 
 	// Correct token -> accepted.
 	goodOpts := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer s3cret"}}}
-	c, _, err := websocket.Dial(context.Background(), "ws://"+addr+"/", goodOpts)
+	c, response, err := websocket.Dial(context.Background(), "ws://"+addr+"/", goodOpts)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("connection with correct token was rejected: %v", err)
 	}

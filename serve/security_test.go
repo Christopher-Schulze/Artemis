@@ -112,14 +112,25 @@ func TestServeOriginRestriction(t *testing.T) {
 	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	defer cleanup()
 
-	if connection, response, err := dialSecurityClient(t, addr, testAuthToken, "", "https://evil.example"); err == nil {
+	connection, response, err := dialSecurityClient(t, addr, testAuthToken, "", "https://evil.example")
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
+	if err == nil {
 		closeTestWebsocketNow(t, connection)
 		t.Fatal("disallowed browser origin connected")
 	} else if response == nil || response.StatusCode != http.StatusForbidden {
 		t.Fatalf("disallowed origin status = %v, err = %v", response, err)
 	}
 
-	connection, _, err := dialSecurityClient(t, addr, testAuthToken, "", "http://"+addr)
+	connection, response, err = dialSecurityClient(t, addr, testAuthToken, "", "http://"+addr)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("loopback origin rejected: %v", err)
 	}
@@ -128,7 +139,12 @@ func TestServeOriginRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("split server address: %v", err)
 	}
-	connection, _, err = dialSecurityClient(t, addr, testAuthToken, "", "http://localhost:"+port)
+	connection, response, err = dialSecurityClient(t, addr, testAuthToken, "", "http://localhost:"+port)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("configured localhost origin rejected: %v", err)
 	}
@@ -140,6 +156,11 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	defer cleanup()
 
 	owner, ownerResponse, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if ownerResponse != nil && ownerResponse.Body != nil {
+		if closeErr := ownerResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +173,13 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 		replacement = "1"
 	}
 	tampered := clientID[:len(clientID)-1] + replacement
-	if invalid, response, authErr := dialSecurityClient(t, addr, testAuthToken, tampered, ""); authErr == nil {
+	invalid, response, authErr := dialSecurityClient(t, addr, testAuthToken, tampered, "")
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
+	if authErr == nil {
 		closeTestWebsocketNow(t, invalid)
 		t.Fatal("tampered client capability connected")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
@@ -167,7 +194,12 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 		t.Fatal(decodeErr)
 	}
 
-	other, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	other, otherResponse, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if otherResponse != nil && otherResponse.Body != nil {
+		if closeErr := otherResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +222,12 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	closeTestWebsocketNow(t, other)
 	closeTestWebsocketNow(t, owner)
 
-	resumed, _, err := dialSecurityClient(t, addr, testAuthToken, clientID, "")
+	resumed, resumedResponse, err := dialSecurityClient(t, addr, testAuthToken, clientID, "")
+	if resumedResponse != nil && resumedResponse.Body != nil {
+		if closeErr := resumedResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("resume with issued client capability: %v", err)
 	}
@@ -212,12 +249,22 @@ func TestServeRateLimitUsesNormalizedClientAcrossReconnects(t *testing.T) {
 	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: config})
 	defer cleanup()
 
-	first, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	first, firstResponse, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if firstResponse != nil && firstResponse.Body != nil {
+		if closeErr := firstResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("first connection: %v", err)
 	}
 	defer closeTestWebsocketNow(t, first)
 	second, response, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err == nil {
 		closeTestWebsocketNow(t, second)
 		t.Fatal("reconnect bypassed normalized-client rate limit")
@@ -230,7 +277,12 @@ func TestServeRateLimitUsesNormalizedClientAcrossReconnects(t *testing.T) {
 func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
 	addr, _, cleanup := startSecurityServer(t, Opts{AuthToken: testAuthToken, RateLimit: testRateLimit()})
 	defer cleanup()
-	connection, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	connection, connectionResponse, err := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if connectionResponse != nil && connectionResponse.Body != nil {
+		if closeErr := connectionResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,13 +300,24 @@ func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
 	}
 	closeTestWebsocketNow(t, connection)
 
-	if oldConnection, response, authErr := dialSecurityClient(t, addr, testAuthToken, "", ""); authErr == nil {
+	oldConnection, response, authErr := dialSecurityClient(t, addr, testAuthToken, "", "")
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
+	if authErr == nil {
 		closeTestWebsocketNow(t, oldConnection)
 		t.Fatal("old token remained valid after rotation")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old token response = %+v, err = %v", response, authErr)
 	}
-	newConnection, _, err := dialSecurityClient(t, addr, result.Token, "", "")
+	newConnection, newResponse, err := dialSecurityClient(t, addr, result.Token, "", "")
+	if newResponse != nil && newResponse.Body != nil {
+		if closeErr := newResponse.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("new token rejected: %v", err)
 	}

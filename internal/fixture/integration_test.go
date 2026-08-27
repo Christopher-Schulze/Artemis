@@ -612,6 +612,11 @@ func (r *serveRunner) dial(t *testing.T) *websocket.Conn {
 	}
 	dialOptions := &websocket.DialOptions{HTTPHeader: header}
 	c, response, err := websocket.Dial(context.Background(), "ws://"+r.addr+"/", dialOptions)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

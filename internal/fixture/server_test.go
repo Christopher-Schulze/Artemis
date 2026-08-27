@@ -22,7 +22,11 @@ func TestServerIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -46,7 +50,11 @@ func TestServerStaticHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET html-001: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -68,7 +76,11 @@ func TestServerRedirectChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET redirect-001: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -86,14 +98,22 @@ func TestServerCookiePersistence(t *testing.T) {
 		t.Fatalf("cookie jar: %v", err)
 	}
 	client := &http.Client{Jar: jar}
-	if _, requestErr := client.Get(s.URL("/cookie-001")); requestErr != nil {
+	firstResponse, requestErr := client.Get(s.URL("/cookie-001"))
+	if requestErr != nil {
 		t.Fatalf("GET cookie-001: %v", requestErr)
+	}
+	if closeErr := firstResponse.Body.Close(); closeErr != nil {
+		t.Fatalf("close cookie-001 response: %v", closeErr)
 	}
 	resp, err := client.Get(s.URL("/cookie-002"))
 	if err != nil {
 		t.Fatalf("GET cookie-002: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
@@ -130,7 +150,11 @@ func TestServerBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET auth with credentials: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -154,7 +178,11 @@ func TestServerFormPOST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST form: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -193,7 +221,11 @@ func TestServerFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST file: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -212,7 +244,12 @@ func TestServerWebSocketEcho(t *testing.T) {
 
 	wsURL := strings.Replace(s.URL("/ws-001"), "http://", "ws://", 1)
 	ctx := context.Background()
-	c, _, err := websocket.Dial(ctx, wsURL, nil)
+	c, response, err := websocket.Dial(ctx, wsURL, nil)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close handshake response body: %v", closeErr)
+		}
+	}
 	if err != nil {
 		t.Fatalf("websocket dial: %v", err)
 	}
@@ -239,7 +276,11 @@ func TestServerSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET slow: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -256,7 +297,11 @@ func TestServerCrash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET crash: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.StatusCode)
 	}
@@ -270,7 +315,11 @@ func TestServerMalformed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET malformed: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -346,7 +395,11 @@ func TestServerChallenge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET challenge with answer: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -367,7 +420,11 @@ func TestServerLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET large: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -403,7 +460,11 @@ func TestServerFormGET(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET search: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
@@ -421,7 +482,11 @@ func TestServerSPAJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET api: %v", err)
 	}
-	defer closeTestResource(t, "response body close", resp.Body.Close)
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("response body close: %v", closeErr)
+		}
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
