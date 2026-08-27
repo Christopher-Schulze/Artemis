@@ -48,10 +48,10 @@ func TestExtensionLoaderResolvedExtensionsOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	adblock := filepath.Join(dir, "adblock")
 	stealth := filepath.Join(dir, "stealth")
-	if err := os.MkdirAll(adblock, 0o755); err != nil {
+	if err := os.MkdirAll(adblock, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(stealth, 0o755); err != nil {
+	if err := os.MkdirAll(stealth, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	l := &ExtensionLoader{
@@ -85,7 +85,7 @@ func TestExtensionLoaderMissingOnDiskRecordsError(t *testing.T) {
 func TestExtensionLoaderFileNotDirRecordsError(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "notadir")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	l := &ExtensionLoader{
@@ -102,10 +102,10 @@ func TestExtensionLoaderChromiumArgsFormat(t *testing.T) {
 	dir := t.TempDir()
 	ext1 := filepath.Join(dir, "ext1")
 	ext2 := filepath.Join(dir, "ext2")
-	if err := os.MkdirAll(ext1, 0o755); err != nil {
+	if err := os.MkdirAll(ext1, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(ext2, 0o755); err != nil {
+	if err := os.MkdirAll(ext2, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	l := &ExtensionLoader{
@@ -130,7 +130,7 @@ func TestExtensionLoaderChromiumArgsFormat(t *testing.T) {
 func TestExtensionLoaderAbsoluteAllowlistEntry(t *testing.T) {
 	dir := t.TempDir()
 	abs := filepath.Join(dir, "abs-ext")
-	if err := os.MkdirAll(abs, 0o755); err != nil {
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	l := &ExtensionLoader{
@@ -150,7 +150,7 @@ func TestExtensionLoaderWithProfileDirOverridesBase(t *testing.T) {
 	base := t.TempDir()
 	profile := t.TempDir()
 	ext := filepath.Join(profile, "ext")
-	if err := os.MkdirAll(ext, 0o755); err != nil {
+	if err := os.MkdirAll(ext, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	l := &ExtensionLoader{

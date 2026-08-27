@@ -126,7 +126,7 @@ func invalidReleaseInputCases() []invalidReleaseInputCase {
 		{
 			name: "existing destination",
 			setup: func(t *testing.T, _ releaseFixture, inputs *releaseInputs) {
-				if err := os.Mkdir(inputs.OutputRoot, 0o755); err != nil {
+				if err := os.Mkdir(inputs.OutputRoot, 0o700); err != nil {
 					t.Fatalf("create existing destination: %v", err)
 				}
 				writeTestFile(t, filepath.Join(inputs.OutputRoot, "sentinel"), "keep\n", 0o644)
@@ -292,13 +292,13 @@ func assertNonCanonicalSBOMRejected(t *testing.T, output string, inputs releaseI
 	if tamperedSBOM == string(sbom) {
 		t.Fatal("SBOM tamper fixture did not change canonical bytes")
 	}
-	if err := os.WriteFile(sbomPath, []byte(tamperedSBOM), 0o644); err != nil {
+	if err := os.WriteFile(sbomPath, []byte(tamperedSBOM), 0o600); err != nil {
 		t.Fatalf("tamper SBOM: %v", err)
 	}
 	if err := validateSBOMFile(sbomPath, inputs, inventory, report); err == nil || !strings.Contains(err.Error(), "canonical release inputs") {
 		t.Fatalf("schema-valid non-canonical SBOM error = %v", err)
 	}
-	if err := os.WriteFile(sbomPath, sbom, 0o644); err != nil {
+	if err := os.WriteFile(sbomPath, sbom, 0o600); err != nil {
 		t.Fatalf("restore SBOM: %v", err)
 	}
 }
@@ -347,10 +347,10 @@ func TestRenameExclusiveRejectsExistingDestination(t *testing.T) {
 	base := t.TempDir()
 	source := filepath.Join(base, "source")
 	destination := filepath.Join(base, "destination")
-	if err := os.Mkdir(source, 0o755); err != nil {
+	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(destination, 0o755); err != nil {
+	if err := os.Mkdir(destination, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(destination, "sentinel"), "keep\n", 0o644)
@@ -480,7 +480,7 @@ func snapshotTree(t *testing.T, root string) map[string]fileSnapshot {
 
 func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create parent for %s: %v", path, err)
 	}
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {

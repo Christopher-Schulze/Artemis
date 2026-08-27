@@ -96,7 +96,7 @@ func TestChecksumIsDeterministic(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
 	content := []byte("hello world\n")
-	if err := os.WriteFile(testFile, content, 0o644); err != nil {
+	if err := os.WriteFile(testFile, content, 0o600); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
 

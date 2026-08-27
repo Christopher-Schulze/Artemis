@@ -305,7 +305,7 @@ func TestTASK2239_ProxyProfileStoreLoad(t *testing.T) {
 			"server": "http://proxy.us:8080"
 		}
 	}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := LoadProxyProfiles(path)
@@ -333,7 +333,7 @@ func TestTASK2239_ProxyProfileStoreCaseInsensitive(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"MyProxy": {"server": "http://proxy:8080"}}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := LoadProxyProfiles(path)
@@ -366,7 +366,7 @@ func TestTASK2239_ProxyProfileStoreValidationLat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "geolocation": {"latitude": 91, "longitude": 0}}}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := LoadProxyProfiles(path)
@@ -381,7 +381,7 @@ func TestTASK2239_ProxyProfileStoreValidationLong(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "geolocation": {"latitude": 0, "longitude": 181}}}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := LoadProxyProfiles(path)
@@ -396,7 +396,7 @@ func TestTASK2239_ProxyProfileStoreValidationLocale(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "locale": "invalid_locale_1234567890123456789012345678901234567890"}}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := LoadProxyProfiles(path)
@@ -411,7 +411,7 @@ func TestTASK2239_ProxyProfileStoreValidationEmptyServer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": ""}}`
-	if err := os.WriteFile(path, []byte(jsonContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(jsonContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := LoadProxyProfiles(path)

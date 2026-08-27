@@ -18,7 +18,7 @@ func TestRemoveOrphanClones_RemovesOnlyIdleClones(t *testing.T) {
 	live := filepath.Join(base, "com.google.Chrome.code_sign_clone", "code_sign_clone.BBB")
 	unrelated := filepath.Join(base, "com.google.Chrome.code_sign_clone", "not_a_clone")
 	for _, d := range []string{orphan, live, unrelated} {
-		if err := os.MkdirAll(filepath.Join(d, "Google Chrome.app.bundle"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(d, "Google Chrome.app.bundle"), 0o700); err != nil {
 			t.Fatalf("seed dir %s: %v", d, err)
 		}
 	}

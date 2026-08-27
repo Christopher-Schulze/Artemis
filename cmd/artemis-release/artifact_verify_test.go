@@ -152,7 +152,7 @@ func writeExistingJSON(t *testing.T, path string, value any) {
 
 func writeExistingTestFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }

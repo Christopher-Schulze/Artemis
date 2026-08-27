@@ -26,7 +26,7 @@ scenarios:
       - name: open
         cmd: session.new
 `
-	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	sf, err := LoadScenarios(path)
@@ -60,7 +60,7 @@ scenarios:
       - name: open
         cmd: session.new
 `
-	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if _, err := LoadScenarios(path); err == nil {
@@ -78,7 +78,7 @@ func TestLoadScenariosMissingVersion(t *testing.T) {
       - name: open
         cmd: session.new
 `
-	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if _, err := LoadScenarios(path); err == nil {
@@ -96,7 +96,7 @@ scenarios:
     steps:
       - name: open
 `
-	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if _, err := LoadScenarios(path); err == nil {
@@ -112,7 +112,7 @@ scenarios:
   - id: s1
     site: https://a
 `
-	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if _, err := LoadScenarios(path); err == nil {
@@ -141,7 +141,7 @@ func TestLoadScenariosRejectsUnknownFieldsAndCommands(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "scenarios.yaml")
-			if err := os.WriteFile(path, []byte(tc.doc), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(tc.doc), 0o600); err != nil {
 				t.Fatalf("write: %v", err)
 			}
 			if _, err := LoadScenarios(path); err == nil {

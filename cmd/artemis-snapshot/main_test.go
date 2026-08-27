@@ -36,14 +36,14 @@ func TestGenerateSnapshotIsByteDeterministic(t *testing.T) {
 
 func TestValidateModuleRoot(t *testing.T) {
 	valid := t.TempDir()
-	if err := os.WriteFile(filepath.Join(valid, "go.mod"), []byte("module "+artemisModulePath+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(valid, "go.mod"), []byte("module "+artemisModulePath+"\n"), 0o600); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 	if err := validateModuleRoot(valid); err != nil {
 		t.Fatalf("validateModuleRoot(valid): %v", err)
 	}
 	wrong := t.TempDir()
-	if err := os.WriteFile(filepath.Join(wrong, "go.mod"), []byte("module example.invalid/wrong\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(wrong, "go.mod"), []byte("module example.invalid/wrong\n"), 0o600); err != nil {
 		t.Fatalf("write wrong go.mod: %v", err)
 	}
 	if err := validateModuleRoot(wrong); err == nil {
@@ -53,7 +53,7 @@ func TestValidateModuleRoot(t *testing.T) {
 
 func TestWriteFileAtomicReplacesCompleteSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "snapshot.bin")
-	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatalf("write old snapshot: %v", err)
 	}
 	if err := writeFileAtomic(path, []byte("new-complete-snapshot"), 0o640); err != nil {
