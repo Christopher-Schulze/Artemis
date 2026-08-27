@@ -62,7 +62,7 @@ func BenchmarkEndToEnd100Pages(b *testing.B) {
 	for i := 0; i < 200; i++ {
 		i := i
 		mux.HandleFunc(fmt.Sprintf("/p/%d", i), func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, realisticHTML(i))
+			writeTestBody(b, w, realisticHTML(i))
 		})
 	}
 	srv := httptest.NewServer(mux)
@@ -72,7 +72,7 @@ func BenchmarkEndToEnd100Pages(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -83,8 +83,10 @@ func BenchmarkEndToEnd100Pages(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			_ = page.Markdown()
-			_ = page.Close()
+			page.Markdown()
+			if err := page.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 }
@@ -97,7 +99,7 @@ func BenchmarkEndToEnd100PagesPooled(b *testing.B) {
 	for i := 0; i < 200; i++ {
 		i := i
 		mux.HandleFunc(fmt.Sprintf("/p/%d", i), func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, realisticHTML(i))
+			writeTestBody(b, w, realisticHTML(i))
 		})
 	}
 	srv := httptest.NewServer(mux)
@@ -109,7 +111,7 @@ func BenchmarkEndToEnd100PagesPooled(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -120,8 +122,10 @@ func BenchmarkEndToEnd100PagesPooled(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			_ = page.Markdown()
-			_ = page.Close()
+			page.Markdown()
+			if err := page.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 }
@@ -134,7 +138,7 @@ func BenchmarkEndToEnd100PagesPooledWarm(b *testing.B) {
 	for i := 0; i < 200; i++ {
 		i := i
 		mux.HandleFunc(fmt.Sprintf("/p/%d", i), func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, realisticHTML(i))
+			writeTestBody(b, w, realisticHTML(i))
 		})
 	}
 	srv := httptest.NewServer(mux)
@@ -147,7 +151,7 @@ func BenchmarkEndToEnd100PagesPooledWarm(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -158,8 +162,10 @@ func BenchmarkEndToEnd100PagesPooledWarm(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			_ = page.Markdown()
-			_ = page.Close()
+			page.Markdown()
+			if err := page.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 }
@@ -169,7 +175,7 @@ func BenchmarkEndToEnd100PagesNoScripts(b *testing.B) {
 	for i := 0; i < 200; i++ {
 		i := i
 		mux.HandleFunc(fmt.Sprintf("/p/%d", i), func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, realisticHTML(i))
+			writeTestBody(b, w, realisticHTML(i))
 		})
 	}
 	srv := httptest.NewServer(mux)
@@ -179,7 +185,7 @@ func BenchmarkEndToEnd100PagesNoScripts(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer eng.Close()
+	defer closeTestResource(b, "engine", eng.Close)
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -190,8 +196,10 @@ func BenchmarkEndToEnd100PagesNoScripts(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			_ = page.Markdown()
-			_ = page.Close()
+			page.Markdown()
+			if err := page.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 }
