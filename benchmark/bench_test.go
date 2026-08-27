@@ -7,7 +7,11 @@ import "testing"
 func BenchmarkArtemisFetchNav(b *testing.B) {
 	s := *ScenarioByID("nav-001")
 	r := NewArtemisRunner([]Scenario{s}, false)
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); closeErr != nil {
+			b.Errorf("close runner: %v", closeErr)
+		}
+	}()
 	r.RunScenarioBench(b, s)
 }
 
@@ -16,7 +20,11 @@ func BenchmarkArtemisFetchNav(b *testing.B) {
 func BenchmarkArtemisFetchScrape(b *testing.B) {
 	s := *ScenarioByID("scr-001")
 	r := NewArtemisRunner([]Scenario{s}, false)
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); closeErr != nil {
+			b.Errorf("close runner: %v", closeErr)
+		}
+	}()
 	r.RunScenarioBench(b, s)
 }
 
@@ -25,7 +33,11 @@ func BenchmarkArtemisFetchScrape(b *testing.B) {
 func BenchmarkArtemisFetchScriptHeavy(b *testing.B) {
 	s := *ScenarioByID("scr-003")
 	r := NewArtemisRunner([]Scenario{s}, false)
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); closeErr != nil {
+			b.Errorf("close runner: %v", closeErr)
+		}
+	}()
 	r.RunScenarioBench(b, s)
 }
 
@@ -34,7 +46,11 @@ func BenchmarkArtemisFetchScriptHeavy(b *testing.B) {
 func BenchmarkArtemisFetchHeavyJS(b *testing.B) {
 	s := *ScenarioByID("scr-004")
 	r := NewArtemisRunner([]Scenario{s}, false)
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); closeErr != nil {
+			b.Errorf("close runner: %v", closeErr)
+		}
+	}()
 	r.RunScenarioBench(b, s)
 }
 

@@ -47,21 +47,27 @@ func NewArtemisRunner(scenarios []Scenario, warmPool bool) *ArtemisRunner {
 }
 
 // Close releases the engine and server resources.
-func (r *ArtemisRunner) Close() {
+func (r *ArtemisRunner) Close() error {
+	var closeErr error
 	if r.engine != nil {
-		r.engine.Close()
+		closeErr = r.engine.Close()
 		r.engine = nil
 	}
 	if r.server != nil {
 		r.server.Close()
+		r.server = nil
 	}
+	return closeErr
 }
 
 // Reset releases and recreates the engine so the next run is cold.
 // warmPool pre-builds JS contexts for warm runs.
 func (r *ArtemisRunner) Reset(warmPool bool) error {
 	if r.engine != nil {
-		r.engine.Close()
+		if closeErr := r.engine.Close(); closeErr != nil {
+			r.engine = nil
+			return fmt.Errorf("close engine before reset: %w", closeErr)
+		}
 		r.engine = nil
 	}
 	eng, err := engine.New(engine.Config{
@@ -115,6 +121,11 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 		result.CPUMs = ms.CPUMs
 		result.RSSBytes = ms.RSSBytes
 		result.Error = fmt.Sprintf("fetch: %v", err)
+		if page != nil {
+			if closeErr := page.Close(); closeErr != nil {
+				result.Error = fmt.Sprintf("%s; page close: %v", result.Error, closeErr)
+			}
+		}
 		return result
 	}
 
@@ -133,8 +144,13 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	result.AllocBytes = int64(memAfter.TotalAlloc - memBefore.TotalAlloc)
 	result.AllocCount = int64(memAfter.Mallocs - memBefore.Mallocs)
 	result.Throughput = ms.Throughput
+	validated := validateScenario(s, title, links, text)
+	if closeErr := page.Close(); closeErr != nil {
+		result.Error = fmt.Sprintf("page close: %v", closeErr)
+		return result
+	}
 	result.OK = true
-	result.Validated = validateScenario(s, title, links, text)
+	result.Validated = validated
 	return result
 }
 
@@ -188,6 +204,9 @@ func (r *ArtemisRunner) RunScenarioBench(b *testing.B, s Scenario) {
 		_ = page.Markdown()
 		_ = page.Links()
 		_ = page.Text()
+		if closeErr := page.Close(); closeErr != nil {
+			b.Fatalf("close page %s: %v", s.ID, closeErr)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,12 +71,16 @@ func NewHarness(cfg HarnessConfig) *Harness {
 
 // Run executes the full benchmark and writes the scorecard.
 // It returns the scorecard and any error that prevented completion.
-func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
+func (h *Harness) Run(ctx context.Context) (scorecard *Scorecard, runErr error) {
 	stopProfile, err := StartProfile(h.cfg.Profile)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = stopProfile() }()
+	defer func() {
+		if stopErr := stopProfile(); stopErr != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("stop profile: %w", stopErr))
+		}
+	}()
 
 	sc := NewScorecard()
 	sc.Environment = CurrentEnvironment(h.cfg.BenchmarkTag)
@@ -100,21 +105,26 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 			if h.artemis == nil {
 				h.artemis = artemis
 			} else {
-				artemis.Close()
+				if closeErr := artemis.Close(); closeErr != nil {
+					return sc, fmt.Errorf("close superseded Artemis runner: %w", closeErr)
+				}
 				artemis = h.artemis
 			}
 		}
 		if w.Warmth == WarmthCold {
 			if h.artemis != nil {
-				h.artemis.Close()
+				if closeErr := h.artemis.Close(); closeErr != nil {
+					h.artemis = nil
+					return sc, fmt.Errorf("close warm Artemis runner: %w", closeErr)
+				}
 				h.artemis = nil
 			}
 			h.artemis = artemis
 		}
 		if w.Locality == LocalityNetwork {
-			artemis.Close()
+			closeErr := artemis.Close()
 			h.artemis = nil
-			return sc, fmt.Errorf("network locality not supported in this harness")
+			return sc, errors.Join(fmt.Errorf("network locality not supported in this harness"), closeErr)
 		}
 
 		results := make([]ScenarioResult, 0, w.Iterations)
@@ -126,13 +136,18 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 		median := medianResult(results)
 		sc.AddResult(median)
 		if w.Warmth == WarmthCold {
-			artemis.Close()
+			if closeErr := artemis.Close(); closeErr != nil {
+				h.artemis = nil
+				return sc, fmt.Errorf("close cold Artemis runner: %w", closeErr)
+			}
 			h.artemis = nil
 		}
 	}
 	defer func() {
 		if h.artemis != nil {
-			h.artemis.Close()
+			if closeErr := h.artemis.Close(); closeErr != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("close Artemis runner: %w", closeErr))
+			}
 			h.artemis = nil
 		}
 	}()
@@ -141,7 +156,11 @@ func (h *Harness) Run(ctx context.Context) (*Scorecard, error) {
 	if !h.cfg.SkipCompetitor {
 		sc.Mode = ModeHeadToHead
 		h.competitor = NewCompetitorRunner(h.cfg.Competitor)
-		defer h.competitor.Close()
+		defer func() {
+			if closeErr := h.competitor.Close(); closeErr != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("close competitor runner: %w", closeErr))
+			}
+		}()
 
 		honestReason := ""
 		if err := h.competitor.EnsureBinary(ctx); err != nil {
@@ -272,12 +291,19 @@ func medianResult(results []ScenarioResult) ScenarioResult {
 }
 
 // PrintSummary writes a human-readable summary to stdout.
-func PrintSummary(sc *Scorecard) {
+func PrintSummary(sc *Scorecard) error {
 	summaries := sc.Summarize()
-	fmt.Fprintf(os.Stdout, "\n=== Benchmark Summary ===\n")
-	for _, su := range summaries {
-		fmt.Fprintf(os.Stdout, "  %s: %d scenarios, %d wins, %d losses, %d errors, avg %.2f ms\n",
-			su.Engine, su.Scenarios, su.Wins, su.Losses, su.Errors, su.AvgMs)
+	if _, err := fmt.Fprintf(os.Stdout, "\n=== Benchmark Summary ===\n"); err != nil {
+		return fmt.Errorf("write benchmark summary header: %w", err)
 	}
-	fmt.Fprintf(os.Stdout, "\nScorecard written to benchmark/results/\n")
+	for _, su := range summaries {
+		if _, err := fmt.Fprintf(os.Stdout, "  %s: %d scenarios, %d wins, %d losses, %d errors, avg %.2f ms\n",
+			su.Engine, su.Scenarios, su.Wins, su.Losses, su.Errors, su.AvgMs); err != nil {
+			return fmt.Errorf("write benchmark summary: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintf(os.Stdout, "\nScorecard written to benchmark/results/\n"); err != nil {
+		return fmt.Errorf("write benchmark summary footer: %w", err)
+	}
+	return nil
 }

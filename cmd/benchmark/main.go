@@ -59,7 +59,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	benchmark.PrintSummary(sc)
+	if err := benchmark.PrintSummary(sc); err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func validateOptions(skipCompetitor, requireHeadToHead bool, iterations int, outputDir string) error {

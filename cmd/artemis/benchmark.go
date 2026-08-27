@@ -51,7 +51,10 @@ Flags:
 	}
 
 	if *format == "summary" {
-		benchmark.PrintSummary(sc)
+		if err := benchmark.PrintSummary(sc); err != nil {
+			errf("benchmark: %v", err)
+			return 1
+		}
 		return 0
 	}
 

@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,7 +30,10 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 			return nil, fmt.Errorf("cpu profile: %w", err)
 		}
 		if err := pprof.StartCPUProfile(f); err != nil {
-			f.Close()
+			closeErr := f.Close()
+			if closeErr != nil {
+				return nil, errors.Join(fmt.Errorf("start cpu profile: %w", err), fmt.Errorf("close cpu profile: %w", closeErr))
+			}
 			return nil, fmt.Errorf("start cpu profile: %w", err)
 		}
 	}
@@ -46,9 +50,16 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 			if err != nil {
 				return fmt.Errorf("mem profile: %w", err)
 			}
-			defer f.Close()
-			if err := pprof.WriteHeapProfile(f); err != nil {
-				return fmt.Errorf("write heap profile: %w", err)
+			writeErr := pprof.WriteHeapProfile(f)
+			closeErr := f.Close()
+			if writeErr != nil {
+				if closeErr != nil {
+					return errors.Join(fmt.Errorf("write heap profile: %w", writeErr), fmt.Errorf("close memory profile: %w", closeErr))
+				}
+				return fmt.Errorf("write heap profile: %w", writeErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close memory profile: %w", closeErr)
 			}
 		}
 		return nil

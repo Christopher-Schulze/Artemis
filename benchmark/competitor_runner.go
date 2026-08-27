@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -92,7 +93,7 @@ func (r *CompetitorRunner) IsAvailable() bool {
 // EnsureBinary downloads the competitor binary if not already present.
 // If DownloadURL is empty or the download fails, it returns an error
 // explaining the situation honestly.
-func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
+func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
 	if r.IsAvailable() {
 		if err := r.verifyChecksum(); err != nil {
 			return err
@@ -116,7 +117,11 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("competitor download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("competitor response close: %w", closeErr))
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("competitor download: HTTP %d", resp.StatusCode)
@@ -126,16 +131,20 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("competitor binary create: %w", err)
 	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		os.Remove(r.BinaryPath())
-		return fmt.Errorf("competitor binary write: %w", err)
+	_, copyErr := io.Copy(out, resp.Body)
+	closeErr := out.Close()
+	if copyErr != nil {
+		removeErr := os.Remove(r.BinaryPath())
+		return errors.Join(fmt.Errorf("competitor binary write: %w", copyErr), closeErr, removeErr)
+	}
+	if closeErr != nil {
+		removeErr := os.Remove(r.BinaryPath())
+		return errors.Join(fmt.Errorf("competitor binary close: %w", closeErr), removeErr)
 	}
 
 	if err := r.verifyChecksum(); err != nil {
-		os.Remove(r.BinaryPath())
-		return err
+		removeErr := os.Remove(r.BinaryPath())
+		return errors.Join(err, removeErr)
 	}
 
 	if runtime.GOOS != "windows" {
@@ -161,12 +170,16 @@ func (r *CompetitorRunner) verifyChecksum() error {
 	return nil
 }
 
-func fileSHA256(path string) (string, error) {
+func fileSHA256(path string) (sum string, returnErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close checksum file: %w", closeErr))
+		}
+	}()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -214,28 +227,39 @@ func (r *CompetitorRunner) Start(ctx context.Context) error {
 	for time.Now().Before(deadline) {
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
-			conn.Close()
+			if closeErr := conn.Close(); closeErr != nil {
+				stopErr := r.Stop()
+				return errors.Join(fmt.Errorf("competitor probe close: %w", closeErr), stopErr)
+			}
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			r.Stop()
-			return ctx.Err()
+			stopErr := r.Stop()
+			return errors.Join(ctx.Err(), stopErr)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
 
-	r.Stop()
-	return fmt.Errorf("competitor did not become reachable within %s", r.cfg.Timeout)
+	stopErr := r.Stop()
+	return errors.Join(fmt.Errorf("competitor did not become reachable within %s", r.cfg.Timeout), stopErr)
 }
 
 // Stop terminates the competitor subprocess.
-func (r *CompetitorRunner) Stop() {
+func (r *CompetitorRunner) Stop() error {
 	if r.cmd != nil && r.cmd.Process != nil {
-		r.cmd.Process.Signal(os.Interrupt)
-		r.cmd.Wait()
+		cmd := r.cmd
 		r.cmd = nil
+		var stopErr error
+		if signalErr := cmd.Process.Signal(os.Interrupt); signalErr != nil && !errors.Is(signalErr, os.ErrProcessDone) {
+			stopErr = fmt.Errorf("competitor interrupt: %w", signalErr)
+		}
+		if waitErr := cmd.Wait(); waitErr != nil && !errors.Is(waitErr, os.ErrProcessDone) {
+			stopErr = errors.Join(stopErr, fmt.Errorf("competitor wait: %w", waitErr))
+		}
+		return stopErr
 	}
+	return nil
 }
 
 // RunScenario runs the competitor against a single scenario by
@@ -270,11 +294,18 @@ func (r *CompetitorRunner) RunScenario(ctx context.Context, s Scenario, scenario
 		result.Error = fmt.Sprintf("competitor fetch: %v", err)
 		return result
 	}
-	defer resp.Body.Close()
-
 	if resp.StatusCode != 200 {
+		closeErr := resp.Body.Close()
 		result.WallMs = wallMs
 		result.Error = fmt.Sprintf("competitor HTTP %d", resp.StatusCode)
+		if closeErr != nil {
+			result.Error = fmt.Sprintf("%s; response close: %v", result.Error, closeErr)
+		}
+		return result
+	}
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		result.WallMs = wallMs
+		result.Error = fmt.Sprintf("competitor response close: %v", closeErr)
 		return result
 	}
 
@@ -284,8 +315,8 @@ func (r *CompetitorRunner) RunScenario(ctx context.Context, s Scenario, scenario
 }
 
 // Close stops the competitor if running.
-func (r *CompetitorRunner) Close() {
-	r.Stop()
+func (r *CompetitorRunner) Close() error {
+	return r.Stop()
 }
 
 // urlEncode is a minimal URL encoder for query parameters.
