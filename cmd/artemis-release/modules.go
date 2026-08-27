@@ -491,7 +491,7 @@ func findLicenseFiles(sourceDir string) ([]string, error) {
 }
 
 func copyLicense(stageRoot string, module goModule, source string, writeFile func(string, []byte, os.FileMode) error) (licenseEvidence, error) {
-	data, err := os.ReadFile(source)
+	data, err := os.ReadFile(filepath.Clean(source))
 	if err != nil {
 		return licenseEvidence{}, fmt.Errorf("read %s license: %w", module.Path, err)
 	}

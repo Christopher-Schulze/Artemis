@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -117,7 +118,7 @@ func LoadProxyProfiles(filePath string) (*ProxyProfileStore, error) {
 	if filePath == "" {
 		return s, nil
 	}
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filepath.Clean(filePath))
 	if err != nil {
 		return s, fmt.Errorf("proxy profiles: read file: %w", err)
 	}

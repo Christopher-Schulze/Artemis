@@ -5,6 +5,7 @@ package diagnostics
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -13,7 +14,7 @@ type fileLock struct {
 }
 
 func acquireFileLock(path string) (*fileLock, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("diagnostics lock: %w", err)
 	}

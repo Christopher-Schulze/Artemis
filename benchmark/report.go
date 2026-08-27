@@ -18,8 +18,9 @@ type RawArtifacts struct {
 // ReadRawArtifacts reads the committed scorecard files from the output directory.
 func ReadRawArtifacts(outputDir string) (RawArtifacts, error) {
 	var a RawArtifacts
-	jsonPath := filepath.Join(outputDir, "scorecard.json")
-	mdPath := filepath.Join(outputDir, "scorecard.md")
+	cleanOutputDir := filepath.Clean(outputDir)
+	jsonPath := filepath.Join(cleanOutputDir, "scorecard.json")
+	mdPath := filepath.Join(cleanOutputDir, "scorecard.md")
 
 	jsonData, err := os.ReadFile(jsonPath)
 	if err != nil {

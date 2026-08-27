@@ -320,7 +320,7 @@ func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
 	if bestFile == nil {
 		return nil, fmt.Errorf("rollback: no cached version available")
 	}
-	filePath := filepath.Join(u.cfg.StorageDir, bestFile.Name())
+	filePath := filepath.Clean(filepath.Join(u.cfg.StorageDir, bestFile.Name()))
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("rollback: read %s: %w", filePath, err)

@@ -155,7 +155,7 @@ func verifyCommittedAssets(generatedBlob []byte, generatedManifest js.SnapshotMa
 }
 
 func validateModuleRoot(root string) error {
-	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(root), "go.mod"))
 	if err != nil {
 		return fmt.Errorf("read Artemis go.mod: %w", err)
 	}

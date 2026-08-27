@@ -242,7 +242,7 @@ func prepareConfiguredProfile(configured string) (string, bool, string, error) {
 }
 
 func acquireProfileLease(profileDir string) (string, error) {
-	lease := filepath.Join(profileDir, profileLeaseName)
+	lease := filepath.Clean(filepath.Join(profileDir, profileLeaseName))
 	file, err := os.OpenFile(lease, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -516,7 +516,7 @@ func (b *Browser) terminalError() error {
 }
 
 func readEndpoint(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return "", err
 	}

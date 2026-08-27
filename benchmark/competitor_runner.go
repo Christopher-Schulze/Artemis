@@ -179,7 +179,7 @@ func (r *CompetitorRunner) verifyChecksum() error {
 }
 
 func fileSHA256(path string) (sum string, returnErr error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return "", err
 	}

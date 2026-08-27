@@ -332,15 +332,17 @@ func ancestorWithIdentity(path, expected string) (string, error) {
 }
 
 func withinPath(root, candidate string) bool {
-	rel, err := filepath.Rel(root, candidate)
+	cleanRoot := filepath.Clean(root)
+	cleanCandidate := filepath.Clean(candidate)
+	rel, err := filepath.Rel(cleanRoot, cleanCandidate)
 	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return true
 	}
-	rootInfo, err := os.Stat(root)
+	rootInfo, err := os.Stat(cleanRoot)
 	if err != nil {
 		return !errors.Is(err, os.ErrNotExist)
 	}
-	for current := filepath.Clean(candidate); ; current = filepath.Dir(current) {
+	for current := cleanCandidate; ; current = filepath.Dir(current) {
 		info, statErr := os.Stat(current)
 		if statErr == nil && os.SameFile(rootInfo, info) {
 			return true

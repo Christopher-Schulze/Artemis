@@ -133,7 +133,7 @@ func DefaultExtensionDir() string {
 // ValidateManifest checks that a manifest.json at the given directory
 // is a valid Manifest V3 with content_scripts.
 func ValidateManifest(dir string) error {
-	manifestPath := filepath.Join(dir, "manifest.json")
+	manifestPath := filepath.Clean(filepath.Join(dir, "manifest.json"))
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("stealth extension: read manifest: %w", err)

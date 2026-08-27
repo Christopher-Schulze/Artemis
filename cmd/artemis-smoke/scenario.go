@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,7 @@ type Step struct {
 
 // LoadScenarios reads and validates a scenario YAML file.
 func LoadScenarios(path string) (*ScenarioFile, error) {
+	path = filepath.Clean(path)
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", path, err)

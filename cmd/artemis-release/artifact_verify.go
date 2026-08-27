@@ -169,7 +169,7 @@ func compareReleaseFiles(expected, actual []releaseFile) error {
 }
 
 func verifyChecksums(root string, files []releaseFile) (returnErr error) {
-	checksumPath := filepath.Join(root, checksumsFile)
+	checksumPath := filepath.Join(filepath.Clean(root), checksumsFile)
 	file, err := os.Open(checksumPath)
 	if err != nil {
 		return err
@@ -272,7 +272,7 @@ func verifyReplacementEvidence(actual *moduleReplacement, expected *goModule) er
 }
 
 func decodeStrictJSONFile(path string, destination any) (returnErr error) {
-	file, err := os.Open(path)
+	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,8 @@ import (
 )
 
 func copyDurableFile(source, destination string) (returnErr error) {
+	source = filepath.Clean(source)
+	destination = filepath.Clean(destination)
 	sourceFile, err := os.Open(source)
 	if err != nil {
 		return err
@@ -51,6 +53,7 @@ func copyDurableFile(source, destination string) (returnErr error) {
 }
 
 func writeDurableFile(path string, data []byte, mode os.FileMode) (returnErr error) {
+	path = filepath.Clean(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -76,7 +79,7 @@ func writeDurableFile(path string, data []byte, mode os.FileMode) (returnErr err
 }
 
 func hashFile(path string) (digest string, returnErr error) {
-	file, err := os.Open(path)
+	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return "", err
 	}
@@ -116,7 +119,7 @@ func syncDirectoryTree(root string) error {
 }
 
 func syncDirectory(path string) (returnErr error) {
-	directory, err := os.Open(path)
+	directory, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return err
 	}

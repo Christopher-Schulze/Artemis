@@ -168,7 +168,7 @@ func (s *CookieStore) ExportToFile(path string, domain string) error {
 
 // ImportFromFile reads cookies from a JSON file.
 func (s *CookieStore) ImportFromFile(path string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return fmt.Errorf("cookie store: read: %w", err)
 	}

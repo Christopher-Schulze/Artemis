@@ -657,7 +657,7 @@ func (m *RuntimeManager) lockProfile(id ProfileID) error {
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return err
 	}
-	lockPath := filepath.Join(lockDir, string(id)+".lock")
+	lockPath := filepath.Clean(filepath.Join(lockDir, string(id)+".lock"))
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrExist) {
 		if !staleProcessLock(lockPath) {
@@ -682,7 +682,7 @@ func (m *RuntimeManager) lockProfile(id ProfileID) error {
 }
 
 func staleProcessLock(path string) bool {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return false
 	}

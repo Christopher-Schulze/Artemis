@@ -424,6 +424,7 @@ func (m *DownloadManager) AdoptContext(ctx context.Context, path, declaredType s
 }
 
 func (m *DownloadManager) adoptLocked(ctx context.Context, target, declaredType string) (download *Download, resultErr error) {
+	target = filepath.Clean(target)
 	accepted := false
 	defer func() {
 		if accepted {
@@ -571,6 +572,7 @@ func (m *DownloadManager) validateCapacityLocked(size int64, exclude string) err
 }
 
 func ensurePrivateDirectory(path string) error {
+	path = filepath.Clean(path)
 	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
@@ -676,7 +678,7 @@ func downloadFreeBytes(path string) (int64, error) {
 }
 
 func syncDownloadDirectory(path string) (returnErr error) {
-	directory, err := os.Open(path)
+	directory, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return fmt.Errorf("open directory: %w", err)
 	}

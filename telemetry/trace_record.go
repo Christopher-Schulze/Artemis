@@ -271,7 +271,7 @@ func (r *TraceRecorder) Duration() time.Duration {
 
 // writeZip writes the trace data as a .zip archive to the supplied path.
 func (r *TraceRecorder) writeZip(path string) (writeErr error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}

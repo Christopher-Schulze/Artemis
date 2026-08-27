@@ -239,7 +239,7 @@ func SaveStorageStateFile(state *StorageState, path string) (returnErr error) {
 
 // LoadStorageStateFile reads a StorageState from a JSON file (spec L4262).
 func LoadStorageStateFile(path string) (*StorageState, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("storage state: read %s: %w", path, err)
 	}

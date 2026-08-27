@@ -244,6 +244,7 @@ func (r *WorkflowCaptureRecorder) Stats() (total, recorded, screenshots, destruc
 // recording must be stopped first (or Stop is called implicitly). Parent
 // directories are created with 0700 permissions; the file is written 0600.
 func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
+	path = filepath.Clean(path)
 	rec := r.Stop()
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
@@ -264,6 +265,7 @@ func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
 
 // LoadRecordingFromFile reads a previously saved recording (spec L4561).
 func LoadRecordingFromFile(path string) (*WorkflowRecording, error) {
+	path = filepath.Clean(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("workflow capture: read %s: %w", path, err)

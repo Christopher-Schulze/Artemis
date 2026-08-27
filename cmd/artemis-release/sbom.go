@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -168,7 +169,7 @@ func deterministicSerial(inputs releaseInputs, moduleGraphDigest string) string 
 }
 
 func validateSBOMFile(path string, inputs releaseInputs, inventory moduleInventory, report licenseReport) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
