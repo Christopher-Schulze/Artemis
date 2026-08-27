@@ -179,9 +179,9 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *Robot
 	}
 	var responseBytes int64
 	defer func() {
-		if finishErr := finish(responseBytes); finishErr != nil && resultErr == nil {
+		if finishErr := finish(responseBytes); finishErr != nil {
 			result = nil
-			resultErr = finishErr
+			resultErr = errors.Join(resultErr, finishErr)
 		}
 	}()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, robotsURL.String(), nil)
@@ -201,7 +201,12 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *Robot
 		c.robots.put(u.Host, empty)
 		return empty, nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			result = nil
+			resultErr = errors.Join(resultErr, fmt.Errorf("close robots response: %w", closeErr))
+		}
+	}()
 	if resp.StatusCode != 200 {
 		empty := &RobotsPolicy{Groups: map[string][]RobotsRule{}}
 		c.robots.put(u.Host, empty)

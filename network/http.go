@@ -180,9 +180,9 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	}
 	var responseBytes int64
 	defer func() {
-		if finishErr := finish(responseBytes); finishErr != nil && resultErr == nil {
+		if finishErr := finish(responseBytes); finishErr != nil {
 			result = nil
-			resultErr = finishErr
+			resultErr = errors.Join(resultErr, finishErr)
 		}
 	}()
 	if r.URL == "" {
@@ -212,7 +212,12 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	if err != nil {
 		return nil, fmt.Errorf("do request %s %s: %w", method, r.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			result = nil
+			resultErr = errors.Join(resultErr, fmt.Errorf("close response body: %w", closeErr))
+		}
+	}()
 
 	limit := r.MaxBodyBytes
 	if limit == 0 {

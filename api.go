@@ -180,7 +180,9 @@ func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 	hybrid, hybridErr := a.buildHybridRouter(runtime)
 	if hybridErr != nil {
 		cancel()
-		_ = runtime.Close()
+		if closeErr := runtime.Close(); closeErr != nil {
+			hybridErr = errors.Join(hybridErr, fmt.Errorf("runtime rollback close: %w", closeErr))
+		}
 		a.mu.Lock()
 		a.state = AgentStateError
 		a.mu.Unlock()
@@ -190,8 +192,11 @@ func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 	if a.state != AgentStateStarting {
 		a.mu.Unlock()
 		cancel()
-		_ = runtime.Close()
-		return newTaskError(TaskErrorInvalidTransition, "start", fmt.Errorf("state changed during startup"))
+		transitionErr := fmt.Errorf("state changed during startup")
+		if closeErr := runtime.Close(); closeErr != nil {
+			transitionErr = errors.Join(transitionErr, fmt.Errorf("runtime rollback close: %w", closeErr))
+		}
+		return newTaskError(TaskErrorInvalidTransition, "start", transitionErr)
 	}
 	a.runtime = runtime
 	a.hybrid = hybrid
@@ -418,12 +423,15 @@ func executeTaskThroughRouter(ctx context.Context, lease executionLease, task Ta
 	if err != nil {
 		return nil, routeErrorToTaskError(err)
 	}
-	defer result.Close()
-	return &PageResult{
+	pageResult := &PageResult{
 		URL: result.Output.URL, StatusCode: result.Output.StatusCode, Title: result.Output.Title,
 		HTML: result.Output.HTML, Text: result.Output.Text, Markdown: result.Output.Markdown,
 		Links: result.Output.Links,
-	}, nil
+	}
+	if closeErr := result.Close(); closeErr != nil {
+		return nil, newTaskError(TaskErrorExecutionFailed, "route close", fmt.Errorf("release route resource: %w", closeErr))
+	}
+	return pageResult, nil
 }
 
 func routeErrorToTaskError(err error) *TaskError {

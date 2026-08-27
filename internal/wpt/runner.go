@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strings"
@@ -76,7 +77,9 @@ func NewRunner() (*Runner, error) {
 	}
 	r := &Runner{Engine: eng, Server: srv}
 	if err := r.registerFiles(); err != nil {
-		r.Close()
+		if closeErr := r.Close(); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close WPT runner: %w", closeErr))
+		}
 		return nil, err
 	}
 	return r, nil
@@ -111,7 +114,7 @@ func (r *Runner) Run(ctx context.Context, subset Subset) ([]Result, error) {
 }
 
 // RunCase runs a single WPT test case and returns its observed result.
-func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
+func (r *Runner) RunCase(ctx context.Context, tc TestCase) (result Result, resultErr error) {
 	if r == nil || r.Engine == nil || r.Server == nil {
 		return Result{}, fmt.Errorf("wpt: initialized runner is required")
 	}
@@ -123,7 +126,12 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("fetch %s: %w", tc.Path, err)
 	}
-	defer page.Close()
+	defer func() {
+		if closeErr := page.Close(); closeErr != nil {
+			result = Result{}
+			resultErr = errors.Join(resultErr, fmt.Errorf("close WPT page: %w", closeErr))
+		}
+	}()
 
 	if _, dispatchErr := page.Eval(ctx, "window.dispatchEvent(new Event('load'))"); dispatchErr != nil {
 		return Result{}, fmt.Errorf("dispatch load %s: %w", tc.Path, dispatchErr)
@@ -154,17 +162,17 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (Result, error) {
 
 	for _, t := range report.Tests {
 		if t.Name == tc.Name {
-			result := Result{
+			caseResult := Result{
 				Path:          tc.Path,
 				Name:          tc.Name,
 				Status:        testStatus(t.Status),
 				Message:       t.Message,
 				HarnessStatus: harnessStatus(report.HarnessStatus),
 			}
-			if err := result.Validate(); err != nil {
+			if err := caseResult.Validate(); err != nil {
 				return Result{}, err
 			}
-			return result, nil
+			return caseResult, nil
 		}
 	}
 

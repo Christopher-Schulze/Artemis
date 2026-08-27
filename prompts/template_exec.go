@@ -80,7 +80,9 @@ func (e *TemplateExecutor) Execute(ctx context.Context, situation string, variab
 
 	pageTokens := 0
 	if v, ok := variables["page_estimated_tokens"]; ok {
-		fmt.Sscanf(v, "%d", &pageTokens)
+		if _, scanErr := fmt.Sscanf(v, "%d", &pageTokens); scanErr != nil {
+			return "", fmt.Errorf("prompts: invalid page_estimated_tokens %q: %w", v, scanErr)
+		}
 	}
 
 	pt, err := e.selector(ctx, situation)

@@ -162,7 +162,7 @@ func (d *ChromeDiscovery) tryJSONList(host string, port int) (DiscoveryResult, e
 	}, nil
 }
 
-func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (DiscoveryResult, error) {
+func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (result DiscoveryResult, resultErr error) {
 	wsURL := FormatWebSocketURL(host, port, "/devtools/browser")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -170,7 +170,11 @@ func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (DiscoveryRe
 	if err != nil {
 		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, err
 	}
-	defer transport.Close()
+	defer func() {
+		if closeErr := transport.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close DevTools transport: %w", closeErr))
+		}
+	}()
 	var version BrowserVersion
 	if err := transport.Call(ctx, "Browser.getVersion", nil, &version); err != nil {
 		return DiscoveryResult{URL: wsURL, Method: DiscoveryDevToolsBrowser, Found: false}, err
@@ -183,7 +187,7 @@ func (d *ChromeDiscovery) tryDevToolsBrowser(host string, port int) (DiscoveryRe
 	}, nil
 }
 
-func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
+func (d *ChromeDiscovery) fetch(url string) (data []byte, resultErr error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -194,12 +198,16 @@ func (d *ChromeDiscovery) fetch(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close discovery response: %w", closeErr))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d for %s", resp.StatusCode, url)
 	}
 	const maxDiscoveryResponse = 1024 * 1024
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryResponse+1))
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryResponse+1))
 	if err != nil {
 		return nil, err
 	}

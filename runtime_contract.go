@@ -263,11 +263,14 @@ func executeFetch(ctx context.Context, runtime RenderlessRuntime, action FetchAc
 	if page == nil {
 		return nil, newTaskError(TaskErrorExecutionFailed, "fetch", fmt.Errorf("runtime returned no page"))
 	}
-	defer page.Close()
-	return &PageResult{
+	pageResult := &PageResult{
 		URL: page.URL(), StatusCode: page.StatusCode(), Title: page.Title(), HTML: page.HTML(),
 		Text: page.Text(), Markdown: page.Markdown(), Links: page.Links(),
-	}, nil
+	}
+	if closeErr := page.Close(); closeErr != nil {
+		return nil, newTaskError(TaskErrorExecutionFailed, "fetch close", fmt.Errorf("release fetched page: %w", closeErr))
+	}
+	return pageResult, nil
 }
 
 // SessionStore owns the active session registry.

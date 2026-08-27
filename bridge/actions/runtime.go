@@ -663,7 +663,7 @@ func (r *Runtime) upload(ctx context.Context, n bridgeobserve.Node, q Request, e
 	}
 	return Outcome{Success: true, Value: names, Evidence: e}
 }
-func (r *Runtime) download(ctx context.Context, n bridgeobserve.Node, q Request, e Evidence) Outcome {
+func (r *Runtime) download(ctx context.Context, n bridgeobserve.Node, q Request, e Evidence) (outcome Outcome) {
 	manager, err := r.downloadManager()
 	if err != nil {
 		return failedNow(e, FailureValidation, err.Error())
@@ -672,7 +672,17 @@ func (r *Runtime) download(ctx context.Context, n bridgeobserve.Node, q Request,
 	if err != nil {
 		return failedNow(e, FailureValidation, err.Error())
 	}
-	defer stage.Close()
+	defer func() {
+		if closeErr := stage.Close(); closeErr != nil {
+			outcome.Success = false
+			outcome.Failure = FailureProtocol
+			if outcome.Error == "" {
+				outcome.Error = fmt.Sprintf("download stage cleanup: %v", closeErr)
+			} else {
+				outcome.Error = fmt.Sprintf("%s; download stage cleanup: %v", outcome.Error, closeErr)
+			}
+		}
+	}()
 	subscription, err := r.page.SubscribeBrowserEvents(64)
 	if err != nil {
 		return failedNow(e, FailureProtocol, err.Error())

@@ -353,7 +353,7 @@ func (s *Store) refreshFileLocked(now time.Time) (bool, error) {
 	return s.loadFileLocked(now)
 }
 
-func (s *Store) loadFileLocked(now time.Time) (bool, error) {
+func (s *Store) loadFileLocked(now time.Time) (changed bool, resultErr error) {
 	file, err := os.Open(s.config.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		s.records = nil
@@ -365,7 +365,11 @@ func (s *Store) loadFileLocked(now time.Time) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("diagnostics open: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("diagnostics close: %w", closeErr))
+		}
+	}()
 	info, err := file.Stat()
 	if err != nil {
 		return false, fmt.Errorf("diagnostics stat: %w", err)
