@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -41,11 +43,26 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	}
 	addr = ln.Addr().String()
 	httpSrv := &http.Server{Handler: http.HandlerFunc(srv.HandleWSForTest)}
-	go func() { _ = httpSrv.Serve(ln) }()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- httpSrv.Serve(ln) }()
 	cleanup = func() {
-		_ = httpSrv.Close()
-		_ = ln.Close()
-		_ = agent.Stop()
+		if err := httpSrv.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close HTTP server: %v", err)
+		}
+		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close listener: %v", err)
+		}
+		select {
+		case err := <-serveErr:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("serve HTTP server: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("HTTP server did not stop after cleanup")
+		}
+		if err := agent.Stop(); err != nil {
+			t.Errorf("stop agent: %v", err)
+		}
 	}
 	return addr, cleanup
 }
@@ -53,7 +70,9 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 func TestRunnerScenarioAgainstLocalServer(t *testing.T) {
 	// Local page that the scenario will fetch.
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>LocalTest</title></head><body><h1>Hello Smoke</h1></body></html>`)
+		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>LocalTest</title></head><body><h1>Hello Smoke</h1></body></html>`); err != nil {
+			t.Errorf("write local page: %v", err)
+		}
 	}))
 	defer page.Close()
 
@@ -116,7 +135,9 @@ func TestRunnerScenarioAgainstLocalServer(t *testing.T) {
 
 func TestRunnerScenarioAssertFailureFailsScenario(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head><title>Wrong</title></head><body></body></html>`)
+		if _, err := fmt.Fprint(w, `<!doctype html><html><head><title>Wrong</title></head><body></body></html>`); err != nil {
+			t.Errorf("write wrong-title page: %v", err)
+		}
 	}))
 	defer page.Close()
 
@@ -350,7 +371,9 @@ func splitAddr(addr string) (host string, port int) {
 	if err != nil {
 		panic("splitAddr: " + err.Error())
 	}
-	var pi int
-	fmt.Sscanf(p, "%d", &pi)
+	pi, err := strconv.Atoi(p)
+	if err != nil {
+		panic("splitAddr: " + err.Error())
+	}
 	return h, pi
 }
