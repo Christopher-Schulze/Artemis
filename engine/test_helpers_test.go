@@ -13,14 +13,14 @@ import (
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
-func closeTestResource(t *testing.T, label string, close func() error) {
+func closeTestResource(t testing.TB, label string, close func() error) {
 	t.Helper()
 	if err := close(); err != nil {
 		t.Errorf("%s: %v", label, err)
 	}
 }
 
-func writeTestBody(t *testing.T, w io.Writer, body string) {
+func writeTestBody(t testing.TB, w io.Writer, body string) {
 	t.Helper()
 	if _, err := fmt.Fprint(w, body); err != nil {
 		t.Errorf("write test body: %v", err)
@@ -59,7 +59,7 @@ func testConfig(srvs ...*httptest.Server) Config {
 
 // mustNewTest builds an engine with testConfig(srvs...) and fails the test
 // on error.
-func mustNewTest(t *testing.T, srvs ...*httptest.Server) *Engine {
+func mustNewTest(t testing.TB, srvs ...*httptest.Server) *Engine {
 	t.Helper()
 	eng, err := New(testConfig(srvs...))
 	if err != nil {
@@ -69,7 +69,7 @@ func mustNewTest(t *testing.T, srvs ...*httptest.Server) *Engine {
 }
 
 // mustFetch fetches rawURL with opts and fails the test on error.
-func mustFetch(t *testing.T, eng *Engine, rawURL string, opts FetchOpts) *Page {
+func mustFetch(t testing.TB, eng *Engine, rawURL string, opts FetchOpts) *Page {
 	t.Helper()
 	page, err := eng.Fetch(context.Background(), rawURL, opts)
 	if err != nil {

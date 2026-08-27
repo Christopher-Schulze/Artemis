@@ -98,9 +98,11 @@ func TestTabRecyclerRecycleNavigateError(t *testing.T) {
 func TestTabRecyclerReuse(t *testing.T) {
 	r := NewTabRecycler(8)
 	r.Register("tab1", "https://example.com")
-	r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+	if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	tab, err := r.Reuse("tab1", "https://newsite.com")
 	if err != nil {
@@ -161,9 +163,11 @@ func TestTabRecyclerAvailable(t *testing.T) {
 		t.Fatal("expected no available tabs")
 	}
 
-	r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+	if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	tab := r.Available()
 	if tab == nil {
@@ -178,30 +182,43 @@ func TestTabRecyclerCount(t *testing.T) {
 	r := NewTabRecycler(8)
 	r.Register("tab1", "https://example.com")
 	r.Register("tab2", "https://other.com")
-	r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+	if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	active, idle, recycled, _ := r.Count()
+	active, idle, recycled, closed := r.Count()
 	if active != 1 {
 		t.Fatalf("expected 1 active, got %d", active)
 	}
 	if recycled != 1 {
 		t.Fatalf("expected 1 recycled, got %d", recycled)
 	}
-	_ = idle
+	if idle != 0 {
+		t.Fatalf("expected 0 idle, got %d", idle)
+	}
+	if closed != 0 {
+		t.Fatalf("expected 0 closed, got %d", closed)
+	}
 }
 
 func TestTabRecyclerRecycledCount(t *testing.T) {
 	r := NewTabRecycler(8)
 	r.Register("tab1", "https://example.com")
-	r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+	if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
-	})
-	r.Reuse("tab1", "https://new.com")
-	r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reuse("tab1", "https://new.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if r.RecycledCount() != 2 {
 		t.Fatalf("expected 2 recycles, got %d", r.RecycledCount())
@@ -211,7 +228,9 @@ func TestTabRecyclerRecycledCount(t *testing.T) {
 func TestTabRecyclerClosedCount(t *testing.T) {
 	r := NewTabRecycler(8)
 	r.Register("tab1", "https://example.com")
-	r.Close("tab1")
+	if err := r.Close("tab1"); err != nil {
+		t.Fatal(err)
+	}
 	if r.ClosedCount() != 1 {
 		t.Fatalf("expected 1 closed, got %d", r.ClosedCount())
 	}
@@ -282,7 +301,9 @@ func TestTabStateString(t *testing.T) {
 func TestTabRecyclerRecycleClosedTab(t *testing.T) {
 	r := NewTabRecycler(8)
 	r.Register("tab1", "https://example.com")
-	r.Close("tab1")
+	if err := r.Close("tab1"); err != nil {
+		t.Fatal(err)
+	}
 	_, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 		return nil
 	})
@@ -296,10 +317,14 @@ func TestTabRecyclerMultipleRecycles(t *testing.T) {
 	r.Register("tab1", "https://example.com")
 
 	for i := 0; i < 5; i++ {
-		r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
+		if _, err := r.Recycle(context.Background(), "tab1", func(ctx context.Context, url string) error {
 			return nil
-		})
-		r.Reuse("tab1", "https://new.com")
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Reuse("tab1", "https://new.com"); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	tab, _ := r.Get("tab1")
