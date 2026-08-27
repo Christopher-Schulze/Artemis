@@ -86,8 +86,8 @@ func TestServerCookiePersistence(t *testing.T) {
 		t.Fatalf("cookie jar: %v", err)
 	}
 	client := &http.Client{Jar: jar}
-	if _, err := client.Get(s.URL("/cookie-001")); err != nil {
-		t.Fatalf("GET cookie-001: %v", err)
+	if _, requestErr := client.Get(s.URL("/cookie-001")); requestErr != nil {
+		t.Fatalf("GET cookie-001: %v", requestErr)
 	}
 	resp, err := client.Get(s.URL("/cookie-002"))
 	if err != nil {
@@ -210,8 +210,8 @@ func TestServerWebSocketEcho(t *testing.T) {
 	}
 	defer c.CloseNow()
 
-	if err := c.Write(ctx, websocket.MessageText, []byte("hello")); err != nil {
-		t.Fatalf("write: %v", err)
+	if writeErr := c.Write(ctx, websocket.MessageText, []byte("hello")); writeErr != nil {
+		t.Fatalf("write: %v", writeErr)
 	}
 	typ, data, err := c.Read(ctx)
 	if err != nil {

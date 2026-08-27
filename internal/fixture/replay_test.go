@@ -61,8 +61,8 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 	}
 
 	path := filepath.Join(dir, replay.filename())
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("replay file not written: %v", err)
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("replay file not written: %v", statErr)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

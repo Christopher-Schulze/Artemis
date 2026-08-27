@@ -45,8 +45,8 @@ func TestPooledContextResetsGlobals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewContext: %v", err)
 	}
-	if _, err := c1.Eval(context.Background(), `globalThis.__leaktest = 'page1'`); err != nil {
-		t.Fatalf("set leaktest: %v", err)
+	if _, evalErr := c1.Eval(context.Background(), `globalThis.__leaktest = 'page1'`); evalErr != nil {
+		t.Fatalf("set leaktest: %v", evalErr)
 	}
 	c1.Close()
 

@@ -98,12 +98,12 @@ func TestWFReferrerForDomainEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer mem.Close()
-	if err := mem.Remember(DomainMemoryEntry{
+	if rememberErr := mem.Remember(DomainMemoryEntry{
 		Domain: "shop.example.com", Purpose: "price",
 		AckID: "ack-1", Level: StealthParanoid,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
-	}); err != nil {
-		t.Fatal(err)
+	}); rememberErr != nil {
+		t.Fatal(rememberErr)
 	}
 	mem2, err := ReferrerForDomain("https://shop.example.com/item", mem)
 	if err != nil {

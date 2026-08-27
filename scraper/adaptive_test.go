@@ -16,8 +16,8 @@ func TestAdaptiveSelectorCache(t *testing.T) {
 		Domain: "example.com", URLPattern: "/products/*",
 		Selector: ".product-title", Confidence: 0.9,
 	}
-	if err := cache.Put(entry); err != nil {
-		t.Fatal(err)
+	if putErr := cache.Put(entry); putErr != nil {
+		t.Fatal(putErr)
 	}
 	got, ok := cache.Get("example.com", "/products/*")
 	if !ok || got.Selector != ".product-title" {

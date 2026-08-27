@@ -22,9 +22,9 @@ func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
 		t.Fatalf("agent: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := agent.Start(ctx); err != nil {
+	if startErr := agent.Start(ctx); startErr != nil {
 		cancel()
-		t.Fatalf("agent start: %v", err)
+		t.Fatalf("agent start: %v", startErr)
 	}
 	server := New(agent, opts)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -143,19 +143,19 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 		replacement = "1"
 	}
 	tampered := clientID[:len(clientID)-1] + replacement
-	if invalid, response, err := dialSecurityClient(t, addr, testAuthToken, tampered, ""); err == nil {
+	if invalid, response, authErr := dialSecurityClient(t, addr, testAuthToken, tampered, ""); authErr == nil {
 		_ = invalid.CloseNow()
 		t.Fatal("tampered client capability connected")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("tampered client response = %+v, err = %v", response, err)
+		t.Fatalf("tampered client response = %+v, err = %v", response, authErr)
 	}
 	created := roundTrip(t, owner, Request{ID: "new", Cmd: string(CmdSessionNew)})
 	if !created.OK {
 		t.Fatalf("session.new: %+v", created.Error)
 	}
 	var session SessionNewResult
-	if err := DecodeTypedResult(&created, &session); err != nil {
-		t.Fatal(err)
+	if decodeErr := DecodeTypedResult(&created, &session); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 
 	other, _, err := dialSecurityClient(t, addr, testAuthToken, "", "")
@@ -169,8 +169,8 @@ func TestServeSessionOwnershipAndReconnectCapability(t *testing.T) {
 	}
 	listed := roundTrip(t, other, Request{ID: "list", Cmd: string(CmdSessionList)})
 	var list SessionListResult
-	if err := DecodeTypedResult(&listed, &list); err != nil {
-		t.Fatal(err)
+	if decodeErr := DecodeTypedResult(&listed, &list); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 	if len(list.Sessions) != 0 {
 		t.Fatalf("other client listed owned sessions: %+v", list.Sessions)
@@ -228,19 +228,19 @@ func TestTokenRotationRevokesConnectionsAndOwnedSessions(t *testing.T) {
 	}
 	rotated := roundTrip(t, connection, Request{ID: "rotate", Cmd: string(CmdTokenRotate)})
 	var result TokenRotateResult
-	if err := DecodeTypedResult(&rotated, &result); err != nil {
-		t.Fatalf("token.rotate: %v", err)
+	if decodeErr := DecodeTypedResult(&rotated, &result); decodeErr != nil {
+		t.Fatalf("token.rotate: %v", decodeErr)
 	}
 	if result.Token == "" || result.Token == testAuthToken {
 		t.Fatalf("rotated token = %q", result.Token)
 	}
 	_ = connection.CloseNow()
 
-	if oldConnection, response, err := dialSecurityClient(t, addr, testAuthToken, "", ""); err == nil {
+	if oldConnection, response, authErr := dialSecurityClient(t, addr, testAuthToken, "", ""); authErr == nil {
 		_ = oldConnection.CloseNow()
 		t.Fatal("old token remained valid after rotation")
 	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("old token response = %+v, err = %v", response, err)
+		t.Fatalf("old token response = %+v, err = %v", response, authErr)
 	}
 	newConnection, _, err := dialSecurityClient(t, addr, result.Token, "", "")
 	if err != nil {

@@ -324,7 +324,7 @@ func TestHybridRouterCircuitBreakerBlocksAfterThreshold(t *testing.T) {
 		t.Fatalf("router.New: %v", err)
 	}
 	request := RouteRequest{URL: "https://fixture.test/failure", Signals: Signals{IsHTML: true}, Policy: Policy{AllowedModes: map[Mode]bool{ModeStaticFetch: true}, CircuitFailureThreshold: 1}}
-	if _, err := r.Execute(context.Background(), request); err == nil {
+	if _, executeErr := r.Execute(context.Background(), request); executeErr == nil {
 		t.Fatal("first execution unexpectedly succeeded")
 	}
 	_, err = r.Execute(context.Background(), request)

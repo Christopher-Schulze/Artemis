@@ -41,15 +41,15 @@ func BenchmarkWFAdaptiveCachePerfBaseline(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err := warm.Put(AdaptiveEntry{
+	if putErr := warm.Put(AdaptiveEntry{
 		Domain: "example.com", URLPattern: "/p/*",
 		Selector: ".title", Confidence: 0.9,
-	}); err != nil {
-		b.Fatal(err)
+	}); putErr != nil {
+		b.Fatal(putErr)
 	}
 	// Close the warm cache so the baseline opens cold against the same file.
-	if err := warm.Close(); err != nil {
-		b.Fatal(err)
+	if closeErr := warm.Close(); closeErr != nil {
+		b.Fatal(closeErr)
 	}
 	cold, err := OpenAdaptiveCache(path, 128)
 	if err != nil {
@@ -113,8 +113,8 @@ func TestWFAdaptiveCacheEffect(t *testing.T) {
 		Domain: "news.example.com", URLPattern: "/article/*",
 		Selector: "article h1", Confidence: 0.78,
 	}
-	if err := c1.Put(want); err != nil {
-		t.Fatal(err)
+	if putErr := c1.Put(want); putErr != nil {
+		t.Fatal(putErr)
 	}
 	c2, err := OpenAdaptiveCache(path, 64)
 	if err != nil {

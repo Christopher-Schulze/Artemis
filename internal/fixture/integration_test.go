@@ -555,8 +555,8 @@ func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	if err := agent.Start(ctx); err != nil {
-		t.Fatalf("agent.Start: %v", err)
+	if startErr := agent.Start(ctx); startErr != nil {
+		t.Fatalf("agent.Start: %v", startErr)
 	}
 	r.agent = agent
 	r.server = serve.New(agent, serve.Opts{
@@ -647,25 +647,25 @@ func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 	}
 	pageID := open.PageID
 	if sc.RunScripts && sc.WaitForIdle {
-		resp := r.call(t, c, serve.CmdPageWaitIdle, serve.PageWaitIdleParams{SessionID: r.sessID, PageID: pageID})
-		if !resp.OK {
-			t.Fatalf("page.wait_idle: %v", resp.Error)
+		waitResp := r.call(t, c, serve.CmdPageWaitIdle, serve.PageWaitIdleParams{SessionID: r.sessID, PageID: pageID})
+		if !waitResp.OK {
+			t.Fatalf("page.wait_idle: %v", waitResp.Error)
 		}
 	}
 
 	var evalRes, evalErr string
 	if sc.Expect.Eval != "" {
-		resp := r.call(t, c, serve.CmdPageEval, serve.PageEvalParams{
+		evalResp := r.call(t, c, serve.CmdPageEval, serve.PageEvalParams{
 			SessionID: r.sessID,
 			PageID:    pageID,
 			Expr:      sc.Expect.Eval,
 		})
-		if !resp.OK {
-			evalErr = fmt.Sprintf("%s: %s", resp.Error.Code, resp.Error.Message)
+		if !evalResp.OK {
+			evalErr = fmt.Sprintf("%s: %s", evalResp.Error.Code, evalResp.Error.Message)
 		} else {
 			var eval serve.PageEvalResult
-			if err := serve.DecodeTypedResult(&resp, &eval); err != nil {
-				t.Fatalf("page.eval decode: %v", err)
+			if decodeErr := serve.DecodeTypedResult(&evalResp, &eval); decodeErr != nil {
+				t.Fatalf("page.eval decode: %v", decodeErr)
 			}
 			evalRes = eval.Value
 		}

@@ -92,8 +92,8 @@ func TestFormIntentRuntimePrefetchesOnceAndReusesValueFreeCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := runtime.Close(); err != nil {
-			t.Errorf("close runtime: %v", err)
+		if closeErr := runtime.Close(); closeErr != nil {
+			t.Errorf("close runtime: %v", closeErr)
 		}
 	})
 	intent := testFormIntent("alpha", "bravo")

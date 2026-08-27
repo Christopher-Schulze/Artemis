@@ -129,10 +129,10 @@ func runSnapshotPoolProbe(t *testing.T, useSnapshot bool) string {
 		rt.Close()
 		t.Fatalf("first pooled context: %v", err)
 	}
-	if _, err := first.Eval(context.Background(), `globalThis.__parity_pool_probe = 'set'`); err != nil {
+	if _, evalErr := first.Eval(context.Background(), `globalThis.__parity_pool_probe = 'set'`); evalErr != nil {
 		first.Close()
 		rt.Close()
-		t.Fatalf("first pooled eval: %v", err)
+		t.Fatalf("first pooled eval: %v", evalErr)
 	}
 	first.Close()
 	second, err := rt.NewContext(doc, ContextOpts{})

@@ -208,11 +208,11 @@ func TestCloseWritesFooter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHARStream: %v", err)
 	}
-	if err := s.AddEntry(HAREntry{Request: HARRequest{Method: "GET", URL: "u"}, Response: HARResponse{Status: 200}}); err != nil {
-		t.Fatalf("AddEntry: %v", err)
+	if addErr := s.AddEntry(HAREntry{Request: HARRequest{Method: "GET", URL: "u"}, Response: HARResponse{Status: 200}}); addErr != nil {
+		t.Fatalf("AddEntry: %v", addErr)
 	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if closeErr := s.Close(); closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
 	}
 
 	data, err := os.ReadFile(path)
@@ -354,8 +354,8 @@ func TestBodyOverLimitSkippedWithSizeRecorded(t *testing.T) {
 	if err := s.AddEntry(entry); err != nil {
 		t.Fatalf("AddEntry: %v", err)
 	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if closeErr := s.Close(); closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
 	}
 
 	hf := parseHARFile(t, path)
@@ -497,8 +497,8 @@ func TestAddEntryOnClosedStreamErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHARStream: %v", err)
 	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if closeErr := s.Close(); closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
 	}
 	err = s.AddEntry(HAREntry{Request: HARRequest{Method: "GET"}, Response: HARResponse{Status: 200}})
 	if err == nil {

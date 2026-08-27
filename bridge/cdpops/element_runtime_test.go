@@ -209,7 +209,7 @@ func TestElementClientDetachedFastPathAndCanonicalRedaction(t *testing.T) {
 		nodeIDs: []int64{9}, descriptions: map[int64]elementDescription{9: {backendNodeID: 45, nodeName: "INPUT"}},
 	}
 	attachedClient, _ := newElementClientWithActionability(attachedCaller, staticActionabilitySource{err: errors.New("snapshot transport failed")})
-	if _, err := attachedClient.QuerySelector(context.Background(), "input"); err == nil {
+	if _, queryErr := attachedClient.QuerySelector(context.Background(), "input"); queryErr == nil {
 		t.Fatal("canonical observation protocol failure was converted into element state")
 	}
 

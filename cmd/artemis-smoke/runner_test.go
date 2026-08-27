@@ -31,8 +31,8 @@ func startServeServer(t *testing.T) (addr string, cleanup func()) {
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}
-	if err := agent.Start(context.Background()); err != nil {
-		t.Fatalf("agent start: %v", err)
+	if startErr := agent.Start(context.Background()); startErr != nil {
+		t.Fatalf("agent start: %v", startErr)
 	}
 	srv := serve.New(agent, serve.Opts{AuthToken: smokeTestToken})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

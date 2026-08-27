@@ -201,11 +201,11 @@ func TestFixtureFormPOST(t *testing.T) {
 	if f == nil {
 		t.Fatal("form not found")
 	}
-	if err := f.Set("name", "Alice"); err != nil {
-		t.Fatalf("Set name: %v", err)
+	if setErr := f.Set("name", "Alice"); setErr != nil {
+		t.Fatalf("Set name: %v", setErr)
 	}
-	if err := f.Set("email", "alice@fixture.test"); err != nil {
-		t.Fatalf("Set email: %v", err)
+	if setErr := f.Set("email", "alice@fixture.test"); setErr != nil {
+		t.Fatalf("Set email: %v", setErr)
 	}
 	sub, err := f.Submit()
 	if err != nil {
@@ -238,8 +238,8 @@ func TestFixtureFormGET(t *testing.T) {
 	if f == nil {
 		t.Fatal("form not found")
 	}
-	if err := f.Set("q", "fixture"); err != nil {
-		t.Fatalf("Set q: %v", err)
+	if setErr := f.Set("q", "fixture"); setErr != nil {
+		t.Fatalf("Set q: %v", setErr)
 	}
 	sub, err := f.Submit()
 	if err != nil {

@@ -60,23 +60,23 @@ func newActionFixture(t *testing.T) *actionFixture {
 	cleanup := func() {
 		closeOnce.Do(func() {
 			if runtime != nil {
-				if err := runtime.Close(); err != nil {
-					t.Errorf("close action fixture runtime: %v", err)
+				if runtimeErr := runtime.Close(); runtimeErr != nil {
+					t.Errorf("close action fixture runtime: %v", runtimeErr)
 				}
 			}
 			if page != nil {
-				if err := page.Close(); err != nil {
-					t.Errorf("close action fixture page: %v", err)
+				if pageErr := page.Close(); pageErr != nil {
+					t.Errorf("close action fixture page: %v", pageErr)
 				}
 			}
 			if owner != nil {
-				if err := owner.Close(); err != nil {
-					t.Errorf("close action fixture context: %v", err)
+				if ownerErr := owner.Close(); ownerErr != nil {
+					t.Errorf("close action fixture context: %v", ownerErr)
 				}
 			}
 			if browser != nil {
-				if err := browser.Close(); err != nil {
-					t.Errorf("close action fixture browser: %v", err)
+				if browserErr := browser.Close(); browserErr != nil {
+					t.Errorf("close action fixture browser: %v", browserErr)
 				}
 			}
 			cancel()

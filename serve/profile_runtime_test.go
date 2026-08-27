@@ -19,8 +19,8 @@ func TestServeSessionUsesAuthoritativeProfileRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}
-	if err := agent.Start(context.Background()); err != nil {
-		t.Fatalf("agent start: %v", err)
+	if startErr := agent.Start(context.Background()); startErr != nil {
+		t.Fatalf("agent start: %v", startErr)
 	}
 	defer agent.Stop()
 	agent.SetProfileRuntime(runtime)
