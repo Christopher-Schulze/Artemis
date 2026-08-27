@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,7 @@ import (
 
 func TestPageMarkdownReflectsJSMutation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><div id="root"></div><script>
+		writeTestBody(t, w, `<!doctype html><html><body><div id="root"></div><script>
 			const root = document.getElementById('root');
 			root.innerHTML = '<h1>Mutated Heading</h1><p>Hello, <b>world</b>.</p>';
 		</script></body></html>`)
@@ -22,13 +21,13 @@ func TestPageMarkdownReflectsJSMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{RunInlineScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 
 	md := page.Markdown()
 	if !strings.Contains(md, "# Mutated Heading") {
@@ -46,7 +45,7 @@ func TestPageMarkdownReflectsJSMutation(t *testing.T) {
 
 func TestPageHTMLReflectsJSAppendChild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><body><ul id="list"></ul><script>
+		writeTestBody(t, w, `<!doctype html><html><body><ul id="list"></ul><script>
 			const ul = document.getElementById('list');
 			for (const t of ['a','b','c']) {
 				const li = document.createElement('li');
@@ -61,13 +60,13 @@ func TestPageHTMLReflectsJSAppendChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{RunInlineScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 
 	md := page.Markdown()
 	for _, want := range []string{"- a", "- b", "- c"} {

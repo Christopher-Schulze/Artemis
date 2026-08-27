@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,7 @@ import (
 func TestEngineFetchEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, `<!doctype html><html><head><title>Hi</title></head><body><h1>Welcome</h1><p>Hello <b>world</b>.</p></body></html>`)
+		writeTestBody(t, w, `<!doctype html><html><head><title>Hi</title></head><body><h1>Welcome</h1><p>Hello <b>world</b>.</p></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -21,7 +20,7 @@ func TestEngineFetchEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 
 	page, err := eng.Fetch(context.Background(), srv.URL, FetchOpts{})
 	if err != nil {
@@ -47,7 +46,7 @@ func TestEngineFetchInvalidURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	if _, err := eng.Fetch(context.Background(), "://broken", FetchOpts{}); err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
@@ -81,7 +80,7 @@ func TestEngineRejectsProtectionDisablingConfig(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if engine, err := New(test.cfg); err == nil {
-				_ = engine.Close()
+				closeTestResource(t, "invalid configuration engine", engine.Close)
 				t.Fatal("invalid configuration accepted")
 			}
 		})
@@ -93,7 +92,7 @@ func TestEngineMockResponseHonorsBodyLimitAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	for _, response := range []*ResponseInfo{
 		{Status: http.StatusOK, Body: []byte("oversize")},
 		{Status: 0, Body: []byte("ok")},
@@ -115,14 +114,14 @@ func TestPageResponseAccessorsReturnCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	page, err := engine.Fetch(context.Background(), "https://example.invalid/", FetchOpts{OnRequest: func(*RequestInfo) (*ResponseInfo, error) {
 		return &ResponseInfo{Status: http.StatusOK, Headers: headers, Body: body}, nil
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 	headers.Set("X-Proof", "mutated-source")
 	body[0] = 'X'
 	gotHeaders := page.Headers()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,7 +18,7 @@ import (
 func TestEngineEmitsRedactedPolicyAndResourceDiagnostics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "diagnostic-body")
+		writeTestBody(t, w, "diagnostic-body")
 	}))
 	defer server.Close()
 	cfg := testConfig(server)
@@ -29,7 +28,7 @@ func TestEngineEmitsRedactedPolicyAndResourceDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer closeTestResource(t, "engine", engine.Close)
 	page, err := engine.Fetch(context.Background(), server.URL+"/private?token=secret", FetchOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +75,7 @@ func TestEngineEmitsRedactedPolicyAndResourceDiagnostics(t *testing.T) {
 }
 
 func TestEngineFailsClosedWhenConfiguredDiagnosticsDisappear(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeTestBody(t, w, "ok") }))
 	defer server.Close()
 	root := t.TempDir()
 	path := filepath.Join(root, "audit", "artemis.jsonl")
@@ -86,7 +85,11 @@ func TestEngineFailsClosedWhenConfiguredDiagnosticsDisappear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer func() {
+		if closeErr := engine.Close(); closeErr != nil && !strings.Contains(closeErr.Error(), "record resource diagnostics") {
+			t.Errorf("engine close: %v", closeErr)
+		}
+	}()
 	if err := os.RemoveAll(filepath.Dir(path)); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +99,7 @@ func TestEngineFailsClosedWhenConfiguredDiagnosticsDisappear(t *testing.T) {
 }
 
 func TestPageCloseFailsClosedWhenConfiguredDiagnosticsDisappear(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeTestBody(t, w, "ok") }))
 	defer server.Close()
 	root := t.TempDir()
 	path := filepath.Join(root, "audit", "artemis.jsonl")
@@ -106,7 +109,11 @@ func TestPageCloseFailsClosedWhenConfiguredDiagnosticsDisappear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer func() {
+		if closeErr := engine.Close(); closeErr != nil && !strings.Contains(closeErr.Error(), "record resource diagnostics") {
+			t.Errorf("engine close: %v", closeErr)
+		}
+	}()
 	page, err := engine.Fetch(context.Background(), server.URL, FetchOpts{})
 	if err != nil {
 		t.Fatal(err)

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,10 +11,10 @@ func TestExternalStylesheetLoaded(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/styles.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
-		fmt.Fprint(w, `.card { background: navy; padding: 12px; } #title { color: orange; }`)
+		writeTestBody(t, w, `.card { background: navy; padding: 12px; } #title { color: orange; }`)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<!doctype html><html><head>
+		writeTestBody(t, w, `<!doctype html><html><head>
 <link rel="stylesheet" href="/styles.css">
 <style>p { font-size: 16px; }</style>
 </head><body>
@@ -30,12 +29,12 @@ func TestExternalStylesheetLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{RunScripts: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 
 	cases := []struct {
 		expr, want string
@@ -60,20 +59,23 @@ func TestExternalStylesheetLoaded(t *testing.T) {
 func TestExternalStylesheet404Tolerated(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><head><link rel="stylesheet" href="/missing.css"><style>p { color: red; }</style></head><body><p id="t">x</p></body></html>`)
+		writeTestBody(t, w, `<html><head><link rel="stylesheet" href="/missing.css"><style>p { color: red; }</style></head><body><p id="t">x</p></body></html>`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	eng := mustNewTest(t, srv)
-	defer eng.Close()
+	defer closeTestResource(t, "engine", eng.Close)
 	page, err := eng.Fetch(context.Background(), srv.URL+"/", FetchOpts{})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	defer page.Close()
+	defer closeTestResource(t, "page", page.Close)
 
-	v, _ := page.Eval(context.Background(), `getComputedStyle(document.getElementById('t')).color`)
+	v, err := page.Eval(context.Background(), `getComputedStyle(document.getElementById('t')).color`)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
 	if v.String() != "red" {
 		t.Errorf("inline style still applies despite 404 css: got %q", v.String())
 	}
