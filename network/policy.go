@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -378,7 +379,9 @@ func parsePolicyAddress(host string) (netip.Addr, bool) {
 	if !ok {
 		return netip.Addr{}, false
 	}
-	return netip.AddrFrom4([4]byte{byte(value >> 24), byte(value >> 16), byte(value >> 8), byte(value)}), true
+	var address [4]byte
+	binary.BigEndian.PutUint32(address[:], value)
+	return netip.AddrFrom4(address), true
 }
 
 func parseLegacyIPv4(host string) (uint32, bool) {

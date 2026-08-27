@@ -2,10 +2,11 @@ package input
 
 import (
 	"math"
-	"math/rand/v2"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/Christopher-Schulze/Artemis/internal/random"
 )
 
 // TypingConfig controls paranoid typing rhythm (Patch 28).
@@ -45,9 +46,9 @@ func baseDelayMs(r rune) int {
 }
 
 // TypingDelays returns per-rune delays in milliseconds for text.
-func TypingDelays(text string, cfg TypingConfig, rng *rand.Rand) []time.Duration {
+func TypingDelays(text string, cfg TypingConfig, rng GaussianRandom) []time.Duration {
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(7, 8))
+		rng = random.Source{}
 	}
 	if cfg.SigmaPct <= 0 {
 		cfg.SigmaPct = 0.15
@@ -77,9 +78,9 @@ func TypingDelays(text string, cfg TypingConfig, rng *rand.Rand) []time.Duration
 }
 
 // TypingRhythm simulates paranoid typing including optional typos.
-func TypingRhythm(text string, cfg TypingConfig, rng *rand.Rand) (delays []time.Duration, keys []rune) {
+func TypingRhythm(text string, cfg TypingConfig, rng GaussianRandom) (delays []time.Duration, keys []rune) {
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(9, 10))
+		rng = random.Source{}
 	}
 	delays = TypingDelays(text, cfg, rng)
 	keys = []rune(text)
@@ -112,9 +113,9 @@ func TotalTypingDuration(delays []time.Duration) time.Duration {
 }
 
 // GaussianJitter applies sigma-scaled noise to base milliseconds.
-func GaussianJitter(baseMs int, sigmaPct float64, rng *rand.Rand) int {
+func GaussianJitter(baseMs int, sigmaPct float64, rng GaussianRandom) int {
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(11, 12))
+		rng = random.Source{}
 	}
 	if sigmaPct <= 0 {
 		sigmaPct = 0.15

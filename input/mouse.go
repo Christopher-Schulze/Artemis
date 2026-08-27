@@ -3,9 +3,16 @@ package input
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/internal/random"
 )
+
+// MouseRandom is the random source required by mouse movement generators.
+type MouseRandom interface {
+	Float64() float64
+	Intn(n int) int
+}
 
 // mouse.go (spec L4026: input/mouse.go - Bezier curve movement +
 // jitter).
@@ -82,7 +89,10 @@ func CubicBezierCurve(p0, p1, p2, p3 MousePoint, t float64) MousePoint {
 // GenerateMousePath generates a cubic Bezier curve mouse path from
 // start to end with jitter (spec L4192: 4 control points, cubic
 // interpolation, 5-30 steps, +-1.0px jitter, +-50px control offsets).
-func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Rand) MousePath {
+func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng MouseRandom) MousePath {
+	if rng == nil {
+		rng = random.Source{}
+	}
 	if cfg.Steps <= 0 {
 		cfg.Steps = 25
 	}
@@ -107,12 +117,10 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 	perpY := dx * cfg.CurveBias
 
 	var cp1RandX, cp1RandY, cp2RandX, cp2RandY float64
-	if rng != nil {
-		cp1RandX = (rng.Float64() - 0.5) * 100 // +-50px
-		cp1RandY = (rng.Float64() - 0.5) * 100
-		cp2RandX = (rng.Float64() - 0.5) * 100
-		cp2RandY = (rng.Float64() - 0.5) * 100
-	}
+	cp1RandX = (rng.Float64() - 0.5) * 100 // +-50px
+	cp1RandY = (rng.Float64() - 0.5) * 100
+	cp2RandX = (rng.Float64() - 0.5) * 100
+	cp2RandY = (rng.Float64() - 0.5) * 100
 
 	// Control point 1: 1/3 along the path + perpendicular + random
 	t1 := 1.0 / 3.0
@@ -133,7 +141,7 @@ func GenerateMousePath(start, end MousePoint, cfg MouseMoveConfig, rng *rand.Ran
 		t := float64(i) / float64(cfg.Steps-1)
 		pt := CubicBezierCurve(start, cp1, cp2, end, t)
 		// Add per-step jitter (spec L4192: +-1.0px per-step jitter)
-		if cfg.Jitter > 0 && rng != nil {
+		if cfg.Jitter > 0 {
 			pt.X += (rng.Float64() - 0.5) * 2 * cfg.Jitter
 			pt.Y += (rng.Float64() - 0.5) * 2 * cfg.Jitter
 		}
@@ -171,9 +179,9 @@ func computeCubicDuration(distance float64, cfg MouseMoveConfig) time.Duration {
 
 // FrameInterval returns the frame timing for mouse movement
 // (spec L4192: 16-23ms frame timing).
-func FrameInterval(rng *rand.Rand) time.Duration {
+func FrameInterval(rng MouseRandom) time.Duration {
 	if rng == nil {
-		return 16 * time.Millisecond
+		rng = random.Source{}
 	}
 	// Random 16-23ms (spec L4192)
 	ms := 16 + rng.Intn(8) // 16..23
@@ -183,7 +191,7 @@ func FrameInterval(rng *rand.Rand) time.Duration {
 // MoveMouse generates a mouse path from start to end
 // (spec L4026: Bezier curve movement + jitter).
 func MoveMouse(start, end MousePoint) MousePath {
-	return GenerateMousePath(start, end, DefaultMouseMoveConfig(), rand.New(rand.NewSource(time.Now().UnixNano())))
+	return GenerateMousePath(start, end, DefaultMouseMoveConfig(), random.Source{})
 }
 
 // MouseClick simulates a mouse click at the given point
@@ -267,15 +275,14 @@ type ClickSequence struct {
 // from a current mouse position to a target element center
 // (spec L4194: Click Sequence).
 // boxCenter is the element center from dom.GetBoxModel.
-func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceConfig, rng *rand.Rand) ClickSequence {
+func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceConfig, rng MouseRandom) ClickSequence {
+	if rng == nil {
+		rng = random.Source{}
+	}
 	// 1. Random start offset from target center (-50..150px per axis)
 	// (spec L4194: Random start offset -50..150px per axis from target)
-	startOffsetX := cfg.StartOffsetMinX
-	startOffsetY := cfg.StartOffsetMinY
-	if rng != nil {
-		startOffsetX = cfg.StartOffsetMinX + rng.Float64()*(cfg.StartOffsetMaxX-cfg.StartOffsetMinX)
-		startOffsetY = cfg.StartOffsetMinY + rng.Float64()*(cfg.StartOffsetMaxY-cfg.StartOffsetMinY)
-	}
+	startOffsetX := cfg.StartOffsetMinX + rng.Float64()*(cfg.StartOffsetMaxX-cfg.StartOffsetMinX)
+	startOffsetY := cfg.StartOffsetMinY + rng.Float64()*(cfg.StartOffsetMaxY-cfg.StartOffsetMinY)
 	startPoint := MousePoint{
 		X: boxCenter.X + startOffsetX,
 		Y: boxCenter.Y + startOffsetY,
@@ -283,11 +290,8 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 
 	// 2. Target point: element center + +-5px offset
 	// (spec L4194: center + +-5px offset)
-	var targetOffX, targetOffY float64
-	if rng != nil {
-		targetOffX = (rng.Float64() - 0.5) * 2 * cfg.TargetOffsetMax
-		targetOffY = (rng.Float64() - 0.5) * 2 * cfg.TargetOffsetMax
-	}
+	targetOffX := (rng.Float64() - 0.5) * 2 * cfg.TargetOffsetMax
+	targetOffY := (rng.Float64() - 0.5) * 2 * cfg.TargetOffsetMax
 	targetPoint := MousePoint{
 		X: boxCenter.X + targetOffX,
 		Y: boxCenter.Y + targetOffY,
@@ -303,7 +307,7 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 
 	// 4. Pre-click delay 50-199ms (spec L4194)
 	preClickDelay := cfg.PreClickDelayMin
-	if rng != nil && cfg.PreClickDelayMax > cfg.PreClickDelayMin {
+	if cfg.PreClickDelayMax > cfg.PreClickDelayMin {
 		rangeMs := int((cfg.PreClickDelayMax - cfg.PreClickDelayMin) / time.Millisecond)
 		if rangeMs > 0 {
 			preClickDelay = cfg.PreClickDelayMin + time.Duration(rng.Intn(rangeMs+1))*time.Millisecond
@@ -312,7 +316,7 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 
 	// 5. Hold duration 30-119ms (spec L4194)
 	holdDuration := cfg.HoldDurationMin
-	if rng != nil && cfg.HoldDurationMax > cfg.HoldDurationMin {
+	if cfg.HoldDurationMax > cfg.HoldDurationMin {
 		rangeMs := int((cfg.HoldDurationMax - cfg.HoldDurationMin) / time.Millisecond)
 		if rangeMs > 0 {
 			holdDuration = cfg.HoldDurationMin + time.Duration(rng.Intn(rangeMs+1))*time.Millisecond
@@ -321,7 +325,7 @@ func GenerateClickSequence(currentPos, boxCenter MousePoint, cfg ClickSequenceCo
 
 	// 6. Release point: target + +-1.0px jitter (spec L4194)
 	releasePoint := targetPoint
-	if rng != nil && cfg.ReleaseJitter > 0 {
+	if cfg.ReleaseJitter > 0 {
 		releasePoint.X += (rng.Float64() - 0.5) * 2 * cfg.ReleaseJitter
 		releasePoint.Y += (rng.Float64() - 0.5) * 2 * cfg.ReleaseJitter
 	}
@@ -362,7 +366,7 @@ func (b BoxModel) Center() MousePoint {
 // GenerateClickSequenceFromBox generates a click sequence from a
 // box model (spec L4194: element-based: backend DOM node ID ->
 // dom.GetBoxModel -> center + +-5px offset).
-func GenerateClickSequenceFromBox(currentPos MousePoint, box BoxModel, cfg ClickSequenceConfig, rng *rand.Rand) ClickSequence {
+func GenerateClickSequenceFromBox(currentPos MousePoint, box BoxModel, cfg ClickSequenceConfig, rng MouseRandom) ClickSequence {
 	return GenerateClickSequence(currentPos, box.Center(), cfg, rng)
 }
 

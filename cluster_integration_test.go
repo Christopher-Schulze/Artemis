@@ -3,7 +3,6 @@ package artemis_test
 import (
 	"context"
 	"errors"
-	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -120,7 +119,7 @@ func TestNoPreDOMInjectionMarker(t *testing.T) {
 
 func TestRequestTimingJitter(t *testing.T) {
 	start := time.Now()
-	network.RequestTimingJitter(5*time.Millisecond, 15*time.Millisecond, rand.New(rand.NewPCG(1, 2)))
+	network.RequestTimingJitter(5*time.Millisecond, 15*time.Millisecond, nil)
 	if time.Since(start) < 5*time.Millisecond {
 		t.Fatal("jitter too short")
 	}
@@ -155,14 +154,14 @@ func TestHoneypotSkipInvisible(t *testing.T) {
 }
 
 func TestBezierMousePath(t *testing.T) {
-	path := input.BezierPath(input.Point{X: 0, Y: 0}, input.Point{X: 100, Y: 50}, 10, rand.New(rand.NewPCG(2, 3)))
+	path := input.BezierPath(input.Point{X: 0, Y: 0}, input.Point{X: 100, Y: 50}, 10, nil)
 	if len(path) != 10 || input.PathLength(path) <= 0 {
 		t.Fatalf("path=%d", len(path))
 	}
 }
 
 func TestClickGaussianOffset(t *testing.T) {
-	dx, dy := input.ClickGaussianOffset(2, rand.New(rand.NewPCG(4, 5)))
+	dx, dy := input.ClickGaussianOffset(2, nil)
 	if dx == 0 && dy == 0 {
 		t.Fatal("expected non-zero offset")
 	}

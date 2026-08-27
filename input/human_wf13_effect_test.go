@@ -1,7 +1,6 @@
 package input
 
 import (
-	"math/rand/v2"
 	"testing"
 	"time"
 )
@@ -12,8 +11,6 @@ import (
 // baseDelayMs; TypingDelays; TypingRhythm; TotalTypingDuration;
 // GaussianJitter; min.
 func TestWFArtemisInput_EffectOracle(t *testing.T) {
-	rng := rand.New(rand.NewPCG(42, 43)) //nolint:staticcheck
-
 	t.Run("oracle: Point struct has fields", func(t *testing.T) {
 		p := Point{X: 1.5, Y: 2.5}
 		if p.X != 1.5 || p.Y != 2.5 {
@@ -22,14 +19,14 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: BezierPath returns correct steps", func(t *testing.T) {
-		path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 10, rng)
+		path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 10, nil)
 		if len(path) != 10 {
 			t.Fatalf("expected 10 points, got %d", len(path))
 		}
 	})
 
 	t.Run("oracle: BezierPath steps<=1 returns endpoint", func(t *testing.T) {
-		path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 1, rng)
+		path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 1, nil)
 		if len(path) != 1 || path[0].X != 100 {
 			t.Fatalf("expected endpoint, got %v", path)
 		}
@@ -43,13 +40,13 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: ClickGaussianOffset returns non-zero with sigma", func(t *testing.T) {
-		dx, dy := ClickGaussianOffset(2.0, rng)
+		dx, dy := ClickGaussianOffset(2.0, nil)
 		_ = dx
 		_ = dy
 	})
 
 	t.Run("oracle: ClickGaussianOffset sigma<=0 defaults to 1.5", func(t *testing.T) {
-		dx, dy := ClickGaussianOffset(0, rng)
+		dx, dy := ClickGaussianOffset(0, nil)
 		_ = dx
 		_ = dy
 	})
@@ -74,7 +71,7 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: HoverDwell returns >= 50", func(t *testing.T) {
-		d := HoverDwell(rng)
+		d := HoverDwell(nil)
 		if d < 50 {
 			t.Fatalf("expected >= 50, got %f", d)
 		}
@@ -107,14 +104,16 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: TypingDelays returns correct count", func(t *testing.T) {
-		delays := TypingDelays("hello", DefaultTypingConfig(), rng)
+		delays := TypingDelays("hello", DefaultTypingConfig(), nil)
 		if len(delays) != 5 {
 			t.Fatalf("expected 5 delays, got %d", len(delays))
 		}
 	})
 
 	t.Run("oracle: TypingRhythm returns delays and keys", func(t *testing.T) {
-		delays, keys := TypingRhythm("hi", DefaultTypingConfig(), rng)
+		config := DefaultTypingConfig()
+		config.TypoRate = 0
+		delays, keys := TypingRhythm("hi", config, nil)
 		if len(delays) != 2 || len(keys) != 2 {
 			t.Fatalf("expected 2 delays and keys, got %d/%d", len(delays), len(keys))
 		}
@@ -135,7 +134,7 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 	})
 
 	t.Run("oracle: GaussianJitter returns non-negative for valid input", func(t *testing.T) {
-		j := GaussianJitter(100, 0.1, rng)
+		j := GaussianJitter(100, 0.1, nil)
 		_ = j
 	})
 

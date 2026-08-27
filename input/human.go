@@ -2,8 +2,15 @@ package input
 
 import (
 	"math"
-	"math/rand/v2"
+
+	"github.com/Christopher-Schulze/Artemis/internal/random"
 )
+
+// GaussianRandom is the random source required by human-input generators.
+type GaussianRandom interface {
+	Float64() float64
+	NormFloat64() float64
+}
 
 // Point is a 2D coordinate for pointer paths.
 type Point struct {
@@ -12,12 +19,12 @@ type Point struct {
 }
 
 // BezierPath builds a cubic-bezier mouse path between start and end with jitter control points.
-func BezierPath(start, end Point, steps int, rng *rand.Rand) []Point {
+func BezierPath(start, end Point, steps int, rng GaussianRandom) []Point {
 	if steps <= 1 {
 		return []Point{end}
 	}
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(1, 2))
+		rng = random.Source{}
 	}
 	dx := end.X - start.X
 	dy := end.Y - start.Y
@@ -44,12 +51,12 @@ func cubicBezier(p0, p1, p2, p3 Point, t float64) Point {
 }
 
 // ClickGaussianOffset returns a click coordinate offset using gaussian noise (sigma in px).
-func ClickGaussianOffset(sigma float64, rng *rand.Rand) (dx, dy float64) {
+func ClickGaussianOffset(sigma float64, rng GaussianRandom) (dx, dy float64) {
 	if sigma <= 0 {
 		sigma = 1.5
 	}
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(3, 4))
+		rng = random.Source{}
 	}
 	return rng.NormFloat64() * sigma, rng.NormFloat64() * sigma
 }
@@ -68,9 +75,9 @@ func PathLength(path []Point) float64 {
 
 // HoverDwell returns a Gaussian-distributed hover delay before click (mu=200ms, sigma=100ms).
 // Humans hover before clicking; linear fixed delays are detectable.
-func HoverDwell(rng *rand.Rand) float64 {
+func HoverDwell(rng GaussianRandom) float64 {
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(5, 6))
+		rng = random.Source{}
 	}
 	d := 200 + rng.NormFloat64()*100
 	if d < 50 {

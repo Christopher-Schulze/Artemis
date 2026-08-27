@@ -2,7 +2,6 @@ package input
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"testing"
 	"time"
 )
@@ -25,14 +24,14 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 		{
 			"bezier_steps_le_1",
 			func() bool {
-				path := BezierPath(Point{0, 0}, Point{100, 100}, 1, rand.New(rand.NewPCG(1, 1)))
+				path := BezierPath(Point{0, 0}, Point{100, 100}, 1, nil)
 				return len(path) == 1 && path[0].X == 100 && path[0].Y == 100
 			},
 		},
 		{
 			"bezier_steps_zero",
 			func() bool {
-				path := BezierPath(Point{0, 0}, Point{50, 50}, 0, rand.New(rand.NewPCG(2, 2)))
+				path := BezierPath(Point{0, 0}, Point{50, 50}, 0, nil)
 				return len(path) == 1 && path[0].X == 50 && path[0].Y == 50
 			},
 		},
@@ -66,7 +65,7 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 			"typing_delays_min_floor",
 			func() bool {
 				cfg := TypingConfig{SigmaPct: 100} // extreme jitter
-				delays := TypingDelays("abc", cfg, rand.New(rand.NewPCG(3, 3)))
+				delays := TypingDelays("abc", cfg, nil)
 				for _, d := range delays {
 					if d < 40*time.Millisecond {
 						return false
@@ -78,7 +77,7 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 		{
 			"click_gaussian_sigma_zero",
 			func() bool {
-				dx, dy := ClickGaussianOffset(0, rand.New(rand.NewPCG(4, 4)))
+				dx, dy := ClickGaussianOffset(0, nil)
 				// sigma <= 0 is denied by defaulting to 1.5
 				return dx != 0 || dy != 0
 			},
@@ -98,7 +97,7 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 	}
 
 	// Baseline: valid BezierPath produces multi-step path (positive control)
-	path := BezierPath(Point{0, 0}, Point{100, 100}, 10, rand.New(rand.NewPCG(5, 5)))
+	path := BezierPath(Point{0, 0}, Point{100, 100}, 10, nil)
 	if len(path) != 10 {
 		t.Fatalf("expected 10 steps, got %d", len(path))
 	}
@@ -119,7 +118,7 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 	}
 
 	// Baseline: valid TypingDelays produces delays for each character
-	delays := TypingDelays("hello", DefaultTypingConfig(), rand.New(rand.NewPCG(6, 6)))
+	delays := TypingDelays("hello", DefaultTypingConfig(), nil)
 	if len(delays) != 5 {
 		t.Fatalf("expected 5 delays, got %d", len(delays))
 	}

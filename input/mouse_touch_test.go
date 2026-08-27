@@ -1,7 +1,6 @@
 package input
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 )
@@ -80,8 +79,7 @@ func TestTASK2248_GenerateMousePath(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 100, Y: 100}
 	cfg := DefaultMouseMoveConfig()
-	rng := rand.New(rand.NewSource(42)) // deterministic for test
-	path := GenerateMousePath(start, end, cfg, rng)
+	path := GenerateMousePath(start, end, cfg, nil)
 	if len(path.Points) != cfg.Steps {
 		t.Errorf("points: got %d, want %d", len(path.Points), cfg.Steps)
 	}
@@ -102,8 +100,7 @@ func TestTASK2248_GenerateMousePathNoJitter(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 100, Y: 0}
 	cfg := MouseMoveConfig{Steps: 10, Jitter: 0, CurveBias: 0.5}
-	rng := rand.New(rand.NewSource(42))
-	path := GenerateMousePath(start, end, cfg, rng)
+	path := GenerateMousePath(start, end, cfg, nil)
 	// Without jitter, first point should be exactly start
 	if path.Points[0].X != 0 || path.Points[0].Y != 0 {
 		t.Errorf("first point without jitter: got (%.1f, %.1f), want (0, 0)", path.Points[0].X, path.Points[0].Y)
@@ -116,8 +113,7 @@ func TestTASK2248_GenerateMousePathDuration(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 500, Y: 500}
 	cfg := DefaultMouseMoveConfig()
-	rng := rand.New(rand.NewSource(42))
-	path := GenerateMousePath(start, end, cfg, rng)
+	path := GenerateMousePath(start, end, cfg, nil)
 	if path.Duration < cfg.MinDuration {
 		t.Errorf("duration %v < min %v", path.Duration, cfg.MinDuration)
 	}

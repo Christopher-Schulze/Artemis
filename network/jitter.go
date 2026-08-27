@@ -1,12 +1,18 @@
 package network
 
 import (
-	"math/rand/v2"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/internal/random"
 )
 
+// TimingRandom is the random source required by request timing jitter.
+type TimingRandom interface {
+	Int64N(n int64) int64
+}
+
 // RequestTimingJitter sleeps for a randomized duration in [min,max].
-func RequestTimingJitter(min, max time.Duration, rng *rand.Rand) time.Duration {
+func RequestTimingJitter(min, max time.Duration, rng TimingRandom) time.Duration {
 	if min < 0 {
 		min = 0
 	}
@@ -14,7 +20,7 @@ func RequestTimingJitter(min, max time.Duration, rng *rand.Rand) time.Duration {
 		max = min
 	}
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(9, 10))
+		rng = random.Source{}
 	}
 	var d time.Duration
 	if max == min {

@@ -1,27 +1,25 @@
 package input
 
 import (
-	"math/rand/v2"
 	"testing"
 )
 
 func TestBezierPathAndGaussianOffset(t *testing.T) {
-	path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 50}, 10, rand.New(rand.NewPCG(1, 2)))
+	path := BezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 50}, 10, nil)
 	if len(path) != 10 || PathLength(path) <= 0 {
 		t.Fatalf("path=%d", len(path))
 	}
-	dx, dy := ClickGaussianOffset(2, rand.New(rand.NewPCG(3, 4)))
+	dx, dy := ClickGaussianOffset(2, nil)
 	if dx == 0 && dy == 0 {
 		t.Fatal("expected offset")
 	}
 }
 
 func TestHoverDwellGaussian(t *testing.T) {
-	rng := rand.New(rand.NewPCG(7, 8))
 	var sum float64
 	const n = 1000
 	for i := 0; i < n; i++ {
-		d := HoverDwell(rng)
+		d := HoverDwell(nil)
 		if d < 50 {
 			t.Fatalf("dwell=%f below floor 50ms", d)
 		}

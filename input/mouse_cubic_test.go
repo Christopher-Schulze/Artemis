@@ -1,7 +1,6 @@
 package input
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 )
@@ -35,9 +34,7 @@ func TestGenerateMousePathCubic(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 500, Y: 300}
 	cfg := DefaultMouseMoveConfig()
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	path := GenerateMousePath(start, end, cfg, rng)
+	path := GenerateMousePath(start, end, cfg, nil)
 
 	if len(path.Points) != cfg.Steps {
 		t.Errorf("points len = %d, want %d", len(path.Points), cfg.Steps)
@@ -60,18 +57,16 @@ func TestGenerateMousePathCubic(t *testing.T) {
 func TestGenerateMousePathStepsClamped(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 100, Y: 100}
-	rng := rand.New(rand.NewSource(42))
-
 	// Too few steps: should clamp to 5
 	cfg := MouseMoveConfig{Steps: 2, Jitter: 1.0}
-	path := GenerateMousePath(start, end, cfg, rng)
+	path := GenerateMousePath(start, end, cfg, nil)
 	if len(path.Points) != 5 {
 		t.Errorf("steps=2: got %d points, want 5 (clamped)", len(path.Points))
 	}
 
 	// Too many steps: should clamp to 30
 	cfg = MouseMoveConfig{Steps: 100, Jitter: 1.0}
-	path = GenerateMousePath(start, end, cfg, rng)
+	path = GenerateMousePath(start, end, cfg, nil)
 	if len(path.Points) != 30 {
 		t.Errorf("steps=100: got %d points, want 30 (clamped)", len(path.Points))
 	}
@@ -94,16 +89,15 @@ func TestComputeCubicDuration(t *testing.T) {
 }
 
 func TestFrameInterval(t *testing.T) {
-	rng := rand.New(rand.NewSource(42))
-	interval := FrameInterval(rng)
+	interval := FrameInterval(nil)
 	if interval < 16*time.Millisecond || interval > 23*time.Millisecond {
 		t.Errorf("FrameInterval = %v, want 16-23ms", interval)
 	}
 
-	// nil rng should return 16ms
+	// nil rng should still provide a valid randomized frame interval
 	interval = FrameInterval(nil)
-	if interval != 16*time.Millisecond {
-		t.Errorf("nil rng: FrameInterval = %v, want 16ms", interval)
+	if interval < 16*time.Millisecond || interval > 23*time.Millisecond {
+		t.Errorf("nil rng: FrameInterval = %v, want 16-23ms", interval)
 	}
 }
 
@@ -142,9 +136,7 @@ func TestGenerateClickSequence(t *testing.T) {
 	currentPos := MousePoint{X: 100, Y: 100}
 	boxCenter := MousePoint{X: 500, Y: 300}
 	cfg := DefaultClickSequenceConfig()
-	rng := rand.New(rand.NewSource(42))
-
-	seq := GenerateClickSequence(currentPos, boxCenter, cfg, rng)
+	seq := GenerateClickSequence(currentPos, boxCenter, cfg, nil)
 
 	// Start point should be offset from box center
 	if seq.StartPoint.X < boxCenter.X-50 || seq.StartPoint.X > boxCenter.X+150 {
@@ -186,9 +178,7 @@ func TestGenerateClickSequenceNoMoveWhenClose(t *testing.T) {
 	currentPos := MousePoint{X: 100, Y: 100}
 	boxCenter := MousePoint{X: 105, Y: 105} // only ~7px away
 	cfg := DefaultClickSequenceConfig()
-	rng := rand.New(rand.NewSource(42))
-
-	seq := GenerateClickSequence(currentPos, boxCenter, cfg, rng)
+	seq := GenerateClickSequence(currentPos, boxCenter, cfg, nil)
 	if seq.MovePath != nil {
 		t.Error("MovePath should be nil when distance <= 30px")
 	}
@@ -226,7 +216,7 @@ func TestGenerateClickSequenceSubMillisecondRangesDoNotPanic(t *testing.T) {
 	cfg.PreClickDelayMax = cfg.PreClickDelayMin + time.Nanosecond
 	cfg.HoldDurationMax = cfg.HoldDurationMin + time.Nanosecond
 
-	seq := GenerateClickSequence(MousePoint{}, MousePoint{X: 100, Y: 100}, cfg, rand.New(rand.NewSource(42)))
+	seq := GenerateClickSequence(MousePoint{}, MousePoint{X: 100, Y: 100}, cfg, nil)
 	if seq.PreClickDelay != cfg.PreClickDelayMin {
 		t.Fatalf("pre-click delay = %v, want %v", seq.PreClickDelay, cfg.PreClickDelayMin)
 	}
@@ -242,9 +232,7 @@ func TestGenerateClickSequenceFromBox(t *testing.T) {
 		Quad:          []float64{200, 200, 300, 200, 300, 300, 200, 300},
 	}
 	cfg := DefaultClickSequenceConfig()
-	rng := rand.New(rand.NewSource(42))
-
-	seq := GenerateClickSequenceFromBox(currentPos, box, cfg, rng)
+	seq := GenerateClickSequenceFromBox(currentPos, box, cfg, nil)
 	// Target should be near box center (250, 250) +-5px
 	if absf(seq.TargetPoint.X-250) > 10 {
 		t.Errorf("TargetPoint.X = %f, should be near 250", seq.TargetPoint.X)
