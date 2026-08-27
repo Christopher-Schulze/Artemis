@@ -32,6 +32,20 @@ type Profile struct {
 	Seed string
 }
 
+type scriptBuffer []byte
+
+func (b *scriptBuffer) WriteString(value string) {
+	*b = append(*b, value...)
+}
+
+func (b *scriptBuffer) appendf(format string, args ...any) {
+	*b = fmt.Appendf(*b, format, args...)
+}
+
+func (b scriptBuffer) String() string {
+	return string(b)
+}
+
 // Defaults returns a Profile with sensible defaults.
 func Defaults() Profile {
 	return Profile{
@@ -116,7 +130,7 @@ func Script(p Profile) string {
 	seedHash := sha256.Sum256([]byte(p.Seed))
 	seedHex := fmt.Sprintf("%x", seedHash[:8])
 
-	var b strings.Builder
+	var b scriptBuffer
 	b.WriteString("(() => {\n")
 	b.WriteString("  const _defineProperty = Object.defineProperty;\n")
 	b.WriteString("  const _seed = '" + seedHex + "';\n")
@@ -167,8 +181,8 @@ func Script(p Profile) string {
 	// 6. WebGL vendor/renderer
 	b.WriteString("  const _getParam = WebGLRenderingContext.prototype.getParameter;\n")
 	b.WriteString("  WebGLRenderingContext.prototype.getParameter = function(p) {\n")
-	b.WriteString(fmt.Sprintf("    if (p === 0x1F00) return %s;\n", strconv.Quote(p.WebGLVendor)))
-	b.WriteString(fmt.Sprintf("    if (p === 0x1F01) return %s;\n", strconv.Quote(p.WebGLRenderer)))
+	b.appendf("    if (p === 0x1F00) return %s;\n", strconv.Quote(p.WebGLVendor))
+	b.appendf("    if (p === 0x1F01) return %s;\n", strconv.Quote(p.WebGLRenderer))
 	b.WriteString("    return _getParam.call(this, p);\n")
 	b.WriteString("  };\n")
 
@@ -207,35 +221,35 @@ func Script(p Profile) string {
 	b.WriteString("  });\n")
 
 	// 11. window.outerWidth/Height match viewport
-	b.WriteString(fmt.Sprintf("  _defineProperty(window, 'outerWidth', { get: () => %d });\n", p.ViewportWidth))
-	b.WriteString(fmt.Sprintf("  _defineProperty(window, 'outerHeight', { get: () => %d });\n", p.ViewportHeight))
+	b.appendf("  _defineProperty(window, 'outerWidth', { get: () => %d });\n", p.ViewportWidth)
+	b.appendf("  _defineProperty(window, 'outerHeight', { get: () => %d });\n", p.ViewportHeight)
 
 	// 12. window.devicePixelRatio
-	b.WriteString(fmt.Sprintf("  _defineProperty(window, 'devicePixelRatio', { get: () => %v });\n", p.DevicePixelRatio))
+	b.appendf("  _defineProperty(window, 'devicePixelRatio', { get: () => %v });\n", p.DevicePixelRatio)
 
 	// 13. navigator.vendor
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'vendor', { get: () => %s });\n", strconv.Quote(p.Vendor)))
+	b.appendf("  _defineProperty(navigator, 'vendor', { get: () => %s });\n", strconv.Quote(p.Vendor))
 
 	// 14. navigator.platform
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'platform', { get: () => %s });\n", strconv.Quote(p.Platform)))
+	b.appendf("  _defineProperty(navigator, 'platform', { get: () => %s });\n", strconv.Quote(p.Platform))
 
 	// 15. navigator.deviceMemory
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'deviceMemory', { get: () => %d });\n", p.DeviceMemoryGB))
+	b.appendf("  _defineProperty(navigator, 'deviceMemory', { get: () => %d });\n", p.DeviceMemoryGB)
 
 	// 16. navigator.hardwareConcurrency
-	b.WriteString(fmt.Sprintf("  _defineProperty(navigator, 'hardwareConcurrency', { get: () => %d });\n", p.HardwareConcurrency))
+	b.appendf("  _defineProperty(navigator, 'hardwareConcurrency', { get: () => %d });\n", p.HardwareConcurrency)
 
 	// 17-18. screen dimensions
-	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'width', { get: () => %d });\n", p.ViewportWidth))
-	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'height', { get: () => %d });\n", p.ViewportHeight))
-	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'availWidth', { get: () => %d });\n", p.ViewportWidth))
-	b.WriteString(fmt.Sprintf("  _defineProperty(screen, 'availHeight', { get: () => %d });\n", p.ViewportHeight-40))
+	b.appendf("  _defineProperty(screen, 'width', { get: () => %d });\n", p.ViewportWidth)
+	b.appendf("  _defineProperty(screen, 'height', { get: () => %d });\n", p.ViewportHeight)
+	b.appendf("  _defineProperty(screen, 'availWidth', { get: () => %d });\n", p.ViewportWidth)
+	b.appendf("  _defineProperty(screen, 'availHeight', { get: () => %d });\n", p.ViewportHeight-40)
 
 	// 19. Intl.DateTimeFormat timezone
 	b.WriteString("  const _origDateTimeFormat = Intl.DateTimeFormat;\n")
 	b.WriteString("  Intl.DateTimeFormat = function(locales, options) {\n")
 	b.WriteString("    options = options || {};\n")
-	b.WriteString(fmt.Sprintf("    options.timeZone = options.timeZone || %s;\n", strconv.Quote(p.Timezone)))
+	b.appendf("    options.timeZone = options.timeZone || %s;\n", strconv.Quote(p.Timezone))
 	b.WriteString("    return _origDateTimeFormat.call(this, locales, options);\n")
 	b.WriteString("  };\n")
 	b.WriteString("  Intl.DateTimeFormat.prototype = _origDateTimeFormat.prototype;\n")
@@ -262,8 +276,8 @@ func Script(p Profile) string {
 	if colorScheme == "dark" {
 		oppositeScheme = "light"
 	}
-	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", colorScheme))
-	b.WriteString(fmt.Sprintf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", oppositeScheme))
+	b.appendf("    if (query === '(prefers-color-scheme: %s)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", colorScheme)
+	b.appendf("    if (query === '(prefers-color-scheme: %s)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n", oppositeScheme)
 	if p.ReducedMotion {
 		b.WriteString("    if (query === '(prefers-reduced-motion: reduce)') { return { matches: true, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")
 		b.WriteString("    if (query === '(prefers-reduced-motion: no-preference)') { return { matches: false, media: query, addEventListener:()=>{}, removeEventListener:()=>{}, addListener:()=>{}, removeListener:()=>{}, onchange:null, dispatchEvent:()=>false }; }\n")
@@ -304,14 +318,14 @@ func Script(p Profile) string {
 
 	// 30. navigator.userAgentData brands
 	b.WriteString("  if (!navigator.userAgentData) {\n")
-	b.WriteString(fmt.Sprintf("    const _major = %s;\n", strconv.Quote(majorVersion(p.ChromeVersion))))
+	b.appendf("    const _major = %s;\n", strconv.Quote(majorVersion(p.ChromeVersion)))
 	b.WriteString("    _defineProperty(navigator, 'userAgentData', { get: () => ({\n")
 	b.WriteString("      brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n")
 	b.WriteString("      mobile: false,\n")
-	b.WriteString(fmt.Sprintf("      platform: %s,\n", strconv.Quote(p.Platform)))
+	b.appendf("      platform: %s,\n", strconv.Quote(p.Platform))
 	b.WriteString("      getHighEntropyValues: (hints) => Promise.resolve({\n")
-	b.WriteString(fmt.Sprintf("        architecture: %s, brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n", strconv.Quote(p.Architecture)))
-	b.WriteString(fmt.Sprintf("        bitness: '64', mobile: false, model: '', platform: %s, platformVersion: %s, uaFullVersion: %s\n", strconv.Quote(p.Platform), strconv.Quote(p.PlatformVersion), strconv.Quote(p.ChromeVersion)))
+	b.appendf("        architecture: %s, brands: [{ brand: 'Chromium', version: _major }, { brand: 'Google Chrome', version: _major }],\n", strconv.Quote(p.Architecture))
+	b.appendf("        bitness: '64', mobile: false, model: '', platform: %s, platformVersion: %s, uaFullVersion: %s\n", strconv.Quote(p.Platform), strconv.Quote(p.PlatformVersion), strconv.Quote(p.ChromeVersion))
 	b.WriteString("      })\n")
 	b.WriteString("    }) });\n")
 	b.WriteString("  }\n")
@@ -334,7 +348,7 @@ func Script(p Profile) string {
 	b.WriteString("  const _origGet = Object.getOwnPropertyDescriptor(navigator, 'userAgent');\n")
 	b.WriteString("  if (_origGet && _origGet.get) {\n")
 	b.WriteString("    const _ua = _origGet.get.call(navigator);\n")
-	b.WriteString(fmt.Sprintf("    const _expectedUA = %q;\n", p.UserAgent))
+	b.appendf("    const _expectedUA = %q;\n", p.UserAgent)
 	b.WriteString("    if (_ua !== _expectedUA) {\n")
 	b.WriteString("      _defineProperty(navigator, 'userAgent', { get: () => _expectedUA });\n")
 	b.WriteString("    }\n")

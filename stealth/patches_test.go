@@ -57,6 +57,40 @@ func TestProfileDifferentiation(t *testing.T) {
 	}
 }
 
+func TestScriptUsesProfileValues(t *testing.T) {
+	script := Script(Profile{
+		Seed:                "profile-values",
+		ViewportWidth:       1440,
+		ViewportHeight:      900,
+		DevicePixelRatio:    1.25,
+		Vendor:              "Example Vendor",
+		Platform:            "Example Platform",
+		Timezone:            "Europe/Zurich",
+		Architecture:        "x86",
+		WebGLVendor:         "Example WebGL Vendor",
+		WebGLRenderer:       "Example WebGL Renderer",
+		HardwareConcurrency: 4,
+		DeviceMemoryGB:      16,
+	})
+	checks := []string{
+		"outerWidth', { get: () => 1440 }",
+		"outerHeight', { get: () => 900 }",
+		"devicePixelRatio', { get: () => 1.25 }",
+		"navigator, 'vendor', { get: () => \"Example Vendor\" }",
+		"navigator, 'platform', { get: () => \"Example Platform\" }",
+		"options.timeZone = options.timeZone || \"Europe/Zurich\"",
+		"return \"Example WebGL Vendor\"",
+		"return \"Example WebGL Renderer\"",
+		"platform: \"Example Platform\"",
+		"architecture: \"x86\"",
+	}
+	for _, check := range checks {
+		if !strings.Contains(script, check) {
+			t.Errorf("stealth script missing profile value %q", check)
+		}
+	}
+}
+
 func TestNewPatchesPresent(t *testing.T) {
 	s := Quick()
 	checks := []string{
