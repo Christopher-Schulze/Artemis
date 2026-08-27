@@ -99,7 +99,9 @@ func TestTabLifecycleInvalidTransition(t *testing.T) {
 	lc := NewTabLifecycle(DefaultProcessSpec(ProcessSpecStream, "normal"), OwnerRefUI, nil)
 
 	// CLOSED -> ACTIVE should fail (terminal state)
-	lc.Transition(TabLifecycleClosed)
+	if err := lc.Transition(TabLifecycleClosed); err != nil {
+		t.Fatalf("ACTIVE->CLOSED: %v", err)
+	}
 	err := lc.Transition(TabLifecycleActive)
 	if err == nil {
 		t.Error("CLOSED->ACTIVE should fail (terminal state)")

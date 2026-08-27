@@ -21,7 +21,9 @@ func TestChromiumObservationFixture(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(`<!doctype html><button id="real">Real geometry</button><button disabled>Disabled</button><button aria-label="Hidden action" style="display:none">Hidden action</button><div style="position:relative"><button style="position:absolute;left:0;top:0">Covered action</button><div style="position:absolute;left:0;top:0;width:180px;height:50px;z-index:10">overlay</div></div><input type="password" value="super-secret"><div id="host"></div><iframe srcdoc="<button>Frame button</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow action">shadow</button>'</script>`))
+		if _, err := w.Write([]byte(`<!doctype html><button id="real">Real geometry</button><button disabled>Disabled</button><button aria-label="Hidden action" style="display:none">Hidden action</button><div style="position:relative"><button style="position:absolute;left:0;top:0">Covered action</button><div style="position:absolute;left:0;top:0;width:180px;height:50px;z-index:10">overlay</div></div><input type="password" value="super-secret"><div id="host"></div><iframe srcdoc="<button>Frame button</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow action">shadow</button>'</script>`)); err != nil {
+			t.Errorf("write observation fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -33,16 +35,17 @@ func TestChromiumObservationFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeObservationTestResource(t, "browser", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeObservationTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeObservationTestResource(t, "page", page.Close)
 	if _, _, err = page.Navigate(ctx, fixture.URL); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +98,13 @@ func TestChromiumObservationFixture(t *testing.T) {
 	}
 	if len(frames) < 2 {
 		t.Fatalf("frame ownership missing: %#v", frames)
+	}
+}
+
+func closeObservationTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
 	}
 }
 

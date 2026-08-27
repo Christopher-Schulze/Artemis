@@ -464,7 +464,9 @@ func TestTASK2256_PointerInvalidButton(t *testing.T) {
 // TestTASK2256_PointerClear verifies clear.
 func TestTASK2256_PointerClear(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
-	d.Click(100, 200, MouseButtonLeft)
+	if err := d.Click(100, 200, MouseButtonLeft); err != nil {
+		t.Fatalf("Click: %v", err)
+	}
 	cleared := d.Clear()
 	if cleared != 2 {
 		t.Errorf("cleared: got %d, want 2", cleared)

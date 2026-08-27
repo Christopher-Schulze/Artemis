@@ -41,15 +41,21 @@ func newActionFixture(t *testing.T) *actionFixture {
 	server := httptest.NewServer(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><form id="profile"><input aria-label="First" name="first"><input aria-label="Last" name="last"></form><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL)
+		if _, err := fmt.Fprintf(w, `<!doctype html><title>Actions</title><style>body{height:3000px}#drag,#drop{width:100px;height:50px;margin:10px}</style><button aria-label="Counter" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">Counter</button><input aria-label="Name"><form id="profile"><input aria-label="First" name="first"><input aria-label="Last" name="last"></form><select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select><input aria-label="Agree" type="checkbox"><input aria-label="Upload" type="file"><a aria-label="Download" download="proof.txt" href="%s/download">Download</a><div id="drag" draggable="true" aria-label="Drag">Drag</div><div id="drop" aria-label="Drop">Drop</div><div id="host"></div><iframe srcdoc="<button aria-label='Frame action' onclick='this.dataset.hit=1'>Frame action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="Shadow click" onclick="this.dataset.hit=1">shadow</button>'</script>`, server.URL); err != nil {
+			t.Errorf("write action fixture response: %v", err)
+		}
 	})
 	mux.HandleFunc("/second", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("<!doctype html><title>Second</title><p>second</p>"))
+		if _, err := w.Write([]byte("<!doctype html><title>Second</title><p>second</p>")); err != nil {
+			t.Errorf("write second action fixture response: %v", err)
+		}
 	})
 	mux.HandleFunc("/download", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("Content-Disposition", `attachment; filename="proof.txt"`)
-		_, _ = w.Write([]byte("verified-download"))
+		if _, err := w.Write([]byte("verified-download")); err != nil {
+			t.Errorf("write action download response: %v", err)
+		}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	var browser *bridge.ChromiumBrowser
@@ -303,7 +309,10 @@ dialogReady:
 	if err := <-dialogDone; err != nil {
 		t.Fatal(err)
 	}
-	denied, _ := NewRuntime(f.page, f.observer, func(context.Context, Request) error { return fmt.Errorf("policy says no") })
+	denied, err := NewRuntime(f.page, f.observer, func(context.Context, Request) error { return fmt.Errorf("policy says no") })
+	if err != nil {
+		t.Fatalf("create denied runtime: %v", err)
+	}
 	out := denied.Execute(ctx, Request{Kind: KindScreenshot})
 	if out.Failure != FailurePolicy {
 		t.Fatalf("policy outcome=%#v", out)
@@ -361,13 +370,17 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		t.Fatalf("IPv6 loopback required for OOPIF fixture: %v", err)
 	}
 	child := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`))
+		if _, err := w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`)); err != nil {
+			t.Errorf("write OOPIF fixture response: %v", err)
+		}
 	}))
 	child.Listener = childListener
 	child.Start()
 	defer child.Close()
 	main := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL)
+		if _, err := fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL); err != nil {
+			t.Errorf("write OOPIF main fixture response: %v", err)
+		}
 	}))
 	defer main.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -379,16 +392,17 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeActionTestResource(t, "browser", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeActionTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPage(ctx, main.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeActionTestResource(t, "page", page.Close)
 	waitRuntimeReady(t, ctx, page)
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
@@ -424,6 +438,7 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeActionTestResource(t, "runtime", runtime.Close)
 	requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
 	out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button').dataset.hit"})
 	requireAction(t, out)
@@ -451,6 +466,14 @@ func requireAction(t *testing.T, out Outcome) {
 		t.Fatalf("action %s failed class=%s error=%s evidence=%#v", out.Evidence.Action, out.Failure, out.Error, out.Evidence)
 	}
 }
+
+func closeActionTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
+}
+
 func assertValue(t *testing.T, r *Runtime, expression string) {
 	t.Helper()
 	requireAction(t, r.Execute(context.Background(), Request{Kind: KindAssert, Expression: expression}))

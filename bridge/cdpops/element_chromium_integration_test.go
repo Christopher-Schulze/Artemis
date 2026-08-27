@@ -21,7 +21,7 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(`<!doctype html>
+		if _, err := w.Write([]byte(`<!doctype html>
 <button id="ready">Ready</button>
 <button id="disabled" disabled>Disabled</button>
 <button id="hidden" style="visibility:hidden">Hidden</button>
@@ -29,7 +29,9 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 <div style="position:relative;width:200px;height:50px">
   <button id="covered" style="position:absolute;left:0;top:0">Covered</button>
   <div style="position:absolute;left:0;top:0;width:200px;height:50px;z-index:10">overlay</div>
-</div>`))
+</div>`)); err != nil {
+			t.Errorf("write element fixture response: %v", err)
+		}
 	}))
 	defer fixture.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -41,16 +43,17 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer browser.Close()
+	defer closeCDPOpsTestResource(t, "browser", browser.Close)
 	owner, err := browser.NewContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer closeCDPOpsTestResource(t, "browser context", owner.Close)
 	page, err := owner.NewPage(ctx, "about:blank")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeCDPOpsTestResource(t, "page", page.Close)
 	if _, _, err = page.Navigate(ctx, fixture.URL); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +75,13 @@ func TestElementClientChromiumActionabilityTruth(t *testing.T) {
 	assertElementState(t, byID, "hidden", cdpops.ActionabilityHidden, false)
 	assertElementState(t, byID, "no-layout", cdpops.ActionabilityNoLayout, false)
 	assertElementState(t, byID, "covered", cdpops.ActionabilityCovered, false)
+}
+
+func closeCDPOpsTestResource(t *testing.T, label string, close func() error) {
+	t.Helper()
+	if err := close(); err != nil {
+		t.Errorf("close %s: %v", label, err)
+	}
 }
 
 func assertElementState(t *testing.T, elements map[string]cdpops.ElementInfo, id string, state cdpops.ActionabilityState, clickable bool) {
