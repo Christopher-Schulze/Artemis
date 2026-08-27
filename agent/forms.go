@@ -122,7 +122,7 @@ func FindForm(d *webapi.Document, selector string) *Form {
 }
 
 func formFromNode(d *webapi.Document, n *webapi.Node) *Form {
-	method := "GET"
+	var method string
 	switch asciiLower(n.AttrOrEmpty("method")) {
 	case "post":
 		method = "POST"

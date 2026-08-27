@@ -247,7 +247,12 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 	// Connect WS.
 	wsURL := "ws://" + addr + "/"
 	dialOptions := &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + r.cfg.AuthToken}}}
-	conn, _, err := websocket.Dial(ctx, wsURL, dialOptions)
+	conn, response, err := websocket.Dial(ctx, wsURL, dialOptions)
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close WebSocket handshake response body: %w", closeErr)
+		}
+	}
 	if err != nil {
 		res.Pass = false
 		res.Steps = append(res.Steps, StepResult{
@@ -255,7 +260,11 @@ func (r *Runner) runScenarioWithServeAddr(ctx context.Context, s *Scenario, serv
 		})
 		return res
 	}
-	defer conn.CloseNow()
+	defer func() {
+		if closeErr := conn.CloseNow(); closeErr != nil {
+			r.logger.Warn("close smoke WebSocket", "error", closeErr)
+		}
+	}()
 	// Match the server's 8MB read limit for large page dumps.
 	conn.SetReadLimit(8 << 20)
 

@@ -174,12 +174,11 @@ func newRuntime(poolSize int) *Runtime {
 	var iso *v8.Isolate
 	hasSnapshot := false
 	snapshotState := SnapshotUnavailable
-	snapshotReason := "snapshot asset unavailable"
+	var snapshotReason string
 	if _, err := CurrentSnapshotManifest(); err == nil {
 		iso = v8.NewIsolateFromSnapshot(snapshotBlob)
 		hasSnapshot = true
 		snapshotState = SnapshotActive
-		snapshotReason = ""
 	} else {
 		iso = v8.NewIsolate()
 		snapshotReason = err.Error()

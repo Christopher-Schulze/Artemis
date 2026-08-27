@@ -151,7 +151,12 @@ func DialCDPTransport(ctx context.Context, config CDPTransportConfig) (*CDPTrans
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, normalized.DialTimeout)
 	defer cancel()
-	conn, _, err := websocket.Dial(dialCtx, normalized.URL, &websocket.DialOptions{HTTPClient: normalized.HTTPClient})
+	conn, response, err := websocket.Dial(dialCtx, normalized.URL, &websocket.DialOptions{HTTPClient: normalized.HTTPClient})
+	if response != nil && response.Body != nil {
+		if closeErr := response.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close CDP handshake response body: %w", closeErr)
+		}
+	}
 	if err != nil {
 		return nil, &CDPError{Code: CDPErrorDial, Op: "dial", Err: err}
 	}

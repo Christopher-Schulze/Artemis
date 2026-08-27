@@ -304,7 +304,12 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
 					return
 				}
-				wsConn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client})
+				wsConn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client})
+				if response != nil && response.Body != nil {
+					if closeErr := response.Body.Close(); closeErr != nil && err == nil {
+						err = fmt.Errorf("close WebSocket handshake response body: %w", closeErr)
+					}
+				}
 				if err != nil {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "abnormal"})
