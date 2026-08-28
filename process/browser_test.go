@@ -316,7 +316,7 @@ func TestLaunchPassesMacAppCodeSignCloneProtection(t *testing.T) {
 			t.Errorf("close browser: %v", closeErr)
 		}
 	}()
-	argsData, err := os.ReadFile(filepath.Join(profile, "launch-args"))
+	argsData, err := os.ReadFile(filepath.Join(profile, "launch-args")) // #nosec G304 -- profile comes from t.TempDir and is not user input.
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -44,7 +44,11 @@ func (s Source) IntN(n int) int {
 	for {
 		value := s.Uint64()
 		if value < limit {
-			return int(value % bound)
+			remainder := value % bound
+			if remainder > uint64(^uint(0)>>1) {
+				continue
+			}
+			return int(remainder)
 		}
 	}
 }
@@ -65,7 +69,11 @@ func (s Source) Int64N(n int64) int64 {
 	for {
 		value := s.Uint64()
 		if value < limit {
-			return int64(value % bound)
+			remainder := value % bound
+			if remainder > uint64(math.MaxInt64) {
+				continue
+			}
+			return int64(remainder)
 		}
 	}
 }

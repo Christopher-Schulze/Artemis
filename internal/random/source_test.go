@@ -16,6 +16,7 @@ func TestSourceIntNBounds(t *testing.T) {
 		{name: "zero", n: 0},
 		{name: "one", n: 1},
 		{name: "small", n: 17},
+		{name: "near maximum", n: maxInt - 1},
 		{name: "maximum", n: maxInt},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,6 +46,7 @@ func TestSourceInt64NBounds(t *testing.T) {
 		{name: "zero", n: 0},
 		{name: "one", n: 1},
 		{name: "small", n: 17},
+		{name: "near maximum", n: math.MaxInt64 - 1},
 		{name: "maximum", n: math.MaxInt64},
 	} {
 		t.Run(test.name, func(t *testing.T) {
