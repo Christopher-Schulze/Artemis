@@ -44,11 +44,7 @@ func (s Source) IntN(n int) int {
 	for {
 		value := s.Uint64()
 		if value < limit {
-			result := float64(value % bound)
-			converted := int(result)
-			if converted < n {
-				return converted
-			}
+			return int(value % bound)
 		}
 	}
 }
@@ -69,11 +65,7 @@ func (s Source) Int64N(n int64) int64 {
 	for {
 		value := s.Uint64()
 		if value < limit {
-			result := float64(value % bound)
-			converted := int64(result)
-			if converted < n {
-				return converted
-			}
+			return int64(value % bound)
 		}
 	}
 }
