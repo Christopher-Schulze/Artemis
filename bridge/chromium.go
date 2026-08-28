@@ -736,6 +736,8 @@ type Page struct {
 	frameSessions   map[string]string
 	childSessions   map[string]string
 	frameSub        *CDPSubscription
+	fetchMu         sync.RWMutex
+	fetchHandler    FetchRequestHandler
 	targetScripts   TargetScriptConfig
 }
 
@@ -1091,6 +1093,9 @@ func (p *Page) close(remote bool) error {
 	p.frameSessions = make(map[string]string)
 	p.childSessions = make(map[string]string)
 	p.frameMu.Unlock()
+	p.fetchMu.Lock()
+	p.fetchHandler = nil
+	p.fetchMu.Unlock()
 	var err error
 	if remote && previous == TargetStateAttached {
 		err = p.owner.browser.callCleanup("Target.closeTarget", targetParams{TargetID: p.targetID})

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -38,6 +39,60 @@ type fetchRequestPaused struct {
 		HasPostData bool           `json:"hasPostData"`
 	} `json:"request"`
 }
+
+// FetchRequest is the bounded request metadata exposed to an application
+// fetch-interception handler after network policy validation.
+type FetchRequest struct {
+	RequestID    string
+	SessionID    string
+	URL          string
+	Method       string
+	Headers      map[string]string
+	PostData     string
+	HasPostData  bool
+	ResourceType string
+}
+
+// FetchHeader is one CDP request or response header entry.
+type FetchHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// FetchResolutionKind identifies how an application resolves a paused
+// request.
+type FetchResolutionKind string
+
+const (
+	FetchResolutionContinue FetchResolutionKind = "continue"
+	FetchResolutionFulfill  FetchResolutionKind = "fulfill"
+	FetchResolutionFail     FetchResolutionKind = "fail"
+	FetchResolutionTimeout  FetchResolutionKind = "timeout_auto_fail"
+)
+
+// FetchResolution is translated to one typed Fetch CDP command. Body is raw
+// content and is base64 encoded only at the CDP boundary.
+type FetchResolution struct {
+	Kind            FetchResolutionKind
+	URL             string
+	Method          string
+	Headers         []FetchHeader
+	PostData        string
+	StatusCode      int
+	ResponseHeaders []FetchHeader
+	Body            string
+	ErrorReason     string
+}
+
+// FetchRequestResolver resolves one paused request. Resolution may happen
+// after the worker context expires, so callers must supply a live bounded
+// context for the CDP command.
+type FetchRequestResolver func(context.Context, FetchResolution) error
+
+// FetchRequestHandler receives policy-approved requests. handled=true means
+// the handler owns the request and will invoke the resolver later; handled
+// false lets Artemis continue it immediately.
+type FetchRequestHandler func(context.Context, FetchRequest, FetchRequestResolver) (handled bool, err error)
 
 type fetchRequestJob struct {
 	sessionID string
@@ -95,16 +150,137 @@ func (p *Page) enforcePausedRequest(ctx context.Context, job fetchRequestJob) er
 	contentType := fetchHeader(request.Headers, "content-type")
 	contentLength := fetchContentLength(request.Headers, request.PostData, request.HasPostData)
 	err := p.owner.browser.policy.ValidateRequest(ctx, request.URL, request.Method, contentType, contentLength, kind, job.sessionID)
-	method := "Fetch.continueRequest"
-	params := map[string]string{"requestId": job.payload.RequestID}
 	if err != nil {
-		method = "Fetch.failRequest"
-		params["errorReason"] = "BlockedByClient"
+		return p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{
+			Kind: FetchResolutionFail, ErrorReason: "BlockedByClient",
+		})
 	}
-	if callErr := p.owner.browser.transport.CallSession(ctx, job.sessionID, method, params, nil); callErr != nil {
-		return fmt.Errorf("resolve paused request %s: %w", job.payload.RequestID, callErr)
+	if handler := p.fetchRequestHandler(); handler != nil {
+		handled, handlerErr := handler(ctx, fetchRequest(job), func(resolveCtx context.Context, resolution FetchResolution) error {
+			return p.resolveFetchRequest(resolveCtx, job.sessionID, job.payload.RequestID, resolution)
+		})
+		if handlerErr != nil {
+			failErr := p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{
+				Kind: FetchResolutionFail, ErrorReason: "Failed",
+			})
+			if failErr != nil {
+				return fmt.Errorf("fetch request handler: %w; fail paused request: %v", handlerErr, failErr)
+			}
+			return fmt.Errorf("fetch request handler: %w", handlerErr)
+		}
+		if handled {
+			return nil
+		}
+	}
+	if err := p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{Kind: FetchResolutionContinue}); err != nil {
+		return fmt.Errorf("resolve paused request %s: %w", job.payload.RequestID, err)
 	}
 	return nil
+}
+
+func (p *Page) fetchRequestHandler() FetchRequestHandler {
+	p.fetchMu.RLock()
+	defer p.fetchMu.RUnlock()
+	return p.fetchHandler
+}
+
+func fetchRequest(job fetchRequestJob) FetchRequest {
+	return FetchRequest{
+		RequestID: job.payload.RequestID, SessionID: job.sessionID,
+		URL: job.payload.Request.URL, Method: job.payload.Request.Method,
+		Headers:  fetchHeaderStrings(job.payload.Request.Headers),
+		PostData: job.payload.Request.PostData, HasPostData: job.payload.Request.HasPostData,
+		ResourceType: job.payload.ResourceType,
+	}
+}
+
+func fetchHeaderStrings(headers map[string]any) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for key, value := range headers {
+		result[key] = fmt.Sprint(value)
+	}
+	return result
+}
+
+func (p *Page) resolveFetchRequest(ctx context.Context, sessionID, requestID string, resolution FetchResolution) error {
+	if ctx == nil {
+		return fmt.Errorf("resolve fetch request: context required")
+	}
+	if requestID == "" {
+		return fmt.Errorf("resolve fetch request: request ID required")
+	}
+	method, params, err := fetchResolutionCommand(requestID, resolution)
+	if err != nil {
+		return err
+	}
+	if callErr := p.owner.browser.transport.CallSession(ctx, sessionID, method, params, nil); callErr != nil {
+		return callErr
+	}
+	return nil
+}
+
+type fetchContinueRequestParams struct {
+	RequestID string        `json:"requestId"`
+	URL       string        `json:"url,omitempty"`
+	Method    string        `json:"method,omitempty"`
+	Headers   []FetchHeader `json:"headers,omitempty"`
+	PostData  string        `json:"postData,omitempty"`
+}
+
+type fetchFulfillRequestParams struct {
+	RequestID       string        `json:"requestId"`
+	ResponseCode    int           `json:"responseCode"`
+	ResponsePhrase  string        `json:"responsePhrase,omitempty"`
+	ResponseHeaders []FetchHeader `json:"responseHeaders,omitempty"`
+	Body            string        `json:"body,omitempty"`
+}
+
+type fetchFailRequestParams struct {
+	RequestID   string `json:"requestId"`
+	ErrorReason string `json:"errorReason"`
+}
+
+func fetchResolutionCommand(requestID string, resolution FetchResolution) (string, any, error) {
+	switch resolution.Kind {
+	case FetchResolutionContinue:
+		return "Fetch.continueRequest", fetchContinueRequestParams{
+			RequestID: requestID, URL: resolution.URL, Method: resolution.Method,
+			Headers: append([]FetchHeader(nil), resolution.Headers...), PostData: resolution.PostData,
+		}, nil
+	case FetchResolutionFulfill:
+		status := resolution.StatusCode
+		if status == 0 {
+			status = 200
+		}
+		if status < 100 || status > 599 {
+			return "", nil, fmt.Errorf("resolve fetch request: status code %d outside 100..599", status)
+		}
+		return "Fetch.fulfillRequest", fetchFulfillRequestParams{
+			RequestID: requestID, ResponseCode: status,
+			ResponseHeaders: append([]FetchHeader(nil), resolution.ResponseHeaders...),
+			Body:            base64.StdEncoding.EncodeToString([]byte(resolution.Body)),
+		}, nil
+	case FetchResolutionFail, FetchResolutionTimeout:
+		reason := resolution.ErrorReason
+		if resolution.Kind == FetchResolutionTimeout {
+			reason = "TimedOut"
+		}
+		return "Fetch.failRequest", fetchFailRequestParams{RequestID: requestID, ErrorReason: validFetchErrorReason(reason)}, nil
+	default:
+		return "", nil, fmt.Errorf("resolve fetch request: unsupported resolution %q", resolution.Kind)
+	}
+}
+
+func validFetchErrorReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case "Aborted", "AccessDenied", "BlockedByClient", "BlockedByResponse", "ConnectionAborted", "ConnectionClosed", "ConnectionFailed", "ConnectionRefused", "ConnectionReset", "InternetDisconnected", "NameNotResolved", "TimedOut", "TunnelingFailed", "Failed", "Other":
+		return strings.TrimSpace(reason)
+	default:
+		return "Failed"
+	}
 }
 
 func (p *Page) policyTargetKind(sessionID string, paused fetchRequestPaused) network.TargetKind {
