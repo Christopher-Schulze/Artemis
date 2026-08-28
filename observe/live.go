@@ -79,6 +79,7 @@ type LiveCollector struct {
 	console          *ConsoleCapture
 	metrics          *MetricsCollector
 	caller           bridgeobserve.Caller
+	sessionID        string
 	maxEvidenceBytes int
 	pendingMu        sync.Mutex
 	pending          map[string]*pendingNetwork
@@ -123,6 +124,9 @@ func NewLiveCollector(caller bridgeobserve.Caller, source BrowserEventSource, co
 		caller:           caller,
 		maxEvidenceBytes: config.MaxEvidenceBytes,
 		pending:          make(map[string]*pendingNetwork),
+	}
+	if page, ok := caller.(*bridge.Page); ok {
+		live.sessionID = page.SessionID()
 	}
 	if source == nil {
 		return live, nil
@@ -283,6 +287,9 @@ func (c *LiveCollector) consumeEvents(ctx context.Context, subscription *bridge.
 }
 
 func (c *LiveCollector) recordEvent(event bridge.CDPEvent) {
+	if !c.eventBelongsToPage(event) {
+		return
+	}
 	switch event.Method {
 	case "Network.requestWillBeSent":
 		c.recordNetworkRequest(event.Params)
@@ -295,6 +302,25 @@ func (c *LiveCollector) recordEvent(event bridge.CDPEvent) {
 	case "Runtime.consoleAPICalled":
 		c.recordConsoleEvent(event.Params)
 	}
+}
+
+func (c *LiveCollector) eventBelongsToPage(event bridge.CDPEvent) bool {
+	if c == nil || c.sessionID == "" {
+		return true
+	}
+	if event.SessionID == c.sessionID {
+		return true
+	}
+	page, ok := c.caller.(*bridge.Page)
+	if !ok {
+		return true
+	}
+	for _, sessionID := range page.FrameSessions() {
+		if event.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 type requestWillBeSent struct {
