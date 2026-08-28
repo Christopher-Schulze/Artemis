@@ -136,7 +136,13 @@ type ChromiumBrowser struct {
 
 // ConnectChromium validates an external browser endpoint without taking process ownership.
 func ConnectChromium(ctx context.Context, endpoint string) (*ChromiumBrowser, error) {
-	policy, err := network.NewPolicy(network.PolicyConfig{}, nil, nil)
+	return ConnectChromiumWithPolicy(ctx, endpoint, network.PolicyConfig{})
+}
+
+// ConnectChromiumWithPolicy validates an external browser endpoint and applies
+// the supplied egress policy to every page created from the connection.
+func ConnectChromiumWithPolicy(ctx context.Context, endpoint string, config network.PolicyConfig) (*ChromiumBrowser, error) {
+	policy, err := network.NewPolicy(config, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create browser network policy: %w", err)
 	}
