@@ -22,11 +22,12 @@ import (
 )
 
 const (
-	defaultStartupTimeout  = 15 * time.Second
-	defaultShutdownTimeout = 5 * time.Second
-	defaultOutputLimit     = 256 * 1024
-	profileLeaseName       = ".artemis-profile.lock"
-	policyHostResolverRule = "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
+	defaultStartupTimeout      = 15 * time.Second
+	defaultShutdownTimeout     = 5 * time.Second
+	defaultOutputLimit         = 256 * 1024
+	profileLeaseName           = ".artemis-profile.lock"
+	policyHostResolverRule     = "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"
+	macAppCodeSignCloneFeature = "MacAppCodeSignClone"
 )
 
 // DependencyAuthorizer is the boundary adapter supplied by the Omnimus
@@ -354,8 +355,58 @@ func chromiumArgs(config LaunchConfig, profileDir string) []string {
 			"--disable-quic",
 		)
 	}
-	args = append(args, config.ExtraArgs...)
+	args = append(args, mergeDisableFeatures(config.ExtraArgs)...)
 	return append(args, "about:blank")
+}
+
+func mergeDisableFeatures(extraArgs []string) []string {
+	features := make([]string, 0)
+	seen := make(map[string]struct{})
+	merged := make([]string, 0, len(extraArgs)+1)
+	disableIndex := -1
+	for index := 0; index < len(extraArgs); index++ {
+		arg := extraArgs[index]
+		switch {
+		case arg == "--disable-features":
+			if disableIndex < 0 {
+				disableIndex = len(merged)
+				merged = append(merged, "")
+			}
+			if index+1 < len(extraArgs) && !strings.HasPrefix(extraArgs[index+1], "--") {
+				appendDisableFeatures(&features, seen, extraArgs[index+1])
+				index++
+			}
+		case strings.HasPrefix(arg, "--disable-features="):
+			if disableIndex < 0 {
+				disableIndex = len(merged)
+				merged = append(merged, "")
+			}
+			appendDisableFeatures(&features, seen, strings.TrimPrefix(arg, "--disable-features="))
+		default:
+			merged = append(merged, arg)
+		}
+	}
+	appendDisableFeatures(&features, seen, macAppCodeSignCloneFeature)
+	disableArg := "--disable-features=" + strings.Join(features, ",")
+	if disableIndex < 0 {
+		return append(merged, disableArg)
+	}
+	merged[disableIndex] = disableArg
+	return merged
+}
+
+func appendDisableFeatures(features *[]string, seen map[string]struct{}, raw string) {
+	for _, feature := range strings.Split(raw, ",") {
+		feature = strings.TrimSpace(feature)
+		if feature == "" {
+			continue
+		}
+		if _, exists := seen[feature]; exists {
+			continue
+		}
+		seen[feature] = struct{}{}
+		*features = append(*features, feature)
+	}
 }
 
 func (b *Browser) wait() {

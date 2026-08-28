@@ -274,6 +274,63 @@ func TestChromiumArgsPinPolicyProxyAndDNS(t *testing.T) {
 	}
 }
 
+func TestChromiumArgsDisableMacAppCodeSignClone(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra []string
+		want  string
+	}{
+		{name: "adds mandatory feature", extra: []string{"--site-per-process"}, want: "--disable-features=MacAppCodeSignClone"},
+		{name: "merges inline values", extra: []string{"--disable-features=Foo,Bar", "--site-per-process", "--disable-features=Bar,Baz"}, want: "--disable-features=Foo,Bar,Baz,MacAppCodeSignClone"},
+		{name: "merges separate value", extra: []string{"--site-per-process", "--disable-features", "Foo, Baz"}, want: "--disable-features=Foo,Baz,MacAppCodeSignClone"},
+		{name: "repairs bare flag", extra: []string{"--disable-features"}, want: "--disable-features=MacAppCodeSignClone"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := chromiumArgs(LaunchConfig{ExtraArgs: test.extra}, "/tmp/artemis-profile")
+			var disableArgs []string
+			for _, arg := range args {
+				if strings.HasPrefix(arg, "--disable-features=") {
+					disableArgs = append(disableArgs, arg)
+				}
+			}
+			if len(disableArgs) != 1 || disableArgs[0] != test.want {
+				t.Fatalf("disable-features args=%v, want [%q]", disableArgs, test.want)
+			}
+		})
+	}
+}
+
+func TestLaunchPassesMacAppCodeSignCloneProtection(t *testing.T) {
+	profile := t.TempDir()
+	script := writeBrowserScript(t, browserRecordsArgsScript)
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: script, UserDataDir: profile, ExtraArgs: []string{"--disable-features=ExistingFeature"},
+		StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := browser.Close(); closeErr != nil {
+			t.Errorf("close browser: %v", closeErr)
+		}
+	}()
+	argsData, err := os.ReadFile(filepath.Join(profile, "launch-args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disableArgs []string
+	for _, arg := range strings.Split(strings.TrimSpace(string(argsData)), "\n") {
+		if strings.HasPrefix(arg, "--disable-features=") {
+			disableArgs = append(disableArgs, arg)
+		}
+	}
+	if len(disableArgs) != 1 || disableArgs[0] != "--disable-features=ExistingFeature,MacAppCodeSignClone" {
+		t.Fatalf("launched disable-features args=%v", disableArgs)
+	}
+}
+
 func TestNormalizeLaunchConfigRejectsInvalidPolicyProxyAndPorts(t *testing.T) {
 	script := writeBrowserScript(t, browserReadyScript)
 	for _, config := range []LaunchConfig{
@@ -663,6 +720,20 @@ for arg in "$@"; do
   esac
 done
 mkdir -p "$profile"
+printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+`
+
+const browserRecordsArgsScript = `#!/bin/sh
+profile=""
+for arg in "$@"; do
+  case "$arg" in
+    --user-data-dir=*) profile="${arg#*=}" ;;
+  esac
+done
+mkdir -p "$profile"
+printf '%s\n' "$@" > "$profile/launch-args"
 printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
 trap 'exit 0' TERM INT
 while :; do sleep 1; done
