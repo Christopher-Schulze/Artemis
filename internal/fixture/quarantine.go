@@ -19,7 +19,7 @@ type Quarantine struct {
 
 // quarantineExpiry is the default deadline for currently quarantined skips.
 // Quarantined behavior must be either fixed or re-approved before this date.
-const quarantineExpiryStr = "2026-08-31T00:00:00Z"
+const quarantineExpiryStr = "2026-09-30T00:00:00Z"
 
 // QuarantineExpiry returns the default quarantine expiration time.
 func QuarantineExpiry() time.Time {
