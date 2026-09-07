@@ -45,20 +45,28 @@ func (e *JSError) Format(s fmt.State, verb rune) {
 	case 'v':
 		if s.Flag('+') && e.StackTrace != "" {
 			// The StackTrace starts with the Message, so only the former needs to be printed
-			io.WriteString(s, e.StackTrace)
+			if _, err := io.WriteString(s, e.StackTrace); err != nil {
+				return
+			}
 
 			// If it was a compile time error, then there wouldn't be a runtime stack trace,
 			// but StackTrace will still include the Message, making them equal. In this case,
 			// we want to include the Location where the compilation failed.
 			if e.StackTrace == e.Message && e.Location != "" {
-				fmt.Fprintf(s, " (at %s)", e.Location)
+				if _, err := fmt.Fprintf(s, " (at %s)", e.Location); err != nil {
+					return
+				}
 			}
 			return
 		}
 		fallthrough
 	case 's':
-		io.WriteString(s, e.Message)
+		if _, err := io.WriteString(s, e.Message); err != nil {
+			return
+		}
 	case 'q':
-		fmt.Fprintf(s, "%q", e.Message)
+		if _, err := fmt.Fprintf(s, "%q", e.Message); err != nil {
+			return
+		}
 	}
 }

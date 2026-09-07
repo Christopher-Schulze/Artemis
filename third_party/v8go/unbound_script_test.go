@@ -41,7 +41,10 @@ func TestUnboundScriptRun_OnlyInTheSameIsolate(t *testing.T) {
 	i2c1 := v8.NewContext(i2)
 	defer i2c1.Close()
 
-	if recoverPanic(func() { us.Run(i2c1) }) == nil {
+	if recoverPanic(func() {
+		_, err := us.Run(i2c1)
+		fatalIf(t, err)
+	}) == nil {
 		t.Error("expected panic running unbound script in a context belonging to a different isolate")
 	}
 }

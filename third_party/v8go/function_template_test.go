@@ -58,10 +58,14 @@ func TestFunctionTemplate_generates_values(t *testing.T) {
 		fmt.Printf("%+v\n", info.Args())
 		return nil
 	})
-	global.Set("print", printfn, v8.ReadOnly)
+	if err := global.Set("print", printfn, v8.ReadOnly); err != nil {
+		t.Fatal(err)
+	}
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
-	ctx.RunScript("print('foo', 'bar', 0, 1)", "")
+	if _, err := ctx.RunScript("print('foo', 'bar', 0, 1)", ""); err != nil {
+		t.Fatal(err)
+	}
 	if ctx.RetainedValueCount() != 6 {
 		t.Errorf("expected 6 retained values, got: %d", ctx.RetainedValueCount())
 	}
@@ -78,10 +82,14 @@ func TestFunctionTemplate_releases_values(t *testing.T) {
 		fmt.Printf("%+v\n", info.Args())
 		return nil
 	})
-	global.Set("print", printfn, v8.ReadOnly)
+	if err := global.Set("print", printfn, v8.ReadOnly); err != nil {
+		t.Fatal(err)
+	}
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
-	ctx.RunScript("print('foo', 'bar', 0, 1)", "")
+	if _, err := ctx.RunScript("print('foo', 'bar', 0, 1)", ""); err != nil {
+		t.Fatal(err)
+	}
 	// there is a constant factor associated with the global.
 	if ctx.RetainedValueCount() != 1 {
 		t.Errorf("expected 1 retained values, got: %d", ctx.RetainedValueCount())
@@ -126,21 +134,29 @@ func TestFunctionCallbackInfoThis(t *testing.T) {
 	defer iso.Dispose()
 
 	foo := v8.NewObjectTemplate(iso)
-	foo.Set("name", "foobar")
+	if err := foo.Set("name", "foobar"); err != nil {
+		t.Fatal(err)
+	}
 
 	var this *v8.Object
 	barfn := v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
 		this = info.This()
 		return nil
 	})
-	foo.Set("bar", barfn)
+	if err := foo.Set("bar", barfn); err != nil {
+		t.Fatal(err)
+	}
 
 	global := v8.NewObjectTemplate(iso)
-	global.Set("foo", foo)
+	if err := global.Set("foo", foo); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
-	ctx.RunScript("foo.bar()", "")
+	if _, err := ctx.RunScript("foo.bar()", ""); err != nil {
+		t.Fatal(err)
+	}
 
 	v, _ := this.Get("name")
 	if v.String() != "foobar" {
@@ -156,10 +172,16 @@ func ExampleFunctionTemplate() {
 		fmt.Printf("%+v\n", info.Args())
 		return nil
 	})
-	global.Set("print", printfn, v8.ReadOnly)
+	if err := global.Set("print", printfn, v8.ReadOnly); err != nil {
+		fmt.Println(err)
+		return
+	}
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
-	ctx.RunScript("print('foo', 'bar', 0, 1)", "")
+	if _, err := ctx.RunScript("print('foo', 'bar', 0, 1)", ""); err != nil {
+		fmt.Println(err)
+		return
+	}
 	// Output:
 	// [foo bar 0 1]
 }

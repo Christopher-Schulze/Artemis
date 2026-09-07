@@ -72,14 +72,14 @@ func TestGlobalObjectTemplate(t *testing.T) {
 	iso := v8.NewIsolate()
 	defer iso.Dispose()
 	tests := [...]struct {
-		global   func() *v8.ObjectTemplate
+		global   func(*testing.T) *v8.ObjectTemplate
 		source   string
 		validate func(t *testing.T, val *v8.Value)
 	}{
 		{
-			func() *v8.ObjectTemplate {
+			func(t *testing.T) *v8.ObjectTemplate {
 				gbl := v8.NewObjectTemplate(iso)
-				gbl.Set("foo", "bar")
+				fatalIf(t, gbl.Set("foo", "bar"))
 				return gbl
 			},
 			"foo",
@@ -94,11 +94,11 @@ func TestGlobalObjectTemplate(t *testing.T) {
 			},
 		},
 		{
-			func() *v8.ObjectTemplate {
+			func(t *testing.T) *v8.ObjectTemplate {
 				foo := v8.NewObjectTemplate(iso)
-				foo.Set("bar", "baz")
+				fatalIf(t, foo.Set("bar", "baz"))
 				gbl := v8.NewObjectTemplate(iso)
-				gbl.Set("foo", foo)
+				fatalIf(t, gbl.Set("foo", foo))
 				return gbl
 			},
 			"foo.bar",
@@ -113,7 +113,7 @@ func TestGlobalObjectTemplate(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.source, func(t *testing.T) {
-			ctx := v8.NewContext(iso, tt.global())
+			ctx := v8.NewContext(iso, tt.global(t))
 			val, err := ctx.RunScript(tt.source, "test.js")
 			if err != nil {
 				t.Fatalf("unexpected error runing script: %v", err)
@@ -133,7 +133,7 @@ func TestObjectTemplateNewInstance(t *testing.T) {
 		t.Error("expected error but got <nil>")
 	}
 
-	tmpl.Set("foo", "bar")
+	fatalIf(t, tmpl.Set("foo", "bar"))
 	ctx := v8.NewContext(iso)
 	defer ctx.Close()
 	obj, _ := tmpl.NewInstance(ctx)
@@ -148,7 +148,7 @@ func TestObjectTemplate_garbageCollection(t *testing.T) {
 	iso := v8.NewIsolate()
 
 	tmpl := v8.NewObjectTemplate(iso)
-	tmpl.Set("foo", "bar")
+	fatalIf(t, tmpl.Set("foo", "bar"))
 	ctx := v8.NewContext(iso, tmpl)
 
 	ctx.Close()

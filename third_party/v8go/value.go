@@ -125,7 +125,7 @@ func NewValue(iso *Isolate, val interface{}) (*Value, error) {
 		bits := v.Bits()
 		count = len(bits)
 
-		words := make([]C.uint64_t, count, count)
+		words := make([]C.uint64_t, count)
 		for idx, word := range bits {
 			words[idx] = C.uint64_t(word)
 		}
@@ -145,14 +145,20 @@ func (v *Value) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
 		if s.Flag('+') {
-			io.WriteString(s, v.DetailString())
+			if _, err := io.WriteString(s, v.DetailString()); err != nil {
+				return
+			}
 			return
 		}
 		fallthrough
 	case 's':
-		io.WriteString(s, v.String())
+		if _, err := io.WriteString(s, v.String()); err != nil {
+			return
+		}
 	case 'q':
-		fmt.Fprintf(s, "%q", v.String())
+		if _, err := fmt.Fprintf(s, "%q", v.String()); err != nil {
+			return
+		}
 	}
 }
 

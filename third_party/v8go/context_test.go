@@ -18,7 +18,9 @@ func TestContextExec(t *testing.T) {
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
 
-	ctx.RunScript(`const add = (a, b) => a + b`, "add.js")
+	if _, err := ctx.RunScript(`const add = (a, b) => a + b`, "add.js"); err != nil {
+		t.Fatal(err)
+	}
 	val, _ := ctx.RunScript(`add(3, 4)`, "main.js")
 	rtn := val.String()
 	if rtn != "7" {
@@ -158,10 +160,14 @@ func BenchmarkContext(b *testing.B) {
 	defer iso.Dispose()
 	for n := 0; n < b.N; n++ {
 		ctx := v8.NewContext(iso)
-		ctx.RunScript(script, "main.js")
+		if _, err := ctx.RunScript(script, "main.js"); err != nil {
+			b.Fatal(err)
+		}
 		str, _ := json.Marshal(makeObject())
 		cmd := fmt.Sprintf("process(%s)", str)
-		ctx.RunScript(cmd, "cmd.js")
+		if _, err := ctx.RunScript(cmd, "cmd.js"); err != nil {
+			b.Fatal(err)
+		}
 		ctx.Close()
 	}
 }
@@ -170,9 +176,19 @@ func ExampleContext() {
 	ctx := v8.NewContext()
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
-	ctx.RunScript("const add = (a, b) => a + b", "math.js")
-	ctx.RunScript("const result = add(3, 4)", "main.js")
-	val, _ := ctx.RunScript("result", "value.js")
+	if _, err := ctx.RunScript("const add = (a, b) => a + b", "math.js"); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if _, err := ctx.RunScript("const result = add(3, 4)", "main.js"); err != nil {
+		fmt.Println(err)
+		return
+	}
+	val, err := ctx.RunScript("result", "value.js")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	fmt.Println(val)
 	// Output:
 	// 7
@@ -183,13 +199,20 @@ func ExampleContext_isolate() {
 	defer iso.Dispose()
 	ctx1 := v8.NewContext(iso)
 	defer ctx1.Close()
-	ctx1.RunScript("const foo = 'bar'", "context_one.js")
-	val, _ := ctx1.RunScript("foo", "foo.js")
+	if _, err := ctx1.RunScript("const foo = 'bar'", "context_one.js"); err != nil {
+		fmt.Println(err)
+		return
+	}
+	val, err := ctx1.RunScript("foo", "foo.js")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	fmt.Println(val)
 
 	ctx2 := v8.NewContext(iso)
 	defer ctx2.Close()
-	_, err := ctx2.RunScript("foo", "context_two.js")
+	_, err = ctx2.RunScript("foo", "context_two.js")
 	fmt.Println(err)
 	// Output:
 	// bar
@@ -200,10 +223,17 @@ func ExampleContext_globalTemplate() {
 	iso := v8.NewIsolate()
 	defer iso.Dispose()
 	obj := v8.NewObjectTemplate(iso)
-	obj.Set("version", "v1.0.0")
+	if err := obj.Set("version", "v1.0.0"); err != nil {
+		fmt.Println(err)
+		return
+	}
 	ctx := v8.NewContext(iso, obj)
 	defer ctx.Close()
-	val, _ := ctx.RunScript("version", "main.js")
+	val, err := ctx.RunScript("version", "main.js")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	fmt.Println(val)
 	// Output:
 	// v1.0.0

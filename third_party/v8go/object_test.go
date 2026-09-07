@@ -119,7 +119,7 @@ func TestObjectInternalFields(t *testing.T) {
 		t.Errorf("unexpected value: %q", v)
 	}
 
-	if err := obj.SetInternalField(0, t); err == nil {
+	if setErr := obj.SetInternalField(0, t); setErr == nil {
 		t.Error("expected unsupported value error")
 	}
 
@@ -129,7 +129,9 @@ func TestObjectInternalFields(t *testing.T) {
 		t.Errorf("unexpected value: %q", v)
 	}
 
-	if recoverPanic(func() { obj.SetInternalField(1, "baz") }) == nil {
+	if recoverPanic(func() {
+		fatalIf(t, obj.SetInternalField(1, "baz"))
+	}) == nil {
 		t.Error("expected panic from index out of bounds")
 	}
 }
@@ -148,7 +150,9 @@ func TestObjectGet(t *testing.T) {
 	if baz, _ := obj.Get("baz"); !baz.IsUndefined() {
 		t.Errorf("unexpected value: %q", baz)
 	}
-	ctx.RunScript("foo[5] = 5", "")
+	if _, err := ctx.RunScript("foo[5] = 5", ""); err != nil {
+		t.Fatal(err)
+	}
 	if five, _ := obj.GetIdx(5); five.Integer() != 5 {
 		t.Errorf("unexpected value: %q", five)
 	}
@@ -214,11 +218,20 @@ func ExampleObject_global() {
 		fmt.Println(info.Args()[0])
 		return nil
 	})
-	console.Set("log", logfn)
+	if err := console.Set("log", logfn); err != nil {
+		fmt.Println(err)
+		return
+	}
 	consoleObj, _ := console.NewInstance(ctx)
 
-	global.Set("console", consoleObj)
-	ctx.RunScript("console.log('foo')", "")
+	if err := global.Set("console", consoleObj); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if _, err := ctx.RunScript("console.log('foo')", ""); err != nil {
+		fmt.Println(err)
+		return
+	}
 	// Output:
 	// foo
 }

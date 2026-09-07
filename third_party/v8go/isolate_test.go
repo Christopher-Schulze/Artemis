@@ -29,14 +29,18 @@ func TestIsolateTerminateExecution(t *testing.T) {
 		go func() {
 			iso.TerminateExecution()
 		}()
-		loop.Call(v8.Undefined(iso))
+		if _, err := loop.Call(v8.Undefined(iso)); err != nil && !strings.HasPrefix(err.Error(), "ExecutionTerminated") {
+			t.Errorf("unexpected loop error: %v", err)
+		}
 
 		terminating = iso.IsExecutionTerminating()
 		return nil
 	})
 
 	global := v8.NewObjectTemplate(iso)
-	global.Set("foo", fooFn)
+	if err := global.Set("foo", fooFn); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
@@ -130,7 +134,10 @@ func TestIsolateCompileUnboundScript_InvalidOptions(t *testing.T) {
 		CachedData: &v8.CompilerCachedData{Bytes: []byte("unused")},
 		Mode:       v8.CompileModeEager,
 	}
-	panicErr := recoverPanic(func() { iso.CompileUnboundScript("console.log(1)", "script.js", opts) })
+	panicErr := recoverPanic(func() {
+		_, err := iso.CompileUnboundScript("console.log(1)", "script.js", opts)
+		fatalIf(t, err)
+	})
 	if panicErr == nil {
 		t.Error("expected panic")
 	}
@@ -231,8 +238,8 @@ func TestIsolateThrowException(t *testing.T) {
 	})
 
 	global := v8.NewObjectTemplate(iso)
-	global.Set("foo", fn)
-	global.Set("foo2", fn2)
+	fatalIf(t, global.Set("foo", fn))
+	fatalIf(t, global.Set("foo2", fn2))
 
 	ctx := v8.NewContext(iso, global)
 
@@ -268,10 +275,14 @@ func BenchmarkIsolateInitAndRun(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		vm := v8.NewIsolate()
 		ctx := v8.NewContext(vm)
-		ctx.RunScript(script, "main.js")
+		if _, err := ctx.RunScript(script, "main.js"); err != nil {
+			b.Fatal(err)
+		}
 		str, _ := json.Marshal(makeObject())
 		cmd := fmt.Sprintf("process(%s)", str)
-		ctx.RunScript(cmd, "cmd.js")
+		if _, err := ctx.RunScript(cmd, "cmd.js"); err != nil {
+			b.Fatal(err)
+		}
 		ctx.Close()
 		vm.Close() // force disposal of the VM
 	}

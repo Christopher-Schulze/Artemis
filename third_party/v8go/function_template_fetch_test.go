@@ -12,7 +12,7 @@ package v8go_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -32,13 +32,16 @@ func ExampleFunctionTemplate_fetch() {
 
 		go func() {
 			res, _ := http.Get(url)
-			body, _ := ioutil.ReadAll(res.Body)
+			body, _ := io.ReadAll(res.Body)
 			val, _ := v8.NewValue(iso, string(body))
 			resolver.Resolve(val)
 		}()
 		return resolver.GetPromise().Value
 	})
-	global.Set("fetch", fetchfn, v8.ReadOnly)
+	if err := global.Set("fetch", fetchfn, v8.ReadOnly); err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()

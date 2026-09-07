@@ -122,14 +122,20 @@ func TestPromiseThenPanic(t *testing.T) {
 	prom := res.GetPromise()
 
 	t.Run("no callbacks", func(t *testing.T) {
-		defer func() { recover() }()
+		defer func() {
+			if recover() == nil {
+				t.Error("expected a panic")
+			}
+		}()
 		prom.Then()
-		t.Errorf("expected a panic")
 	})
 	t.Run("3 callbacks", func(t *testing.T) {
-		defer func() { recover() }()
+		defer func() {
+			if recover() == nil {
+				t.Error("expected a panic")
+			}
+		}()
 		fn := func(_ *v8.FunctionCallbackInfo) *v8.Value { return nil }
 		prom.Then(fn, fn, fn)
-		t.Errorf("expected a panic")
 	})
 }
