@@ -80,9 +80,15 @@ func TestCDPTransportPropagatesProtocolError(t *testing.T) {
 
 func TestCDPTransportDispatchesSessionEvent(t *testing.T) {
 	endpoint := cdpTestServer(t, func(ctx context.Context, conn *websocket.Conn) error {
-		return writeCDPMessage(ctx, conn, map[string]any{
+		if err := writeCDPMessage(ctx, conn, map[string]any{
 			"method": "Target.attachedToTarget", "sessionId": "session-1", "params": map[string]any{"waitingForDebugger": false},
-		})
+		}); err != nil {
+			return err
+		}
+		// Keep the connection open: returning right after the write races
+		// with the client's Subscribe on fast/loaded runners.
+		<-ctx.Done()
+		return ctx.Err()
 	})
 	transport := dialTestTransport(t, endpoint, CDPTransportConfig{})
 	defer closeTestCDPTransport(t, transport)
