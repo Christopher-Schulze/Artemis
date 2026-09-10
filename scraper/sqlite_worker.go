@@ -86,6 +86,11 @@ func (w *SQLiteWorker) Query(ctx context.Context, q SQLiteQuery) (SQLiteResult, 
 	if ctx == nil {
 		return SQLiteResult{}, fmt.Errorf("sqlite worker: context required")
 	}
+	// Pre-cancelled contexts must fail fast: select{} would otherwise race
+	// between the ready queries channel and ctx.Done.
+	if err := ctx.Err(); err != nil {
+		return SQLiteResult{}, err
+	}
 	select {
 	case w.queries <- q:
 	case <-ctx.Done():

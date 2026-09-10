@@ -480,20 +480,28 @@ func (b *ChromiumBrowser) applyTargetEvent(event CDPEvent) {
 		Status    string `json:"status"`
 		ErrorCode int    `json:"errorCode"`
 	}
-	if err := json.Unmarshal(event.Params, &payload); err != nil {
-		return
+	if len(event.Params) > 0 {
+		if err := json.Unmarshal(event.Params, &payload); err != nil {
+			return
+		}
+	}
+	// Flattened session-scoped events (e.g. Inspector.targetCrashed) carry
+	// the session id on the envelope, not inside params.
+	sessionID := payload.SessionID
+	if sessionID == "" {
+		sessionID = event.SessionID
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	page := b.pages[payload.TargetID]
-	if page == nil && payload.SessionID != "" {
-		page = b.sessionMap[payload.SessionID]
+	if page == nil && sessionID != "" {
+		page = b.sessionMap[sessionID]
 	}
 	if page == nil {
 		return
 	}
 	switch event.Method {
-	case "Target.targetCrashed":
+	case "Target.targetCrashed", "Inspector.targetCrashed":
 		page.setState(TargetStateCrashed, fmt.Sprintf("status=%s errorCode=%d", payload.Status, payload.ErrorCode))
 	case "Target.detachedFromTarget":
 		page.setState(TargetStateDetached, "target session detached")

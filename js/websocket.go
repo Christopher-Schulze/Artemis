@@ -134,6 +134,23 @@ func (r *wsRegistry) tryEvent(ctx context.Context, ev wsEvent) bool {
 	}
 }
 
+// tryTerminalEvent delivers close events, which must survive conn-ctx
+// cancellation: __ws_close cancels the conn ctx, and dropping the close
+// event would leave the JS readyState stuck at CLOSING forever. The
+// last-ditch nonblocking send keeps the post bounded when the channel is
+// saturated — under that pressure the close may still drop.
+func (r *wsRegistry) tryTerminalEvent(ctx context.Context, ev wsEvent) bool {
+	if r.tryEvent(ctx, ev) {
+		return true
+	}
+	select {
+	case r.events <- ev:
+		return true
+	default:
+		return false
+	}
+}
+
 // closeAll cancels every WebSocket connection's context and closes the
 // underlying conn, ensuring all per-conn read goroutines exit. Called
 // from Context.Close so WS goroutines never outlive their owning
@@ -331,7 +348,7 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 				for {
 					typ, data, err := wsConn.Read(ctx)
 					if err != nil {
-						ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1000, reason: ""})
+						ws.tryTerminalEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1000, reason: ""})
 						return
 					}
 					if !ws.tryEvent(ctx, wsEvent{

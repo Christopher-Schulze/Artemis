@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,17 +24,45 @@ func TestSnapshotManifestPathTargetsRuntimeProvenance(t *testing.T) {
 }
 
 func TestGenerateSnapshotIsByteDeterministic(t *testing.T) {
-	first, err := generateSnapshot()
-	if err != nil {
-		t.Fatalf("first generateSnapshot: %v", err)
-	}
-	second, err := generateSnapshot()
-	if err != nil {
-		t.Fatalf("second generateSnapshot: %v", err)
-	}
+	// V8 only guarantees snapshot determinism across fresh processes — a
+	// second CreateBlob in one process inherits allocator/GC state. The
+	// production generator is a one-shot CLI, so verify via subprocess.
+	first := generateSnapshotSubprocess(t)
+	second := generateSnapshotSubprocess(t)
 	if !bytes.Equal(first, second) {
 		t.Fatal("repeated snapshot generation produced different bytes")
 	}
+}
+
+// generateSnapshotSubprocess re-executes this test binary in helper mode to
+// produce one snapshot per fresh process (matching the one-shot CLI path).
+func generateSnapshotSubprocess(t *testing.T) []byte {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=TestSnapshotHelperProcess")
+	cmd.Env = append(os.Environ(), "ARTEMIS_SNAPSHOT_HELPER=1")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("snapshot helper: %v", err)
+	}
+	blob, err := hex.DecodeString(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("decode helper output: %v", err)
+	}
+	return blob
+}
+
+// TestSnapshotHelperProcess runs only as a re-executed child of
+// TestGenerateSnapshotIsByteDeterministic.
+func TestSnapshotHelperProcess(t *testing.T) {
+	if os.Getenv("ARTEMIS_SNAPSHOT_HELPER") != "1" {
+		return
+	}
+	blob, err := generateSnapshot()
+	if err != nil {
+		os.Exit(2)
+	}
+	fmt.Fprintln(os.Stdout, hex.EncodeToString(blob))
+	os.Exit(0)
 }
 
 func TestValidateModuleRoot(t *testing.T) {

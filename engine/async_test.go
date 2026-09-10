@@ -14,6 +14,7 @@ import (
 func TestAsyncFetchParallel(t *testing.T) {
 	var inflight atomic.Int32
 	var maxInflight atomic.Int32
+	var maxObservedDelay atomic.Int64 // nanoseconds
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cur := inflight.Add(1)
 		for {
@@ -22,7 +23,15 @@ func TestAsyncFetchParallel(t *testing.T) {
 				break
 			}
 		}
+		start := time.Now()
 		time.Sleep(50 * time.Millisecond)
+		d := time.Since(start).Nanoseconds()
+		for {
+			old := maxObservedDelay.Load()
+			if d <= old || maxObservedDelay.CompareAndSwap(old, d) {
+				break
+			}
+		}
 		inflight.Add(-1)
 		writeTestBody(t, w, fmt.Sprintf("ok %s", r.URL.Path))
 	}))
@@ -76,9 +85,16 @@ func TestAsyncFetchParallel(t *testing.T) {
 	if maxInflight.Load() < 2 {
 		t.Errorf("maxInflight = %d, want >= 2 (parallel)", maxInflight.Load())
 	}
-	// 3 sequential 50ms fetches would be ~150ms; parallel should be ~50-100ms.
-	if elapsed > 130*time.Millisecond {
-		t.Errorf("elapsed = %v, want < 130ms (parallel fetches)", elapsed)
+	// Parallelism is proven by maxInflight >= 2; the elapsed bound only has
+	// to discriminate against a fully sequential run (3 × per-fetch delay).
+	// Measure the actual server-side delay instead of hardcoding 50ms so the
+	// bound scales under -race and on slow CI.
+	fetchDelay := time.Duration(maxObservedDelay.Load())
+	if fetchDelay <= 0 {
+		fetchDelay = 50 * time.Millisecond
+	}
+	if elapsed > 2*fetchDelay {
+		t.Errorf("elapsed = %v, want < %v (2x fetch delay; sequential would be 3x)", elapsed, 2*fetchDelay)
 	}
 }
 
