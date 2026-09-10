@@ -58,6 +58,37 @@ func (l *DomainRateLimiter) Wait(host string) {
 		now = last.Add(iv)
 	}
 	l.last[host] = now
+	l.evictLocked(now)
+}
+
+// maxRateLimitHosts bounds the per-host maps so long-running sessions do not
+// grow unboundedly. Eviction drops the stalest `last` entries; hosts whose
+// interval was actively tuned are kept since tuning is the expensive state.
+const maxRateLimitHosts = 4096
+
+func (l *DomainRateLimiter) evictLocked(now time.Time) {
+	if len(l.last) <= maxRateLimitHosts {
+		return
+	}
+	// Pass 1: drop entries whose interval already elapsed — losing their
+	// stamp is free since the next Wait would not throttle anyway.
+	for host, last := range l.last {
+		if len(l.last) <= maxRateLimitHosts {
+			return
+		}
+		if now.Sub(last) > l.base {
+			delete(l.last, host)
+		}
+	}
+	// Pass 2: still over budget (pathological burst) — drop untuned hosts.
+	for host := range l.last {
+		if len(l.last) <= maxRateLimitHosts {
+			return
+		}
+		if _, tuned := l.interval[host]; !tuned {
+			delete(l.last, host)
+		}
+	}
 }
 
 // RecordImpact halves the interval when high-impact responses are detected.

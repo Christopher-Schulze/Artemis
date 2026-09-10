@@ -256,15 +256,34 @@ func GetElementsByClassName(n *Node, class string) []*Node {
 	if n == nil || class == "" {
 		return nil
 	}
-	var out []*Node
+	// Count pass presizes the result so the fill pass does not regrow the
+	// backing array; the walk itself allocates nothing.
+	count := 0
+	walkRawValue(n.raw, func(c Node) WalkAction {
+		if c.raw.Type != html.ElementNode {
+			return WalkContinue
+		}
+		var classVal string
+		var hasClass bool
+		for _, a := range c.raw.Attr {
+			if a.Key == "class" {
+				classVal = a.Val
+				hasClass = true
+				break
+			}
+		}
+		if hasClass && classTokenContains(classVal, class) {
+			count++
+		}
+		return WalkContinue
+	})
+	out := make([]*Node, 0, count)
 	// Value-walk: only matched elements escape to the heap (m := c; &m),
 	// so non-matching nodes cost no per-visit alloc.
 	walkRawValue(n.raw, func(c Node) WalkAction {
 		if c.raw.Type != html.ElementNode {
 			return WalkContinue
 		}
-		// Inline class attribute lookup: parser lowercases keys, so
-		// a direct == comparison is correct and avoids EqualFold.
 		var classVal string
 		var hasClass bool
 		for _, a := range c.raw.Attr {

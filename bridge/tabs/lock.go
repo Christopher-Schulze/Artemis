@@ -15,17 +15,19 @@ import (
 // TabLock provides per-tab locking
 // (spec L4021: per-tab locking).
 type TabLock struct {
-	mu     sync.Mutex
-	locks  map[string]*sync.Mutex
-	owners map[string]string // tabID -> owner description
+	mu      sync.Mutex
+	locks   map[string]*sync.Mutex
+	owners  map[string]string // tabID -> owner description
+	changed map[string]chan struct{}
 }
 
 // NewTabLock creates a new TabLock manager
 // (spec L4021: per-tab locking).
 func NewTabLock() *TabLock {
 	return &TabLock{
-		locks:  make(map[string]*sync.Mutex),
-		owners: make(map[string]string),
+		locks:   make(map[string]*sync.Mutex),
+		owners:  make(map[string]string),
+		changed: make(map[string]chan struct{}),
 	}
 }
 
@@ -55,6 +57,10 @@ func (l *TabLock) Unlock(tabID string) {
 		return
 	}
 	delete(l.owners, tabID)
+	if ch := l.changed[tabID]; ch != nil {
+		close(ch)
+		l.changed[tabID] = make(chan struct{})
+	}
 	l.mu.Unlock()
 	lock.Unlock()
 }
@@ -78,18 +84,34 @@ func (l *TabLock) TryLock(tabID, owner string) bool {
 	return true
 }
 
-// LockWithTimeout attempts to acquire a lock with a timeout
-// (spec L4021: per-tab locking).
+// LockWithTimeout attempts to acquire a lock with a timeout. Waiters block on
+// a per-tab channel closed by Unlock instead of polling on a fixed interval.
 func (l *TabLock) LockWithTimeout(tabID, owner string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
 		if l.TryLock(tabID, owner) {
 			return true
 		}
-		if time.Now().After(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return false
 		}
-		time.Sleep(10 * time.Millisecond)
+		l.mu.Lock()
+		wait := l.changed[tabID]
+		if wait == nil {
+			wait = make(chan struct{})
+			l.changed[tabID] = wait
+		}
+		l.mu.Unlock()
+		timer := time.NewTimer(remaining)
+		select {
+		case <-wait:
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
+			return l.TryLock(tabID, owner)
+		}
 	}
 }
 
@@ -126,6 +148,7 @@ func (l *TabLock) Remove(tabID string) bool {
 		return false // still locked
 	}
 	delete(l.locks, tabID)
+	delete(l.changed, tabID)
 	return true
 }
 
