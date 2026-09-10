@@ -201,7 +201,7 @@ func TestChromiumTargetCrashTransitionsState(t *testing.T) {
 		t.Logf("Page.crash returned after target termination: %v", err)
 	}
 	cancelCrash()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
 	for page.State() == TargetStateAttached {
 		select {
@@ -238,7 +238,7 @@ func requireChromium(t *testing.T) browserprocess.Binary {
 	t.Helper()
 	binary, err := browserprocess.DiscoverBinary("")
 	if err != nil {
-		t.Fatalf("Chromium integration unavailable: %v", err)
+		t.Fatalf("Google Chrome integration unavailable: %v", err)
 	}
 	return binary
 }

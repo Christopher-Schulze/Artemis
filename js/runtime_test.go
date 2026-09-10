@@ -26,6 +26,14 @@ func TestRuntimeReportsActiveSnapshot(t *testing.T) {
 	rt := NewRuntime()
 	defer rt.Close()
 	status := rt.SnapshotStatus()
+	manifest, merr := EmbeddedSnapshotManifest()
+	if merr == nil && manifest.ToolchainRef != CurrentToolchainRef() {
+		// Foreign toolchain: the committed blob must NOT activate.
+		if status.State == SnapshotActive {
+			t.Fatalf("snapshot activated on foreign toolchain: %q", manifest.ToolchainRef)
+		}
+		return
+	}
 	if status.State != SnapshotActive {
 		t.Fatalf("snapshot state=%q, reason=%q", status.State, status.Reason)
 	}

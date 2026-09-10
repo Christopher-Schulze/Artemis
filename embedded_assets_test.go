@@ -6,9 +6,19 @@ import (
 
 	artemis "github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/internal/wpt"
+	"github.com/Christopher-Schulze/Artemis/js"
 )
 
 func TestEmbeddedAssetsAreCompleteAndHashed(t *testing.T) {
+	manifest, merr := js.EmbeddedSnapshotManifest()
+	if merr == nil && manifest.ToolchainRef != js.CurrentToolchainRef() {
+		// Foreign toolchain: the asset surface must fail closed with the
+		// manifest's compatibility error rather than serve stale assets.
+		if _, err := artemis.EmbeddedAssets(); err == nil {
+			t.Fatal("EmbeddedAssets served assets on a foreign toolchain")
+		}
+		return
+	}
 	assets, err := artemis.EmbeddedAssets()
 	if err != nil {
 		t.Fatal(err)

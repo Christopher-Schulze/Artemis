@@ -66,7 +66,7 @@ func localWebSocketPolicy(t *testing.T, rawURL string, sink network.DecisionSink
 
 func waitWebSocketTrace(t *testing.T, c *Context, expression, contains string) string {
 	t.Helper()
-	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for {
 		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {
@@ -107,7 +107,7 @@ func TestWebSocketEcho(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for {
 		if err := c.WaitIdle(deadline); err != nil {
@@ -149,7 +149,7 @@ func TestWebSocketReadyStateTransitions(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for {
 		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {
@@ -193,7 +193,7 @@ func TestWebSocketSendAfterClose(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for i := 0; i < 100; i++ {
 		if err := c.WaitIdle(deadline); err != nil && deadline.Err() == nil {

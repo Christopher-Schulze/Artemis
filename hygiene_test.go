@@ -68,6 +68,14 @@ func TestSplitArtemisScriptStripsPrivatePlanning(t *testing.T) {
 	scriptPath := filepath.Clean(filepath.Join("..", "..", "scripts", "build", "split-artemis.sh"))
 	data, err := os.ReadFile(scriptPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Standalone checkout: the monorepo split tool is absent by
+			// design — assert the standalone root really is Artemis-only.
+			if _, statErr := os.Stat(filepath.Clean(filepath.Join("codebase"))); !os.IsNotExist(statErr) {
+				t.Fatal("standalone checkout contains monorepo codebase/ directory")
+			}
+			return
+		}
 		t.Fatalf("read split-artemis.sh: %v", err)
 	}
 	content := string(data)

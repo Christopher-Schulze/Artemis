@@ -195,7 +195,6 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 	w.gpu = gpu
 	if !gpu.Detected {
 		w.enabled = false
-		w.consistencyChecked = true
 		w.consistencyResult = ConsistencyResult{
 			Status: ConsistencyUndetectable,
 			Reason: "GPU undetectable; override disabled (honest > fake)",

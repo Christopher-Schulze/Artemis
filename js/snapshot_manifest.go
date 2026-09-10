@@ -144,6 +144,14 @@ func CurrentSnapshotManifest() (SnapshotManifest, error) {
 	return manifest, ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
+// CurrentToolchainRef returns the toolchain identity of this build. The
+// committed snapshot blob is only valid when the embedded manifest's
+// ToolchainRef equals this value — on any other toolchain activation is
+// correctly rejected and snapshot-dependent assertions must skip.
+func CurrentToolchainRef() string {
+	return snapshotToolchainRef(v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 func snapshotToolchainRef(v8Version, goVersion, targetOS, targetArch string) string {
 	return strings.Join([]string{"go=" + goVersion, "v8go=" + SnapshotV8GoVersion, "v8=" + v8Version, "target=" + targetOS + "/" + targetArch}, ";")
 }
