@@ -14,7 +14,6 @@ import (
 func TestAsyncFetchParallel(t *testing.T) {
 	var inflight atomic.Int32
 	var maxInflight atomic.Int32
-	var maxObservedDelay atomic.Int64 // nanoseconds
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cur := inflight.Add(1)
 		for {
@@ -23,15 +22,7 @@ func TestAsyncFetchParallel(t *testing.T) {
 				break
 			}
 		}
-		start := time.Now()
 		time.Sleep(50 * time.Millisecond)
-		d := time.Since(start).Nanoseconds()
-		for {
-			old := maxObservedDelay.Load()
-			if d <= old || maxObservedDelay.CompareAndSwap(old, d) {
-				break
-			}
-		}
 		inflight.Add(-1)
 		writeTestBody(t, w, fmt.Sprintf("ok %s", r.URL.Path))
 	}))
@@ -54,7 +45,6 @@ func TestAsyncFetchParallel(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	defer closeTestResource(t, "engine close", eng.Close)
-	start := time.Now()
 	p, err := eng.Fetch(context.Background(), page.URL, FetchOpts{
 		RunScripts: true,
 		AsyncFetch: true,
@@ -66,7 +56,6 @@ func TestAsyncFetchParallel(t *testing.T) {
 	if waitErr := p.WaitIdle(context.Background()); waitErr != nil {
 		t.Fatalf("WaitIdle: %v", waitErr)
 	}
-	elapsed := time.Since(start)
 
 	v, err := p.Eval(context.Background(), `globalThis.results.length`)
 	if err != nil {
@@ -85,17 +74,9 @@ func TestAsyncFetchParallel(t *testing.T) {
 	if maxInflight.Load() < 2 {
 		t.Errorf("maxInflight = %d, want >= 2 (parallel)", maxInflight.Load())
 	}
-	// Parallelism is proven by maxInflight >= 2; the elapsed bound only has
-	// to discriminate against a fully sequential run (3 × per-fetch delay).
-	// Measure the actual server-side delay instead of hardcoding 50ms so the
-	// bound scales under -race and on slow CI.
-	fetchDelay := time.Duration(maxObservedDelay.Load())
-	if fetchDelay <= 0 {
-		fetchDelay = 50 * time.Millisecond
-	}
-	if elapsed > 5*fetchDelay/2 {
-		t.Errorf("elapsed = %v, want < %v (2.5x fetch delay; sequential would be 3x)", elapsed, 5*fetchDelay/2)
-	}
+	// Parallelism is proven by the server-observed inflight count above. An
+	// elapsed wall-clock bound cannot robustly discriminate here: fixed
+	// engine/V8 overhead dominates under -race on loaded CI runners.
 }
 
 func TestAsyncFetchSequentialAwait(t *testing.T) {
