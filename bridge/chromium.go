@@ -360,6 +360,18 @@ func (b *ChromiumBrowser) Healthy() bool {
 	}
 }
 
+// transportErr prefers the terminal process failure (with Chrome output)
+// over the bare transport-closed error so callers see why the browser died.
+func (b *ChromiumBrowser) transportErr(err error) error {
+	if b == nil || err == nil {
+		return err
+	}
+	if termErr := b.Err(); termErr != nil {
+		return termErr
+	}
+	return err
+}
+
 // Err returns the terminal browser/process failure, if one occurred.
 func (b *ChromiumBrowser) Err() error {
 	b.mu.RLock()
@@ -663,7 +675,7 @@ func (c *BrowserContext) createTarget(ctx context.Context, initialURL string) (s
 	}
 	params := createTargetParams{URL: initialURL, BrowserContextID: c.id}
 	if err := c.browser.transport.Call(ctx, "Target.createTarget", params, &target); err != nil {
-		return "", fmt.Errorf("create target: %w", err)
+		return "", fmt.Errorf("create target: %w", c.browser.transportErr(err))
 	}
 	if target.ID == "" {
 		return "", &CDPError{Code: CDPErrorProtocol, Op: "create target", Err: fmt.Errorf("empty targetId")}
@@ -676,7 +688,7 @@ func (c *BrowserContext) attachTarget(ctx context.Context, targetID string) (str
 		SessionID string `json:"sessionId"`
 	}
 	if err := c.browser.transport.Call(ctx, "Target.attachToTarget", attachTargetParams{TargetID: targetID, Flatten: true}, &attached); err != nil {
-		return "", fmt.Errorf("attach target: %w", err)
+		return "", fmt.Errorf("attach target: %w", c.browser.transportErr(err))
 	}
 	if attached.SessionID == "" {
 		return "", &CDPError{Code: CDPErrorProtocol, Op: "attach target", Err: fmt.Errorf("empty sessionId")}
