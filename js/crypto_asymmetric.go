@@ -11,6 +11,7 @@ import (
 	"errors"
 	"hash"
 	"math/big"
+	"sort"
 	"strings"
 
 	"github.com/pjbgf/sha1cd"
@@ -363,16 +364,27 @@ func buildAsymKey(iso *v8.Isolate, ctx *v8.Context, id uint32, k *cryptoKey, alg
 	_ = obj.Set("type", k.keyType)
 	_ = obj.Set("extractable", k.extract)
 	algoObj, _ := v8.NewObjectTemplate(iso).NewInstance(ctx)
-	for ak, av := range algoMap {
-		switch v := av.(type) {
+	// Sorted insertion keeps JS own-key enumeration order deterministic.
+	algoKeys := make([]string, 0, len(algoMap))
+	for ak := range algoMap {
+		algoKeys = append(algoKeys, ak)
+	}
+	sort.Strings(algoKeys)
+	for _, ak := range algoKeys {
+		switch v := algoMap[ak].(type) {
 		case string:
 			_ = algoObj.Set(ak, v)
 		case int32:
 			_ = algoObj.Set(ak, v)
 		case map[string]string:
 			sub, _ := v8.NewObjectTemplate(iso).NewInstance(ctx)
-			for sk, sv := range v {
-				_ = sub.Set(sk, sv)
+			subKeys := make([]string, 0, len(v))
+			for sk := range v {
+				subKeys = append(subKeys, sk)
+			}
+			sort.Strings(subKeys)
+			for _, sk := range subKeys {
+				_ = sub.Set(sk, v[sk])
 			}
 			_ = algoObj.Set(ak, sub)
 		}

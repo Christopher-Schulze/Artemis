@@ -114,13 +114,15 @@ func symmetricDiff(baseline, current []AXNode) (added, removed []AXNode) {
 	for _, n := range current {
 		curMap[nodeKey(n)] = n
 	}
-	for k, n := range curMap {
-		if _, ok := baseMap[k]; !ok {
+	// Iterate the source slices (document order) rather than the maps so the
+	// diff output stays deterministic across runs.
+	for _, n := range current {
+		if _, ok := baseMap[nodeKey(n)]; !ok {
 			added = append(added, n)
 		}
 	}
-	for k, n := range baseMap {
-		if _, ok := curMap[k]; !ok {
+	for _, n := range baseline {
+		if _, ok := curMap[nodeKey(n)]; !ok {
 			removed = append(removed, n)
 		}
 	}

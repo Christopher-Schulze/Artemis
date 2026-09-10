@@ -2,6 +2,7 @@ package network
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 // RobotsRule is a single Allow/Disallow line.
@@ -131,27 +133,57 @@ func (p *RobotsPolicy) matchGroup(userAgent string) []RobotsRule {
 	return p.Groups["*"]
 }
 
-// robotsCache holds parsed robots policies per host.
+// robotsCache holds parsed robots policies per host. Entries expire after
+// robotsCacheTTL and the map is capped at robotsCacheMaxHosts so long-running
+// crawlers neither serve stale policies nor grow unboundedly.
 type robotsCache struct {
 	mu sync.Mutex
-	by map[string]*RobotsPolicy
+	by map[string]robotsEntry
 }
 
+type robotsEntry struct {
+	policy    *RobotsPolicy
+	fetchedAt time.Time
+}
+
+const (
+	robotsCacheTTL      = time.Hour
+	robotsCacheMaxHosts = 4096
+)
+
 func newRobotsCache() *robotsCache {
-	return &robotsCache{by: make(map[string]*RobotsPolicy)}
+	return &robotsCache{by: make(map[string]robotsEntry)}
 }
 
 func (rc *robotsCache) get(host string) (*RobotsPolicy, bool) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	p, ok := rc.by[host]
-	return p, ok
+	e, ok := rc.by[host]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(e.fetchedAt) > robotsCacheTTL {
+		delete(rc.by, host)
+		return nil, false
+	}
+	return e.policy, true
 }
 
 func (rc *robotsCache) put(host string, p *RobotsPolicy) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	rc.by[host] = p
+	if _, exists := rc.by[host]; !exists && len(rc.by) >= robotsCacheMaxHosts {
+		// Evict the stalest entry; if nothing is stale drop an arbitrary one.
+		var stalest string
+		var stalestAt time.Time
+		for h, e := range rc.by {
+			if stalest == "" || e.fetchedAt.Before(stalestAt) {
+				stalest, stalestAt = h, e.fetchedAt
+			}
+		}
+		delete(rc.by, stalest)
+	}
+	rc.by[host] = robotsEntry{policy: p, fetchedAt: time.Now()}
 }
 
 // FetchRobots fetches and caches the robots.txt for the host of u.
@@ -218,7 +250,7 @@ func (c *HTTPClient) FetchRobots(ctx context.Context, u *url.URL) (result *Robot
 	if err != nil {
 		return nil, fmt.Errorf("read robots: %w", err)
 	}
-	policy, err := ParseRobots(strings.NewReader(string(body)))
+	policy, err := ParseRobots(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

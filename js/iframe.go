@@ -1,6 +1,7 @@
 package js
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 
@@ -51,7 +52,7 @@ func (r *iframeRegistry) load(handle uint32, src string, parent *Context) *webap
 	if err != nil || len(body) == 0 {
 		return nil
 	}
-	doc, err := parser.ParseHTML(strings.NewReader(string(body)), src)
+	doc, err := parser.ParseHTML(bytes.NewReader(body), src)
 	if err != nil {
 		return nil
 	}

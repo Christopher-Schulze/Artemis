@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -799,7 +800,7 @@ func (r *Runtime) screenshot(ctx context.Context, q Request, e Evidence) Outcome
 	if err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
-	cfg, kind, err := image.DecodeConfig(strings.NewReader(string(raw)))
+	cfg, kind, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
 		return failedNow(e, FailurePostcondition, "invalid image: "+err.Error())
 	}

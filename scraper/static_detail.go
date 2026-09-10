@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -174,7 +175,7 @@ func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, op
 
 	var body io.Reader
 	if len(opts.Body) > 0 {
-		body = strings.NewReader(string(opts.Body))
+		body = bytes.NewReader(opts.Body)
 	}
 
 	var lastErr error
@@ -307,7 +308,7 @@ func detectBOM(body []byte) string {
 // decodeBody decodes a byte slice from the given encoding to a UTF-8 string.
 // Uses golang.org/x/net/html/charset for encoding name resolution.
 func decodeBody(body []byte, encoding string) (string, error) {
-	reader, err := charset.NewReaderLabel(encoding, strings.NewReader(string(body)))
+	reader, err := charset.NewReaderLabel(encoding, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("decode: unknown encoding %q: %w", encoding, err)
 	}

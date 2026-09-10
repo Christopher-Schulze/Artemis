@@ -89,8 +89,9 @@ func DetectEscalationSignals(statusCode int, body []byte) EscalationSignals {
 		StatusCode: statusCode,
 		BodyLen:    len(body),
 	}
-	bodyStr := string(body)
-	lower := strings.ToLower(bodyStr)
+	// One lowering pass over the body; the byte→string copy and the
+	// lowercase map are the only full-body allocations.
+	lower := strings.ToLower(string(body))
 
 	// Infinite scroll: common patterns
 	if strings.Contains(lower, "infinite-scroll") ||

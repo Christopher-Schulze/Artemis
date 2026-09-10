@@ -2,6 +2,7 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -63,7 +64,7 @@ func (f *StaticFetcher) Fetch(ctx context.Context, rawURL string, opts StaticFet
 
 	var body io.Reader
 	if len(opts.Body) > 0 {
-		body = strings.NewReader(string(opts.Body))
+		body = bytes.NewReader(opts.Body)
 	}
 
 	var lastErr error
