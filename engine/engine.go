@@ -554,7 +554,10 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 	if root == nil {
 		return nil
 	}
-	cache := map[string][]byte{}
+	// Cache script text per absolute URL; base URL is parsed once outside
+	// the walk instead of per script tag.
+	cache := map[string]string{}
+	base, _ := url.Parse(baseURL)
 	var runErr error
 	webapi.Walk(root, func(n *webapi.Node) webapi.WalkAction {
 		if n.Type() != webapi.NodeElement || n.Tag() != "script" {
@@ -570,13 +573,13 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 		var code string
 		if src, ok := n.Attr("src"); ok && src != "" {
 			absURL := src
-			if base, err := url.Parse(baseURL); err == nil && base != nil {
+			if base != nil {
 				if ref, err := url.Parse(src); err == nil {
 					absURL = base.ResolveReference(ref).String()
 				}
 			}
 			if cached, ok := cache[absURL]; ok {
-				code = string(cached)
+				code = cached
 			} else {
 				resp, err := e.client.Do(ctx, network.Request{Method: http.MethodGet, URL: absURL})
 				if err != nil {
@@ -589,8 +592,8 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 				if resp.StatusCode != 200 {
 					return webapi.WalkContinue
 				}
-				cache[absURL] = resp.Body
-				code = string(resp.Body)
+				cache[absURL] = string(resp.Body)
+				code = cache[absURL]
 			}
 		} else {
 			code = n.Text()
@@ -617,13 +620,14 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 // cookieGetter returns a function that serializes the cookies for
 // rawURL as `name=value; name2=value2`.
 func (e *Engine) cookieGetter(rawURL string) func() string {
+	// Parse once: the closure runs per document.cookie read.
+	u, err := url.Parse(rawURL)
+	if err != nil || u == nil {
+		return func() string { return "" }
+	}
 	return func() string {
 		jar := e.client.CookieJar()
 		if jar == nil {
-			return ""
-		}
-		u, err := url.Parse(rawURL)
-		if err != nil || u == nil {
 			return ""
 		}
 		cs := jar.Cookies(u)
@@ -638,13 +642,13 @@ func (e *Engine) cookieGetter(rawURL string) func() string {
 // cookieSetter returns a function that ingests a Set-Cookie-style line
 // and stores the cookie in the jar against rawURL.
 func (e *Engine) cookieSetter(rawURL string) func(string) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u == nil {
+		return func(string) {}
+	}
 	return func(line string) {
 		jar := e.client.CookieJar()
 		if jar == nil {
-			return
-		}
-		u, err := url.Parse(rawURL)
-		if err != nil || u == nil {
 			return
 		}
 		// Parse via http.ReadResponse-style parsing: build a fake header
@@ -658,9 +662,10 @@ func (e *Engine) cookieSetter(rawURL string) func(string) {
 // iframeLoader returns a function that fetches an iframe's HTML body
 // resolved against pageURL.
 func (e *Engine) iframeLoader(pageURL string) js.IFrameLoader {
+	base, _ := url.Parse(pageURL)
 	return func(href string) ([]byte, error) {
 		abs := href
-		if base, err := url.Parse(pageURL); err == nil && base != nil {
+		if base != nil {
 			if ref, err := url.Parse(href); err == nil {
 				abs = base.ResolveReference(ref).String()
 			}
@@ -683,9 +688,10 @@ func (e *Engine) iframeLoader(pageURL string) js.IFrameLoader {
 // resolved against pageURL. Used for `<link rel=stylesheet>` external
 // loads at Context init.
 func (e *Engine) stylesheetLoader(pageURL string) js.StylesheetLoader {
+	base, _ := url.Parse(pageURL)
 	return func(href string) ([]byte, error) {
 		abs := href
-		if base, err := url.Parse(pageURL); err == nil && base != nil {
+		if base != nil {
 			if ref, err := url.Parse(href); err == nil {
 				abs = base.ResolveReference(ref).String()
 			}
