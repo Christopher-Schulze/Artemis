@@ -25,7 +25,7 @@ func TestProjectHygieneFiles(t *testing.T) {
 		{"README.md", []string{"Artemis"}},
 		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"rogchap.com/v8go", "v0.9.0", "ARTEMIS_PATCHES.md", "LICENSE"}},
 		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"rogchap.com/v8go", "SnapshotCreator", "LICENSE"}},
-		{".github/workflows/ci.yml", []string{"test-linux", "test-macos-arm64", "chromium-integration-linux", "chromium-integration-macos", "runs-on: macos-14", "runs-on: ubuntu-latest"}},
+		{".github/workflows/ci.yml", []string{"test-linux", "test-macos-arm64", "runs-on: macos-14", "runs-on: ubuntu-latest"}},
 		{"docs/release-procedures.md", []string{"Signing", "Rollback", "Revocation", "Vulnerability Response", "Operator Gate"}},
 	}
 

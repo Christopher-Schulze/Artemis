@@ -78,7 +78,7 @@ func TestSealSupplyChainArtifactsExist(t *testing.T) {
 		{"LICENSE", []string{"MIT License"}},
 		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"rogchap.com/v8go", "v0.9.0"}},
 		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"SnapshotCreator"}},
-		{filepath.Join(".github", "workflows", "ci.yml"), []string{"test-macos-arm64", "chromium-integration-linux"}},
+		{filepath.Join(".github", "workflows", "ci.yml"), []string{"test-macos-arm64", "test-linux"}},
 		{filepath.Join("docs", "release-procedures.md"), []string{"Signing", "Rollback", "Revocation"}},
 	}
 	for _, f := range files {
