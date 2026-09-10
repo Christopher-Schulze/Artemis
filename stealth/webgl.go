@@ -332,7 +332,10 @@ func (w *WebGLOverride) ConsistencyDiagnostic() ConsistencyResult {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	if !w.consistencyChecked {
+	// consistencyChecked only gates on a detected GPU; the result record is
+	// populated even when detection fails (status=undetectable), so surface
+	// it instead of reporting not_checked after MeasureAndOverride ran.
+	if w.consistencyResult.Status == "" {
 		return ConsistencyResult{Status: ConsistencyNotChecked, Reason: "check not yet performed"}
 	}
 	return w.consistencyResult

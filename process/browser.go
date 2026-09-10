@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	defaultStartupTimeout      = 15 * time.Second
+	defaultStartupTimeout      = 30 * time.Second
 	defaultShutdownTimeout     = 5 * time.Second
 	defaultOutputLimit         = 256 * 1024
 	profileLeaseName           = ".artemis-profile.lock"
@@ -340,6 +340,9 @@ func chromiumArgs(config LaunchConfig, profileDir string) []string {
 		"--metrics-recording-only",
 		"--password-store=basic",
 		"--use-mock-keychain",
+		// Containers (CI runners, Docker) ship a tiny /dev/shm; without this
+		// Chrome renderer hangs before CDP readiness. Harmless on desktops.
+		"--disable-dev-shm-usage",
 	}
 	if config.Headless {
 		args = append(args, "--headless=new", "--disable-gpu")
