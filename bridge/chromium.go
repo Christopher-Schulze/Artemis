@@ -89,6 +89,24 @@ type TargetScriptConfig struct {
 	Version      string
 	PageScript   string
 	WorkerScript string
+	// Emulation carries CDP-native overrides (Emulation.setUserAgentOverride,
+	// setLocaleOverride, setTimezoneOverride). They are applied before the
+	// first navigation so request headers (Accept-Language, Sec-CH-UA-*) and
+	// navigator.userAgentData stay consistent without JS-side artifacts.
+	Emulation EmulationOverrides
+}
+
+// EmulationOverrides describes native CDP emulation for a page target.
+type EmulationOverrides struct {
+	UserAgent       string
+	AcceptLanguage  string
+	Locale          string
+	TimezoneID      string
+	Platform        string // client-hints platform, e.g. "macOS"
+	PlatformVersion string
+	Architecture    string
+	ChromeVersion   string // full Chrome version for uaFullVersion
+	Mobile          bool
 }
 
 type targetScriptResult struct {
@@ -655,6 +673,10 @@ func (c *BrowserContext) newPage(ctx context.Context, initialURL string, scripts
 		_ = page.close(true)
 		return nil, err
 	}
+	if err := page.applyEmulationOverrides(ctx); err != nil {
+		_ = page.close(true)
+		return nil, err
+	}
 	if err := page.enableFrameRouting(ctx); err != nil {
 		_ = page.close(true)
 		return nil, err
@@ -783,6 +805,62 @@ func (p *Page) installPageScript(ctx context.Context) error {
 	}
 	if result.Identifier == "" {
 		return &CDPError{Code: CDPErrorProtocol, Op: "install page pre-script", Err: fmt.Errorf("empty script identifier")}
+	}
+	return nil
+}
+
+// applyEmulationOverrides installs CDP-native identity overrides before the
+// first caller-controlled navigation. Unlike the JS pre-script these change
+// real browser behavior — request headers, navigator.userAgentData, Date/Intl
+// timezone — so there is no script artifact to fingerprint.
+func (p *Page) applyEmulationOverrides(ctx context.Context) error {
+	e := p.targetScripts.Emulation
+	if e.UserAgent != "" {
+		params := map[string]any{"userAgent": e.UserAgent}
+		// Chrome requires platformVersion + architecture + model as an
+		// all-or-nothing trio — only send userAgentMetadata when the full
+		// measured identity exists; a bare UA override still carries
+		// acceptLanguage and drops the Headless token.
+		if e.ChromeVersion != "" && e.Platform != "" && e.PlatformVersion != "" && e.Architecture != "" {
+			major := e.ChromeVersion
+			if idx := strings.IndexByte(major, '.'); idx >= 0 {
+				major = major[:idx]
+			}
+			params["userAgentMetadata"] = map[string]any{
+				"brands": []map[string]string{
+					{"brand": "Not_A Brand", "version": "8"},
+					{"brand": "Chromium", "version": major},
+					{"brand": "Google Chrome", "version": major},
+				},
+				"fullVersionList": []map[string]string{
+					{"brand": "Not_A Brand", "version": "8.0.0.0"},
+					{"brand": "Chromium", "version": e.ChromeVersion},
+					{"brand": "Google Chrome", "version": e.ChromeVersion},
+				},
+				"fullVersion":     e.ChromeVersion,
+				"platform":        e.Platform,
+				"platformVersion": e.PlatformVersion,
+				"architecture":    e.Architecture,
+				"model":           "",
+				"mobile":          e.Mobile,
+			}
+		}
+		if e.AcceptLanguage != "" {
+			params["acceptLanguage"] = e.AcceptLanguage
+		}
+		if err := p.Call(ctx, "Emulation.setUserAgentOverride", params, nil); err != nil {
+			return fmt.Errorf("apply user agent override: %w", err)
+		}
+	}
+	if e.Locale != "" {
+		if err := p.Call(ctx, "Emulation.setLocaleOverride", map[string]any{"locale": e.Locale}, nil); err != nil {
+			return fmt.Errorf("apply locale override: %w", err)
+		}
+	}
+	if e.TimezoneID != "" {
+		if err := p.Call(ctx, "Emulation.setTimezoneOverride", map[string]any{"timezoneId": e.TimezoneID}, nil); err != nil {
+			return fmt.Errorf("apply timezone override: %w", err)
+		}
 	}
 	return nil
 }

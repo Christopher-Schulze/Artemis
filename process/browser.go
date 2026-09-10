@@ -340,12 +340,17 @@ func chromiumArgs(config LaunchConfig, profileDir string) []string {
 		"--metrics-recording-only",
 		"--password-store=basic",
 		"--use-mock-keychain",
+		// Hide automation-driven Blink surface (navigator.webdriver et al.).
+		"--disable-blink-features=AutomationControlled",
 		// Containers (CI runners, Docker) ship a tiny /dev/shm; without this
 		// Chrome renderer hangs before CDP readiness. Harmless on desktops.
 		"--disable-dev-shm-usage",
 	}
 	if config.Headless {
-		args = append(args, "--headless=new", "--disable-gpu")
+		// headless=new keeps real GPU/WebGL available on desktops. On hosts
+		// without a GPU Chrome degrades to SwiftShader on its own; forcing
+		// --disable-gpu would leak the SwiftShader fingerprint and burn CPU.
+		args = append(args, "--headless=new")
 	}
 	if config.Sandbox == SandboxDisabled {
 		args = append(args, "--no-sandbox")

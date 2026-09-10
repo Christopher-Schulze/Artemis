@@ -62,7 +62,18 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeBridgeTestResource(t, "browser context", owner.Close)
-	page, err := owner.NewPageWithScripts(ctx, fixture.URL, TargetScriptConfig{Version: "integration", PageScript: pageScript, WorkerScript: workerScript})
+	ua := strings.ReplaceAll(version.UserAgent, "HeadlessChrome/", "Chrome/")
+	chromeVersion := version.Product
+	if idx := strings.IndexByte(chromeVersion, '/'); idx >= 0 {
+		chromeVersion = chromeVersion[idx+1:]
+	}
+	page, err := owner.NewPageWithScripts(ctx, fixture.URL, TargetScriptConfig{
+		Version: "integration", PageScript: pageScript, WorkerScript: workerScript,
+		Emulation: EmulationOverrides{
+			UserAgent: ua, AcceptLanguage: "en-US,en", Locale: "en-US", TimezoneID: "UTC",
+			Platform: "macOS", ChromeVersion: chromeVersion,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,12 +93,72 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 				if version, statusErr := page.TargetScriptStatus(); version != "integration" || statusErr != nil {
 					t.Fatalf("target script status version=%q err=%v", version, statusErr)
 				}
-				return
+				break
 			}
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("pre-script probes missing: %q err=%v browser=%v", result.Result.Value, err, browser.Err())
+	var probes struct{ Page, Worker string }
+	_ = json.Unmarshal([]byte(result.Result.Value), &probes)
+	if !strings.Contains(probes.Page, `"webdriver":false`) {
+		t.Fatalf("pre-script probes missing: %q err=%v browser=%v", result.Result.Value, err, browser.Err())
+	}
+
+	// Lies-detection surface: every patched surface must report native code.
+	const liesProbe = `(() => { const safe = (fn) => { try { return fn(); } catch (e) { return "ERR:" + e.message; } }; return JSON.stringify({
+		uaGetter: safe(() => Object.getOwnPropertyDescriptor(Navigator.prototype, "userAgent").get.toString()),
+		uaValue: safe(() => navigator.userAgent),
+		tzo: safe(() => new Date().getTimezoneOffset()),
+		getParam: safe(() => WebGLRenderingContext.prototype.getParameter.toString()),
+		permQuery: safe(() => navigator.permissions.query.toString()),
+		uaDataType: safe(() => navigator.userAgentData.constructor.name),
+		chrome: safe(() => typeof window.chrome === "object" && typeof window.chrome.runtime === "object"),
+		voices: safe(() => speechSynthesis.getVoices().length)
+	}); })()`
+	var lies struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": liesProbe, "returnByValue": true}, &lies); err != nil {
+		t.Fatalf("lies probe: %v", err)
+	}
+	var surface struct {
+		UAGetter  string `json:"uaGetter"`
+		UAValue   string `json:"uaValue"`
+		TZO       int    `json:"tzo"`
+		GetParam  string `json:"getParam"`
+		PermQuery string `json:"permQuery"`
+		UAData    string `json:"uaDataType"`
+		Chrome    bool   `json:"chrome"`
+		Voices    any    `json:"voices"`
+	}
+	if err := json.Unmarshal([]byte(lies.Result.Value), &surface); err != nil {
+		t.Fatalf("decode lies probe: %v (%q)", err, lies.Result.Value)
+	}
+	for name, got := range map[string]string{
+		"userAgent getter": surface.UAGetter, "getParameter": surface.GetParam,
+		"permissions.query": surface.PermQuery,
+	} {
+		if !strings.Contains(got, "[native code]") {
+			t.Errorf("%s leaks JS source: %q", name, got)
+		}
+	}
+	if strings.Contains(surface.UAValue, "Headless") {
+		t.Errorf("navigator.userAgent still contains Headless token: %q", surface.UAValue)
+	}
+	if surface.TZO != 0 {
+		t.Errorf("timezone override not applied: getTimezoneOffset=%d, want 0 (UTC)", surface.TZO)
+	}
+	if surface.UAData != "NavigatorUAData" {
+		t.Errorf("navigator.userAgentData prototype: %q", surface.UAData)
+	}
+	if !surface.Chrome {
+		t.Error("window.chrome shape missing")
+	}
+	if voices, ok := surface.Voices.(float64); !ok || voices == 0 {
+		t.Errorf("speechSynthesis.getVoices() = %v — headless tell", surface.Voices)
+	}
 }
 
 func TestTargetScriptConfigIsVersionedAndImmutable(t *testing.T) {

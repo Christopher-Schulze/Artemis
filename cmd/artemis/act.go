@@ -73,7 +73,12 @@ func cmdAct(args []string) (exitCode int) {
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "act context close", owner.Close)()
-	page, err := owner.NewPage(ctx, fs.Arg(0))
+	scripts, err := envTargetScripts(ctx, browser, owner, fs.Arg(0))
+	if err != nil {
+		errf("act stealth scripts: %v", err)
+		return 1
+	}
+	page, err := owner.NewPageWithScripts(ctx, fs.Arg(0), scripts)
 	if err != nil {
 		errf("act page: %v", err)
 		return 1

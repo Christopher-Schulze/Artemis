@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,24 @@ import (
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+	"github.com/Christopher-Schulze/Artemis/profile"
+	"github.com/Christopher-Schulze/Artemis/stealth"
 )
+
+// envTargetScripts derives the measured stealth pre-script contract when the
+// operator opted in via ARTEMIS_STEALTH (+ PURPOSE/LEGAL_BASIS ack). An
+// incomplete env policy is a hard error — silently browsing unstealthed is
+// how operators get CAPTCHA walls.
+func envTargetScripts(ctx context.Context, browser *bridge.ChromiumBrowser, bc *bridge.BrowserContext, url string) (bridge.TargetScriptConfig, error) {
+	policy, requested, err := stealth.PolicyFromEnv()
+	if err != nil {
+		return bridge.TargetScriptConfig{}, err
+	}
+	if !requested {
+		return bridge.TargetScriptConfig{}, nil
+	}
+	return profile.PrepareTargetScripts(ctx, browser, bc, profile.SessionID("cli"), url, policy)
+}
 
 type stringSliceFlag []string
 

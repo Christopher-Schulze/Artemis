@@ -79,7 +79,12 @@ func cmdObserve(args []string) (exitCode int) {
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "observe context close", browserContext.Close)()
-	page, err := browserContext.NewPage(ctx, "about:blank")
+	scripts, err := envTargetScripts(ctx, browser, browserContext, fs.Arg(0))
+	if err != nil {
+		errf("observe stealth scripts: %v", err)
+		return 1
+	}
+	page, err := browserContext.NewPageWithScripts(ctx, fs.Arg(0), scripts)
 	if err != nil {
 		errf("observe page: %v", err)
 		return 1
@@ -95,10 +100,6 @@ func cmdObserve(args []string) (exitCode int) {
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "observe collector close", collector.Close)()
-	if _, _, err = page.Navigate(ctx, fs.Arg(0)); err != nil {
-		errf("observe navigation: %v", err)
-		return 1
-	}
 	if err = waitDocumentReady(ctx, page); err != nil {
 		errf("observe readiness: %v", err)
 		return 1

@@ -32,7 +32,11 @@ func NewBrowserRuntime(manager *RuntimeManager) (*BrowserRuntime, error) {
 	if manager == nil {
 		return nil, errors.New("browser runtime: session manager required")
 	}
-	return &BrowserRuntime{manager: manager, sessions: make(map[SessionID]*ownedBrowserSession), stealth: stealth.StealthPolicy{PublicDefault: stealth.StealthDefault}}, nil
+	policy, _, err := stealth.PolicyFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("browser runtime: %w", err)
+	}
+	return &BrowserRuntime{manager: manager, sessions: make(map[SessionID]*ownedBrowserSession), stealth: policy}, nil
 }
 
 // SetStealthPolicy configures the policy used when a new page is created.
@@ -144,12 +148,22 @@ func (r *BrowserRuntime) NewPage(ctx context.Context, sessionID SessionID, owner
 }
 
 func (r *BrowserRuntime) targetScripts(ctx context.Context, browser *bridge.ChromiumBrowser, browserContext *bridge.BrowserContext, sessionID SessionID, initialURL string) (bridge.TargetScriptConfig, error) {
-	if browser == nil || strings.TrimSpace(initialURL) == "" || initialURL == "about:blank" {
+	if r == nil {
 		return bridge.TargetScriptConfig{}, nil
 	}
 	r.mu.Lock()
 	policy := r.stealth
 	r.mu.Unlock()
+	return PrepareTargetScripts(ctx, browser, browserContext, sessionID, initialURL, policy)
+}
+
+// PrepareTargetScripts derives the measured stealth pre-script contract for
+// one navigation. It is shared between the runtime session path and callers
+// (e.g. the CLI) that manage their own pages.
+func PrepareTargetScripts(ctx context.Context, browser *bridge.ChromiumBrowser, browserContext *bridge.BrowserContext, sessionID SessionID, initialURL string, policy stealth.StealthPolicy) (bridge.TargetScriptConfig, error) {
+	if browser == nil || strings.TrimSpace(initialURL) == "" || initialURL == "about:blank" {
+		return bridge.TargetScriptConfig{}, nil
+	}
 	level, err := stealth.DetermineStealthLevel(initialURL, policy, net.LookupIP)
 	if err != nil {
 		return bridge.TargetScriptConfig{}, err
@@ -171,6 +185,10 @@ func (r *BrowserRuntime) targetScripts(ctx context.Context, browser *bridge.Chro
 	}
 	facts.UserAgent = version.UserAgent
 	facts.ChromeVersion = chromeVersion
+	// Headless UA literally advertises automation — the single biggest bot
+	// tell. Normalize the product token once so navigator.userAgent and the
+	// Sec-CH-UA/UA request headers all say "Chrome/".
+	facts.UserAgent = strings.ReplaceAll(facts.UserAgent, "HeadlessChrome/", "Chrome/")
 	profile, err := stealth.NewEnvironmentProfile(string(sessionID), level, facts, level == stealth.StealthDefault || !policy.Ack.AcknowledgedAt.IsZero())
 	if err != nil {
 		return bridge.TargetScriptConfig{}, err
@@ -187,7 +205,19 @@ func (r *BrowserRuntime) targetScripts(ctx context.Context, browser *bridge.Chro
 	if err != nil {
 		return bridge.TargetScriptConfig{}, err
 	}
-	return bridge.TargetScriptConfig{Version: hash, PageScript: pageScript, WorkerScript: workerScript}, nil
+	return bridge.TargetScriptConfig{
+		Version: hash, PageScript: pageScript, WorkerScript: workerScript,
+		Emulation: bridge.EmulationOverrides{
+			UserAgent:       profile.UserAgent,
+			AcceptLanguage:  strings.Join(profile.Languages, ","),
+			Locale:          profile.Locale,
+			TimezoneID:      profile.Timezone,
+			Platform:        stealth.ClientHintsPlatform(profile.Platform),
+			PlatformVersion: profile.PlatformVersion,
+			Architecture:    profile.Architecture,
+			ChromeVersion:   profile.ChromeVersion,
+		},
+	}, nil
 }
 
 type measuredEnvironment struct {

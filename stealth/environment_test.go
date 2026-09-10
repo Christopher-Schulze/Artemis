@@ -62,8 +62,11 @@ func TestEnvironmentScriptsAreEscapedAndContextSpecific(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(page, "Chrome/126.0.0.0") || !strings.Contains(page, "measured-renderer") {
-		t.Fatal("page script did not contain profile values")
+	if !strings.Contains(page, "measured-renderer") || !strings.Contains(page, "[native code]") {
+		t.Fatal("page script did not contain profile values and native mask")
+	}
+	if !strings.Contains(page, "parameter === 0x9291") || !strings.Contains(page, "parameter === 0x9292") || strings.Contains(page, "=== 0x1F00") {
+		t.Fatal("WebGL patch must cover unmasked debug params (0x9291/0x9292), not masked VENDOR/RENDERER")
 	}
 	worker, err := NewWorkerScript(profile)
 	if err != nil {

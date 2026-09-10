@@ -84,7 +84,12 @@ Flags:
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "trace context close", owner.Close)()
-	page, err := owner.NewPage(ctx, "about:blank")
+	scripts, err := envTargetScripts(ctx, browser, owner, *url)
+	if err != nil {
+		errf("trace stealth scripts: %v", err)
+		return 1
+	}
+	page, err := owner.NewPageWithScripts(ctx, "about:blank", scripts)
 	if err != nil {
 		errf("trace page: %v", err)
 		return 1

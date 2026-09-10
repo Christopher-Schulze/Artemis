@@ -322,6 +322,12 @@ func clientHintsMajor(value string) string {
 	return value
 }
 
+// ClientHintsPlatform maps a navigator.platform value to the client-hints
+// platform token (Sec-CH-UA-Platform / userAgentData.platform).
+func ClientHintsPlatform(value string) string {
+	return platformHint(value)
+}
+
 func platformHint(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "macintel", "macos":
