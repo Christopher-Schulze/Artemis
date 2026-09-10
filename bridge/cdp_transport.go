@@ -20,7 +20,7 @@ import (
 var cdpBufferPool = sync.Pool{New: func() any { return &bytes.Buffer{} }}
 
 const (
-	defaultCDPDialTimeout = 5 * time.Second
+	defaultCDPDialTimeout = 15 * time.Second
 	defaultCDPMaxPending  = 256
 	defaultCDPMaxMessage  = 8 * 1024 * 1024
 )
