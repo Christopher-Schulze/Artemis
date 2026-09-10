@@ -121,7 +121,7 @@ func newActionFixture(t *testing.T) *actionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads})
+	runtime, err = NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads, DefaultTimeout: 60 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

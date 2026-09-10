@@ -141,23 +141,27 @@ type Download struct {
 type Policy func(context.Context, Request) error
 
 type Runtime struct {
-	page         *bridge.Page
-	observer     *bridgeobserve.Collector
-	policy       Policy
-	now          func() time.Time
-	navigator    *cdpops.Navigator
-	pointer      *cdpops.PointerDispatcher
-	tabs         *artemistabs.TabRegistry
-	downloads    *artemisdownload.DownloadManager
-	downloadOnce sync.Once
-	downloadErr  error
-	formIntents  *formactions.FormIntentRuntime
+	page           *bridge.Page
+	observer       *bridgeobserve.Collector
+	policy         Policy
+	now            func() time.Time
+	defaultTimeout time.Duration
+	navigator      *cdpops.Navigator
+	pointer        *cdpops.PointerDispatcher
+	tabs           *artemistabs.TabRegistry
+	downloads      *artemisdownload.DownloadManager
+	downloadOnce   sync.Once
+	downloadErr    error
+	formIntents    *formactions.FormIntentRuntime
 }
 
 // RuntimeConfig injects lifecycle owners used by action execution.
 type RuntimeConfig struct {
 	Downloads         *artemisdownload.DownloadManager
 	FormIntentMetrics func(formactions.FormIntentMetricEvent)
+	// DefaultTimeout bounds each action when Request.Timeout is unset.
+	// Zero keeps the built-in 15s default.
+	DefaultTimeout time.Duration
 }
 
 func NewRuntime(page *bridge.Page, observer *bridgeobserve.Collector, policy Policy) (*Runtime, error) {
@@ -178,8 +182,12 @@ func NewRuntimeWithConfig(page *bridge.Page, observer *bridgeobserve.Collector, 
 	if err != nil {
 		return nil, err
 	}
+	defaultTimeout := config.DefaultTimeout
+	if defaultTimeout <= 0 {
+		defaultTimeout = 15 * time.Second
+	}
 	return &Runtime{
-		page: page, observer: observer, policy: policy, now: time.Now,
+		page: page, observer: observer, policy: policy, now: time.Now, defaultTimeout: defaultTimeout,
 		navigator: cdpops.NewNavigator(caller), pointer: cdpops.NewPointerDispatcher(caller),
 		tabs: artemistabs.NewTabRegistry(source), downloads: config.Downloads, formIntents: formIntents,
 	}, nil
@@ -192,7 +200,7 @@ func (r *Runtime) Execute(ctx context.Context, request Request) Outcome {
 		return failed(evidence, FailureValidation, "action: context required", start, r.now())
 	}
 	if request.Timeout <= 0 {
-		request.Timeout = 15 * time.Second
+		request.Timeout = r.defaultTimeout
 	}
 	actionCtx, cancel := context.WithTimeout(ctx, request.Timeout)
 	defer cancel()

@@ -229,7 +229,14 @@ func TestChromiumRejectsIncompleteBrowserIdentity(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "result": map[string]any{}})
+		if err := writeCDPMessage(ctx, conn, map[string]any{"id": command.ID, "result": map[string]any{}}); err != nil {
+			return err
+		}
+		// Stay open until the client is done reading: returning right after
+		// the response races the read loop and surfaces EOF instead of the
+		// identity validation error under test.
+		<-ctx.Done()
+		return ctx.Err()
 	})
 	_, err := ConnectChromium(context.Background(), endpoint)
 	if !IsCDPError(err, CDPErrorProtocol) {
