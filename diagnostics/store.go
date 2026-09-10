@@ -126,7 +126,7 @@ func DefaultFilePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("diagnostics home: %w", err)
 	}
-	return filepath.Join(home, ".omnimus", "audit", "artemis.jsonl"), nil
+	return filepath.Join(home, ".artemis", "audit", "artemis.jsonl"), nil
 }
 
 func DefaultPersistentConfig() (Config, error) {

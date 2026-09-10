@@ -31,7 +31,7 @@ const serveFixtureToken = "artemis-fixture-test-token"
 // runner is a cross-adapter fixture surface. Each concrete implementation
 // executes the same deterministic fixture scenarios through a single
 // Artemis path: engine, Chromium bridge, hybrid router, serve, Agent API, or
-// Omnimus BrowserRuntime.
+// Artemis BrowserRuntime.
 type runner interface {
 	name() string
 	start(ctx context.Context, t *testing.T, srv *Server)
@@ -54,7 +54,7 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 		&routerRunner{},
 		&serveRunner{},
 		&agentRunner{},
-		&omnimusRunner{},
+		&artemisRunner{},
 	}
 
 	for _, r := range runners {
@@ -829,10 +829,10 @@ func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 }
 
 // -----------------------------------------------------------------------------
-// omnimus runner (profile BrowserRuntime)
+// artemis runner (profile BrowserRuntime)
 // -----------------------------------------------------------------------------
 
-type omnimusRunner struct {
+type artemisRunner struct {
 	manager *profile.RuntimeManager
 	runtime *profile.BrowserRuntime
 	session profile.SessionID
@@ -841,11 +841,11 @@ type omnimusRunner struct {
 	binary  browserprocess.Binary
 }
 
-func (r *omnimusRunner) name() string { return "omnimus" }
+func (r *artemisRunner) name() string { return "artemis" }
 
-func (r *omnimusRunner) start(ctx context.Context, t *testing.T, srv *Server) {
+func (r *artemisRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	t.Helper()
-	manager, err := profile.NewRuntimeManager(filepath.Join(t.TempDir(), "omnimus"))
+	manager, err := profile.NewRuntimeManager(filepath.Join(t.TempDir(), "artemis"))
 	if err != nil {
 		t.Fatalf("NewRuntimeManager: %v", err)
 	}
@@ -863,7 +863,7 @@ func (r *omnimusRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	r.binary = binary
 }
 
-func (r *omnimusRunner) stop(ctx context.Context, t *testing.T) {
+func (r *artemisRunner) stop(ctx context.Context, t *testing.T) {
 	if r.session != "" {
 		closeTestResource(t, "BrowserRuntime session close", func() error {
 			return r.runtime.Close(ctx, r.session, "owner")
@@ -871,14 +871,14 @@ func (r *omnimusRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *omnimusRunner) canRun(sc Scenario) (bool, string) { return Check("omnimus", sc) }
+func (r *artemisRunner) canRun(sc Scenario) (bool, string) { return Check("artemis", sc) }
 
-func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
+func (r *artemisRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	if r.session == "" {
 		policyConfig := srv.PolicyConfig()
 		sess, err := r.runtime.Open(ctx, profile.OpenSessionRequest{
-			ProfileID:    "fixture-omnimus",
+			ProfileID:    "fixture-artemis",
 			OwnerUserRef: "owner",
 			Class:        profile.ProfileEphemeral,
 			Lifetime:     5 * time.Minute,
@@ -911,7 +911,7 @@ func (r *omnimusRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv 
 	r.pageID = pid
 	r.page = page
 	if err := waitForReadyStateComplete(ctx, page); err != nil {
-		t.Fatalf("omnimus wait for ready state: %v", err)
+		t.Fatalf("artemis wait for ready state: %v", err)
 	}
 	return resultFromBridgePage(ctx, t, page, sc)
 }

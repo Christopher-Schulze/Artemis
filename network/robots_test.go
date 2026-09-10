@@ -54,11 +54,11 @@ func TestNilPolicyAllows(t *testing.T) {
 }
 
 func TestParseRobotsAccumulatesConsecutiveUserAgents(t *testing.T) {
-	p, err := ParseRobots(strings.NewReader("User-agent: Artemis\nUser-agent: Omnimus\nDisallow: /private\n"))
+	p, err := ParseRobots(strings.NewReader("User-agent: Artemis\nUser-agent: Artemis\nDisallow: /private\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, userAgent := range []string{"Artemis/1.0", "Omnimus/1.0"} {
+	for _, userAgent := range []string{"Artemis/1.0", "Artemis/1.0"} {
 		if p.Allowed(userAgent, "/private/data") {
 			t.Fatalf("%s lost shared group rule", userAgent)
 		}

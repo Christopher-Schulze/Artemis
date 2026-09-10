@@ -34,9 +34,12 @@ func Text(d *webapi.Document) string {
 		return ""
 	}
 	b := pool.GetBuilder()
-	defer pool.PutBuilder(b)
 	collectVisibleText(d.RawRoot(), b)
-	return collapseWhitespace(b.String())
+	// Clone before the builder re-enters the pool: collapseWhitespace may
+	// return its input unchanged, which would alias the pooled buffer.
+	s := strings.Clone(b.String())
+	pool.PutBuilder(b)
+	return collapseWhitespace(s)
 }
 
 var blockElements = map[string]bool{

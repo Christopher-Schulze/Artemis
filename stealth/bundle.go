@@ -77,7 +77,7 @@ const paranoidTypingRhythmPatch = `
   const typoRate = 0.02; // 2% typo rate for paranoid mode
   // The actual rhythm is applied by the bridge layer via CDP Input.dispatchKeyEvent
   // with randomized delays (50-150ms between keystrokes)
-  window.__omnimusTypoRate = typoRate;
+  window.__artemisTypoRate = typoRate;
 })();
 `
 

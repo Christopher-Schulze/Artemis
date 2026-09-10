@@ -288,8 +288,8 @@ func TestReplaySaveAndLoad(t *testing.T) {
 
 func TestReplaySanitizeFilename(t *testing.T) {
 	sc := Scenario{ID: "path/with spaces"}
-	replay := &Replay{ScenarioID: sc.ID, Runner: "omnimus runner"}
-	want := "replay-omnimus-runner-path-with-spaces.json"
+	replay := &Replay{ScenarioID: sc.ID, Runner: "artemis runner"}
+	want := "replay-artemis-runner-path-with-spaces.json"
 	if got := replay.filename(); got != want {
 		t.Errorf("filename = %q, want %q", got, want)
 	}

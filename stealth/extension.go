@@ -85,7 +85,7 @@ func (e *StealthExtension) GenerateStealthExtension(dir string) error {
 	// Write manifest.json (Manifest V3)
 	manifest := manifestV3{
 		ManifestVersion: 3,
-		Name:            "Omnimus Stealth",
+		Name:            "Artemis Stealth",
 		Version:         "1.0.0",
 		Description:     "Stealth patch injection in extension context",
 		ContentScripts: []contentScriptEntry{
@@ -127,7 +127,7 @@ func (e *StealthExtension) ExtensionLoadFlag(dir string) string {
 
 // DefaultExtensionDir returns the default extension directory path.
 func DefaultExtensionDir() string {
-	return filepath.Join(os.Getenv("HOME"), ".omnimus", "browser", "stealth-ext")
+	return filepath.Join(os.Getenv("HOME"), ".artemis", "browser", "stealth-ext")
 }
 
 // ValidateManifest checks that a manifest.json at the given directory

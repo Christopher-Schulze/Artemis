@@ -60,7 +60,9 @@ type SemanticNode struct {
 // Semantic returns a hierarchical agent-friendly view of the document
 // body. Nav, footer, aside, script, style, and template are skipped.
 func Semantic(d *webapi.Document) *SemanticNode {
-	root := &SemanticNode{Kind: SemSection, Level: 0}
+	arena := &nodeArena{}
+	root := arena.newNode()
+	root.Kind = SemSection
 	if d == nil || d.RawRoot() == nil {
 		return root
 	}
@@ -69,12 +71,33 @@ func Semantic(d *webapi.Document) *SemanticNode {
 	if body == nil {
 		return root
 	}
-	stack := []*SemanticNode{root}
-	visit(body.Raw(), &stack)
+	stack := make([]*SemanticNode, 0, 16)
+	stack = append(stack, root)
+	visit(body.Raw(), &stack, arena)
 	return root
 }
 
-func visit(n *html.Node, stack *[]*SemanticNode) {
+// nodeArena allocates SemanticNodes in blocks so a document with hundreds of
+// nodes costs a handful of mallocs instead of one per node. Nodes returned
+// to the caller are owned by the caller; blocks are never reused.
+type nodeArena struct {
+	blocks [][]SemanticNode
+	used   int
+}
+
+const nodeArenaBlock = 64
+
+func (a *nodeArena) newNode() *SemanticNode {
+	if len(a.blocks) == 0 || a.used == len(a.blocks[len(a.blocks)-1]) {
+		a.blocks = append(a.blocks, make([]SemanticNode, nodeArenaBlock))
+		a.used = 0
+	}
+	node := &a.blocks[len(a.blocks)-1][a.used]
+	a.used++
+	return node
+}
+
+func visit(n *html.Node, stack *[]*SemanticNode, arena *nodeArena) {
 	if n == nil {
 		return
 	}
@@ -86,10 +109,12 @@ func visit(n *html.Node, stack *[]*SemanticNode) {
 		}
 		if level, ok := headingLevel(n.Data); ok {
 			text := strings.TrimSpace(collapseInline(rawText(n)))
-			heading := &SemanticNode{Kind: SemHeading, Level: level, Text: text}
 			parent := unwindStack(stack, level)
+			heading := arena.newNode()
+			heading.Kind, heading.Level, heading.Text = SemHeading, level, text
 			parent.Children = append(parent.Children, heading)
-			section := &SemanticNode{Kind: SemSection, Level: level, Text: text}
+			section := arena.newNode()
+			section.Kind, section.Level, section.Text = SemSection, level, text
 			parent.Children = append(parent.Children, section)
 			*stack = append(*stack, section)
 			return
@@ -101,11 +126,14 @@ func visit(n *html.Node, stack *[]*SemanticNode) {
 				return
 			}
 			parent := top(*stack)
-			parent.Children = append(parent.Children, &SemanticNode{Kind: SemParagraph, Text: text})
+			node := arena.newNode()
+			node.Kind, node.Text = SemParagraph, text
+			parent.Children = append(parent.Children, node)
 			return
 		case "ul", "ol":
 			parent := top(*stack)
-			list := &SemanticNode{Kind: SemList}
+			list := arena.newNode()
+			list.Kind = SemList
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type != html.ElementNode || c.Data != "li" {
 					continue
@@ -114,7 +142,9 @@ func visit(n *html.Node, stack *[]*SemanticNode) {
 				if text == "" {
 					continue
 				}
-				list.Children = append(list.Children, &SemanticNode{Kind: SemListItem, Text: text})
+				item := arena.newNode()
+				item.Kind, item.Text = SemListItem, text
+				list.Children = append(list.Children, item)
 			}
 			if len(list.Children) > 0 {
 				parent.Children = append(parent.Children, list)
@@ -123,33 +153,41 @@ func visit(n *html.Node, stack *[]*SemanticNode) {
 		case "blockquote":
 			text := strings.TrimSpace(collapseInline(rawText(n)))
 			if text != "" {
-				top(*stack).Children = append(top(*stack).Children, &SemanticNode{Kind: SemQuote, Text: text})
+				node := arena.newNode()
+				node.Kind, node.Text = SemQuote, text
+				top(*stack).Children = append(top(*stack).Children, node)
 			}
 			return
 		case "pre":
 			text := rawText(n)
 			if strings.TrimSpace(text) != "" {
-				top(*stack).Children = append(top(*stack).Children, &SemanticNode{Kind: SemCode, Text: strings.TrimRight(text, "\n")})
+				node := arena.newNode()
+				node.Kind, node.Text = SemCode, strings.TrimRight(text, "\n")
+				top(*stack).Children = append(top(*stack).Children, node)
 			}
 			return
 		case "img":
 			src := attrOf(n, "src")
 			alt := attrOf(n, "alt")
 			if src != "" {
-				top(*stack).Children = append(top(*stack).Children, &SemanticNode{Kind: SemImage, URL: src, Text: alt})
+				node := arena.newNode()
+				node.Kind, node.URL, node.Text = SemImage, src, alt
+				top(*stack).Children = append(top(*stack).Children, node)
 			}
 			return
 		case "a":
 			href := attrOf(n, "href")
 			text := strings.TrimSpace(collapseInline(rawText(n)))
 			if href != "" && text != "" {
-				top(*stack).Children = append(top(*stack).Children, &SemanticNode{Kind: SemLink, URL: href, Text: text})
+				node := arena.newNode()
+				node.Kind, node.URL, node.Text = SemLink, href, text
+				top(*stack).Children = append(top(*stack).Children, node)
 				return
 			}
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		visit(c, stack)
+		visit(c, stack, arena)
 	}
 }
 

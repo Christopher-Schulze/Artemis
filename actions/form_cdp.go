@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	formIntentStateName   = "__omnimusFormIntentState"
+	formIntentStateName   = "__artemisFormIntentState"
 	formIntentEventBuffer = 64
 )
 
@@ -469,7 +469,7 @@ func (b *cdpFormIntentBackend) removeToken(token string) {
 
 func formBindingName(sessionID, pageID string) string {
 	sum := sha256.Sum256([]byte(sessionID + "\x00" + pageID))
-	return "__omnimus_form_intent_" + hex.EncodeToString(sum[:8])
+	return "__artemis_form_intent_" + hex.EncodeToString(sum[:8])
 }
 
 func formMutationToken(identity FormIdentity, generation uint64) string {
@@ -478,7 +478,7 @@ func formMutationToken(identity FormIdentity, generation uint64) string {
 }
 
 func formResourceGroup(token string, generation uint64) string {
-	return "omnimus-form-" + token + "-" + strconv.FormatUint(generation, 10)
+	return "artemis-form-" + token + "-" + strconv.FormatUint(generation, 10)
 }
 
 func formObserverExpression(root, token, binding string) string {
@@ -490,7 +490,7 @@ func jsLiteral(value string) string {
 }
 
 const formFillFunction = `function(value,token,expectedEpoch){
-const state=globalThis.__omnimusFormIntentState?.get(token);
+const state=globalThis.__artemisFormIntentState?.get(token);
 if(!state||state.epoch!==expectedEpoch||!this.isConnected||!state.root.contains(this))return "stale";
 if(this instanceof HTMLInputElement||this instanceof HTMLTextAreaElement){const proto=this instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const setter=Object.getOwnPropertyDescriptor(proto,"value")?.set;if(setter)setter.call(this,value);else this.value=value;}
 else if(this instanceof HTMLSelectElement){this.value=value;}

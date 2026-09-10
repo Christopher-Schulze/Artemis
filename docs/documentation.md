@@ -164,7 +164,7 @@ cold isolate with an observable unavailable status on any mismatch.
 | `PolicyConfig` | `network.PolicyConfig{}` (default-deny) | network policy; zero value blocks private/loopback IPs and limits destinations to public ports 80/443. Set `AllowPrivateNetworks: true` and `AllowedPorts` to permit fixture/loopback servers. |
 | `SessionID` | empty | optional redacted correlation key propagated through HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket policy decisions |
 | `Diagnostics` | bounded in-memory ledger | redacted policy/resource ledger configuration; set `Path` for private JSONL persistence |
-| `DownloadRoot` | `~/.omnimus/tmp/browser` | root for the canonical `<session>/downloads` directory; override only for an isolated embedding or test runtime |
+| `DownloadRoot` | `~/.artemis/tmp/browser` | root for the canonical `<session>/downloads` directory; override only for an isolated embedding or test runtime |
 | `MaxDownloadDiskBytes` | `1 GiB` | aggregate committed-download quota per session |
 | `MinDownloadFreeBytes` | `512 MiB` | disk headroom preserved after each accepted download |
 | `SessionBudget` | `8 tabs, 256 requests, 256 MiB responses, 1 GiB disk, 16 concurrent requests, 30m` | hard engine-session limits shared by navigation, robots, JavaScript fetch, iframe, stylesheet, intercepted responses, page leases, and downloads |
@@ -224,7 +224,7 @@ artemis <command> [flags] [args]
 
 The diagnostics ledger stores only canonical policy fields (`operation`, `transport`, `host`, `port`, `result`, `reason_code`, one-way `session_ref`) and numeric resource fields (CPU, RSS, requests, response bytes, disk bytes, tabs, concurrency). URL paths/queries/userinfo, page content, request/response bodies, headers, cookies, credentials, selectors, and raw session IDs are structurally absent. Network decisions are emitted before socket creation; a configured ledger failure denies the network operation. Chromium emits an immediate sample after readiness and periodic CPU/RSS/profile-disk samples; a persistence failure terminates the owned process.
 
-Persistent JSONL defaults to `~/.omnimus/audit/artemis.jsonl` for `serve`, `act`, and `observe`; `ARTEMIS_DIAGNOSTICS_FILE` overrides it and also enables persistence for `fetch`, `download`, `run`, and `trace`. On macOS and Linux, the mode-`0600` ledger uses a cross-process sidecar lock and atomic compaction. It enforces all defaults simultaneously: 7 days, 4096 records, 8 MiB total, 16 KiB per record. `artemis diagnostics --type all|policy|resource --limit N [--file PATH]` reads newest records without exposing browser content.
+Persistent JSONL defaults to `~/.artemis/audit/artemis.jsonl` for `serve`, `act`, and `observe`; `ARTEMIS_DIAGNOSTICS_FILE` overrides it and also enables persistence for `fetch`, `download`, `run`, and `trace`. On macOS and Linux, the mode-`0600` ledger uses a cross-process sidecar lock and atomic compaction. It enforces all defaults simultaneously: 7 days, 4096 records, 8 MiB total, 16 KiB per record. `artemis diagnostics --type all|policy|resource --limit N [--file PATH]` reads newest records without exposing browser content.
 
 ## Library API
 
@@ -899,7 +899,7 @@ ws://127.0.0.1:9333/
 
 ### Connection and lifecycle
 
-Every WebSocket handshake requires `Authorization: Bearer <token>`. `--token` or `ARTEMIS_SERVE_TOKEN` supplies the token; when neither is set the CLI generates 256 random bits and prints the token once to stderr without placing it in structured logs. Credential-shaped URL query parameters are rejected. The server API fails closed when no token is configured, compares credentials in constant time, rejects non-loopback binds and DNS-rebind Host headers, and only accepts the compiled loopback/Omnimus browser-origin allowlist unless `--origin` supplies an explicit replacement. Universal origin patterns are rejected; there is no origin-verification bypass.
+Every WebSocket handshake requires `Authorization: Bearer <token>`. `--token` or `ARTEMIS_SERVE_TOKEN` supplies the token; when neither is set the CLI generates 256 random bits and prints the token once to stderr without placing it in structured logs. Credential-shaped URL query parameters are rejected. The server API fails closed when no token is configured, compares credentials in constant time, rejects non-loopback binds and DNS-rebind Host headers, and only accepts the compiled loopback/Artemis browser-origin allowlist unless `--origin` supplies an explicit replacement. Universal origin patterns are rejected; there is no origin-verification bypass.
 
 Serve policy decisions and renderless resource snapshots are written to the bounded redacted diagnostics ledger. The authenticated browser protocol never returns raw ledger content; operators use `artemis diagnostics` or the in-process `Agent.Diagnostics()` API.
 

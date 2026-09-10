@@ -33,7 +33,7 @@ type Capability struct {
 	Entrypoint     string        `json:"entrypoint"`
 	Owner          string        `json:"owner"`
 	BehaviorTest   string        `json:"behaviorTest"`
-	OmnimusTools   []string      `json:"omnimusTools,omitempty"`
+	ArtemisTools   []string      `json:"artemisTools,omitempty"`
 	UnavailableWhy string        `json:"unavailableWhy,omitempty"`
 }
 
@@ -51,12 +51,12 @@ var capabilityRegistry = []Capability{
 	{
 		ID: "renderless.extract", Description: "Extract Markdown, text, links, semantic, and structured data", Mode: ModeRenderless,
 		State: SupportSupported, Since: Version, Entrypoint: "engine.Page extraction methods", Owner: "engine.Page/agent",
-		BehaviorTest: "agent.TestMarkdownHeadings", OmnimusTools: []string{"scrape", "scrape_static", "scrape_batch"},
+		BehaviorTest: "agent.TestMarkdownHeadings", ArtemisTools: []string{"scrape", "scrape_static", "scrape_batch"},
 	},
 	{
 		ID: "renderless.login", Description: "Detect, fill, submit, and verify a credential-backed login form", Mode: ModeRenderless,
 		State: SupportSupported, Since: Version, Entrypoint: "actions.DetectLoginForm/agent.(*Form).Submit", Owner: "actions/agent/engine",
-		BehaviorTest: "browser.TestSessionLoginDetectsResolvesSubmitsAndVerifiesPersistence", OmnimusTools: []string{"login"},
+		BehaviorTest: "browser.TestSessionLoginDetectsResolvesSubmitsAndVerifiesPersistence", ArtemisTools: []string{"login"},
 	},
 	{
 		ID: "renderless.steering", Description: "Drive persistent renderless sessions over JSON WebSocket commands", Mode: ModeRenderless,
@@ -112,7 +112,7 @@ func Capabilities() []Capability {
 	result := make([]Capability, len(capabilityRegistry))
 	for i, capability := range capabilityRegistry {
 		result[i] = capability
-		result[i].OmnimusTools = append([]string(nil), capability.OmnimusTools...)
+		result[i].ArtemisTools = append([]string(nil), capability.ArtemisTools...)
 	}
 	return result
 }
@@ -121,20 +121,20 @@ func Capabilities() []Capability {
 func CapabilityByID(id string) (Capability, bool) {
 	for _, capability := range capabilityRegistry {
 		if capability.ID == id {
-			capability.OmnimusTools = append([]string(nil), capability.OmnimusTools...)
+			capability.ArtemisTools = append([]string(nil), capability.ArtemisTools...)
 			return capability, true
 		}
 	}
 	return Capability{}, false
 }
 
-// OmnimusToolSupported reports whether a tool is backed by a supported capability.
-func OmnimusToolSupported(name string) bool {
+// ArtemisToolSupported reports whether a tool is backed by a supported capability.
+func ArtemisToolSupported(name string) bool {
 	for _, capability := range capabilityRegistry {
 		if capability.State != SupportSupported {
 			continue
 		}
-		for _, tool := range capability.OmnimusTools {
+		for _, tool := range capability.ArtemisTools {
 			if tool == name {
 				return true
 			}
@@ -183,15 +183,15 @@ func ValidateCapabilityRegistry() error {
 				return fmt.Errorf("artemis: experimental capability %q has no version", capability.ID)
 			}
 		case SupportUnavailable:
-			if capability.Since != "" || capability.UnavailableWhy == "" || len(capability.OmnimusTools) != 0 {
+			if capability.Since != "" || capability.UnavailableWhy == "" || len(capability.ArtemisTools) != 0 {
 				return fmt.Errorf("artemis: invalid unavailable capability %q", capability.ID)
 			}
 		default:
 			return fmt.Errorf("artemis: invalid support state %q", capability.State)
 		}
-		for _, tool := range capability.OmnimusTools {
+		for _, tool := range capability.ArtemisTools {
 			if owner, exists := seenTools[tool]; exists {
-				return fmt.Errorf("artemis: Omnimus tool %q claimed by %q and %q", tool, owner, capability.ID)
+				return fmt.Errorf("artemis: Artemis tool %q claimed by %q and %q", tool, owner, capability.ID)
 			}
 			seenTools[tool] = capability.ID
 		}

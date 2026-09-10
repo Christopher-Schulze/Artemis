@@ -229,7 +229,7 @@ func TestProfileManager_DefaultProfileBaseDir(t *testing.T) {
 		// UserHomeDir may fail in some sandboxes; verify empty handling.
 		return
 	}
-	if !strings.HasSuffix(dir, filepath.Join(".omnimus", "browser", "profiles")) {
+	if !strings.HasSuffix(dir, filepath.Join(".artemis", "browser", "profiles")) {
 		t.Fatalf("unexpected base dir: %s", dir)
 	}
 }

@@ -28,7 +28,7 @@ The result is a self-contained Go binary for pages that fit the documented rende
 - **Agent-native extraction:** clean Markdown, semantic tree, structured data (JSON-LD/microdata), links, forms, and actionable elements, ready to feed an LLM.
 - **Dual-mode:** embed the Go packages in-process, or run `artemis serve` and drive it from any language over JSON-over-WebSocket.
 - **Owned Agent lifecycle:** typed fetch actions run through tracked sessions with cancellation, stable errors, health snapshots, and idempotent shutdown.
-- **Explicit capability truth:** `artemis capabilities` reports supported and unavailable release surfaces from the registry used by Omnimus tool registration.
+- **Explicit capability truth:** `artemis capabilities` reports supported and unavailable release surfaces from the canonical capability registry.
 - **Security controls:** optional robots and private-IP guards are available on renderless fetches; enable them for untrusted URLs.
 
 ## Architecture

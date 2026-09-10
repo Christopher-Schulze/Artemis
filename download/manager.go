@@ -48,7 +48,7 @@ const (
 var downloadSessionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // ReclaimPolicy is deliberately dependency-free so the Artemis module can be
-// composed with Omnimus' supervisor without importing the Omnimus module.
+// composed with Artemis' supervisor without importing the Artemis module.
 type ReclaimPolicy string
 
 const ReclaimNone ReclaimPolicy = "none"
@@ -73,7 +73,7 @@ type AdmissionResult struct {
 	Runbook     string
 }
 
-// StorageReservationAuthority is implemented by the durable Omnimus
+// StorageReservationAuthority is implemented by the durable Artemis
 // supervisor adapter and may also be used by standalone Artemis hosts.
 type StorageReservationAuthority interface {
 	Admit(ctx context.Context, reservationID, owner string, spec StorageReservationSpec) (AdmissionResult, error)
@@ -623,7 +623,7 @@ func canonicalDownloadRoot(root string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("download manager: resolve home: %w", err)
 		}
-		root = filepath.Join(home, ".omnimus", "tmp", "browser")
+		root = filepath.Join(home, ".artemis", "tmp", "browser")
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {

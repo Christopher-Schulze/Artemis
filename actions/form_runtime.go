@@ -68,11 +68,11 @@ type FormIntentBackend interface {
 type FormIntentMetric string
 
 const (
-	MetricFormFieldsPrefetched FormIntentMetric = "omnimus_form_intent_fields_prefetched_total"
-	MetricFormCacheHits        FormIntentMetric = "omnimus_form_intent_cache_hits_total"
-	MetricFormInvalidations    FormIntentMetric = "omnimus_form_intent_cache_invalidations_total"
-	MetricFormMultiField       FormIntentMetric = "omnimus_form_intent_multi_field_forms_total"
-	MetricFormDuration         FormIntentMetric = "omnimus_form_intent_duration_ms"
+	MetricFormFieldsPrefetched FormIntentMetric = "artemis_form_intent_fields_prefetched_total"
+	MetricFormCacheHits        FormIntentMetric = "artemis_form_intent_cache_hits_total"
+	MetricFormInvalidations    FormIntentMetric = "artemis_form_intent_cache_invalidations_total"
+	MetricFormMultiField       FormIntentMetric = "artemis_form_intent_multi_field_forms_total"
+	MetricFormDuration         FormIntentMetric = "artemis_form_intent_duration_ms"
 )
 
 type FormIntentMetricEvent struct {

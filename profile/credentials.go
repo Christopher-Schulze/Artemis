@@ -151,7 +151,7 @@ func DefaultCredentialPath() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".omnimus", "browser", "credentials.enc")
+	return filepath.Join(home, ".artemis", "browser", "credentials.enc")
 }
 
 func (s *CredentialStore) load() error {

@@ -11,7 +11,7 @@ const (
 )
 
 // EmbeddedAsset describes an Artemis-owned immutable binary asset without
-// coupling the reusable browser module to Omnimus release types.
+// coupling the reusable browser module to Artemis release types.
 type EmbeddedAsset struct {
 	Ref             string
 	SourcePath      string
@@ -44,6 +44,6 @@ func EmbeddedAssets() ([]EmbeddedAsset, error) {
 			ActivationOwner: snapshotManifest.ActivationOwner,
 		},
 		{Ref: "artemis-stealth-bundle", SourcePath: "codebase/backend/artemis/stealth/stealth_bundle.js", MIME: "text/javascript", Size: int64(stealth.BundledScriptSize()), SHA256: stealth.BundledScriptHash()},
-		{Ref: "artemis-wpt-subset", SourcePath: "codebase/backend/artemis/internal/wpt/testdata/wpt", MIME: "application/vnd.omnimus.asset-tree", Size: embeddedWPTAssetSize, SHA256: embeddedWPTAssetSHA256},
+		{Ref: "artemis-wpt-subset", SourcePath: "codebase/backend/artemis/internal/wpt/testdata/wpt", MIME: "application/vnd.artemis.asset-tree", Size: embeddedWPTAssetSize, SHA256: embeddedWPTAssetSHA256},
 	}, nil
 }

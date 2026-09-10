@@ -74,11 +74,11 @@ func sbomMetadata(inputs releaseInputs, inventory moduleInventory, rootComponent
 	tools := []cdx.Component{{Type: cdx.ComponentTypeApplication, Name: "artemis-release", Version: inputs.Version, BOMRef: "tool:artemis-release@" + inputs.Version}}
 	lifecycles := []cdx.Lifecycle{{Phase: cdx.LifecyclePhasePostBuild}}
 	properties := []cdx.Property{
-		{Name: "omnimus:artemis:build-profile", Value: inputs.BuildProfile},
-		{Name: "omnimus:artemis:commit", Value: inputs.Commit},
-		{Name: "omnimus:artemis:module-graph-digest", Value: inventory.GraphDigest},
-		{Name: "omnimus:artemis:target", Value: inputs.Target.OS + "/" + inputs.Target.Arch},
-		{Name: "omnimus:artemis:toolchain-digest", Value: inputs.ToolchainDigest},
+		{Name: "artemis:build-profile", Value: inputs.BuildProfile},
+		{Name: "artemis:commit", Value: inputs.Commit},
+		{Name: "artemis:module-graph-digest", Value: inventory.GraphDigest},
+		{Name: "artemis:target", Value: inputs.Target.OS + "/" + inputs.Target.Arch},
+		{Name: "artemis:toolchain-digest", Value: inputs.ToolchainDigest},
 	}
 	return &cdx.Metadata{Timestamp: inputs.generatedAt(), Lifecycles: &lifecycles, Tools: &cdx.ToolsChoice{Components: &tools}, Component: rootComponent, Properties: &properties}
 }
@@ -99,18 +99,18 @@ func moduleComponent(module goModule, evidence componentLicenseEvidence) (cdx.Co
 		} else {
 			license.Name = item.Name
 		}
-		license.Properties = &[]cdx.Property{{Name: "omnimus:artemis:license-path", Value: item.Path}, {Name: "omnimus:artemis:license-sha256", Value: item.SHA256}}
+		license.Properties = &[]cdx.Property{{Name: "artemis:license-path", Value: item.Path}, {Name: "artemis:license-sha256", Value: item.SHA256}}
 		licenses = append(licenses, cdx.LicenseChoice{License: &license})
 	}
-	properties := []cdx.Property{{Name: "omnimus:artemis:go-indirect", Value: fmt.Sprint(module.Indirect)}}
+	properties := []cdx.Property{{Name: "artemis:go-indirect", Value: fmt.Sprint(module.Indirect)}}
 	if module.GoModSum != "" {
-		properties = append(properties, cdx.Property{Name: "omnimus:artemis:go-mod-sum", Value: module.GoModSum})
+		properties = append(properties, cdx.Property{Name: "artemis:go-mod-sum", Value: module.GoModSum})
 	}
 	if module.Replace != nil {
 		properties = append(properties,
-			cdx.Property{Name: "omnimus:artemis:replacement-path", Value: module.Replace.Path},
-			cdx.Property{Name: "omnimus:artemis:replacement-version", Value: module.Replace.Version},
-			cdx.Property{Name: "omnimus:artemis:replacement-digest", Value: module.Replace.Sum},
+			cdx.Property{Name: "artemis:replacement-path", Value: module.Replace.Path},
+			cdx.Property{Name: "artemis:replacement-version", Value: module.Replace.Version},
+			cdx.Property{Name: "artemis:replacement-digest", Value: module.Replace.Sum},
 		)
 	}
 	hashes := []cdx.Hash{hash}

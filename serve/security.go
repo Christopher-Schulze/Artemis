@@ -32,7 +32,7 @@ var defaultOriginPatterns = []string{
 	"https://localhost:*",
 	"http://127.0.0.1:*",
 	"https://127.0.0.1:*",
-	"app://omnimus-mc",
+	"app://artemis-mc",
 	"wails://localhost",
 }
 

@@ -31,7 +31,7 @@ type Opts struct {
 	// An empty token makes the server fail closed.
 	AuthToken string
 	// OriginPatterns lists allowed WebSocket origins. Empty selects the
-	// loopback Omnimus defaults.
+	// loopback Artemis defaults.
 	OriginPatterns []string
 	// RateLimit configures per-connection and normalized-client limits.
 	// Zero fields receive secure defaults.

@@ -430,7 +430,7 @@ func collapseInline(s string) string {
 		b.WriteByte(c)
 		prevSpace = false
 	}
-	result := b.String()
+	result := strings.Clone(b.String())
 	releaseBuilder(b)
 	return result
 }

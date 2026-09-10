@@ -36,7 +36,7 @@ func NewAdBlockerDetection(whitelistPath string) *AdBlockerDetection {
 // default whitelist path.
 func DefaultAdBlockerDetection() *AdBlockerDetection {
 	home, _ := os.UserHomeDir()
-	return NewAdBlockerDetection(filepath.Join(home, ".omnimus", "browser", "adblock_whitelist.json"))
+	return NewAdBlockerDetection(filepath.Join(home, ".artemis", "browser", "adblock_whitelist.json"))
 }
 
 // AdBlockerOverlaySignals are the detection signals for Case A

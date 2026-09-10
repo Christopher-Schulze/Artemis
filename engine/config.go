@@ -51,7 +51,7 @@ type Config struct {
 	// An empty path keeps the bounded ledger in memory only.
 	Diagnostics diagnostics.Config
 	// DownloadRoot owns per-session download directories. Empty resolves to
-	// ~/.omnimus/tmp/browser. Callers may override it for isolated runtimes.
+	// ~/.artemis/tmp/browser. Callers may override it for isolated runtimes.
 	DownloadRoot string
 	// MaxDownloadDiskBytes caps all committed downloads in one session.
 	MaxDownloadDiskBytes int64

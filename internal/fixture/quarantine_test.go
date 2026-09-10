@@ -20,9 +20,9 @@ func TestQuarantineCheckKnownSkips(t *testing.T) {
 		t.Errorf("hybrid eval: ok=%v reason=%q", ok, reason)
 	}
 
-	ok, reason = Check("omnimus", Scenario{ID: "redirect-001", Expect: Expect{Status: 302}})
+	ok, reason = Check("artemis", Scenario{ID: "redirect-001", Expect: Expect{Status: 302}})
 	if ok || reason != "BrowserRuntime cannot verify non-200 HTTP status" {
-		t.Errorf("omnimus non-200: ok=%v reason=%q", ok, reason)
+		t.Errorf("artemis non-200: ok=%v reason=%q", ok, reason)
 	}
 }
 

@@ -96,14 +96,14 @@ func DefaultQuarantines() []Quarantine {
 			Match:   func(sc Scenario) bool { return sc.WaitForIdle || sc.AsyncFetch },
 		},
 		{
-			Runner:  "omnimus",
+			Runner:  "artemis",
 			Reason:  "BrowserRuntime does not support AsyncFetch interception",
 			Owner:   owner,
 			Expires: exp,
 			Match:   func(sc Scenario) bool { return sc.AsyncFetch },
 		},
 		{
-			Runner:  "omnimus",
+			Runner:  "artemis",
 			Reason:  "BrowserRuntime cannot verify non-200 HTTP status",
 			Owner:   owner,
 			Expires: exp,

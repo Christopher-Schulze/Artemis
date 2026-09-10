@@ -30,8 +30,8 @@ const (
 	macAppCodeSignCloneFeature = "MacAppCodeSignClone"
 )
 
-// DependencyAuthorizer is the boundary adapter supplied by the Omnimus
-// runtime. Artemis deliberately does not import Omnimus internals.
+// DependencyAuthorizer is the boundary adapter supplied by the Artemis
+// runtime. Artemis deliberately does not import Artemis internals.
 type DependencyAuthorizer interface {
 	Authorize(ctx context.Context, artifact, version, path string) error
 }
@@ -623,7 +623,7 @@ func (b *Browser) Exited() <-chan struct{} {
 }
 
 // Signal forwards a signal to the owned Chromium process. Signal(0) is the
-// non-destructive liveness probe used by the Omnimus browser circuit.
+// non-destructive liveness probe used by the Artemis browser circuit.
 func (b *Browser) Signal(signal os.Signal) error {
 	if b == nil {
 		return errors.New("browser process is nil")

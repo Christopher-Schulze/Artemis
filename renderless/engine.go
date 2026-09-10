@@ -54,7 +54,7 @@ func (c *EngineConfig) ApplyDefaults() {
 		c.FetchTimeout = 30 * time.Second
 	}
 	if c.UserAgent == "" {
-		c.UserAgent = "Omnimus/Renderless/1.0"
+		c.UserAgent = "Artemis/Renderless/1.0"
 	}
 }
 

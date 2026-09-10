@@ -204,7 +204,7 @@ func TestDefaultExtensionBaseDir(t *testing.T) {
 	if !filepath.IsAbs(d) {
 		t.Fatalf("expected absolute path, got %s", d)
 	}
-	if !strings.HasSuffix(d, filepath.Join(".omnimus", "browser", "extensions")) {
-		t.Fatalf("expected path ending in .omnimus/browser/extensions, got %s", d)
+	if !strings.HasSuffix(d, filepath.Join(".artemis", "browser", "extensions")) {
+		t.Fatalf("expected path ending in .artemis/browser/extensions, got %s", d)
 	}
 }

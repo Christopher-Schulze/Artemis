@@ -47,7 +47,7 @@ inside a V8 isolate (renderless mode) or a Chromium process (CDP mode).
 
 Out of scope for this document: host OS exploitation via V8/Chromium
 memory-corruption bugs (upstream V8/Chromium security handles these);
-operator-side credential handling (covered by the Omnimus Vault).
+operator-side credential handling (covered by the operator credential vault).
 
 ## Hardening Commitments
 

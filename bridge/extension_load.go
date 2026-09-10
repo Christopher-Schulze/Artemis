@@ -24,7 +24,7 @@ func DefaultExtensionBaseDir() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".omnimus", "browser", "extensions")
+	return filepath.Join(home, ".artemis", "browser", "extensions")
 }
 
 // NewExtensionLoader creates a loader with the default base dir and an

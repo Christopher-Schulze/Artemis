@@ -76,7 +76,7 @@ func DefaultEasyListUpdateConfig() EasyListUpdateConfig {
 		UpdateInterval:        24 * time.Hour,
 		Sources:               EasyListSources,
 		ChecksumSources:       []string{},
-		StorageDir:            filepath.Join(home, ".omnimus", "browser", "blocklists"),
+		StorageDir:            filepath.Join(home, ".artemis", "browser", "blocklists"),
 		MaxVersions:           3,
 		GradualRolloutPercent: 50,
 		GradualRolloutDelay:   1 * time.Hour,

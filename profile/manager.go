@@ -135,7 +135,7 @@ func DefaultProfileBaseDir() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".omnimus", "browser", "profiles")
+	return filepath.Join(home, ".artemis", "browser", "profiles")
 }
 
 // ProfileDataDir returns the per-profile data dir

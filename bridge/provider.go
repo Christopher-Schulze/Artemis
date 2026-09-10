@@ -63,7 +63,7 @@ type ProviderConfig struct {
 	PolicyDecisionSink network.DecisionSink
 	// ResourceSink persists redacted Chromium process-group samples.
 	ResourceSink browserprocess.ResourceSink
-	// DependencyAuthorizer is the Omnimus acquisition boundary for owned Chromium.
+	// DependencyAuthorizer is the Artemis acquisition boundary for owned Chromium.
 	DependencyAuthorizer           browserprocess.DependencyAuthorizer
 	Artifact                       string
 	ArtifactVersion                string

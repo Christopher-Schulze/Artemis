@@ -242,7 +242,7 @@
     window.Error = function() {
       const err = new origError();
       if (err.stack) {
-        err.stack = err.stack.replace(/.*omnimus.*\n/g, '');
+        err.stack = err.stack.replace(/.*artemis.*\n/g, '');
       }
       return err;
     };
