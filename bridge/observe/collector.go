@@ -482,17 +482,36 @@ func DiffSnapshots(before, after Snapshot) Diff {
 }
 
 func (c *Collector) boundJSON(s Snapshot) Snapshot {
-	for {
-		raw, _ := json.Marshal(s)
-		if len(raw) <= c.config.MaxSnapshotBytes || len(s.Nodes) == 0 {
-			return s
+	raw, err := json.Marshal(s)
+	if err != nil || len(raw) <= c.config.MaxSnapshotBytes || len(s.Nodes) == 0 {
+		return s
+	}
+	// Estimate bytes per node from the first marshal and cut once to the
+	// estimated fit instead of re-marshalling per dropped node (O(n^2) ->
+	// amortized O(n)). A short tail loop corrects the estimate skew.
+	s.Truncated = true
+	if !contains(s.TruncationReasons, "max_snapshot_bytes") {
+		s.TruncationReasons = append(s.TruncationReasons, "max_snapshot_bytes")
+	}
+	avg := len(raw) / len(s.Nodes)
+	if avg < 1 {
+		avg = 1
+	}
+	fit := c.config.MaxSnapshotBytes / avg
+	if fit < len(s.Nodes) {
+		s.Nodes = s.Nodes[:fit]
+	}
+	for len(s.Nodes) > 0 {
+		raw, err = json.Marshal(s)
+		if err == nil && len(raw) <= c.config.MaxSnapshotBytes {
+			break
+		}
+		if err != nil {
+			break
 		}
 		s.Nodes = s.Nodes[:len(s.Nodes)-1]
-		s.Truncated = true
-		if !contains(s.TruncationReasons, "max_snapshot_bytes") {
-			s.TruncationReasons = append(s.TruncationReasons, "max_snapshot_bytes")
-		}
 	}
+	return s
 }
 
 func flattenFrames(root frameTree) []string {

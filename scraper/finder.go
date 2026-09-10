@@ -271,9 +271,10 @@ func textMatchScore(text, query string) int {
 	return hits * 100 / len(tokens)
 }
 
+var tokenPattern = regexp.MustCompile(`[a-z0-9]+`)
+
 func tokenize(s string) []string {
-	re := regexp.MustCompile(`[a-z0-9]+`)
-	return re.FindAllString(strings.ToLower(s), -1)
+	return tokenPattern.FindAllString(strings.ToLower(s), -1)
 }
 
 func isCommonTag(s string) bool {

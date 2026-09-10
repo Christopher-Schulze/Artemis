@@ -32,6 +32,9 @@ func BenchmarkWFEngineFetchPerf(b *testing.B) {
 		if page.StatusCode() != 200 {
 			b.Fatalf("status=%d", page.StatusCode())
 		}
+		if err := page.Close(); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -60,6 +63,9 @@ func BenchmarkWFEngineFetchPerfBaseline(b *testing.B) {
 		}
 		if page.StatusCode() != 200 {
 			b.Fatalf("status=%d", page.StatusCode())
+		}
+		if err := page.Close(); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

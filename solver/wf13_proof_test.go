@@ -275,7 +275,7 @@ func TestWFChallengeDetectorInnoBaseline(t *testing.T) {
 // when vision solve succeeds on the first attempt (best case).
 func BenchmarkTASK2344_PipelineVisionSolved(b *testing.B) {
 	hub := &task2247MockHub{
-		response: InferenceHubResponse{Solved: true, Answer: "click"},
+		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
 	p := NewSolverPipeline(v)

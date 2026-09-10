@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,10 @@ import (
 
 	"github.com/coder/websocket"
 )
+
+// cdpBufferPool reuses encode buffers for outbound CDP commands; buffers are
+// returned after the synchronous write completes.
+var cdpBufferPool = sync.Pool{New: func() any { return &bytes.Buffer{} }}
 
 const (
 	defaultCDPDialTimeout = 5 * time.Second
@@ -210,11 +215,21 @@ func (t *CDPTransport) CallSession(ctx context.Context, sessionID, method string
 		return err
 	}
 	defer t.release(id)
-	payload, err := json.Marshal(cdpCommand{ID: id, Method: method, Params: params, SessionID: sessionID})
-	if err != nil {
+	buf := cdpBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	if err := json.NewEncoder(buf).Encode(cdpCommand{ID: id, Method: method, Params: params, SessionID: sessionID}); err != nil {
+		cdpBufferPool.Put(buf)
 		return &CDPError{Code: CDPErrorInvalidConfig, Op: "marshal command", Err: err}
 	}
-	if err := t.write(ctx, payload); err != nil {
+	// Encoder writes a trailing newline; CDP frames tolerate it, trim anyway
+	// so payloads stay byte-identical to the previous Marshal output.
+	payload := buf.Bytes()
+	if n := len(payload); n > 0 && payload[n-1] == '\n' {
+		payload = payload[:n-1]
+	}
+	err := t.write(ctx, payload)
+	cdpBufferPool.Put(buf)
+	if err != nil {
 		return err
 	}
 	select {

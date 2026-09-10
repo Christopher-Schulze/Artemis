@@ -33,21 +33,31 @@ func (l *DomainRateLimiter) host(rawURL string) string {
 	return u.Host
 }
 
-// Wait blocks until the host bucket allows the next request.
+// Wait blocks until the host bucket allows the next request. The sleep
+// happens outside the mutex so throttling one host never serializes
+// unrelated hosts; on re-lock the stamp uses max(now, last+interval) to
+// keep spacing deterministic under contention.
 func (l *DomainRateLimiter) Wait(host string) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	iv := l.interval[host]
 	if iv <= 0 {
 		iv = l.base
 	}
+	var waitFor time.Duration
 	if last, ok := l.last[host]; ok {
-		sleep := iv - time.Since(last)
-		if sleep > 0 {
-			time.Sleep(sleep)
-		}
+		waitFor = iv - time.Since(last)
 	}
-	l.last[host] = time.Now()
+	l.mu.Unlock()
+	if waitFor > 0 {
+		time.Sleep(waitFor)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if last, ok := l.last[host]; ok && now.Before(last.Add(iv)) {
+		now = last.Add(iv)
+	}
+	l.last[host] = now
 }
 
 // RecordImpact halves the interval when high-impact responses are detected.

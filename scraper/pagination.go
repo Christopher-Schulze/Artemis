@@ -22,6 +22,8 @@ type PaginationInfo struct {
 }
 
 // DetectPagination scans a document for pagination signals.
+var paginationPagePattern = regexp.MustCompile(`\?page=(\d+)|[/?]page/(\d+)|\?p=(\d+)`)
+
 func DetectPagination(d *webapi.Document) PaginationInfo {
 	var info PaginationInfo
 	if d == nil {
@@ -45,14 +47,14 @@ func DetectPagination(d *webapi.Document) PaginationInfo {
 
 	// Check for numbered pagination buttons
 	pageLinks, _ := d.QuerySelectorAll("a")
-	pagePattern := regexp.MustCompile(`\?page=(\d+)|[/?]page/(\d+)|\?p=(\d+)`)
+
 	maxPage := 1
 	for _, l := range pageLinks {
 		href, ok := l.Attr("href")
 		if !ok {
 			continue
 		}
-		matches := pagePattern.FindStringSubmatch(href)
+		matches := paginationPagePattern.FindStringSubmatch(href)
 		if len(matches) > 0 {
 			for _, m := range matches[1:] {
 				if m != "" {
