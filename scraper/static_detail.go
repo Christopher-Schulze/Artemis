@@ -110,24 +110,21 @@ func (j *CookieJar) ToHeader(host string) string {
 type StaticDetailFetcher struct {
 	client      *network.HTTPClient
 	jar         *CookieJar
-	rateLimiter <-chan time.Time
+	rateLimiter *rateGate
 	maxRetries  int
 	retryDelay  time.Duration
 }
 
 // NewStaticDetailFetcher creates a detail fetcher with a cookie jar.
 func NewStaticDetailFetcher(client *network.HTTPClient, jar *CookieJar, rps float64, maxRetries int) *StaticDetailFetcher {
-	var ticker <-chan time.Time
-	if rps > 0 {
-		ticker = time.NewTicker(time.Duration(float64(time.Second) / rps)).C
-	}
+	rateGate := newRateGate(rps)
 	if jar == nil {
 		jar = NewCookieJar()
 	}
 	return &StaticDetailFetcher{
 		client:      client,
 		jar:         jar,
-		rateLimiter: ticker,
+		rateLimiter: rateGate,
 		maxRetries:  maxRetries,
 		retryDelay:  time.Second,
 	}
@@ -148,12 +145,8 @@ type StaticDetailResult struct {
 // FetchDetail performs a static fetch with encoding detection and cookie
 // persistence (spec L4400).
 func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, opts StaticFetchOpts) (*StaticDetailResult, error) {
-	if f.rateLimiter != nil {
-		select {
-		case <-f.rateLimiter:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	if err := f.rateLimiter.wait(ctx); err != nil {
+		return nil, err
 	}
 
 	method := opts.Method

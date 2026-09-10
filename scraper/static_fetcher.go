@@ -15,7 +15,7 @@ import (
 // StaticFetcher performs policy-safe HTTP fetches without a browser.
 type StaticFetcher struct {
 	client      *network.HTTPClient
-	rateLimiter <-chan time.Time
+	rateLimiter *rateGate
 	maxRetries  int
 	retryDelay  time.Duration
 }
@@ -41,13 +41,10 @@ type StaticResult struct {
 
 // NewStaticFetcher creates a fetcher with rate limiting and retry semantics.
 func NewStaticFetcher(client *network.HTTPClient, rps float64, maxRetries int) *StaticFetcher {
-	var ticker <-chan time.Time
-	if rps > 0 {
-		ticker = time.NewTicker(time.Duration(float64(time.Second) / rps)).C
-	}
+	rateGate := newRateGate(rps)
 	return &StaticFetcher{
 		client:      client,
-		rateLimiter: ticker,
+		rateLimiter: rateGate,
 		maxRetries:  maxRetries,
 		retryDelay:  time.Second,
 	}
@@ -55,12 +52,8 @@ func NewStaticFetcher(client *network.HTTPClient, rps float64, maxRetries int) *
 
 // Fetch performs a static HTTP fetch with retries and rate limiting.
 func (f *StaticFetcher) Fetch(ctx context.Context, rawURL string, opts StaticFetchOpts) (*StaticResult, error) {
-	if f.rateLimiter != nil {
-		select {
-		case <-f.rateLimiter:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	if err := f.rateLimiter.wait(ctx); err != nil {
+		return nil, err
 	}
 
 	method := opts.Method

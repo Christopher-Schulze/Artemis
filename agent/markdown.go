@@ -60,7 +60,9 @@ func Markdown(d *webapi.Document) string {
 	body := bodyOrRoot(d.RawRoot())
 	mc := acquireMDConverter(d.URL())
 	mc.walk(body)
-	result := strings.TrimSpace(mc.b.String())
+	// Clone before the converter re-enters the pool: TrimSpace slices the
+	// pooled buffer and the returned string must outlive reuse.
+	result := strings.TrimSpace(strings.Clone(mc.b.String()))
 	releaseMDConverter(mc)
 	return result
 }
@@ -221,7 +223,7 @@ func (m *mdConverter) link(n *html.Node) {
 	href = m.resolveURL(href)
 	inner := acquireMDConverter(m.base)
 	inner.walkChildren(n)
-	text := strings.TrimSpace(inner.b.String())
+	text := strings.TrimSpace(strings.Clone(inner.b.String()))
 	releaseMDConverter(inner)
 	if text == "" {
 		text = href
@@ -267,9 +269,8 @@ func (m *mdConverter) codeBlock(n *html.Node) {
 	m.b.WriteString("```\n")
 	buf := acquireBuilder()
 	collectRawText(n, buf)
-	body := strings.TrimRight(buf.String(), "\n")
+	m.b.WriteString(strings.TrimRight(buf.String(), "\n"))
 	releaseBuilder(buf)
-	m.b.WriteString(body)
 	m.b.WriteString("\n```\n\n")
 }
 
@@ -308,9 +309,8 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 		inner.listKind = append(inner.listKind, m.listKind...)
 		inner.olIndex = append(inner.olIndex, m.olIndex...)
 		inner.walkChildren(c)
-		text := strings.TrimSpace(inner.b.String())
+		text := strings.ReplaceAll(strings.TrimSpace(strings.Clone(inner.b.String())), "\n", "\n"+indent+"  ")
 		releaseMDConverter(inner)
-		text = strings.ReplaceAll(text, "\n", "\n"+indent+"  ")
 		m.b.WriteString(text)
 		m.b.WriteByte('\n')
 	}
@@ -323,7 +323,7 @@ func (m *mdConverter) blockquote(n *html.Node) {
 	m.ensureBlankLine()
 	inner := acquireMDConverter(m.base)
 	inner.walkChildren(n)
-	text := strings.TrimRight(inner.b.String(), "\n")
+	text := strings.TrimRight(strings.Clone(inner.b.String()), "\n")
 	releaseMDConverter(inner)
 	if text == "" {
 		return
@@ -381,7 +381,9 @@ func tableRows(n *html.Node) [][]string {
 				if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
 					b := acquireBuilder()
 					collectRawText(c, b)
-					cells = append(cells, strings.TrimSpace(collapseInline(b.String())))
+					// Clone: collapseInline may return its input, which
+					// would alias the pooled buffer after release.
+					cells = append(cells, strings.TrimSpace(collapseInline(strings.Clone(b.String()))))
 					releaseBuilder(b)
 				}
 			}

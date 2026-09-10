@@ -135,22 +135,24 @@ func MyersDiff(before, after []AXNode) int {
 	}
 	n := len(before)
 	m := len(after)
-	dp := make([][]int, n+1)
-	for i := range dp {
-		dp[i] = make([]int, m+1)
-	}
+	// Rolling two-row DP: the distance only needs the previous row, so the
+	// table costs 2*(m+1) ints and two allocs instead of n+1 row slices.
+	prev := make([]int, m+1)
+	cur := make([]int, m+1)
 	for i := 1; i <= n; i++ {
+		prev, cur = cur, prev
+		cur[0] = 0
 		for j := 1; j <= m; j++ {
 			if before[i-1].ID == after[j-1].ID && before[i-1].Role == after[j-1].Role {
-				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
-				dp[i][j] = dp[i-1][j]
+				cur[j] = prev[j-1] + 1
+			} else if prev[j] >= cur[j-1] {
+				cur[j] = prev[j]
 			} else {
-				dp[i][j] = dp[i][j-1]
+				cur[j] = cur[j-1]
 			}
 		}
 	}
-	lcs := dp[n][m]
+	lcs := cur[m]
 	return n + m - 2*lcs
 }
 
@@ -184,18 +186,18 @@ type DiffOp struct {
 func MyersEditScript(before, after []AXNode) ([]DiffOp, MyersDiffSummary) {
 	n := len(before)
 	m := len(after)
-	dp := make([][]int, n+1)
-	for i := range dp {
-		dp[i] = make([]int, m+1)
-	}
+	// Flat DP table with row stride: one alloc instead of n+1 row slices.
+	dp := make([]int, (n+1)*(m+1))
+	at := func(i, j int) int { return dp[i*(m+1)+j] }
+	set := func(i, j, v int) { dp[i*(m+1)+j] = v }
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= m; j++ {
 			if before[i-1].ID == after[j-1].ID && before[i-1].Role == after[j-1].Role {
-				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
-				dp[i][j] = dp[i-1][j]
+				set(i, j, at(i-1, j-1)+1)
+			} else if at(i-1, j) >= at(i, j-1) {
+				set(i, j, at(i-1, j))
 			} else {
-				dp[i][j] = dp[i][j-1]
+				set(i, j, at(i, j-1))
 			}
 		}
 	}
@@ -218,7 +220,7 @@ func MyersEditScript(before, after []AXNode) ([]DiffOp, MyersDiffSummary) {
 			}
 			i--
 			j--
-		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
+		case j > 0 && (i == 0 || at(i, j-1) >= at(i-1, j)):
 			ac := after[j-1]
 			ops = append(ops, DiffOp{Type: DiffOpAdd, After: &ac})
 			j--
