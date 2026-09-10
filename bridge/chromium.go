@@ -548,7 +548,15 @@ func (b *ChromiumBrowser) close() error {
 			select {
 			case <-b.process.Exited():
 			case <-time.After(defaultGracefulCloseTimeout):
-				result = errors.Join(result, fmt.Errorf("wait for graceful browser close: timeout"))
+				// Chrome ignored Browser.close (first-run dialogs, hung
+				// renderers, sandboxed runners): force-kill and confirm
+				// exit instead of leaving a zombie browser behind.
+				killErr := b.process.Close()
+				select {
+				case <-b.process.Exited():
+				case <-time.After(defaultGracefulCloseTimeout):
+					result = errors.Join(result, fmt.Errorf("browser survived graceful close and force kill: %w", killErr))
+				}
 			}
 		}
 	}

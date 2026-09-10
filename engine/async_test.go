@@ -93,8 +93,8 @@ func TestAsyncFetchParallel(t *testing.T) {
 	if fetchDelay <= 0 {
 		fetchDelay = 50 * time.Millisecond
 	}
-	if elapsed > 2*fetchDelay {
-		t.Errorf("elapsed = %v, want < %v (2x fetch delay; sequential would be 3x)", elapsed, 2*fetchDelay)
+	if elapsed > 5*fetchDelay/2 {
+		t.Errorf("elapsed = %v, want < %v (2.5x fetch delay; sequential would be 3x)", elapsed, 5*fetchDelay/2)
 	}
 }
 

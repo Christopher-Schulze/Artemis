@@ -196,9 +196,11 @@ func TestChromiumTargetCrashTransitionsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	crashCtx, cancelCrash := context.WithTimeout(ctx, time.Second)
-	if err := page.Call(crashCtx, "Page.crash", nil, nil); err != nil {
-		t.Logf("Page.crash returned after target termination: %v", err)
+	// chrome://crash kills the renderer reliably across Chrome versions;
+	// Page.crash is not consistently implemented in headless builds.
+	crashCtx, cancelCrash := context.WithTimeout(ctx, 5*time.Second)
+	if err := page.Call(crashCtx, "Page.navigate", map[string]any{"url": "chrome://crash"}, nil); err != nil {
+		t.Logf("chrome://crash navigate returned: %v", err)
 	}
 	cancelCrash()
 	deadline := time.NewTimer(15 * time.Second)
