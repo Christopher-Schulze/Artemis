@@ -22,6 +22,25 @@ var mdConverterPool = sync.Pool{
 func acquireMDConverter(base string) *mdConverter {
 	mc := mdConverterPool.Get().(*mdConverter)
 	mc.base = base
+	mc.baseURL = nil
+	if base != "" {
+		// Parse once per document, not once per link — url.Parse and
+		// ResolveReference dominate Markdown's allocation profile.
+		mc.baseURL, _ = url.Parse(base)
+	}
+	return acquireReset(mc)
+}
+
+// acquireMDConverterInner reuses the parent's already-parsed base — inner
+// converters (links, headings, list items) must not re-parse per element.
+func acquireMDConverterInner(parent *mdConverter) *mdConverter {
+	mc := mdConverterPool.Get().(*mdConverter)
+	mc.base = parent.base
+	mc.baseURL = parent.baseURL
+	return acquireReset(mc)
+}
+
+func acquireReset(mc *mdConverter) *mdConverter {
 	mc.b.Reset()
 	mc.listKind = mc.listKind[:0]
 	mc.olIndex = mc.olIndex[:0]
@@ -83,6 +102,7 @@ func bodyOrRoot(n *html.Node) *html.Node {
 type mdConverter struct {
 	b        strings.Builder
 	base     string
+	baseURL  *url.URL
 	listKind []byte
 	olIndex  []int
 	inPre    bool
@@ -221,7 +241,7 @@ func (m *mdConverter) link(n *html.Node) {
 		return
 	}
 	href = m.resolveURL(href)
-	inner := acquireMDConverter(m.base)
+	inner := acquireMDConverterInner(m)
 	inner.walkChildren(n)
 	text := strings.TrimSpace(strings.Clone(inner.b.String()))
 	releaseMDConverter(inner)
@@ -250,19 +270,25 @@ func (m *mdConverter) image(n *html.Node) {
 }
 
 func (m *mdConverter) resolveURL(href string) string {
-	if m.base == "" {
-		return href
-	}
-	u, err := url.Parse(href)
-	if err != nil {
-		return href
-	}
-	base, err := url.Parse(m.base)
-	if err != nil {
-		return href
-	}
-	return base.ResolveReference(u).String()
+	return resolveHref(m.baseURL, href)
 }
+
+// isSchemePrefix reports whether s is a valid URI scheme token.
+func isSchemePrefix(s string) bool {
+	if s == "" || !isAlpha(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !isAlpha(c) && !isDigit(c) && c != '+' && c != '-' && c != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlpha(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func (m *mdConverter) codeBlock(n *html.Node) {
 	m.ensureBlankLine()
@@ -305,7 +331,7 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 			m.b.WriteString(strconv.Itoa(m.olIndex[depth]))
 			m.b.WriteString(". ")
 		}
-		inner := acquireMDConverter(m.base)
+		inner := acquireMDConverterInner(m)
 		inner.listKind = append(inner.listKind, m.listKind...)
 		inner.olIndex = append(inner.olIndex, m.olIndex...)
 		inner.walkChildren(c)
@@ -321,7 +347,7 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 
 func (m *mdConverter) blockquote(n *html.Node) {
 	m.ensureBlankLine()
-	inner := acquireMDConverter(m.base)
+	inner := acquireMDConverterInner(m)
 	inner.walkChildren(n)
 	text := strings.TrimRight(strings.Clone(inner.b.String()), "\n")
 	releaseMDConverter(inner)

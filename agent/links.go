@@ -54,12 +54,7 @@ func collectLinks(d *webapi.Document, filter bool) []Link {
 		if filter && skipHref(raw) {
 			return webapi.WalkContinue
 		}
-		href := raw
-		if base != nil && href != "" {
-			if ref, err := url.Parse(href); err == nil {
-				href = base.ResolveReference(ref).String()
-			}
-		}
+		href := resolveHref(base, raw)
 		text := strings.TrimSpace(collapseInline(n.Text()))
 		out = append(out, Link{
 			Href:  href,
@@ -117,3 +112,24 @@ func hasPrefixFold(s, prefix string) bool {
 // hint to the linter that the html package is used by sibling files;
 // keeps imports stable.
 var _ = html.ElementNode
+
+// resolveHref resolves href against base with cheap fast paths — fragments,
+// absolute schemes, and absolute URLs return verbatim; only relative
+// references pay the url.Parse+ResolveReference cost. Shared with the
+// Markdown converter where link resolution dominated allocations.
+func resolveHref(base *url.URL, href string) string {
+	if base == nil || href == "" || href[0] == '#' {
+		return href
+	}
+	if i := strings.IndexByte(href, ':'); i > 0 && i < 10 && isSchemePrefix(href[:i]) {
+		return href
+	}
+	if strings.HasPrefix(href, "//") {
+		return base.Scheme + ":" + href
+	}
+	ref, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+	return base.ResolveReference(ref).String()
+}

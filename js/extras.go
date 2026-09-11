@@ -32,6 +32,10 @@ func (r *Runtime) ensureURLHelperTemplate() *v8.FunctionTemplate {
 		return r.urlHelperTemplate
 	}
 	iso := r.iso
+	// One-entry memo: JS sites call new URL()/url resolution with the same
+	// document.baseURI repeatedly — skip re-parsing an unchanged base.
+	var lastBase string
+	var lastBaseURL *url.URL
 	r.urlHelperTemplate = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
 		args := info.Args()
 		if len(args) == 0 {
@@ -47,15 +51,18 @@ func (r *Runtime) ensureURLHelperTemplate() *v8.FunctionTemplate {
 		if base == "" {
 			u, err = url.Parse(href)
 		} else {
-			b, perr := url.Parse(base)
-			if perr != nil {
+			if base != lastBase {
+				lastBase = base
+				lastBaseURL, _ = url.Parse(base)
+			}
+			if lastBaseURL == nil {
 				return v8.Null(iso)
 			}
 			ref, perr := url.Parse(href)
 			if perr != nil {
 				return v8.Null(iso)
 			}
-			u = b.ResolveReference(ref)
+			u = lastBaseURL.ResolveReference(ref)
 		}
 		if err != nil || u == nil {
 			return v8.Null(iso)
