@@ -19,7 +19,7 @@ import (
 
 func cmdFetch(args []string) (exitCode int) {
 	fs := newFlagSet("fetch")
-	dump := fs.String("dump", "markdown", "what to print: html, markdown, text, title")
+	dump := fs.String("dump", "markdown", "what to print: markdown, text, html, title, links, structured, semantic")
 	userAgent := fs.String("user-agent", "", "override User-Agent")
 	proxyURL := fs.String("proxy", "", "proxy URL")
 	timeoutS := fs.String("timeout", "30s", "request timeout")

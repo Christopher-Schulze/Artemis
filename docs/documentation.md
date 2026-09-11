@@ -114,6 +114,9 @@ artemis/
     documentation.md   you are here
     tasks.md           TASK overview
     tasks/done/        archived TASK detail files
+  skills/artemis/      agent-facing operating contract (SKILL.md) — the
+                       decision tree + exact invocation for agent
+                       frameworks that discover repo skills
   testdata/            test fixtures (smoke scenarios, etc.)
   scripts/             tooling scripts (added on demand)
   LICENSE              MIT
