@@ -15,10 +15,6 @@ type dispatchKeyEventParams struct {
 	Text string `json:"text,omitempty"`
 }
 
-type insertTextParams struct {
-	Text string `json:"text"`
-}
-
 type dispatchMouseEventParams struct {
 	Type       string  `json:"type"`
 	X          float64 `json:"x"`

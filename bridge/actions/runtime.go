@@ -3,13 +3,16 @@ package actions
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -513,7 +516,15 @@ func (r *Runtime) click(ctx context.Context, n bridgeobserve.Node, e Evidence) O
 	if err := r.pointer.MouseMoveContext(ctx, x, y); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
-	if err := r.pointer.ClickContext(ctx, x, y, cdpops.MouseButtonLeft); err != nil {
+	// Human clicks hold the button briefly — an instant press/release pair
+	// within the same millisecond is a synthetic signature.
+	if err := r.pointer.DispatchMouseContext(ctx, cdpops.MouseEvent{EventType: "mousePressed", X: x, Y: y, Button: cdpops.MouseButtonLeft, ClickCount: 1}); err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
+	}
+	if err := sleepJitter(ctx, 45*time.Millisecond, 110*time.Millisecond); err != nil {
+		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+	}
+	if err := r.pointer.DispatchMouseContext(ctx, cdpops.MouseEvent{EventType: "mouseReleased", X: x, Y: y, Button: cdpops.MouseButtonLeft, ClickCount: 1}); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
 	e.Postcondition = Postcondition{Type: "input_dispatch", Actual: "mouseReleased", Passed: true}
@@ -596,11 +607,56 @@ func (r *Runtime) typeText(ctx context.Context, n bridgeobserve.Node, q Request,
 	if out := r.elementBool(ctx, n, e, "function(){this.focus();return document.activeElement===this}", nil, "focused"); !out.Success {
 		return out
 	}
-	if err := r.page.Call(ctx, "Input.insertText", insertTextParams{Text: text}, &emptyResult{}); err != nil {
+	if err := r.typeTextHuman(ctx, text); err != nil {
 		return failedNow(e, FailureProtocol, err.Error())
 	}
 	return r.verifyValue(ctx, n, expected, e, "typed")
 }
+
+// typeTextHuman types one rune at a time through real key events
+// (rawKeyDown → char → keyUp) with bounded inter-key jitter. Instant
+// Input.insertText produces no keydown/keyup events at all — behavioral
+// detectors flag that as synthetic input immediately.
+func (r *Runtime) typeTextHuman(ctx context.Context, text string) error {
+	for _, ch := range text {
+		key := string(ch)
+		for _, ev := range []dispatchKeyEventParams{
+			{Type: "rawKeyDown", Key: key},
+			{Type: "char", Text: key},
+			{Type: "keyUp", Key: key},
+		} {
+			if err := r.page.Call(ctx, "Input.dispatchKeyEvent", ev, &emptyResult{}); err != nil {
+				return err
+			}
+		}
+		if err := sleepJitter(ctx, 8*time.Millisecond, 35*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sleepJitter pauses for a random duration in [min,max) — human input cadence
+// is deliberately irregular, fixed intervals are a synthetic signature.
+func sleepJitter(ctx context.Context, min, max time.Duration) error {
+	span := int64(max - min)
+	var jitter int64
+	if span > 0 {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err == nil {
+			jitter = int64(binary.LittleEndian.Uint64(b[:]) % uint64(span))
+		}
+	}
+	timer := time.NewTimer(min + time.Duration(jitter))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func (r *Runtime) setValue(ctx context.Context, n bridgeobserve.Node, value string, e Evidence, post string) Outcome {
 	return r.elementBool(ctx, n, e, "function(v){this.focus();this.value=v;this.dispatchEvent(new Event('input',{bubbles:true}));this.dispatchEvent(new Event('change',{bubbles:true}));return this.value===v}", []any{value}, post)
 }
@@ -632,20 +688,35 @@ func (r *Runtime) drag(ctx context.Context, n bridgeobserve.Node, q Request, e E
 	if err != nil {
 		return failedNow(e, FailureActionability, err.Error())
 	}
-	events := []struct {
-		kind   string
-		x, y   float64
-		button string
-	}{{"mouseMoved", sx, sy, ""}, {"mousePressed", sx, sy, "left"}, {"mouseMoved", tx, ty, "left"}, {"mouseReleased", tx, ty, "left"}}
-	for _, event := range events {
-		params := dispatchMouseEventParams{Type: event.kind, X: event.x, Y: event.y}
-		if event.button != "" {
-			params.Button = event.button
+	// Human drags trace a path, not a teleport — ease through a few
+	// intermediate points between press and release.
+	steps := 6
+	move := func(x, y float64, held bool) error {
+		params := dispatchMouseEventParams{Type: "mouseMoved", X: x, Y: y}
+		if held {
+			params.Button = "left"
 			params.Buttons = 1
 		}
 		if err := r.page.Call(ctx, "Input.dispatchMouseEvent", params, &emptyResult{}); err != nil {
-			return failedNow(e, FailureProtocol, err.Error())
+			return err
 		}
+		return sleepJitter(ctx, 6*time.Millisecond, 22*time.Millisecond)
+	}
+	if err := move(sx, sy, false); err != nil {
+		return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+	}
+	if err := r.page.Call(ctx, "Input.dispatchMouseEvent", dispatchMouseEventParams{Type: "mousePressed", X: sx, Y: sy, Button: "left", Buttons: 1}, &emptyResult{}); err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
+	}
+	for i := 1; i <= steps; i++ {
+		// ease-out curve: fast start, settles into the target like a hand.
+		f := 1 - math.Pow(1-float64(i)/float64(steps), 2)
+		if err := move(sx+(tx-sx)*f, sy+(ty-sy)*f, true); err != nil {
+			return failedNow(e, classifyContext(ctx, FailureTimeout), err.Error())
+		}
+	}
+	if err := r.page.Call(ctx, "Input.dispatchMouseEvent", dispatchMouseEventParams{Type: "mouseReleased", X: tx, Y: ty, Button: "left", Buttons: 1}, &emptyResult{}); err != nil {
+		return failedNow(e, FailureProtocol, err.Error())
 	}
 	e.Postcondition = Postcondition{Type: "drag_dispatch", Actual: q.TargetRef, Passed: true}
 	return Outcome{Success: true, Evidence: e}

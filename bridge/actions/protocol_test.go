@@ -15,7 +15,6 @@ func TestActionCDPParameterShapes(t *testing.T) {
 	}{
 		{name: "empty", value: emptyParams{}, want: `{}`},
 		{name: "key", value: dispatchKeyEventParams{Type: "keyDown", Key: "Enter", Text: "x"}, want: `{"type":"keyDown","key":"Enter","text":"x"}`},
-		{name: "insert text", value: insertTextParams{Text: "hello"}, want: `{"text":"hello"}`},
 		{name: "mouse", value: dispatchMouseEventParams{Type: "mousePressed", X: 1.5, Y: 2.5, Button: "left", Buttons: 1, ClickCount: 1}, want: `{"type":"mousePressed","x":1.5,"y":2.5,"button":"left","buttons":1,"clickCount":1}`},
 		{name: "upload", value: setFileInputFilesParams{Files: []string{"/tmp/a"}, BackendNodeID: 42}, want: `{"files":["/tmp/a"],"backendNodeId":42}`},
 		{name: "download allow", value: setDownloadBehaviorParams{Behavior: "allow", BrowserContextID: "ctx", DownloadPath: "/tmp/download", EventsEnabled: true}, want: `{"behavior":"allow","browserContextId":"ctx","downloadPath":"/tmp/download","eventsEnabled":true}`},
