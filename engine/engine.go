@@ -137,6 +137,7 @@ func New(cfg Config) (*Engine, error) {
 	cfg.PolicyConfig = policy.Config()
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
 		UserAgent:        cfg.UserAgent,
+		ChromeLike:       cfg.chromeDefault,
 		ProxyURL:         cfg.ProxyURL,
 		Timeout:          cfg.Timeout,
 		MaxBodyBytes:     cfg.MaxBodyBytes,
@@ -299,7 +300,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 				Console:        opts.Console,
 				Fetch:          e.jsFetchFunc(),
 				AsyncFetch:     opts.AsyncFetch,
-				Navigator:      opts.Navigator,
+				Navigator:      e.navigatorDefaults(opts.Navigator),
 				LoadStylesheet: e.stylesheetLoader(finalURL),
 				LoadIFrame:     e.iframeLoader(finalURL),
 				Policy:         e.policy,
@@ -355,7 +356,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 		Console:        opts.Console,
 		Fetch:          e.jsFetchFunc(),
 		AsyncFetch:     opts.AsyncFetch,
-		Navigator:      opts.Navigator,
+		Navigator:      e.navigatorDefaults(opts.Navigator),
 		GetCookie:      e.cookieGetter(resp.FinalURL),
 		SetCookie:      e.cookieSetter(resp.FinalURL),
 		LoadStylesheet: e.stylesheetLoader(resp.FinalURL),
@@ -738,4 +739,16 @@ func (e *Engine) jsFetchFunc() js.FetchFunc {
 			URL:        resp.FinalURL,
 		}, nil
 	}
+}
+
+// navigatorDefaults merges caller overrides with the wire identity — the
+// in-page navigator.userAgent must equal the User-Agent we actually send.
+func (e *Engine) navigatorDefaults(nav js.NavigatorConfig) js.NavigatorConfig {
+	if nav.UserAgent == "" {
+		nav.UserAgent = e.cfg.UserAgent
+	}
+	if nav.Platform == "" {
+		nav.Platform = chromeNavigatorPlatform()
+	}
+	return nav
 }

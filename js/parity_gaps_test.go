@@ -219,7 +219,9 @@ func TestNavigatorPluginsAndOnLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	if v.String() != "0:0:true:true:false:function" {
+	// Real Chrome ships five built-in PDF plugins + two MIME types —
+	// empty arrays are a headless tell.
+	if v.String() != "5:2:true:true:false:function" {
 		t.Errorf("got %q", v.String())
 	}
 }

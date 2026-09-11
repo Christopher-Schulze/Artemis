@@ -20,7 +20,7 @@ import (
 type HeaderGenerator struct {
 	// BrowserName is the browser family. Defaults to "chrome".
 	BrowserName string
-	// BrowserVersion is the major browser version. Defaults to 145.
+	// BrowserVersion is the major browser version. Defaults to 152.
 	BrowserVersion int
 	// OS is the target operating system: "windows", "macos", "linux",
 	// or "" to generate for all supported OSes (windows default).
@@ -75,9 +75,26 @@ func (h HeaderGenerator) userAgentForOS(os string) string {
 func (h HeaderGenerator) browserVersionString() string {
 	v := h.BrowserVersion
 	if v <= 0 {
-		v = 145
+		v = 152
 	}
 	return fmt.Sprintf("%d.0.0.0", v)
+}
+
+// UserAgent returns the coherent Chrome User-Agent for the configured OS.
+func (h HeaderGenerator) UserAgent() string {
+	return h.userAgentForOS(h.resolveOS())
+}
+
+// HostOS maps runtime.GOOS to the header-generator OS token.
+func HostOS(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macos"
+	case "windows":
+		return "windows"
+	default:
+		return "linux"
+	}
 }
 
 // secCHUA builds the Sec-CH-UA client hint header for Chrome 145.
@@ -85,7 +102,7 @@ func (h HeaderGenerator) browserVersionString() string {
 func (h HeaderGenerator) secCHUA() string {
 	v := h.BrowserVersion
 	if v <= 0 {
-		v = 145
+		v = 152
 	}
 	return fmt.Sprintf(`"Chromium";v="%d", "Google Chrome";v="%d", "Not?A_Brand";v="24"`, v, v)
 }

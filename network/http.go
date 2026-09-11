@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -20,6 +21,15 @@ import (
 type HTTPClientConfig struct {
 	// UserAgent sets the User-Agent header on every outgoing request.
 	UserAgent string
+	// ChromeLike fills in a coherent desktop-Chrome header set
+	// (Accept, Accept-Language, Sec-CH-UA*, Sec-Fetch-*, Upgrade-Insecure-Requests)
+	// for any header the caller did not set. The generated set matches
+	// the User-Agent's Chrome version and ChromeOS — without it a
+	// renderless fetch is trivially distinguishable from a browser.
+	ChromeLike bool
+	// ChromeOS selects the header-identity OS ("windows"|"macos"|"linux");
+	// empty resolves to the host OS.
+	ChromeOS string
 	// ProxyURL routes outbound requests through the given proxy. When
 	// empty the client honors HTTP_PROXY / HTTPS_PROXY environment
 	// variables.
@@ -41,10 +51,11 @@ type HTTPClientConfig struct {
 
 // HTTPClient performs HTTP requests on behalf of the engine.
 type HTTPClient struct {
-	cfg    HTTPClientConfig
-	client *http.Client
-	jar    http.CookieJar
-	robots *robotsCache
+	cfg           HTTPClientConfig
+	client        *http.Client
+	jar           http.CookieJar
+	robots        *robotsCache
+	chromeHeaders http.Header
 }
 
 // NewHTTPClient builds an HTTPClient.
@@ -58,6 +69,14 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 		}
 	}
 	cfg.Policy = policy
+	var chromeHeaders http.Header
+	if cfg.ChromeLike {
+		os := cfg.ChromeOS
+		if os == "" {
+			os = HostOS(runtime.GOOS)
+		}
+		chromeHeaders = HeaderGenerator{OS: os}.AllHeaders()
+	}
 	// Pool tuned for crawler-style workloads: lots of subresources from
 	// a small set of hosts, parallel fetches via the async-runtime.
 	transport := &http.Transport{
@@ -93,7 +112,8 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 		return nil, fmt.Errorf("cookie jar: %w", err)
 	}
 	return &HTTPClient{
-		cfg: cfg,
+		cfg:           cfg,
+		chromeHeaders: chromeHeaders,
 		client: &http.Client{
 			Transport: transport,
 			Jar:       jar,
@@ -198,6 +218,14 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	}
 	if c.cfg.UserAgent != "" && req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", c.cfg.UserAgent)
+	}
+	for k, vs := range c.chromeHeaders {
+		if _, callerSet := r.Headers[k]; callerSet {
+			continue
+		}
+		for _, v := range vs {
+			req.Header.Set(k, v)
+		}
 	}
 	for k, vs := range r.Headers {
 		for _, v := range vs {

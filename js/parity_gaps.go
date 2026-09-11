@@ -66,6 +66,79 @@ const parityGapsBootstrap = `
     globalThis.window.scrollBy = function() {};
   }
 
+  // screen: a real browser exposes screen.* — its absence flags non-DOM
+  // engines instantly. 1920x1080 desktop geometry matches the window dims.
+  if (globalThis.window && !globalThis.screen) {
+    const _screen = {
+      width: 1920, height: 1080,
+      availWidth: 1920, availHeight: 1055,
+      availLeft: 0, availTop: 0,
+      colorDepth: 24, pixelDepth: 24,
+      orientation: { type: 'landscape-primary', angle: 0, onchange: null,
+        addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true; } },
+      isExtended: false,
+    };
+    globalThis.screen = _screen;
+    globalThis.window.screen = _screen;
+  }
+
+  // window.chrome: real Chrome always exposes this object.
+  if (globalThis.window && !globalThis.window.chrome) {
+    const _chromeRuntime = {
+      OnInstalledReason: {CHROME_UPDATE:'chrome_update',INSTALL:'install',SHARED_MODULE_UPDATE:'shared_module_update',UPDATE:'update'},
+      OnRestartRequiredReason: {APP_UPDATE:'app_update',OS_UPDATE:'os_update',PERIODIC:'periodic'},
+      PlatformArch: {ARM:'arm',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64'},
+      PlatformNaclArch: {ARM:'arm',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64'},
+      PlatformOs: {ANDROID:'android',CROS:'cros',FUCHSIA:'fuchsia',LINUX:'linux',MAC:'mac',OPENBSD:'openbsd',WIN:'win'},
+      RequestUpdateCheckStatus: {NO_UPDATE:'no_update',THROTTLED:'throttled',UPDATE_AVAILABLE:'update_available'},
+      id: undefined,
+    };
+    globalThis.window.chrome = {
+      app: { isInstalled: false, InstallState: {DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'}, RunningState: {CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'}, getDetails() { return null; }, getIsInstalled() { return false; } },
+      webstore: undefined,
+      csi: function() { return { onloadT: 0, pageT: 0, startE: 0, tran: 15 }; },
+      loadTimes: function() { return { commitLoadTime: 0, connectionInfo: 'h2', finishDocumentLoadTime: 0, finishLoadTime: 0, firstPaintAfterLoadTime: 0, firstPaintTime: 0, navigationType: 'Other', npnNegotiatedProtocol: 'h2', requestTime: 0, startLoadTime: 0, wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true }; },
+      runtime: _chromeRuntime,
+    };
+  }
+
+  // Notification: present on every desktop Chrome secure context.
+  if (typeof globalThis.Notification === 'undefined') {
+    const _Notification = function Notification() {};
+    _Notification.permission = 'default';
+    _Notification.requestPermission = function(cb) {
+      if (cb) cb('default');
+      return Promise.resolve('default');
+    };
+    _Notification.maxActions = 2;
+    globalThis.Notification = _Notification;
+  }
+
+  // speechSynthesis: headless-less engines lack it entirely.
+  if (typeof globalThis.speechSynthesis === 'undefined') {
+    const _voices = [
+      { voiceURI: 'Google US English', name: 'Google US English', lang: 'en-US', localService: false, default: true },
+    ];
+    const _synthesis = {
+      getVoices() { return _voices.slice(); },
+      speak() {}, cancel() {}, pause() {}, resume() {},
+      paused: false, pending: false, speaking: false,
+      onvoiceschanged: null,
+      addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true; },
+    };
+    globalThis.speechSynthesis = _synthesis;
+    if (globalThis.window) globalThis.window.speechSynthesis = _synthesis;
+  }
+
+  // performance.memory: Chrome-only nonstandard surface; presence matters.
+  if (globalThis.performance && !globalThis.performance.memory) {
+    globalThis.performance.memory = {
+      jsHeapSizeLimit: 4294705152,
+      totalJSHeapSize: 20971520,
+      usedJSHeapSize: 10485760,
+    };
+  }
+
   // ---------------- matchMedia ----------------
   // Sites use this for theme/dark-mode detection, breakpoint logic.
   // We resolve everything as "false match" except prefers-color-scheme

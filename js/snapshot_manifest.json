@@ -2,9 +2,9 @@
   "schema_version": 1,
   "source_path": "codebase/backend/artemis/js/snapshot.bin",
   "mime": "application/octet-stream",
-  "size": 456640,
-  "sha256": "cddb19252a8c58edc9cd036588120ca5a4b0a92a8f917677c9b52627a74d8731",
-  "source_set_sha256": "612e91bc9cec7eff20c5a3486463fb570cbe4721718de100b930eb9db839e24d",
+  "size": 492448,
+  "sha256": "678f7ae46fb24d168873c0afdd6ee0b7cacb4b0c20dd821747321cce2f63cf67",
+  "source_set_sha256": "c5498a4ccb18eb7cb97b3fbf6016dd5e76f139bf148610a9268fbc03c24875ca",
   "generator_ref": "codebase/backend/artemis/cmd/artemis-snapshot",
   "toolchain_ref": "go=go1.27.1;v8go=v0.9.0;v8=10.9.194.9-v8go;target=darwin/arm64",
   "v8_version": "10.9.194.9-v8go",
@@ -56,8 +56,8 @@
     },
     {
       "name": "artemis-navigator-extras",
-      "size": 3710,
-      "sha256": "c3765083d54470c8257f7bebd978fa2ffb6471047e0f2634aed2c89cb1aa2559"
+      "size": 5227,
+      "sha256": "4c10b90d841a126b3f074733557f4fed8a7710cbab093c3e860fa28f8b8a84b1"
     },
     {
       "name": "artemis-style-manager",
@@ -76,8 +76,8 @@
     },
     {
       "name": "artemis-parity-gaps",
-      "size": 13090,
-      "sha256": "25df2028685a30000aefb641d775dd3c0dbc8aac7e2faaaec8e12310637a14a4"
+      "size": 16812,
+      "sha256": "625d6e734fa2a4c171e74f7c12b657e97b547a5bced735533604e2d9a166e755"
     },
     {
       "name": "artemis-pool-reset",

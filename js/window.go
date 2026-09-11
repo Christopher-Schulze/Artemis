@@ -15,6 +15,16 @@ type NavigatorConfig struct {
 	Language  string
 	Languages []string
 	Platform  string
+	// Vendor defaults to "Google Inc." — the renderless path presents a
+	// coherent Chrome identity, not a library.
+	Vendor string
+	// HardwareConcurrency/DeviceMemory mirror a typical desktop. Zero
+	// selects the defaults (8 cores / 8 GB).
+	HardwareConcurrency int
+	DeviceMemory        float64
+	// MaxTouchPoints matches desktop Chrome (0). pdfViewerEnabled is
+	// handled JS-side (navigator extras bootstrap defaults it to true).
+	MaxTouchPoints int
 }
 
 func (n *NavigatorConfig) applyDefaults() {
@@ -29,6 +39,15 @@ func (n *NavigatorConfig) applyDefaults() {
 	}
 	if n.Platform == "" {
 		n.Platform = "Linux x86_64"
+	}
+	if n.Vendor == "" {
+		n.Vendor = "Google Inc."
+	}
+	if n.HardwareConcurrency == 0 {
+		n.HardwareConcurrency = 8
+	}
+	if n.DeviceMemory == 0 {
+		n.DeviceMemory = 8
 	}
 }
 
@@ -329,12 +348,14 @@ func setNavigatorFields(iso *v8.Isolate, v8ctx *v8.Context, obj *v8.Object, nav 
 	}
 	_ = langs.Set("length", length)
 	return obj.SetManyPrepared(navigatorKeys, []interface{}{
-		nav.UserAgent, nav.Language, nav.Platform, langs, true, true, "1",
+		nav.UserAgent, nav.Language, nav.Platform, langs, true, true, v8.Null(iso),
+		nav.Vendor, int32(nav.HardwareConcurrency), nav.DeviceMemory, int32(nav.MaxTouchPoints),
 	})
 }
 
 var navigatorKeys = v8.PrepareKeys([]string{
 	"userAgent", "language", "platform", "languages", "onLine", "cookieEnabled", "doNotTrack",
+	"vendor", "hardwareConcurrency", "deviceMemory", "maxTouchPoints",
 })
 
 // timerTemplates holds the cached setTimeout/clearTimeout function

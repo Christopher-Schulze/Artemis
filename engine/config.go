@@ -7,6 +7,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"runtime"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
@@ -29,8 +30,13 @@ const (
 // data schemes, and only allows ports 80 and 443. Callers can relax
 // these rules by setting PolicyConfig explicitly.
 type Config struct {
-	// UserAgent is the User-Agent header sent with every request.
+	// UserAgent is the User-Agent header sent with every request. Empty
+	// selects the host-matched Chrome identity (wire headers + navigator
+	// coherence). Set DefaultUserAgent explicitly for the honest-bot UA.
 	UserAgent string
+	// chromeDefault records whether UserAgent was defaulted to the Chrome
+	// identity — Chrome-like request headers are only coherent then.
+	chromeDefault bool
 	// ProxyURL routes outbound traffic through the given proxy URL.
 	ProxyURL string
 	// Timeout is the per-request deadline.
@@ -94,8 +100,14 @@ type DownloadIngress interface {
 }
 
 func (c *Config) applyDefaults() {
+	// Default outbound identity is host-matched Chrome — the wire headers
+	// (Sec-CH-UA, Accept-Language, Sec-Fetch-*) and the in-page navigator
+	// surface must agree, so the renderless path does not announce itself
+	// as a bot. DefaultUserAgent remains available for explicit honest-bot
+	// configuration.
+	c.chromeDefault = c.UserAgent == ""
 	if c.UserAgent == "" {
-		c.UserAgent = DefaultUserAgent
+		c.UserAgent = chromeUA()
 	}
 	if c.Timeout == 0 {
 		c.Timeout = DefaultTimeout
@@ -138,4 +150,22 @@ func (c Config) validate() error {
 		return errors.New("engine: download ingress required")
 	}
 	return nil
+}
+
+// chromeUA returns the Chrome User-Agent for the host OS — the identity
+// the renderless path presents on the wire by default.
+func chromeUA() string {
+	return network.HeaderGenerator{OS: network.HostOS(runtime.GOOS)}.UserAgent()
+}
+
+// chromeNavigatorPlatform maps the host OS to its navigator.platform value.
+func chromeNavigatorPlatform() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "MacIntel"
+	case "windows":
+		return "Win32"
+	default:
+		return "Linux x86_64"
+	}
 }
