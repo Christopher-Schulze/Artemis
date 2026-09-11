@@ -66,6 +66,15 @@ See [`docs/documentation.md`](docs/documentation.md) for the full architecture a
 
 Run `artemis capabilities` for the versioned machine-readable contract. A capability is `supported` only when the registry names its production entrypoint, lifecycle owner, and observable behavior test. Symbols, synthetic output, and fixed success strings do not qualify. Reproducible performance claims will be published only with the TASK-2360 benchmark artifact.
 
+## For agents
+
+The repo ships an agent-facing operating contract at
+[`skills/artemis/SKILL.md`](skills/artemis/SKILL.md) — a decision table
+(fetch vs. observe/act vs. serve), exact flags, the typed-action JSON kinds,
+and the WebSocket command set. Agents that discover repo skills pick it up
+automatically; everything else can run `artemis capabilities` for the
+machine-readable contract or just `artemis fetch <url>`.
+
 ## Usage
 
 Artemis ships dual-mode.
