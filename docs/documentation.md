@@ -41,7 +41,7 @@ Single source of truth for project-level documentation. Code-level details live 
 
 ## Project Overview
 
-Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0-alpha.1 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, the canonical deterministic hybrid router contract, and verified page/worker stealth pre-script injection when an acknowledged environment profile is supplied. Challenge resolution is experimental and always requires policy admission plus a verified postcondition. It does not ship a Model Context Protocol (MCP) endpoint.
+Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, the canonical deterministic hybrid router contract, and verified page/worker stealth pre-script injection when an acknowledged environment profile is supplied. Challenge resolution is experimental and always requires policy admission plus a verified postcondition. It does not ship a Model Context Protocol (MCP) endpoint.
 
 ## Release Capability Contract
 
@@ -161,7 +161,7 @@ cold isolate with an observable unavailable status on any mismatch.
 
 | Field | Default | Purpose |
 |---|---|---|
-| `UserAgent` | `Artemis/0.1.0-alpha.1 (...) AppleWebKit/537.36` | sent on every outbound request |
+| `UserAgent` | empty → host-matched Chrome UA (`ChromeLike` identity) | sent on every outbound request; `engine.DefaultUserAgent` selects the honest-bot identity |
 | `ProxyURL` | empty (uses `HTTP_PROXY` / `HTTPS_PROXY`) | proxy URL |
 | `Timeout` | `30s` | per-request timeout |
 | `MaxBodyBytes` | `50 MiB` | response body cap; `network.ErrBodyTooLarge` on overflow |
@@ -362,7 +362,7 @@ CLI entry: `artemis fetch --eval "<expr>" <url>` prints the result; `--run-scrip
 | `window` | identical to `globalThis` |
 | `window.document` | inherited from JS Execution section |
 | `window.location` | `href`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, `hash`, `origin`. Built from the page's URL at Context creation. The `history` API mutates these in-process; setters / `assign` / `replace` / `reload` are no-op. |
-| `window.navigator` | `userAgent`, `language`, `languages` (array-like with `length`), `platform`, `onLine`, `cookieEnabled`, `webdriver` (false), `doNotTrack` (null), `plugins` / `mimeTypes` (empty array-likes), `userAgentData` (NavigatorUAData reduced-UA shape), `clipboard`, `geolocation` (rejects with permission-denied), `permissions.query` (always `denied`), `serviceWorker` (NotSupportedError on register), `hardwareConcurrency` (4), `deviceMemory` (4), `maxTouchPoints` (0). Configurable per Page via `engine.FetchOpts.Navigator`. Defaults identify Artemis 0.1.0-alpha.1. |
+| `window.navigator` | `userAgent`, `language`, `languages` (array-like with `length`), `platform`, `onLine`, `cookieEnabled`, `webdriver` (false), `doNotTrack` (null), `plugins` / `mimeTypes` (Chrome PDF plugins + types), `userAgentData` (NavigatorUAData reduced-UA shape, brands/platform derived lazily from the configured UA so snapshot-frozen contexts stay coherent), `clipboard`, `geolocation` (rejects with permission-denied), `permissions.query` (`prompt` for notifications/geolocation/camera/microphone, `denied` for persistent-storage), `serviceWorker` (guarded container), `hardwareConcurrency` (8), `deviceMemory` (8), `maxTouchPoints` (0), `pdfViewerEnabled` (true), `vendor` (`Google Inc.`). Configurable per Page via `engine.FetchOpts.Navigator`. Defaults present a host-matched Chrome identity coherent with the wire `User-Agent`. |
 | `window.localStorage`, `window.sessionStorage` | in-memory per Context. `getItem`, `setItem`, `removeItem`, `clear`, `key(i)` work. `length` is a snapshot at install (use `lengthOf()` for live length - v8go limitation). Both stores are independent. |
 | `setTimeout(fn, ms)`, `clearTimeout(id)` | callbacks queue and fire at the end of every `Eval` and every inline `<script>`. Delays are not simulated: ordering follows queue order. Chained timers (a callback that schedules another) run too, up to 64 rounds. |
 | `setInterval`, `clearInterval` | aliased to `setTimeout` / `clearTimeout`; the interval callback fires once, not on a wall clock. Repeated firing on real time intervals is intentionally not modelled — agent flows do not benefit from real-time scheduling. |

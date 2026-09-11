@@ -69,10 +69,10 @@ mkdir /tmp/artemis-build
 go build -trimpath -buildvcs=false -o /tmp/artemis-build/artemis ./cmd/artemis
 ARTEMIS_COMMIT="$(git rev-parse HEAD)"
 ARTEMIS_SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-go run ./cmd/artemis-release --source-root . --output /tmp/artemis-release-set --version v0.1.0-alpha.1 --commit "$ARTEMIS_COMMIT" --build-profile release_hardened --source-date-epoch "$ARTEMIS_SOURCE_DATE_EPOCH" --target darwin/arm64 --toolchain-digest "$ARTEMIS_TOOLCHAIN_DIGEST" --artifact artemis=/tmp/artemis-build/artemis
+go run ./cmd/artemis-release --source-root . --output /tmp/artemis-release-set --version v0.1.0 --commit "$ARTEMIS_COMMIT" --build-profile release_hardened --source-date-epoch "$ARTEMIS_SOURCE_DATE_EPOCH" --target darwin/arm64 --toolchain-digest "$ARTEMIS_TOOLCHAIN_DIGEST" --artifact artemis=/tmp/artemis-build/artemis
 
 # 5. Sign the tag (operator GPG key)
-git tag -s v0.1.0-alpha.1 -m "Artemis v0.1.0-alpha.1"
+git tag -s v0.1.0 -m "Artemis v0.1.0"
 
 # 6. Sign the artifacts
 gpg --detach-sign --armor /tmp/artemis-release-set/checksums.txt

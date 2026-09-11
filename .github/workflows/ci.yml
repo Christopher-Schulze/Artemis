@@ -29,11 +29,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential
 
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"; echo "$unformatted"; exit 1
+          fi
+
       - name: Build
         run: go build ./...
 
       - name: Vet
         run: go vet ./...
+
+      - name: Snapshot manifest
+        run: go run ./cmd/artemis-snapshot --check
 
       - name: Race test
         run: go test -race -count=1 -p 1 -timeout 600s ./...

@@ -7,6 +7,8 @@ the first public tag is cut.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-11
+
 ### Added
 - Chrome-coherent renderless identity: default outbound `User-Agent`,
   `Sec-CH-UA*`/`Sec-Fetch-*`/`Accept*` headers (`network.HeaderGenerator`),
@@ -49,7 +51,7 @@ the first public tag is cut.
   nondeterministic diff ordering, permanently-ticking fetcher timers, and
   renderer-crash visibility via `Inspector.targetCrashed`.
 
-### Added (previous)
+### Added (contd.)
 - V8 fork provenance document (`third_party/v8go/PROVENANCE.md`) recording
   upstream version, patches, binary dependencies, and reproduction steps.
 - `SECURITY.md` with supported versions, vulnerability reporting, threat

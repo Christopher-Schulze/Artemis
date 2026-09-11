@@ -10,7 +10,7 @@
 [![Go 1.27+](https://img.shields.io/badge/Go-1.27+-00ADD8.svg)](https://go.dev)
 [![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
 
-Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, an owned or externally attached Chromium/CDP lifecycle, high-level Chromium actions, deterministic hybrid routing, browser screenshots, persistent profiles, and measured-profile stealth injection (env-gated, legal acknowledgement required). Challenge resolution is experimental.
+Artemis 0.1.0 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, an owned or externally attached Chromium/CDP lifecycle, high-level Chromium actions, deterministic hybrid routing, browser screenshots, persistent profiles, and measured-profile stealth injection (env-gated, legal acknowledgement required). Challenge resolution is experimental.
 
 ---
 

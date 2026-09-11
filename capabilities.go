@@ -3,7 +3,7 @@ package artemis
 import "fmt"
 
 // Version is the release identity shared by the library, CLI, and capability contract.
-const Version = "0.1.0-alpha.1"
+const Version = "0.1.0"
 
 // SupportState is the release support level of a public capability.
 type SupportState string

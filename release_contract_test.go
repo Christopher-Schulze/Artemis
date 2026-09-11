@@ -10,7 +10,7 @@ import (
 )
 
 func TestReleaseIdentityAndClaimsDoNotDrift(t *testing.T) {
-	if Version != "0.1.0-alpha.1" {
+	if Version != "0.1.0" {
 		t.Fatalf("Version = %q", Version)
 	}
 	if !strings.Contains(engine.DefaultUserAgent, Version) {
