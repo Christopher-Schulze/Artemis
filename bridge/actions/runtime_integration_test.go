@@ -440,10 +440,23 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	}
 	defer closeActionTestResource(t, "runtime", runtime.Close)
 	requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
-	out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button').dataset.hit"})
-	requireAction(t, out)
-	if out.Value != "yes" {
-		t.Fatalf("OOPIF action value=%#v", out.Value)
+	// OOPIF input dispatch crosses a process boundary — delivery is async.
+	// Poll the observed effect (bounded) instead of asserting one snapshot.
+	hitDeadline := time.Now().Add(5 * time.Second)
+	for {
+		out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button') && document.querySelector('button').dataset.hit"})
+		requireAction(t, out)
+		if out.Value == "yes" {
+			break
+		}
+		if time.Now().After(hitDeadline) {
+			t.Fatalf("OOPIF action never observed, last value=%#v", out.Value)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 

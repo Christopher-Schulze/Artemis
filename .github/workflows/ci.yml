@@ -42,9 +42,6 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Snapshot manifest
-        run: go run ./cmd/artemis-snapshot --check
-
       - name: Race test
         run: go test -race -count=1 -p 1 -timeout 600s ./...
 
@@ -74,6 +71,11 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Snapshot manifest
+        # The committed V8 snapshot is generated on darwin/arm64 — the
+        # regen-check is toolchain/arch-bound and only meaningful here.
+        run: go run ./cmd/artemis-snapshot --check
 
       - name: Race test
         run: go test -race -count=1 -p 1 -timeout 600s ./...
