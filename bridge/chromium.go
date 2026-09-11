@@ -209,8 +209,35 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 	if policy == nil {
 		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "connect browser", Err: fmt.Errorf("network policy required")}
 	}
-	transport, err := DialCDPTransport(ctx, CDPTransportConfig{URL: endpoint})
-	if err != nil {
+	// A just-launched browser can accept the WebSocket upgrade and then
+	// close before the DevTools broker is fully wired — attaching to it
+	// must not fail on that transient EOF. Bounded retries keep the
+	// attach fast in the common case and resilient under load.
+	var transport *CDPTransport
+	var version BrowserVersion
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(50*attempt) * time.Millisecond):
+			}
+		}
+		transport, err = DialCDPTransport(ctx, CDPTransportConfig{URL: endpoint})
+		if err != nil {
+			continue
+		}
+		if versionErr := transport.Call(ctx, "Browser.getVersion", nil, &version); versionErr != nil {
+			_ = transport.Close()
+			transport = nil
+			err = fmt.Errorf("validate browser identity: %w", versionErr)
+			continue
+		}
+		err = nil
+		break
+	}
+	if transport == nil {
 		return nil, err
 	}
 	browser := &ChromiumBrowser{
@@ -218,10 +245,7 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		contexts: make(map[string]*BrowserContext), pages: make(map[string]*Page), sessionMap: make(map[string]*Page),
 		maxPages: defaultChromiumMaxPages, policy: policy, policyProxy: proxy,
 	}
-	if versionErr := transport.Call(ctx, "Browser.getVersion", nil, &browser.version); versionErr != nil {
-		_ = transport.Close()
-		return nil, fmt.Errorf("validate browser identity: %w", versionErr)
-	}
+	browser.version = version
 	if browser.version.ProtocolVersion == "" || browser.version.Product == "" {
 		_ = transport.Close()
 		return nil, &CDPError{Code: CDPErrorProtocol, Op: "validate browser identity", Err: fmt.Errorf("incomplete Browser.getVersion result")}
