@@ -113,7 +113,10 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 		permQuery: safe(() => navigator.permissions.query.toString()),
 		uaDataType: safe(() => navigator.userAgentData.constructor.name),
 		chrome: safe(() => typeof window.chrome === "object" && typeof window.chrome.runtime === "object"),
-		voices: safe(() => speechSynthesis.getVoices().length)
+		voices: safe(() => speechSynthesis.getVoices().length),
+		notif: safe(() => Notification.permission),
+		mediaDevs: safe(() => navigator.mediaDevices && navigator.mediaDevices.constructor.name),
+		svcWorker: safe(() => navigator.serviceWorker && navigator.serviceWorker.constructor.name)
 	}); })()`
 	var lies struct {
 		Result struct {
@@ -132,6 +135,9 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 		UAData    string `json:"uaDataType"`
 		Chrome    bool   `json:"chrome"`
 		Voices    any    `json:"voices"`
+		Notif     string `json:"notif"`
+		MediaDevs string `json:"mediaDevs"`
+		SvcWorker string `json:"svcWorker"`
 	}
 	if err := json.Unmarshal([]byte(lies.Result.Value), &surface); err != nil {
 		t.Fatalf("decode lies probe: %v (%q)", err, lies.Result.Value)
@@ -158,6 +164,15 @@ func TestChromiumTargetScriptsRunBeforePageAndWorkerCode(t *testing.T) {
 	}
 	if voices, ok := surface.Voices.(float64); !ok || voices == 0 {
 		t.Errorf("speechSynthesis.getVoices() = %v — headless tell", surface.Voices)
+	}
+	if surface.Notif != "default" {
+		t.Errorf("Notification.permission = %q — headless reports 'denied', real desktops 'default'", surface.Notif)
+	}
+	if surface.MediaDevs != "MediaDevices" {
+		t.Errorf("navigator.mediaDevices = %q — missing in headless", surface.MediaDevs)
+	}
+	if surface.SvcWorker != "ServiceWorkerContainer" {
+		t.Errorf("navigator.serviceWorker = %q — missing in headless", surface.SvcWorker)
 	}
 }
 

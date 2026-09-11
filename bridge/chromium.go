@@ -77,7 +77,8 @@ type attachTargetParams struct {
 }
 
 type navigateParams struct {
-	URL string `json:"url"`
+	URL      string `json:"url"`
+	Referrer string `json:"referrer,omitempty"`
 }
 
 // TargetScriptConfig is the browser-owned pre-script contract. PageScript is
@@ -94,6 +95,9 @@ type TargetScriptConfig struct {
 	// first navigation so request headers (Accept-Language, Sec-CH-UA-*) and
 	// navigator.userAgentData stay consistent without JS-side artifacts.
 	Emulation EmulationOverrides
+	// Referrer is sent on the initial navigation only — a believable entry
+	// point (e.g. search) instead of a bare direct hit.
+	Referrer string
 }
 
 // EmulationOverrides describes native CDP emulation for a page target.
@@ -789,6 +793,7 @@ type Page struct {
 	fetchMu         sync.RWMutex
 	fetchHandler    FetchRequestHandler
 	targetScripts   TargetScriptConfig
+	navigated       bool
 }
 
 func (p *Page) installPageScript(ctx context.Context) error {
@@ -1163,7 +1168,14 @@ func (p *Page) Navigate(ctx context.Context, targetURL string) (frameID, loaderI
 		LoaderID string `json:"loaderId"`
 		Error    string `json:"errorText"`
 	}
-	if err := p.Call(ctx, "Page.navigate", navigateParams{URL: targetURL}, &result); err != nil {
+	params := navigateParams{URL: targetURL}
+	p.mu.Lock()
+	if p.targetScripts.Referrer != "" && !p.navigated {
+		params.Referrer = p.targetScripts.Referrer
+	}
+	p.navigated = true
+	p.mu.Unlock()
+	if err := p.Call(ctx, "Page.navigate", params, &result); err != nil {
 		return "", "", err
 	}
 	if result.Error != "" {

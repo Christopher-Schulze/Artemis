@@ -128,16 +128,28 @@ func NewDocumentScript(profile EnvironmentProfile) (string, error) {
     // Timezone is applied natively via Emulation.setTimezoneOverride —
     // Date/Intl stay untouched so there is no patched function to detect.
 
+    // Headless reports Notification.permission "denied" — a real desktop
+    // default is "default". Align both surfaces.
+    try {
+      if (globalThis.Notification) {
+        define(globalThis.Notification, "permission", () => "default");
+      }
+    } catch (_) {}
+
     // permissions.query: wrap the REAL PermissionStatus so instanceof and
     // prototype checks pass; only the state getter is overridden.
     if (nav.permissions && typeof nav.permissions.query === "function") {
       const origQuery = nav.permissions.query.bind(nav.permissions);
       nav.permissions.query = __native(function query(descriptor) {
         const name = descriptor && descriptor.name;
-        if (name === "notifications" || name === "clipboard-read" || name === "clipboard-write") {
+        // Headless denies hardware permissions outright; a real desktop
+        // prompts until the user decides. Both must read consistently.
+        if (name === "notifications" || name === "clipboard-read" || name === "clipboard-write" ||
+            name === "camera" || name === "microphone" || name === "geolocation") {
           return origQuery(descriptor).then((status) => {
             try {
-              const stateGetter = __native(function state(){ return globalThis.Notification ? Notification.permission : "default"; });
+              const want = name === "notifications" ? (globalThis.Notification ? Notification.permission : "default") : "prompt";
+              const stateGetter = __native(function state(){ return want; });
               try { Object.defineProperty(stateGetter, "name", {value: "get state"}); } catch (_) {}
               Object.defineProperty(status, "state", {get: stateGetter, configurable: true});
             } catch (_) {}
@@ -147,6 +159,67 @@ func NewDocumentScript(profile EnvironmentProfile) (string, error) {
         return origQuery(descriptor);
       });
     }
+
+    // Headless omits mediaDevices/serviceWorker/wakeLock/hid — desktop
+    // Chrome exposes them. Attach prototype-shaped stand-ins; absence is
+    // the fingerprint, so presence with honest empty behavior wins.
+    if (!nav.mediaDevices) {
+      const mkMediaDevice = (kind) => {
+        const d = {};
+        for (const [k, val] of [["deviceId",""],["groupId",""],["kind",kind],["label",""]]) {
+          Object.defineProperty(d, k, {value: val});
+        }
+        return d;
+      };
+      const mediaDevices = {
+        enumerateDevices: __native(function enumerateDevices(){ return Promise.resolve([mkMediaDevice("audioinput"), mkMediaDevice("videoinput"), mkMediaDevice("audiooutput")]); }),
+        getUserMedia: __native(function getUserMedia(){ return Promise.reject(new DOMException("Requested device not found", "NotFoundError")); }),
+        getDisplayMedia: __native(function getDisplayMedia(){ return Promise.reject(new DOMException("Not supported", "NotSupportedError")); }),
+        addEventListener: __native(function addEventListener(){}),
+        removeEventListener: __native(function removeEventListener(){})
+      };
+      try {
+        if (globalThis.MediaDevices) Object.setPrototypeOf(mediaDevices, MediaDevices.prototype);
+      } catch (_) {}
+      define(nav, "mediaDevices", () => mediaDevices);
+    }
+    if (!nav.serviceWorker) {
+      const swc = {
+        register: __native(function register(){ return Promise.reject(new DOMException("The URL protocol of the current origin is not supported.", "NotSupportedError")); }),
+        getRegistration: __native(function getRegistration(){ return Promise.resolve(undefined); }),
+        getRegistrations: __native(function getRegistrations(){ return Promise.resolve([]); }),
+        ready: new Promise(() => {}),
+        controller: null,
+        addEventListener: __native(function addEventListener(){}),
+        removeEventListener: __native(function removeEventListener(){})
+      };
+      try {
+        if (globalThis.ServiceWorkerContainer) Object.setPrototypeOf(swc, ServiceWorkerContainer.prototype);
+      } catch (_) {}
+      define(nav, "serviceWorker", () => swc);
+    }
+    // Interface-guarded extras: attach only when the interface exists.
+    const ifaceStub = (prop, ctor, body) => {
+      if (!nav[prop] && globalThis[ctor]) {
+        const obj = body;
+        try { Object.setPrototypeOf(obj, globalThis[ctor].prototype); } catch (_) {}
+        define(nav, prop, () => obj);
+      }
+    };
+    ifaceStub("wakeLock", "WakeLock", {request: __native(function request(){ return Promise.reject(new DOMException("Not allowed", "NotAllowedError")); })});
+    ifaceStub("hid", "HID", {requestDevice: __native(function requestDevice(){ return Promise.resolve([]); }), getDevices: __native(function getDevices(){ return Promise.resolve([]); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("usb", "USB", {requestDevice: __native(function requestDevice(){ return Promise.reject(new DOMException("No device selected", "NotFoundError")); }), getDevices: __native(function getDevices(){ return Promise.resolve([]); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("serial", "Serial", {requestPort: __native(function requestPort(){ return Promise.reject(new DOMException("No port selected", "NotFoundError")); }), getPorts: __native(function getPorts(){ return Promise.resolve([]); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("bluetooth", "Bluetooth", {requestDevice: __native(function requestDevice(){ return Promise.reject(new DOMException("User cancelled the requestDevice() chooser.", "NotFoundError")); }), getAvailability: __native(function getAvailability(){ return Promise.resolve(false); }), getDevices: __native(function getDevices(){ return Promise.resolve([]); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("clipboard", "Clipboard", {read: __native(function read(){ return Promise.reject(new DOMException("Read permission denied.", "NotAllowedError")); }), readText: __native(function readText(){ return Promise.reject(new DOMException("Read permission denied.", "NotAllowedError")); }), write: __native(function write(){ return Promise.resolve(undefined); }), writeText: __native(function writeText(){ return Promise.resolve(undefined); })});
+    ifaceStub("credentials", "CredentialsContainer", {get: __native(function get(){ return Promise.resolve(null); }), store: __native(function store(c){ return Promise.resolve(c); }), create: __native(function create(){ return Promise.resolve(null); }), preventSilentAccess: __native(function preventSilentAccess(){ return Promise.resolve(undefined); })});
+    ifaceStub("locks", "LockManager", {request: __native(function request(){ return Promise.reject(new DOMException("Lock request aborted", "AbortError")); }), query: __native(function query(){ return Promise.resolve({held:[], pending:[]}); })});
+    ifaceStub("storage", "StorageManager", {estimate: __native(function estimate(){ return Promise.resolve({quota: 281476296704, usage: 0, usageDetails: {}}); }), persist: __native(function persist(){ return Promise.resolve(false); }), persisted: __native(function persisted(){ return Promise.resolve(false); }), getDirectory: __native(function getDirectory(){ return Promise.reject(new DOMException("Not supported", "NotSupportedError")); })});
+    ifaceStub("launchQueue", "LaunchQueue", {setConsumer: __native(function setConsumer(){})});
+    ifaceStub("virtualKeyboard", "VirtualKeyboard", {overlaysContent: false, show: __native(function show(){}), hide: __native(function hide(){}), getLayoutMap: __native(function getLayoutMap(){ return Promise.resolve(new Map()); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("managed", "NavigatorManagedData", {getManagedConfiguration: __native(function getManagedConfiguration(){ return Promise.resolve({}); }), addEventListener: __native(function addEventListener(){}), removeEventListener: __native(function removeEventListener(){})});
+    ifaceStub("presentation", "Presentation", {defaultRequest: null, receiver: null});
+    ifaceStub("keyboard", "Keyboard", {lock: __native(function lock(){ return Promise.reject(new DOMException("Not supported", "NotSupportedError")); }), unlock: __native(function unlock(){ return Promise.resolve(undefined); }), getLayoutMap: __native(function getLayoutMap(){ return Promise.resolve(new Map()); })});
 
     // WebGL: patch ONLY the debug-renderer unmasked params (0x9291/0x9292).
     // Masked params (0x1F00 VENDOR, 0x1F01 RENDERER) stay native — real

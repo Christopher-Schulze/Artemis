@@ -205,8 +205,14 @@ func PrepareTargetScripts(ctx context.Context, browser *bridge.ChromiumBrowser, 
 	if err != nil {
 		return bridge.TargetScriptConfig{}, err
 	}
+	var referrer string
+	if level == stealth.StealthParanoid {
+		// Paranoid enters through a plausible search referrer instead of a
+		// bare direct hit.
+		referrer, _ = stealth.ReferrerForDomainContext(ctx, initialURL, nil)
+	}
 	return bridge.TargetScriptConfig{
-		Version: hash, PageScript: pageScript, WorkerScript: workerScript,
+		Version: hash, PageScript: pageScript, WorkerScript: workerScript, Referrer: referrer,
 		Emulation: bridge.EmulationOverrides{
 			UserAgent:       profile.UserAgent,
 			AcceptLanguage:  strings.Join(profile.Languages, ","),
