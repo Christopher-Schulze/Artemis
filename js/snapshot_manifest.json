@@ -2,9 +2,9 @@
   "schema_version": 1,
   "source_path": "codebase/backend/artemis/js/snapshot.bin",
   "mime": "application/octet-stream",
-  "size": 492448,
-  "sha256": "678f7ae46fb24d168873c0afdd6ee0b7cacb4b0c20dd821747321cce2f63cf67",
-  "source_set_sha256": "c5498a4ccb18eb7cb97b3fbf6016dd5e76f139bf148610a9268fbc03c24875ca",
+  "size": 492968,
+  "sha256": "efebbd4e90040cad2584adf0baee73871b998df8e388c54f209e6c454e003241",
+  "source_set_sha256": "d423dfe8a32faa7add0b7ad345880e1399c19717bb2ac823d853a6d8be6ffc4b",
   "generator_ref": "codebase/backend/artemis/cmd/artemis-snapshot",
   "toolchain_ref": "go=go1.27.1;v8go=v0.9.0;v8=10.9.194.9-v8go;target=darwin/arm64",
   "v8_version": "10.9.194.9-v8go",
@@ -56,8 +56,8 @@
     },
     {
       "name": "artemis-navigator-extras",
-      "size": 5227,
-      "sha256": "4c10b90d841a126b3f074733557f4fed8a7710cbab093c3e860fa28f8b8a84b1"
+      "size": 5490,
+      "sha256": "0e703d332aa7286f39e1171f97da0bac859534714a3859d0051032558154d7cd"
     },
     {
       "name": "artemis-style-manager",

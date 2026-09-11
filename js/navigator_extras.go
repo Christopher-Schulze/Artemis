@@ -14,25 +14,28 @@ const navigatorExtrasBootstrap = `
 (() => {
   if (!globalThis.navigator) return;
 
-  // NavigatorUAData - reduced UA API. Brands derive from the configured
-  // userAgent so the pair can never contradict each other.
-  const __uaMajor = (() => { const m = /Chrome\/(\d+)/.exec(navigator.userAgent || ""); return m ? m[1] : "120"; })();
-  const __uaPlatform = (() => { const p = navigator.platform || ""; if (p === 'MacIntel') return 'macOS'; if (p === 'Win32') return 'Windows'; return 'Linux'; })();
+  // NavigatorUAData - reduced UA API. Values must resolve lazily at access
+  // time: under the V8 snapshot this script runs at freeze time, before the
+  // per-context navigator overrides are applied — eager reads would bake
+  // stale identity values into every snapshot-derived context.
+  const __uaMajor = () => { const m = /Chrome\/(\d+)/.exec(navigator.userAgent || ""); return m ? m[1] : "120"; };
+  const __uaPlatform = () => { const p = navigator.platform || ""; if (p === 'MacIntel') return 'macOS'; if (p === 'Win32') return 'Windows'; return 'Linux'; };
+  const __uaBrands = () => ([
+    {brand: 'Chromium', version: __uaMajor()},
+    {brand: 'Google Chrome', version: __uaMajor()},
+    {brand: 'Not_A Brand', version: '8'},
+  ]);
   navigator.userAgentData = {
-    brands: [
-      {brand: 'Chromium', version: __uaMajor},
-      {brand: 'Google Chrome', version: __uaMajor},
-      {brand: 'Not_A Brand', version: '8'},
-    ],
+    get brands() { return __uaBrands(); },
     mobile: false,
-    platform: __uaPlatform,
+    get platform() { return __uaPlatform(); },
     getHighEntropyValues(hints) {
       const out = {
         brands: this.brands,
         mobile: false,
         platform: this.platform,
         platformVersion: '',
-        architecture: 'arm',
+        architecture: this.platform === 'macOS' ? 'arm' : 'x86',
         bitness: '64',
         model: '',
         wow64: false,
