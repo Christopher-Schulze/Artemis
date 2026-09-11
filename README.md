@@ -10,7 +10,7 @@
 [![Go 1.27+](https://img.shields.io/badge/Go-1.27+-00ADD8.svg)](https://go.dev)
 [![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
 
-Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, and a low-level owned or externally attached Chromium/CDP lifecycle. Hybrid routing, high-level Chromium actions, browser screenshots, persistent authenticated profiles, and verified anti-detection remain unavailable release capabilities. Package symbols for those future surfaces are not a support claim.
+Artemis 0.1.0-alpha.1 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, an owned or externally attached Chromium/CDP lifecycle, high-level Chromium actions, deterministic hybrid routing, browser screenshots, persistent profiles, and measured-profile stealth injection (env-gated, legal acknowledgement required). Challenge resolution is experimental.
 
 ---
 
@@ -35,7 +35,7 @@ The result is a self-contained Go binary for pages that fit the documented rende
 
 Artemis ships two supported execution kernels:
 
-- **Renderless fast path** (`renderless/`, `engine/`, `js/`, `webapi/`, `css/`, `parser/`): V8 via `rogchap.com/v8go` (stock V8, no Chromium) with an isolate snapshot and context pool, a from-scratch DOM/WebAPI surface, CSS parse/cascade/computed style, `fetch`/XHR, cookies, and agent extraction.
+- **Renderless fast path** (`renderless/`, `engine/`, `js/`, `webapi/`, `css/`, `parser/`): V8 via the vendored fork at `third_party/v8go` (stock V8, no Chromium) with an isolate snapshot and context pool, a from-scratch DOM/WebAPI surface, CSS parse/cascade/computed style, `fetch`/XHR, cookies, and agent extraction.
 - **Chromium/CDP kernel** (`process/`, `bridge/`): platform-aware binary discovery, isolated zero-port launch, bounded request/event transport, validated browser identity, context/target/session ownership, crash/detach state, and distinct owned/external shutdown semantics.
 
 The `stealth/`, `profile/`, solver, and high-level Chromium action packages contain future-facing implementation pieces. They do not yet form supported profile, anti-detection, challenge-solving, screenshot, or hybrid-routing capabilities.
@@ -47,15 +47,15 @@ The `stealth/`, `profile/`, solver, and high-level Chromium action packages cont
 | Renderless engine | `renderless/`, `engine/`, `js/`, `webapi/` | V8 execution, from-scratch DOM/WebAPI, `fetch`/XHR, cookies |
 | Styling | `css/`, `parser/` | HTML parse, CSS parse/cascade/computed style |
 | Chromium kernel | `process/`, `bridge/` | Owned/external lifecycle, CDP transport, contexts, targets, sessions, crash and shutdown handling |
-| Chromium actions | `bridge/cdpops/`, `bridge/actions/`, `bridge/tabs/` | Unavailable until DOM/AX references and action postconditions are behavior-proven |
-| Router | `bridge/provider.go` | Unavailable until a real Chromium target exists |
-| Stealth | `stealth/`, `network/` | Unavailable as a browser anti-detection capability |
+| Chromium actions | `bridge/cdpops/`, `bridge/actions/`, `bridge/tabs/` | Human-cadence input (key events with jitter, click holds, eased drags) and postcondition-verified actions |
+| Router | `router/`, `bridge/provider.go` | Deterministic static→renderless→CDP escalation with evidence |
+| Stealth | `stealth/`, `network/` | Measured-profile injection, CDP identity overrides, Chrome-coherent renderless identity incl. uTLS; env-gated (`ARTEMIS_STEALTH`) |
 | Solver | `solver/` | Vision-based challenge / CAPTCHA solving |
 | Observation | `observe/` | AX-tree snapshots + diff, network + console buffers |
 | Input | `input/` | Human-like Bezier mouse/keyboard input |
 | Actions | `actions/`, `bridge/actions/` | High-level page actions (login, forms, navigation) |
 | Security | `security/` | SSRF defense, indirect-prompt-injection defense, ad/tracker blocking |
-| Profiles | `profile/` | Unavailable as a persistent authenticated-browser capability |
+| Profiles | `profile/` | Persistent browser profiles with isolated state |
 | Scraper | `scraper/` | Adaptive selectors + AI element finding |
 | Serve | `serve/` | JSON-over-WebSocket steering server |
 | Telemetry | `telemetry/` | Local OpenTelemetry, opt-out (`ARTEMIS_DISABLE_TELEMETRY=true`) |
@@ -104,7 +104,7 @@ make bench      # run the benchmark suite
 ## Quality
 
 - The supported renderless, steering, Agent lifecycle, and Chromium/CDP kernel paths have behavior tests and race-detector coverage.
-- High-level Chromium actions, hybrid routing, screenshots, profiles, and anti-detection are unavailable in the 0.1.0-alpha.1 contract.
+- Challenge solving (`solver/`) remains experimental; `chromium.h2_fingerprint` is unavailable in the capability registry. Stealth requires explicit acknowledgement via `ARTEMIS_STEALTH` + `ARTEMIS_STEALTH_PURPOSE` + `ARTEMIS_STEALTH_LEGAL_BASIS`.
 
 ## License
 

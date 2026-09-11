@@ -17,7 +17,7 @@ Report security vulnerabilities privately. Do NOT open a public GitHub issue
 for a vulnerability.
 
 - Email: security@christopher-schulze.dev
-- Encrypt with the project PGP key if available (see `docs/security.md`).
+- Encrypt with the project PGP key if available.
 
 Include:
 - A clear description of the issue and impact.
