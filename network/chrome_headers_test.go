@@ -75,3 +75,32 @@ func TestChromeLikeTLSHandshake(t *testing.T) {
 		t.Error("self-signed cert accepted with verification enabled — must fail")
 	}
 }
+
+func TestChromeLikeH2(t *testing.T) {
+	var gotProto string
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotProto = r.Proto
+		w.WriteHeader(200)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	policy, _ := NewPolicy(PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: []int{80, 443, port}}, nil, nil)
+	c, err := NewHTTPClient(HTTPClientConfig{Policy: policy, ChromeLike: true, TLSInsecureSkipVerify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	resp, err := c.Do(context.Background(), Request{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("uTLS h2 request: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if gotProto != "HTTP/2.0" {
+		t.Errorf("ALPN routing: server saw %q, want HTTP/2.0", gotProto)
+	}
+}

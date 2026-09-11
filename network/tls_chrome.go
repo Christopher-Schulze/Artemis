@@ -42,8 +42,14 @@ func newChromeTransport(dialContext func(context.Context, string, string) (net.C
 	t := &chromeTransport{
 		dialContext: dialContext,
 		proxyURL:    proxyURL,
-		tlsConfig:   &utls.Config{MinVersion: utls.VersionTLS12, InsecureSkipVerify: insecureSkipVerify},
-		proto:       make(map[string]string),
+		// Session resumption: real Chrome caches tickets; resumed
+		// handshakes are both faster and fingerprint-consistent.
+		tlsConfig: &utls.Config{
+			MinVersion:         utls.VersionTLS12,
+			InsecureSkipVerify: insecureSkipVerify,
+			ClientSessionCache: utls.NewLRUClientSessionCache(1024),
+		},
+		proto: make(map[string]string),
 	}
 	t.h1 = &http.Transport{
 		DialTLSContext:      t.dialTLS,
@@ -164,6 +170,12 @@ func (t *chromeTransport) dialTarget(ctx context.Context, addr string) (net.Conn
 	return conn, nil
 }
 
+// CloseIdleConnections drains idle conns in both sub-transports.
+func (t *chromeTransport) CloseIdleConnections() {
+	t.h1.CloseIdleConnections()
+	t.h2.CloseIdleConnections()
+}
+
 // schemeRouter selects the Chrome-fingerprinted transport for HTTPS and the
 // standard transport for everything else.
 type schemeRouter struct {
@@ -176,4 +188,14 @@ func (r *schemeRouter) RoundTrip(req *http.Request) (*http.Response, error) {
 		return r.https.RoundTrip(req)
 	}
 	return r.fallback.RoundTrip(req)
+}
+
+// CloseIdleConnections forwards lifecycle teardown to both transports —
+// http.Client only calls this on RoundTrippers exposing the interface.
+func (r *schemeRouter) CloseIdleConnections() {
+	for _, rt := range []http.RoundTripper{r.https, r.fallback} {
+		if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
+			c.CloseIdleConnections()
+		}
+	}
 }

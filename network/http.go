@@ -161,7 +161,7 @@ func (c *HTTPClient) Close() error {
 	if c == nil || c.client == nil {
 		return nil
 	}
-	if t, ok := c.client.Transport.(*http.Transport); ok {
+	if t, ok := c.client.Transport.(interface{ CloseIdleConnections() }); ok {
 		t.CloseIdleConnections()
 	}
 	return nil
