@@ -4,10 +4,12 @@ go 1.27
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.11.0
+	github.com/andybalholm/brotli v1.0.6
 	github.com/andybalholm/cascadia v1.3.3
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.17.4
 	github.com/pjbgf/sha1cd v0.6.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/crypto v0.51.0

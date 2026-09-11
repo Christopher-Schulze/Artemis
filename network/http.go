@@ -30,6 +30,10 @@ type HTTPClientConfig struct {
 	// ChromeOS selects the header-identity OS ("windows"|"macos"|"linux");
 	// empty resolves to the host OS.
 	ChromeOS string
+	// TLSInsecureSkipVerify disables certificate verification on the
+	// Chrome-fingerprinted TLS path. Test/private-fixture only — never set
+	// this for real traffic; it removes MITM protection.
+	TLSInsecureSkipVerify bool
 	// ProxyURL routes outbound requests through the given proxy. When
 	// empty the client honors HTTP_PROXY / HTTPS_PROXY environment
 	// variables.
@@ -111,11 +115,20 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cookie jar: %w", err)
 	}
+	var roundTripper http.RoundTripper = transport
+	if cfg.ChromeLike {
+		var proxyURL *url.URL
+		if cfg.ProxyURL != "" {
+			proxyURL, _ = url.Parse(cfg.ProxyURL)
+		}
+		chromeRT := newChromeTransport(policy.DialContextFor(cfg.SessionID), proxyURL, cfg.TLSInsecureSkipVerify)
+		roundTripper = &schemeRouter{https: chromeRT, fallback: transport}
+	}
 	return &HTTPClient{
 		cfg:           cfg,
 		chromeHeaders: chromeHeaders,
 		client: &http.Client{
-			Transport: transport,
+			Transport: roundTripper,
 			Jar:       jar,
 			Timeout:   cfg.Timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
