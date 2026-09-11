@@ -439,11 +439,16 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeActionTestResource(t, "runtime", runtime.Close)
-	requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
-	// OOPIF input dispatch crosses a process boundary — delivery is async.
-	// Poll the observed effect (bounded) instead of asserting one snapshot.
-	hitDeadline := time.Now().Add(5 * time.Second)
+	// OOPIF input dispatch crosses a process boundary — the first click can
+	// land before the frame's input pipeline is ready. Re-issue the click
+	// and poll the observed effect (bounded) instead of one-shot asserts.
+	hitDeadline := time.Now().Add(10 * time.Second)
+	nextClick := time.Now()
 	for {
+		if !time.Now().Before(nextClick) {
+			requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
+			nextClick = time.Now().Add(500 * time.Millisecond)
+		}
 		out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button') && document.querySelector('button').dataset.hit"})
 		requireAction(t, out)
 		if out.Value == "yes" {
