@@ -1,0 +1,305 @@
+package bridge
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+)
+
+// BrowserProvider is the interface for multi-backend browser abstraction.
+// Implementations select runtime backend via config/credentials:
+// local headless Chromium (default), Camofox REST backend, or cloud
+// providers (Browserbase, Firecrawl - deferred P7).
+type BrowserProvider interface {
+	// Name returns a short, human-readable name for logs and diagnostics.
+	Name() string
+	// Launch creates a browser session with the given config.
+	Launch(ctx context.Context, config ProviderConfig) (*BrowserSession, error)
+	// Close releases the browser session.
+	Close() error
+	// Healthy reports whether the provider is ready to serve requests.
+	Healthy() bool
+}
+
+// ProviderConfig configures a browser provider launch.
+type ProviderConfig struct {
+	// CDPURL overrides the CDP websocket URL when set (BROWSER_CDP_URL env var).
+	CDPURL string
+	// Headless controls headless mode for local Chrome.
+	Headless bool
+	// SessionName is the unique session identifier.
+	SessionName string
+	// ProfileDir is the browser profile directory for persistent identity.
+	ProfileDir string
+	// ProxyURL requests an upstream proxy; the local provider rejects it because
+	// remote DNS resolution cannot satisfy the local dial-enforcement contract.
+	ProxyURL string
+	// ExtraArgs are additional Chrome launch flags.
+	ExtraArgs []string
+	// ChromePath explicitly selects a Chromium-family executable.
+	ChromePath string
+	// StartupTimeout bounds process and CDP readiness.
+	StartupTimeout time.Duration
+	// ShutdownTimeout bounds graceful process shutdown before forced cleanup.
+	ShutdownTimeout time.Duration
+	// AllowPrivateNetworks permits private destinations for explicitly controlled workloads.
+	AllowPrivateNetworks bool
+	// AllowedPorts replaces the default browser egress port allowlist when non-empty.
+	AllowedPorts []int
+	// MaxTabs bounds live and concurrently creating targets for this runtime.
+	MaxTabs int
+	// Sandbox selects the owned Chromium sandbox policy.
+	Sandbox browserprocess.SandboxPolicy
+	// ResourceBudget contains hard owned-process limits.
+	ResourceBudget browserprocess.ResourceBudget
+	// PolicyDecisionSink persists redacted canonical egress decisions.
+	PolicyDecisionSink network.DecisionSink
+	// ResourceSink persists redacted Chromium process-group samples.
+	ResourceSink browserprocess.ResourceSink
+	// DependencyAuthorizer is the Artemis acquisition boundary for owned Chromium.
+	DependencyAuthorizer           browserprocess.DependencyAuthorizer
+	Artifact                       string
+	ArtifactVersion                string
+	RequireDependencyAuthorization bool
+}
+
+// BrowserSession represents an active browser session from a provider.
+type BrowserSession struct {
+	// ProviderName is the name of the provider that created this session.
+	ProviderName string
+	// SessionID is the provider-specific session identifier.
+	SessionID string
+	// CDPURL is the CDP websocket URL for the session.
+	CDPURL string
+	// Features contains feature flags that were enabled.
+	Features map[string]bool
+	// Runtime is the validated Chromium owner for local and external CDP sessions.
+	Runtime *ChromiumBrowser
+}
+
+// ProviderRegistry holds available browser providers and selects one
+// based on configuration.
+type ProviderRegistry struct {
+	mu        sync.RWMutex
+	providers map[string]BrowserProvider
+	default_  string
+}
+
+// NewProviderRegistry creates a registry with the local Chrome provider
+// as default.
+func NewProviderRegistry() *ProviderRegistry {
+	local := &LocalChromeProvider{}
+	r := &ProviderRegistry{
+		providers: make(map[string]BrowserProvider),
+		default_:  "local",
+	}
+	r.Register("local", local)
+	r.Register("local-chrome", local)
+	r.Register("camofox", &CamofoxProvider{})
+	return r
+}
+
+// Register adds a provider to the registry.
+func (r *ProviderRegistry) Register(name string, p BrowserProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.providers[strings.ToLower(name)] = p
+}
+
+// Get returns the provider with the given name, or the default if not found.
+func (r *ProviderRegistry) Get(name string) (BrowserProvider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if name == "" {
+		name = r.default_
+	}
+	p, ok := r.providers[strings.ToLower(name)]
+	if !ok {
+		return nil, fmt.Errorf("bridge: browser provider %q not registered", name)
+	}
+	return p, nil
+}
+
+// Default returns the default provider.
+func (r *ProviderRegistry) Default() BrowserProvider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.providers[r.default_]
+}
+
+// SetDefault sets the default provider name.
+func (r *ProviderRegistry) SetDefault(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.default_ = strings.ToLower(name)
+}
+
+// Available returns the names of all registered providers.
+func (r *ProviderRegistry) Available() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.providers))
+	for name := range r.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// SelectFromConfig returns the provider selected by environment/config.
+// Priority: BROWSER_CDP_URL (forces local with CDP override) > BROWSER_PROVIDER env var > default.
+func (r *ProviderRegistry) SelectFromConfig() (BrowserProvider, ProviderConfig, error) {
+	config := ProviderConfig{
+		CDPURL:      os.Getenv("BROWSER_CDP_URL"),
+		Headless:    true,
+		SessionName: "artemis-session",
+	}
+
+	providerName := os.Getenv("BROWSER_PROVIDER")
+	if config.CDPURL != "" {
+		// CDP URL override forces local provider with existing Chrome
+		providerName = "local"
+	}
+
+	p, err := r.Get(providerName)
+	if err != nil {
+		return nil, config, err
+	}
+	return p, config, nil
+}
+
+// LocalChromeProvider launches a local headless Chrome via chromedp.
+type LocalChromeProvider struct {
+	mu      sync.RWMutex
+	session *BrowserSession
+}
+
+// Name returns the provider name.
+func (p *LocalChromeProvider) Name() string {
+	return "local-chrome"
+}
+
+// Launch creates a local Chrome browser session.
+func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig) (*BrowserSession, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.session != nil && p.session.Runtime != nil && p.session.Runtime.Healthy() {
+		return nil, fmt.Errorf("bridge: local Chrome provider already owns session %q", p.session.SessionID)
+	}
+	if config.SessionName == "" {
+		config.SessionName = "artemis-session"
+	}
+	if config.MaxTabs < 0 {
+		return nil, fmt.Errorf("bridge: max tabs cannot be negative")
+	}
+	if config.ProxyURL != "" {
+		return nil, fmt.Errorf("bridge: external proxy cannot preserve local browser egress enforcement")
+	}
+	if config.CDPURL != "" && (config.ChromePath != "" || config.ProfileDir != "" || len(config.ExtraArgs) != 0 || config.StartupTimeout != 0 || config.ShutdownTimeout != 0 || config.AllowPrivateNetworks || len(config.AllowedPorts) != 0 || config.Sandbox != "" || config.ResourceBudget != (browserprocess.ResourceBudget{}) || config.PolicyDecisionSink != nil || config.ResourceSink != nil) {
+		return nil, fmt.Errorf("bridge: local launch options cannot be combined with external CDP attachment")
+	}
+	var runtime *ChromiumBrowser
+	var err error
+	if config.CDPURL != "" {
+		runtime, err = ConnectChromium(ctx, config.CDPURL)
+	} else {
+		runtime, err = LaunchChromium(ctx, browserprocess.LaunchConfig{
+			BinaryPath: config.ChromePath, UserDataDir: config.ProfileDir, Headless: config.Headless,
+			ExtraArgs: config.ExtraArgs, StartupTimeout: config.StartupTimeout, ShutdownTimeout: config.ShutdownTimeout,
+			AllowPrivateNetworks: config.AllowPrivateNetworks, AllowedPorts: config.AllowedPorts,
+			Sandbox: config.Sandbox, ResourceBudget: config.ResourceBudget,
+			PolicyDecisionSink: config.PolicyDecisionSink, ResourceSink: config.ResourceSink,
+			DependencyAuthorizer: config.DependencyAuthorizer, Artifact: config.Artifact,
+			ArtifactVersion: config.ArtifactVersion, RequireDependencyAuthorization: config.RequireDependencyAuthorization,
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("bridge: launch local Chrome: %w", err)
+	}
+	if config.MaxTabs > 0 {
+		if err := runtime.SetMaxPages(config.MaxTabs); err != nil {
+			_ = runtime.Close()
+			return nil, fmt.Errorf("bridge: configure tab limit: %w", err)
+		}
+	}
+	session := &BrowserSession{
+		ProviderName: p.Name(),
+		SessionID:    config.SessionName,
+		CDPURL:       runtime.Endpoint(),
+		Runtime:      runtime,
+		Features: map[string]bool{
+			"headless":      config.Headless,
+			"cdp_override":  config.CDPURL != "",
+			"process_owned": runtime.Owned(),
+		},
+	}
+	p.session = session
+	return session, nil
+}
+
+// Close releases the local Chrome session.
+func (p *LocalChromeProvider) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.session == nil {
+		return nil
+	}
+	err := p.session.Runtime.Close()
+	p.session = nil
+	return err
+}
+
+// Healthy reports whether the local Chrome provider is ready.
+func (p *LocalChromeProvider) Healthy() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.session != nil && p.session.Runtime != nil && p.session.Runtime.Healthy()
+}
+
+// CamofoxProvider connects to a Camofox REST backend (Camoufox/Firefox fork
+// with C++ fingerprint spoofing).
+type CamofoxProvider struct {
+	session *BrowserSession
+}
+
+// Name returns the provider name.
+func (p *CamofoxProvider) Name() string {
+	return "camofox"
+}
+
+// Launch creates a Camofox browser session via REST API.
+func (p *CamofoxProvider) Launch(ctx context.Context, config ProviderConfig) (*BrowserSession, error) {
+	camofoxURL := os.Getenv("CAMOFOX_URL")
+	if camofoxURL == "" {
+		return nil, fmt.Errorf("camofox: CAMOFOX_URL env var required")
+	}
+	session := &BrowserSession{
+		ProviderName: p.Name(),
+		SessionID:    config.SessionName,
+		CDPURL:       camofoxURL,
+		Features: map[string]bool{
+			"fingerprint_spoofing": true,
+			"firefox_backend":      true,
+		},
+	}
+	p.session = session
+	return session, nil
+}
+
+// Close releases the Camofox session.
+func (p *CamofoxProvider) Close() error {
+	p.session = nil
+	return nil
+}
+
+// Healthy reports whether the Camofox provider is configured.
+func (p *CamofoxProvider) Healthy() bool {
+	return os.Getenv("CAMOFOX_URL") != ""
+}

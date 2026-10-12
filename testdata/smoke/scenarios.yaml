@@ -1,0 +1,292 @@
+version: "1"
+scenarios:
+  - id: nav-example
+    site: https://example.com
+    description: Navigate to a stable, well-known static site and verify title + content.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open example.com
+        cmd: page.open
+        params:
+          url: https://example.com
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: Example Domain
+      - name: assert body text
+        cmd: page.assert
+        params:
+          mode: text_contains
+          substring: This domain is for use in documentation examples
+      - name: dump markdown
+        cmd: page.dump
+        params:
+          format: markdown
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: nav-wikipedia
+    site: https://en.wikipedia.org/wiki/Headless_browser
+    description: Navigate to a Wikipedia article and verify content + structured links.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open wikipedia
+        cmd: page.open
+        params:
+          url: https://en.wikipedia.org/wiki/Headless_browser
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: Headless browser
+      - name: assert body text
+        cmd: page.assert
+        params:
+          mode: text_contains
+          substring: web browser without a graphical user interface
+      - name: dump links
+        cmd: page.dump
+        params:
+          format: links
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: scrape-hn-headlines
+    site: https://news.ycombinator.com
+    description: Scrape Hacker News front page headlines and verify link structure.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open hn
+        cmd: page.open
+        params:
+          url: https://news.ycombinator.com
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: Hacker News
+      - name: dump links
+        cmd: page.dump
+        params:
+          format: links
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: scrape-httpbin-status
+    site: https://httpbin.org
+    description: Hit httpbin.org status endpoint and verify HTTP status code handling.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open httpbin status 200
+        cmd: page.open
+        params:
+          url: https://httpbin.org/status/200
+          runScripts: false
+      - name: assert status 200
+        cmd: page.assert
+        params:
+          mode: status_eq
+          status: 200
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: form-httpbin-get
+    site: https://httpbin.org/forms/post
+    description: Type into httpbin's form fields and verify the values are set in the DOM.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open httpbin form
+        cmd: page.open
+        params:
+          url: https://httpbin.org/forms/post
+          runScripts: false
+      - name: type custname
+        cmd: page.type
+        params:
+          selector: "input[name='custname']"
+          text: Smoke Tester
+      - name: assert custname value
+        cmd: page.assert
+        params:
+          mode: eval_truthy
+          expr: "document.querySelector(\"input[name='custname']\").value === 'Smoke Tester'"
+      - name: type custtel
+        cmd: page.type
+        params:
+          selector: "input[name='custtel']"
+          text: "555-0100"
+      - name: dump html
+        cmd: page.dump
+        params:
+          format: html
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: nav-github-repo
+    site: https://github.com/golang/go
+    description: Navigate to a GitHub repo page and verify repo title + README content.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open github go repo
+        cmd: page.open
+        params:
+          url: https://github.com/golang/go
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: "golang/go"
+      - name: dump markdown
+        cmd: page.dump
+        params:
+          format: markdown
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: nav-mdn-fetch
+    site: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
+    description: Navigate to MDN Fetch API docs and verify content.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open mdn fetch
+        cmd: page.open
+        params:
+          url: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: Fetch API
+      - name: dump markdown
+        cmd: page.dump
+        params:
+          format: markdown
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: challenge-cloudflare
+    site: https://nowsecure.nl
+    description: Visit a Cloudflare-protected challenge-prone site to record how artemis handles the challenge interstitial.
+    network_fail: tolerant
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open challenge site
+        cmd: page.open
+        params:
+          url: https://nowsecure.nl
+          runScripts: true
+      - name: dump html
+        cmd: page.dump
+        params:
+          format: html
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: login-httpbin-basic
+    site: https://httpbin.org/basic-auth/user/passwd
+    description: Hit HTTP Basic Auth endpoint with env-provided throwaway creds. Skipped if ARTEMIS_SMOKE_BASIC_USER/PASS unset.
+    requires:
+      - ARTEMIS_SMOKE_BASIC_USER
+      - ARTEMIS_SMOKE_BASIC_PASS
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open basic-auth endpoint
+        cmd: page.open
+        params:
+          url: https://httpbin.org/basic-auth/user/passwd
+          runScripts: false
+      - name: assert status 401
+        cmd: page.assert
+        params:
+          mode: status_eq
+          status: 401
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}
+
+  - id: nav-rust-lang
+    site: https://www.rust-lang.org
+    description: Navigate to rust-lang.org and verify title + content.
+    timeout: 30s
+    steps:
+      - name: open session
+        cmd: session.new
+      - name: open rust-lang
+        cmd: page.open
+        params:
+          url: https://www.rust-lang.org
+          runScripts: false
+      - name: assert title
+        cmd: page.assert
+        params:
+          mode: title_contains
+          substring: Rust
+      - name: dump markdown
+        cmd: page.dump
+        params:
+          format: markdown
+      - name: close page
+        cmd: page.close
+        params: {}
+      - name: close session
+        cmd: session.close
+        params: {}

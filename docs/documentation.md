@@ -1,0 +1,1014 @@
+# Artemis Documentation
+
+Single source of truth for Artemis architecture, configuration and public APIs. Code-level details live inline; release history lives in `CHANGELOG.md`.
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Release Capability Contract](#release-capability-contract)
+- [License](#license)
+- [Repository Layout](#repository-layout)
+- [Build and Run](#build-and-run)
+- [Configuration](#configuration)
+- [CLI](#cli)
+- [Library API](#library-api)
+- [JavaScript Execution](#javascript-execution)
+- [Fetch API](#fetch-api)
+- [Browser Globals](#browser-globals)
+- [Agent Extraction](#agent-extraction)
+- [Forms and Actions](#forms-and-actions)
+- [Network Stack](#network-stack)
+- [Additional Web Globals](#additional-web-globals)
+- [Hybrid Execution Router](#hybrid-execution-router)
+- [Browser Provider Switch](#browser-provider-switch)
+- [CDP Bridge](#cdp-bridge)
+- [Bridge Actions](#bridge-actions)
+- [CDP Operations](#cdp-operations)
+- [Tab Management](#tab-management)
+- [Renderless Engine](#renderless-engine)
+- [Stealth Layer](#stealth-layer)
+- [Observation Layer](#observation-layer)
+- [Solver / CAPTCHA Pipeline](#solver--captcha-pipeline)
+- [Human-like Input](#human-like-input)
+- [Security Layer](#security-layer)
+- [Profile / Session Management](#profile--session-management)
+- [Scraper Subsystem](#scraper-subsystem)
+- [Prompts System](#prompts-system)
+- [Actions / Auto-Login](#actions--auto-login)
+- [Platform Capabilities](#platform-capabilities)
+- [Steering Server](#steering-server)
+- [Telemetry](#telemetry)
+
+## Project Overview
+
+Artemis is a browser engine written in Go for AI-agent extraction and automation. Version 0.1.0 supports HTML fetch, V8 JavaScript, DOM/WebAPI execution, agent-shaped extraction, a persistent JSON-over-WebSocket steering server, a low-level Chromium/CDP lifecycle with owned or external process semantics, the canonical deterministic hybrid router contract, and verified page/worker stealth pre-script injection when an acknowledged environment profile is supplied. Challenge resolution is experimental and always requires policy admission plus a verified postcondition. It does not ship a Model Context Protocol (MCP) endpoint.
+
+## Release Capability Contract
+
+`artemis capabilities` emits the canonical typed registry. `supported` requires a production entrypoint, a lifecycle owner, and an observable behavior test. `experimental` is callable but carries no compatibility guarantee. `unavailable` means that package symbols or synthetic values may exist but must not be registered or marketed as working behavior. The root `artemis.Agent` owns a hybrid-routed renderless runtime, tracked sessions, typed fetch actions, cancellation, health, and idempotent shutdown. `router.ChromiumExecutor` composes a caller-owned CDP page into the same typed route/evidence contract. Use `engine.Engine` for lower-level renderless embedding or `serve.Server` for persistent renderless wire steering.
+
+Versions follow semantic versioning. Before 1.0, minor releases may break experimental interfaces with release notes; supported interfaces receive at least one minor-release deprecation window. Security fixes target the latest minor release. A release claim must be present in the registry and pass its named behavior test. Performance claims require a reproducible artifact with environment, corpus and statistics.
+
+`cmd/artemis-release` accepts a clean committed Artemis source root, an exact full Git HEAD, semantic version, `release_hardened` build profile, the exact HEAD committer epoch as source-date epoch, supported target, pinned toolchain digest, fresh output root outside the source Git worktree, and one or more explicit non-empty regular deliverables. Use the standalone repository root for public releases. Artifact source bytes are hashed before and after copying, the source worktree is revalidated before publication, and any drift aborts.
+
+The release set is staged in a sibling directory, validated, and published by one exclusive atomic rename. `release-manifest.json` binds the exact deliverable paths, file modes, sizes and SHA-256 digests; `checksums.txt` covers every shipped non-manifest file; `sbom.cdx.json` is emitted by the pinned official CycloneDX Go encoder and validated without network access against the pinned CycloneDX 1.7 JSON, SPDX, JSF and cryptography schemas; `license-report.json` correlates every selected Go module and replacement with exact copied license texts and rejects unreferenced or duplicate evidence; `licenses/` contains those immutable texts. Unknown Git identity, source or artifact mutation, incomplete module edges, missing license evidence, malformed schema data, existing output, partial writes and publication failures leave no visible partial release set.
+
+## License
+
+License: [MIT](../LICENSE). Artemis is original Go code.
+
+## Repository Layout
+
+```
+artemis/
+  cmd/
+    artemis/           CLI entry point
+    artemis-snapshot/  V8 startup snapshot baker (run via `make snapshot`)
+    artemis-smoke/     standalone smoke harness
+  engine/              top-level Engine handle: Fetch, Submit, Page, Config
+  js/                  V8 isolate + Context lifecycle, native bindings, JS bootstraps
+    snapshot.bin       embedded V8 startup snapshot (regenerated on demand)
+    snapshot_manifest.json embedded snapshot provenance and source-set identity
+  webapi/              DOM (Document, Node, Walk), HTML5 element subclasses
+  parser/              HTML parser shim around golang.org/x/net/html
+  agent/               extraction layer: Markdown, Text, Links, StructuredData,
+                       SemanticTree, Forms, ClickByText, Type
+  network/             HTTP client, robots.txt, IP filter, cookie jar
+  css/                 CSS parser + inline cascade engine
+  bridge/              CDP Bridge: Chrome control, context hierarchy, state machine,
+                       provider registry, execution router, code mode, batcher
+    actions/           high-level actions: click, type, form, scroll, selector resolution
+    cdpops/            low-level CDP ops: element queries, box model, navigation, pointer
+    tabs/              multi-tab management: registry, executor, dialog handler, locking
+  renderless/          in-process no-render JS browser path: engine, runtime, context pool,
+                       webapi registry, script router, intercept handler, CSS parser,
+                       capability profile
+  stealth/             anti-detection: launch flags, emulation, UA, worker parity,
+                       fingerprint, geo-presets, 3-level stealth (default/stealth/paranoid)
+  observe/             page observation: AX tree, network ring buffer, console capture,
+                       metrics, output formatters (HAR, NDJSON)
+  solver/              challenge/CAPTCHA pipeline: detector, vision solver, metrics store
+  input/               human-like input: Bezier mouse, keystroke timing, touch events
+  security/            browser security: SSRF, IDPI, ad blocking, navigation policy,
+                       secret redaction, consent management
+  profile/             enterprise session/profile mgmt: encrypted credentials, cookies,
+                       sessions, storage, identity, proxy profiles
+  scraper/             Scrapling-inspired scraping: adaptive selectors, AI finder,
+                       structured extract, concurrent engine, diff re-scrape, HAR streaming
+    parsers/           parse-phase worker pool with LockOSThread pinning
+  prompts/             9 AgentScope browser agent prompt templates + template executor
+  actions/             auto-login: form detection, login flow, post-login verification
+  platform/            platform capability detection (GPU, CPU, memory, fonts)
+  process/             Chromium discovery, isolated launch, supervision, diagnostics,
+                       process-group cleanup and disposable profile ownership
+  serve/               WS steering server (JSON over WebSocket)
+  telemetry/           OpenTelemetry hooks + anonymous counters
+  internal/            non-exported helpers (pool, provenance guard)
+    provenance/        provenance guard: forbids derivation-attributing references
+    docs/              doc-coverage guard: documentation.md drift checker
+  third_party/v8go/    vendored fork of rogchap.com/v8go with SnapshotCreator,
+                       NewIsolateFromSnapshot, Object.SetMany bindings
+  third_party/utls/    absorbed uTLS v1.8.2 (Chrome ClientHello parrots)
+                       — internal package, no external dependency
+  docs/                this directory
+    documentation.md   you are here
+    release-procedures.md signing, provenance and release operations
+    seal-evidence-matrix.md capability evidence and its limitations
+  skills/artemis/      agent-facing operating contract (SKILL.md) — the
+                       decision tree + exact invocation for agent
+                       frameworks that discover repo skills
+  testdata/            test fixtures (smoke scenarios, etc.)
+  scripts/             tooling scripts (added on demand)
+  LICENSE              MIT
+  Makefile             build / test / fmt / vet / snapshot / snapshot-check / bench
+  go.mod               Go module (with `replace rogchap.com/v8go => ./third_party/v8go`)
+  README.md            landing page
+```
+
+## Build and Run
+
+Requires Go 1.27+. Cgo toolchain (clang/clang++) is required for the vendored v8go fork.
+
+```sh
+make build       # produces ./artemis
+make run         # go run ./cmd/artemis
+make test        # all tests
+make test-race   # tests with -race
+make test-security-gates # SSRF, fuzz, mutation, race, leak, and exhaustion gates
+make bench       # all benchmarks
+make snapshot    # regenerate js/snapshot.bin and js/snapshot_manifest.json
+make snapshot-check # regenerate in memory and verify committed snapshot assets
+make vet         # static analysis
+make fmt         # gofmt -s -w
+make tidy        # go mod tidy
+make clean       # remove ./artemis, bin/, dist/, and Go build/test caches
+```
+
+The V8 startup snapshot (`js/snapshot.bin`) and its provenance manifest
+(`js/snapshot_manifest.json`) are checked into the repo and embedded via
+`go:embed`. Regenerate both whenever you change a snapshot-eligible JS
+bootstrap (anything in `js.BootstrapSources()`), then run `make snapshot-check`.
+The generator binds the ordered bootstrap digests, native callback inventory,
+V8/v8go/Go target tuple, generator identity and activation owner. It runs V8
+in predictable, single-threaded mode and rejects wall-clock state in the
+snapshot bootstrap, so identical inputs produce byte-identical output. The
+runtime validates the blob and manifest before activation and falls back to a
+cold isolate with an observable unavailable status on any mismatch.
+
+## Configuration
+
+`engine.Config` controls runtime behavior. The zero value is valid; defaults are applied by `engine.New`.
+
+| Field | Default | Purpose |
+|---|---|---|
+| `UserAgent` | empty → host-matched Chrome UA (`ChromeLike` identity) | sent on every outbound request; `engine.DefaultUserAgent` selects the honest-bot identity |
+| `ProxyURL` | empty (uses `HTTP_PROXY` / `HTTPS_PROXY`) | proxy URL |
+| `Timeout` | `30s` | per-request timeout |
+| `MaxBodyBytes` | `50 MiB` | response body cap; `network.ErrBodyTooLarge` on overflow |
+| `ObeyRobots` | `false` | per-host robots.txt fetched + cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
+| `PolicyConfig` | `network.PolicyConfig{}` (default-deny) | network policy; zero value blocks private/loopback IPs and limits destinations to public ports 80/443. Set `AllowPrivateNetworks: true` and `AllowedPorts` to permit fixture/loopback servers. |
+| `SessionID` | empty | optional redacted correlation key propagated through HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket policy decisions |
+| `Diagnostics` | bounded in-memory ledger | redacted policy/resource ledger configuration; set `Path` for private JSONL persistence |
+| `DownloadRoot` | `~/.artemis/tmp/browser` | root for the canonical `<session>/downloads` directory; override only for an isolated embedding or test runtime |
+| `MaxDownloadDiskBytes` | `1 GiB` | aggregate committed-download quota per session |
+| `MinDownloadFreeBytes` | `512 MiB` | disk headroom preserved after each accepted download |
+| `SessionBudget` | `8 tabs, 256 requests, 256 MiB responses, 1 GiB disk, 16 concurrent requests, 30m` | hard engine-session limits shared by navigation, robots, JavaScript fetch, iframe, stylesheet, intercepted responses, page leases, and downloads |
+| `JSContextPoolSize` | `0` (disabled) | size of the v8.Context pool. When > 0, `Page.Close` returns the underlying v8.Context to the pool and the next `Fetch(... RunScripts=true)` reuses it via JS-side `__artemis_reset(url)`. Skips ~30% of NewContext CPU cost. See [v8.Context pool](#v8context-pool) for caveats. |
+| `JSContextPoolWarm` | `false` | when paired with `JSContextPoolSize > 0`, pre-builds all N v8.Contexts at engine.New time so the first Fetch hits the pool fast path immediately. |
+
+`engine.FetchOpts` overrides per-call:
+
+| Field | Purpose |
+|---|---|
+| `Headers http.Header` | request headers (merged with engine defaults) |
+| `MaxBodyBytes int64` | per-call response body cap |
+| `RunScripts bool` | run inline `<script>` tags after parse, plus any external scripts whose URLs are reachable |
+| `RunInlineScripts bool` | run inline `<script>` tags only (no external script fetch) |
+| `Console js.Console` | sink for `console.*`; defaults to discard |
+| `Navigator js.NavigatorConfig` | overrides `navigator.userAgent`/`language`/`languages`/`platform` for this Page |
+| `AsyncFetch bool` | route JS `fetch()` through a goroutine pool so multiple concurrent fetches run in parallel; the V8 thread drains results between scripts and during `WaitIdle` |
+| `OnRequest func(*RequestInfo) (*ResponseInfo, error)` | request interception; non-nil response short-circuits the network call with a mock |
+
+`engine.SessionBudget` is fail-closed. Admission never increments a counter beyond its limit, the first request, response-byte, tab, concurrency, or lifetime breach returns a typed `*engine.BudgetError`, and the same cause cancels all in-flight and subsequent work. `Engine.SessionUsage()` exposes an atomic counter snapshot. `SessionBudget.MaxDiskBytes` also tightens `MaxDownloadDiskBytes`, so renderless response persistence cannot bypass the session disk ceiling. `Engine.Diagnostics()` and `Agent.Diagnostics()` return closed-schema redacted records; a configured ledger write failure blocks the affected network/resource work.
+
+## CLI
+
+```
+artemis <command> [flags] [args]
+```
+
+| Command | Purpose |
+|---|---|
+| `version` | print version |
+| `help` | print top-level usage |
+| `capabilities` | print versioned support states as JSON |
+| `fetch <url>` | fetch URL, optionally run scripts, dump html / markdown / text / title / links / structured / semantic |
+| `download <url>` | fetch into the session-owned store with path, MIME, size, quota, free-space, and atomic-write enforcement |
+| `run <url>` | load a JavaScript file and execute it in the page context |
+| `serve` | start the JSON-over-WebSocket steering server |
+| `observe` | capture a bounded Chromium DOM/accessibility snapshot as JSON, HAR or NDJSON |
+| `act` | execute one typed Chromium action and emit evidence as JSON |
+| `session` | manage durable profile sessions (new, list, open, close) |
+| `profile` | manage browser profiles (list, create, get, delete) |
+| `doctor` | diagnose the environment and runtime readiness |
+| `trace` | fetch a URL and emit a trace of lifecycle events as JSON |
+| `diagnostics` | read bounded redacted policy/resource records as JSON |
+| `benchmark` | run the benchmark harness and emit a scorecard |
+
+`act` and `observe` accept `--sandbox=required|disabled`, `--max-cpu-percent`, `--max-memory-bytes`, `--max-profile-bytes`, and `--session-timeout`. Sandbox disabling is never accepted through raw Chromium arguments and emits an explicit stderr warning when deliberately selected.
+
+`observe` additionally accepts `--format {json|har|ndjson}` (default `json`). `json` emits the full `ObservationEvidence` document; `har` emits the captured network events as an HTTP Archive 1.2 file with credential-bearing headers redacted; `ndjson` emits one captured network event per line. An unknown value is rejected with exit 2 before Chromium is launched.
+
+`fetch` flags: `--dump {html\|markdown\|text\|title\|links\|structured\|semantic}` (default `markdown`), `--user-agent`, `--proxy`, `--timeout`, `--max-body-bytes`, `--header k=v` (repeatable), `--run-scripts`, `--eval <expr>`, `--console`, `--allow-private-networks`, `--allow-port`. Exit 0 on success; 1 on runtime error; 2 on argument error.
+
+`download` flags: `--filename` (basename only), `--session-id` (generated by default), `--timeout`, `--max-file-bytes`, `--max-session-bytes`, `--allow-content-type` (repeatable), `--allow-private-networks`, and `--allow-port`. It emits verified JSON metadata containing the canonical path, sniffed MIME, size, and SHA-256. Arbitrary output paths are rejected.
+
+`serve` flags: `--host`, `--port`, `--obey-robots`, `--block-private-ips`, `--allowed-port`, `--token`, `--origin`, `--rate`, `--burst`, `--client-rate`, `--client-burst`. See [Steering Server](#steering-server).
+
+### Redacted diagnostics
+
+The diagnostics ledger stores only canonical policy fields (`operation`, `transport`, `host`, `port`, `result`, `reason_code`, one-way `session_ref`) and numeric resource fields (CPU, RSS, requests, response bytes, disk bytes, tabs, concurrency). URL paths/queries/userinfo, page content, request/response bodies, headers, cookies, credentials, selectors, and raw session IDs are structurally absent. Network decisions are emitted before socket creation; a configured ledger failure denies the network operation. Chromium emits an immediate sample after readiness and periodic CPU/RSS/profile-disk samples; a persistence failure terminates the owned process.
+
+Persistent JSONL defaults to `~/.artemis/audit/artemis.jsonl` for `serve`, `act`, and `observe`; `ARTEMIS_DIAGNOSTICS_FILE` overrides it and also enables persistence for `fetch`, `download`, `run`, and `trace`. On macOS and Linux, the mode-`0600` ledger uses a cross-process sidecar lock and atomic compaction. It enforces all defaults simultaneously: 7 days, 4096 records, 8 MiB total, 16 KiB per record. `artemis diagnostics --type all|policy|resource --limit N [--file PATH]` reads newest records without exposing browser content.
+
+## Library API
+
+```go
+import (
+    "context"
+    "time"
+    "github.com/Christopher-Schulze/Artemis/engine"
+)
+
+eng, err := engine.New(engine.Config{
+    Timeout:           10 * time.Second,
+    JSContextPoolSize: 8,
+    JSContextPoolWarm: true,
+})
+defer eng.Close()
+
+page, err := eng.Fetch(context.Background(), "https://example.test/", engine.FetchOpts{
+    RunScripts: true,
+})
+defer page.Close()
+
+title := page.Title()
+md    := page.Markdown()
+text  := page.Text()
+html  := page.HTML()
+
+v, _ := page.Eval(context.Background(), `document.querySelector('h1').textContent`)
+println(v.String())
+```
+
+`engine.Engine.Download(ctx, url, filename)` fetches with `network.TargetDownload` and commits only to its session-owned directory. `engine.Page.SaveDownload(filename)` applies the identical boundary to an already fetched response. `engine.Page` otherwise exposes `URL`, `StatusCode`, `Headers`, `Document`, `RawBody`, `HTML`, `Text`, `Markdown`, `Title`, `Eval`, `WaitIdle`, `Click`, and `Close`. The DOM lives in package `webapi` (`*webapi.Document`, `*webapi.Node`) with `QuerySelector` / `QuerySelectorAll` (cascadia-backed), `Tag`, `Attr`, `Children`, `Text`, and tree walking via `webapi.Walk`. `agent.HTML`, `agent.Text`, `agent.Markdown`, `agent.Title` are direct converters from a `*webapi.Document`. Form/action helpers (`agent.Forms`, `agent.FindForm`, `agent.ClickByText`, `agent.Type`, `engine.Engine.Submit`) cover form-driven workflows.
+
+## JavaScript Execution
+
+Each fetched `*engine.Page` owns a V8 execution context (via a locally vendored fork of `rogchap.com/v8go`, stock V8). The context is created at parse time and released by `page.Close()`. The engine's V8 isolate is shared across pages and released by `engine.Close()`.
+
+The isolate is initialised from a precompiled V8 startup snapshot embedded as `js/snapshot.bin`. The snapshot bakes the parse + first-run state of every snapshot-eligible bootstrap (DOM bridge, AbortController, MutationObserver, URL/URLSearchParams, TextEncoder, WebSocket, MouseEvent and friends, navigator extras, getComputedStyle wrapper, window EventTarget plumbing). Each new Context deserialises this state in microseconds; only the closure-chained crypto wrappers and the per-document on*-attribute compiler are re-run per Context. Regenerate after any bootstrap source change with `go run ./cmd/artemis-snapshot/`.
+
+The vendored v8go lives at `third_party/v8go` (replace directive in `go.mod`). The fork adds a `SnapshotCreator` C binding, `Isolate-from-snapshot` constructor, and a single `v8-snapshot.h` header patch to remove a stale `const` qualifier that mismatched the prebuilt `libv8.a` ABI.
+
+```go
+page, _ := eng.Fetch(ctx, "https://example.test/", engine.FetchOpts{
+    RunInlineScripts: true, // execute inline <script> tags after parse
+    Console:          js.FuncConsole(func(level, msg string) { /* ... */ }),
+})
+defer page.Close()
+
+v, err := page.Eval(ctx, `document.querySelector('h1').textContent`)
+println(v.String())
+```
+
+`engine.FetchOpts.RunScripts` runs every inline `<script>` tag in document order at the end of `Fetch`, plus any external `<script src="...">` whose URL is reachable through the engine's network client. `RunInlineScripts` is the inline-only variant (skips network for external scripts). `engine.FetchOpts.Console` (`js.Console` interface) captures `console.log/warn/error/info/debug`; `js.DiscardConsole`, `js.FuncConsole`, and `js.CollectConsole` are provided.
+
+DOM bindings exposed on the JS global `document` and on element objects (live, handle-backed - JS-side mutations propagate to the Go DOM, so `page.HTML()` / `page.Markdown()` after script execution reflect the mutated tree):
+
+`document`:
+
+| Member | Kind |
+|---|---|
+| `title`, `URL` | string getters |
+| `body`, `head`, `documentElement` | element getters |
+| `querySelector(sel)`, `querySelectorAll(sel)` | cascadia CSS3 |
+| `getElementById(id)` | tree walk |
+| `getElementsByTagName(tag)`, `getElementsByClassName(cls)` | array of elements |
+| `createElement(tag)`, `createTextNode(text)` | constructor methods |
+
+Element prototype:
+
+| Member | Kind |
+|---|---|
+| `tagName`, `nodeType`, `nodeName` | getter |
+| `textContent` | getter + setter |
+| `innerHTML` | getter + setter (re-parses) |
+| `outerHTML` | getter |
+| `parentNode`, `parentElement` | getter |
+| `firstChild`, `lastChild`, `nextSibling`, `previousSibling` | getter |
+| `childNodes` (all), `children` (elements only) | array getter |
+| `setAttribute(k,v)`, `getAttribute(k)`, `removeAttribute(k)`, `hasAttribute(k)` | mutation |
+| `appendChild`, `removeChild`, `insertBefore`, `cloneNode(deep)` | mutation |
+| `querySelector`, `querySelectorAll` | cascadia |
+
+`console.log/warn/error/info/debug` route to the configured `js.Console`. Standard whatwg `nodeType` values are exposed (Element=1, Text=3, Comment=8, Document=9, DocumentType=10).
+
+**Caveat for multi-step Eval**: V8 `RunScript` evaluates each call as a top-level script in the same global. Successive evals that re-declare the same `const`/`let` identifier collide. Wrap multi-step JS in an IIFE `(() => { ... })()` or a block `{ ... }`.
+
+Events:
+
+| Member | Notes |
+|---|---|
+| `new Event(type, {bubbles, cancelable})` | constructor |
+| `event.{type, target, currentTarget, bubbles, cancelable, defaultPrevented}` | properties |
+| `event.preventDefault()`, `event.stopPropagation()` | methods |
+| `element.addEventListener(type, fn)`, `element.removeEventListener(type, fn)` | EventTarget |
+| `element.dispatchEvent(event)` returns `!event.defaultPrevented` | EventTarget |
+| `element.click()` | shortcut: dispatches `Event('click', {bubbles:true})` |
+| `document.addEventListener / removeEventListener / dispatchEvent` | mirrors element EventTarget on `documentElement` |
+
+Listener storage is JS-side, so reference equality of the registered function works for removeEventListener. Bubbling honored by walking `parentNode`. Capture phase + boolean `useCapture` shorthand + `{capture: true}` option are honored; `AT_TARGET` fires both capture and bubble registrations on the target itself. `{once: true}` auto-removes after the first fire; `{passive, signal}` are accepted but `signal`-driven removal is not yet wired.
+
+## Fetch API
+
+`fetch(url, opts)` is exposed on the JS global. It performs the HTTP request through the engine's network client and returns a Promise carrying a Response. By default the request is synchronous on the V8 thread; set `engine.FetchOpts.AsyncFetch = true` to route through a goroutine pool for parallel concurrent fetches.
+
+| Member | Notes |
+|---|---|
+| `fetch(url)` | GET, returns Promise<Response> |
+| `fetch(url, {method, headers, body, signal})` | method (string), headers (plain object or `Headers`), body (string or `FormData`), signal (`AbortSignal`) |
+| `response.status`, `response.ok` (200-299), `response.statusText`, `response.url` | properties |
+| `response.headers` | plain object, `Content-Type: text/plain` etc. |
+| `response.text()` | Promise<string> |
+| `response.json()` | Promise<any> via V8 `JSON.parse` |
+| transport error | rejects the Promise |
+| 4xx / 5xx | resolves normally with `ok=false` (per Fetch spec) |
+| `signal.aborted` (pre-abort) | rejects with `DOMException('AbortError')` immediately |
+| `body` is `FormData` | auto-encoded as `application/x-www-form-urlencoded`, `Content-Type` set when absent |
+
+V8 `kAuto` microtask policy drains promise continuations at the end of every top-level script. Within a single `Eval` body the continuations have not yet run; use a two-eval pattern (register the chain, then read the captured global) for inspection. Inline `<script>` tags work fine because each script is a separate task and microtasks drain between them.
+
+The Fetch callback runs synchronously on the V8 thread by default and blocks it for the request duration. Set `engine.FetchOpts.AsyncFetch = true` to route through a goroutine pool so multiple `fetch()` calls run in parallel; the V8 thread drains pending results at script boundaries and inside `Page.WaitIdle`.
+
+`fetch()` honors `AbortController`/`AbortSignal`: a pre-aborted signal rejects the Promise immediately with a DOMException-shaped `AbortError`. `FormData` passed as the body is auto-encoded as `application/x-www-form-urlencoded` and the matching `Content-Type` is set when not present.
+
+CLI entry: `artemis fetch --eval "<expr>" <url>` prints the result; `--run-scripts` enables inline-script execution; `--console` forwards JS console.* to stderr.
+
+## Browser Globals
+
+| Global | Notes |
+|---|---|
+| `window` | identical to `globalThis` |
+| `window.document` | inherited from JS Execution section |
+| `window.location` | `href`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, `hash`, `origin`. Built from the page's URL at Context creation. The `history` API mutates these in-process; setters / `assign` / `replace` / `reload` are no-op. |
+| `window.navigator` | `userAgent`, `language`, `languages` (array-like with `length`), `platform`, `onLine`, `cookieEnabled`, `webdriver` (false), `doNotTrack` (null), `plugins` / `mimeTypes` (Chrome PDF plugins + types), `userAgentData` (NavigatorUAData reduced-UA shape, brands/platform derived lazily from the configured UA so snapshot-frozen contexts stay coherent), `clipboard`, `geolocation` (rejects with permission-denied), `permissions.query` (`prompt` for notifications/geolocation/camera/microphone, `denied` for persistent-storage), `serviceWorker` (guarded container), `hardwareConcurrency` (8), `deviceMemory` (8), `maxTouchPoints` (0), `pdfViewerEnabled` (true), `vendor` (`Google Inc.`). Configurable per Page via `engine.FetchOpts.Navigator`. Defaults present a host-matched Chrome identity coherent with the wire `User-Agent`. |
+| `window.localStorage`, `window.sessionStorage` | in-memory per Context. `getItem`, `setItem`, `removeItem`, `clear`, `key(i)` work. `length` is a snapshot at install (use `lengthOf()` for live length - v8go limitation). Both stores are independent. |
+| `setTimeout(fn, ms)`, `clearTimeout(id)` | callbacks queue and fire at the end of every `Eval` and every inline `<script>`. Delays are not simulated: ordering follows queue order. Chained timers (a callback that schedules another) run too, up to 64 rounds. |
+| `setInterval`, `clearInterval` | aliased to `setTimeout` / `clearTimeout`; the interval callback fires once, not on a wall clock. Repeated firing on real time intervals is intentionally not modelled — agent flows do not benefit from real-time scheduling. |
+
+## Agent Extraction
+
+Pure-Go extractors that turn a `*webapi.Document` into agent-shaped output. Work on the static DOM, identical to the post-script DOM after `RunInlineScripts`.
+
+| Method | Returns | Notes |
+|---|---|---|
+| `page.Links()` | `[]agent.Link` | every `<a href>` with absolute URL; skips empty / `javascript:` / `mailto:` / `tel:` / `data:` / fragment-only |
+| `page.LinksAll()` | `[]agent.Link` | unfiltered |
+| `page.StructuredData()` | `agent.StructuredData` | `JSONLD` (object or array), `OpenGraph` (`og:*`), `Twitter` (`twitter:*`), `Meta` (any `name`/`property`/`http-equiv`), `Title` |
+| `page.SemanticTree()` | `*agent.SemanticNode` | hierarchical view; headings nest; paragraphs/lists/quotes/code/images/links inline; nav/footer/aside/script/style/template skipped |
+| `agent.SemanticString(node)` | `string` | indented Markdown-ish render of the tree |
+
+The extraction layer is backed by `parser.ParseHTML` (HTML parser shim around `golang.org/x/net/html`) and `css.Cascade` (CSS parser + inline cascade engine). `agent.SemanticTree` returns the hierarchical semantic tree; `agent.Markdown`, `agent.Text`, `agent.Links`, `agent.StructuredData`, `agent.Forms` are the other direct converters from a `*webapi.Document`.
+
+CLI: `artemis fetch --dump {links|structured|semantic}` prints TSV / JSON / Markdown-ish.
+
+## Forms and Actions
+
+| Symbol | Purpose |
+|---|---|
+| `agent.Forms(doc) []*Form` | every `<form>` on the page |
+| `agent.FindForm(doc, selector) *Form` | first form matching selector or its nearest ancestor form |
+| `(*Form).Fields() []FormField` | scan inputs/textareas/selects under the form (Name, Type, Value, Checked, Options) |
+| `(*Form).Set(name, value)` | write the field value (value attribute or selected option or textarea text) |
+| `(*Form).Toggle(name, checked bool)` | check/uncheck a checkbox or radio |
+| `(*Form).Submit() (FormSubmission, error)` | resolve action against doc URL, encode URL-encoded body, return URL/Method/ContentType/Body |
+| `engine.Engine.Submit(ctx, sub, opts) (*Page, error)` | perform the submission, return the next page |
+| `agent.ClickByText(doc, text) (*Node, bool)` | first matching button / anchor / input[submit] (case-insensitive) |
+| `engine.Page.Click(ctx, node) error` | dispatch click in JS so listeners fire |
+| `agent.Type(doc, selector, text) error` | set value attribute / textarea text content |
+
+URL-encoded form submissions are supported; multipart/file-upload bodies are not. `agent.Type` writes the value attribute directly; React-style controlled inputs that listen on the `input` event need an explicit `page.Eval(...)` to dispatch a synthetic event after the value mutation.
+
+## Network Stack
+
+HTTP responses decode gzip, zlib/raw deflate, Brotli and Zstandard through the same policy-bound client. Encoded bytes and every decoded layer have the effective response-body limit; at most four encoding layers are accepted. Corrupt, unsupported or over-limit responses fail instead of becoming page text. The existing response budget counts the larger encoded/decoded body, and successfully decoded responses no longer expose stale Content-Encoding/Content-Length. HTTPS authorities use an explicit port, default 443, including IPv6, before policy-bound dialing and ALPN negotiation.
+
+| Setting / hook | Effect |
+|---|---|
+| `engine.Config.ObeyRobots` | per-host robots.txt fetched and cached; disallowed URLs return `engine.ErrRobotsDisallowed` |
+| `engine.Config.PolicyConfig` (zero value / `AllowPrivateNetworks: false`) | rejects loopback, RFC1918, link-local, multicast, CGNAT hosts and limits ports to 80/443 |
+| `PolicyConfig.MaxRequestBodyBytes` | rejects known oversize bodies and unknown-length/chunked bodies before transport; callers must provide a bounded materialized body |
+| `PolicyConfig.AllowedDownloadTypes` / `MaxDownloadBytes` | validates the sniffed MIME (`type/subtype`, `type/*`, or `*/*`) and per-file byte cap independently from request-body content types |
+| `network.HTTPClient.DoTarget(..., TargetDownload)` | preserves the download policy identity and applies `MaxDownloadBytes` before buffering the response |
+| JavaScript `WebSocket` | initial handshakes use `TargetWebSocket`, redirects use `TargetRedirect`, and every socket dial uses the same `network.Policy.DialContext` as Engine HTTP; nil policy fails closed |
+| `engine.FetchOpts.OnRequest(req) (resp, err)` | called before the network call; non-nil resp short-circuits with a mock |
+| `document.cookie` (JS) | getter returns `name=value; ...` for the current URL; setter ingests one Set-Cookie line into the jar |
+
+`network.ParseRobots` is exported so embedders can pre-validate URLs before calling Fetch. `network.IsPrivateOrLocal` and `network.CheckHostPublic` are the IP filter primitives.
+
+### Chrome-coherent wire identity (default)
+
+When `engine.Config.UserAgent` is left empty, the engine presents a
+host-matched desktop-Chrome identity end to end: the `User-Agent`, the
+`Sec-CH-UA*`/`Sec-Fetch-*`/`Accept`/`Accept-Language` header set
+(`network.HTTPClientConfig.ChromeLike`, generated by
+`network.HeaderGenerator`), and the in-page `navigator.*` surface all
+derive from the same identity, so wire and JS never contradict. Setting a
+custom `UserAgent` disables the Chrome header set automatically — a mixed
+identity is worse than an honest one.
+
+HTTPS on this path runs through the absorbed uTLS fork
+(`third_party/utls`) with a real Chrome ClientHello (`HelloChrome_Auto`),
+giving JA3/JA4 parity with desktop Chrome; per-host ALPN probing routes
+traffic to HTTP/2 or HTTP/1.1, and session tickets are cached like a real
+browser. TLS certificate verification stays on; `TLSInsecureSkipVerify`
+exists only for test fixtures. `engine.DefaultUserAgent` remains the
+explicit honest-bot identity when callers want attribution.
+
+## Additional Web Globals
+
+| Global | Notes |
+|---|---|
+| `crypto.randomUUID()` | v4 UUID, backed by `crypto/rand` |
+| `crypto.getRandomValues(arr)` | fills array with random bytes (0-255) |
+| `Headers` | constructor + `append`/`get`/`set`/`has`/`delete`/`forEach`/iterators; case-insensitive keys |
+| `history.pushState/replaceState/back/forward/go` | mutates `location.*` in-process; does not navigate |
+| `XMLHttpRequest` | minimal: `open/send/setRequestHeader/abort`, `responseText/status/statusText`, `onload/onerror/onreadystatechange`, getAllResponseHeaders. Wraps `fetch()`. |
+| `element.style.<camelCase>` | reads/writes CSS declaration in the inline `style` attribute |
+| `getComputedStyle(el)` | proxies through the cascade engine: matches per-document `<style>` and external `<link rel=stylesheet>` rules, applies CSS specificity, falls back to inline `style`, and inherits the inheritable property set (`color`, `font-*`, `text-*`, `line-height`, `cursor`, `visibility`, `direction`, `letter-spacing`, `word-spacing`, `white-space`) from parent elements |
+| `__url_parse(href, base?)` | helper exposed because V8 builds without WHATWG URL |
+| `XMLSerializer` | `serializeToString(node)` returns `outerHTML` for elements, raw text for text/comment |
+| `ReadableStream` / `WritableStream` / `TransformStream` | functional in-memory streams; `pipeTo`, `pipeThrough`, `tee` honour real chunk flow (no backpressure) |
+| `Range` / `Selection` | spec-correct offsets in `setStart{Before,After}` / `setEnd{Before,After}`, `selectNodeContents` end-offset = child count, `toString()` returns substring for same-text-node ranges, `Selection.collapse/extend/containsNode` connected to ranges |
+| `HTMLElement` subclasses | 67 spec subclasses + `HTMLUnknownElement`; multi-tag classes (`HTMLHeadingElement` H1..H6, `HTMLQuoteElement` Q+BLOCKQUOTE, `HTMLModElement` INS+DEL, `HTMLTableSectionElement` THEAD/TBODY/TFOOT, `HTMLTableColElement` COL+COLGROUP) use array-based `Symbol.hasInstance` |
+| `NodeList` / `HTMLCollection` / `FileList` / `DOMTokenList` / `NamedNodeMap` | array-like `instanceof` markers backed by `Symbol.hasInstance` |
+| `navigator.plugins` / `navigator.mimeTypes` | Chrome's five built-in PDF viewer plugins + two MIME types, iterable with `item`/`namedItem`/`refresh` |
+| `navigator.cookieEnabled` / `navigator.onLine` / `navigator.webdriver` | static defaults (true/true/false) |
+
+## Hybrid Execution Router
+
+Support state: **supported**. `router.HybridRouter` deterministically selects `static_fetch`, `renderless_js`, `chromium_cdp`, or `stealth`, validates caller policy, transfers isolated state, escalates only upward, bounds attempts, opens per-mode circuits after repeated failures, and emits route evidence containing URL hashes and state counts but no cookie/storage values. `router.RenderlessExecutor` adapts the real V8 engine; `router.ChromiumExecutor` adapts a caller-owned `*bridge.Page` and proves a committed DOM through CDP.
+
+```go
+hybrid, err := router.New(router.Config{Executors: map[router.Mode]router.Executor{
+    router.ModeRenderlessJS: router.RenderlessExecutor{Engine: eng},
+    router.ModeChromiumCDP: router.ChromiumExecutor{Page: page},
+}})
+result, err := hybrid.Execute(ctx, router.RouteRequest{
+    URL: "https://example.test", Signals: router.Signals{IsHTML: true},
+})
+```
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `router.HybridRouter` | struct | policy-validated hybrid execution owner |
+| `router.RenderlessExecutor` | struct | real V8/renderless engine adapter |
+| `router.ChromiumExecutor` | struct | real CDP page adapter with DOM postcondition |
+| `router.BrowserState` | struct | isolated cookie/storage/profile state transfer |
+| `router.RouteEvidence` | struct | redacted route, fallback, cost, and lineage evidence |
+| `router.RouteFailure` | struct | typed fallback reason and retry admission |
+
+The legacy compatibility symbols `bridge.ExecutionRouter`, `bridge.NewExecutionRouter`, `bridge.RouteStatic`, and `bridge.RouteRendered` remain available for older callers; new code must use `router.HybridRouter` so policy, state lineage, and evidence cannot be bypassed.
+
+## Browser Provider Switch
+
+Support state: **unavailable**. `bridge.ProviderRegistry` and provider types are future-facing abstractions without a supported browser-process lifecycle.
+
+```go
+registry := bridge.NewProviderRegistry()
+registry.Register("chrome", &bridge.LocalChromeProvider{})
+provider, config, err := registry.SelectFromConfig()
+```
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `bridge.BrowserProvider` | interface | `Name()`, `Launch(ctx, config)`, `Close()`, `Healthy()` |
+| `bridge.ProviderRegistry` | struct | provider registry with `Register`, `Get`, `Default`, `SelectFromConfig` |
+| `bridge.LocalChromeProvider` | struct | local headless Chromium provider |
+| `bridge.CamofoxProvider` | struct | Camofox REST backend provider |
+| `bridge.ProviderConfig` | struct | provider launch configuration |
+| `bridge.BrowserSession` | struct | active browser session handle |
+| `bridge.SelectBrowserProvider(candidates, preferred)` | func | select provider from candidates |
+
+## CDP Bridge
+
+Support state: **kernel supported**. `process.Browser`, `bridge.CDPTransport`, `bridge.ChromiumBrowser`, `bridge.BrowserContext` and `bridge.Page` own real discovery, launch/attach, request/event transport, context/target lifecycle and cleanup. Use `bridge/actions.Runtime` for supported high-level actions; legacy helper types alone do not establish supported behavior.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `bridge.BridgeState` | type | bridge state machine states |
+| `bridge.BridgeStateMachine` | struct | state machine with `IsActiveState`, `IsTerminalState` |
+| `bridge.ContextKind` | type | context hierarchy kinds (Alloc, Browser, Tab) |
+| `bridge.CDPContextUnit` / `bridge.CDPContextTree` | struct | context hierarchy units |
+| `bridge.Batcher` | struct | CDP command batcher for pipelining |
+| `bridge.CDPPipeline` | struct | CDP command pipeline |
+| `bridge.CDPTask` / `bridge.CDPTaskResult` | struct | batched task + result |
+| `bridge.MandatoryBatchType` | type | mandatory batch types (boxModel+style, navigate+wait+snapshot, etc.) |
+| `bridge.EventFilter` | struct | CDP domain enable/disable manager |
+| `bridge.CodeModeExecutor` | struct | Code Mode: LLM-generated JS async arrow functions |
+| `bridge.BridgeInitializer` | struct | bridge initialization with `BridgeInitConfig` |
+| `bridge.ChromeDiscovery` | struct | system Chromium auto-detection |
+| `bridge.TabRegistry` | struct | tab registry (bridge-level) |
+| `bridge.NetworkRequestBuffer` | struct | network ring buffer (max 50 entries/tab) |
+| `bridge.RefRegistry` / `bridge.RefHandle` | struct | ARIA ref-ID registry for snapshots |
+| `bridge.CircuitBreaker` | struct | per-domain circuit breaker (5 failures → 60s pause) |
+| `bridge.IdleWatchdog` | struct | idle tab watchdog with `IdleWatchdogConfig` |
+| `bridge.InactivityMonitor` | struct | inactivity monitor with `InactivityConfig` |
+| `bridge.ConfigHasher` / `bridge.ConfigHash` | struct | config-hash for session isolation |
+| `bridge.PolicyHook` / `bridge.PolicyEngine` | interface | navigation policy hooks |
+| `bridge.PrivacyRoutingHook` | struct | privacy routing hook |
+| `bridge.AuditHook` | struct | OCSF audit hook |
+| `bridge.RecoveryAction` | interface | recovery action interface |
+| `bridge.PageLoadStrategy` | struct | page load strategy (auto-wait) |
+| `bridge.ScreenshotFormat` | type | screenshot format (PNG, JPEG) |
+| `bridge.JPEGPipeline` | struct | JPEG screenshot pipeline |
+| `bridge.CDPConnectMode` | type | CDP connection mode |
+
+## Bridge Actions
+
+The `bridge/actions` package implements typed Chromium actions with stable-reference resolution, actionability checks, postcondition evidence, bounded retries, cancellation, and frame-aware execution. Downloads are event-driven through CDP, write only to the injected or canonical session-owned store, are canceled on policy/quota breach, are MIME-sniffed and hashed before success, and restore Chromium to download-deny mode after every action. The legacy `downloadDir` request field is rejected rather than treated as a caller-controlled filesystem path.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `actions.NewClickAction(ref)` | func | create click action for ARIA ref |
+| `actions.ClickWithMovement(ctx, ref, start, target)` | func | click with Bezier mouse path |
+| `actions.NewTypeAction(ref, text)` | func | create type action |
+| `actions.NewFormFill(ref, value)` | func | form fill action |
+| `actions.NewFormSelect(ref, value)` | func | form select action |
+| `actions.NewFormCheck(ref)` | func | form check action |
+| `actions.NewFormSubmit(ref)` | func | form submit action |
+| `actions.FormBatch(ctx, actions)` | func | batch form actions |
+| `actions.NewScrollAction(direction, amount)` | func | scroll action |
+| `actions.ResolveSelector(selector)` | func | resolve ARIA ref / CSS / XPath |
+| `actions.ResolveAndValidate(ctx, selector)` | func | resolve + validate selector |
+| `actions.GenerateClickPath(start, end)` | func | Bezier click path |
+| `actions.ComputeScrollSteps(total, steps)` | func | scroll step distribution |
+| `actions.EaseInOut(t)` | func | easeInOut interpolation |
+
+## CDP Operations
+
+Support state: **kernel and typed actions supported**. `process.Browser`, `bridge.CDPTransport`, `bridge.ChromiumBrowser`, `bridge.BrowserContext`, and `bridge.Page` own binary discovery, isolated launch, browser identity, bounded request correlation, target events, navigation, crash handling and cleanup. `bridge/observe.Collector` supplies real DOM/AX references; `bridge/actions.Runtime` performs admitted actions with postconditions. The helper shapes below are lower-level primitives, not a substitute for that action owner.
+
+Owned Chromium launches are resource-contained by default: the process group has hard CPU, RSS, profile-disk, and lifetime ceilings; owner-context cancellation and budget breaches terminate the full group; unexpected leader exit reaps helpers; disposable profiles and configured-profile endpoint/lease state are cleaned after normal close or crash. The optional typed resource sink receives an immediate post-readiness sample and every periodic sample before budget enforcement. On macOS and Linux a small POSIX guardian disables core dumps, watches the original Artemis owner PID, reaps the group, and removes owned profile state even if the owner process exits without running Go cleanup. Chromium's OS sandbox remains required unless `process.SandboxDisabled` is explicitly selected; direct `--no-sandbox` and `--disable-setuid-sandbox` arguments are rejected.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `cdpops.GetBoxModel(ref)` | func | element box model |
+| `cdpops.GetElementCenter(box)` | func | element center coordinates |
+| `cdpops.IsElementVisible(box)` | func | visibility check |
+| `cdpops.IsElementClickable(info)` | func | clickability check |
+| `cdpops.FilterVisible(elements)` | func | filter visible elements |
+| `cdpops.FindByRef(elements, ref)` | func | find element by ARIA ref |
+| `cdpops.GenerateBezierPath(start, end, steps)` | func | Bezier curve path |
+| `cdpops.AddJitter(p, maxJitter)` | func | add jitter to point |
+| `cdpops.CSSToDevicePixels(p, scale)` | func | CSS → device pixel transform |
+| `cdpops.DeviceToCSSPixels(p, scale)` | func | device → CSS pixel transform |
+| `cdpops.NewNavigator()` | func | page navigation manager |
+| `cdpops.NewPointerDispatcher()` | func | pointer event dispatcher |
+| `cdpops.Point` / `cdpops.Rect` / `cdpops.Quad` / `cdpops.BoxModel` | struct | geometry types |
+| `cdpops.ElementInfo` | struct | element metadata |
+| `cdpops.MouseEvent` / `cdpops.MouseButton` | type | mouse event types |
+
+## Tab Management
+
+The `bridge/tabs` package implements multi-tab management: tab registry + lifecycle, concurrent tab execution, alert/confirm/prompt dialog handling, and per-tab locking.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `tabs.NewTabRegistry()` | func | create tab registry |
+| `tabs.NewTabExecutor(registry, maxConcurrent)` | func | concurrent tab executor |
+| `tabs.NewTabLock()` | func | per-tab lock |
+| `tabs.NewDialogHandler()` | func | dialog handler |
+| `tabs.NewAlertDialog(message, url)` | func | alert dialog |
+| `tabs.NewConfirmDialog(message, url)` | func | confirm dialog |
+| `tabs.NewPromptDialog(message, url, defaultPrompt)` | func | prompt dialog |
+| `tabs.Tab` | struct | tab handle |
+| `tabs.TabState` | type | tab state (Open, Closed, Loading) |
+| `tabs.DialogAction` / `tabs.DialogType` | type | dialog action/type enums |
+
+## Renderless Engine
+
+The `renderless` package is the in-process no-render JS browser path. It provides a standalone engine that runs V8 with DOM/WebAPI globals, inline + external script execution, fetch/XHR bridge, cookie jar, OnRequest mock/intercept, robots/private-IP guard, CSS parse/cascade/computed style, and a generated `RenderlessCapabilityProfile`. It never owns layout/paint/CDP/profile/server semantics and escalates to `bridge/` via the execution router.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `renderless.NewEngine(cfg)` | func | create renderless engine |
+| `renderless.Engine` | struct | renderless engine handle |
+| `renderless.EngineConfig` | struct | engine configuration |
+| `renderless.Page` | struct | renderless page |
+| `renderless.NewPage(url, status, body)` | func | create page from raw HTML |
+| `renderless.ContextPool` | struct | V8 context pool |
+| `renderless.NewContextPool(maxSize)` | func | create context pool |
+| `renderless.IsolatePool` | struct | V8 isolate pool |
+| `renderless.NewIsolatePool(maxSize)` | func | create isolate pool |
+| `renderless.RuntimeContext` | struct | runtime context |
+| `renderless.ScriptRouter` | struct | script execution router |
+| `renderless.NewScriptRouter()` | func | create script router |
+| `renderless.InterceptHandler` | struct | request intercept handler |
+| `renderless.NewInterceptHandler()` | func | create intercept handler |
+| `renderless.NewMockResponse(status, body)` | func | mock response for intercept |
+| `renderless.CSSParser` / `renderless.CSSRule` | struct | CSS parser + rule |
+| `renderless.ComputedStyle` | struct | computed style engine |
+| `renderless.RenderlessCapabilityProfile` | struct | generated capability profile |
+| `renderless.GenerateCapabilityProfile(cfg, registry)` | func | generate capability profile |
+| `renderless.WebAPIRegistry` / `renderless.WebAPIGlobal` | struct | WebAPI registry + global |
+| `renderless.BuilderPool` | struct | HTML builder pool |
+| `renderless.InterceptAction` | type | intercept action (continue, mock, fail) |
+| `renderless.ScriptType` | type | script type (inline, external) |
+
+## Stealth Layer
+
+Support state: **supported for measured, policy-acknowledged page and worker injection**. `StealthDefault` keeps local/LAN browsing unmodified. `StealthStealth` and `StealthParanoid` require a valid legal acknowledgement and public-domain policy; the immutable `EnvironmentProfile` validates UA/client-hint, platform, locale, timezone, viewport, and optional measured WebGL/network values before generating scripts.
+
+Activation is environment-driven and fail-closed — `ARTEMIS_STEALTH=stealth|paranoid` together with `ARTEMIS_STEALTH_PURPOSE` and `ARTEMIS_STEALTH_LEGAL_BASIS` enables the measured-profile path in both the runtime and the CLI (`observe`, `act`, `trace`); without the acknowledgement the request fails instead of silently downgrading. The Chromium path applies identity via CDP-native `Emulation` overrides (User-Agent + Client Hints metadata, locale, timezone, Accept-Language) before the first navigation — no `HeadlessChrome` token, no GPU-forcing `--disable-gpu` (SwiftShader fingerprint), real `ANGLE`/Metal WebGL strings, `Notification.permission=default`, and guarded hardware/navigator interfaces (`mediaDevices`, `serviceWorker`, `clipboard`, `credentials`, `locks`, `storage`, `wakeLock`, `hid`, `usb`, `serial`, `bluetooth`, `presentation`, `keyboard`, `virtualKeyboard`, `launchQueue`, `managed`). Paranoid additionally sends a plausible search referrer on the first navigation only. `bridge.BrowserContext.NewPageWithScripts` installs the page pre-script before navigation, and the CDP target router injects the worker script while child targets are paused. The real behavior contract is `bridge.TestChromiumTargetScriptsRunBeforePageAndWorkerCode`; this is not a universal anti-detection or challenge-solving guarantee.
+
+The patch and launch-flag counts below describe the existing stealth catalog. The production `BrowserRuntime` path activates only measured profile overrides that passed validation; it does not market the catalog counts as proof of universal anti-detection.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `stealth.StealthDefault` | `StealthLevel` | local/LAN: zero stealth |
+| `stealth.StealthStealth` | `StealthLevel` | public sites: 27 patches + 60 flags |
+| `stealth.StealthParanoid` | `StealthLevel` | hardened sites: 29 patches + 60 flags |
+| `stealth.DetermineStealthLevel(targetURL, policy, lookup)` | func | determine level from URL + policy |
+| `stealth.SuggestEscalation(current, signals)` | func | suggest escalation from bot signals |
+| `stealth.Profile` | struct | stealth profile (viewport, UA, vendor, platform, languages, timezone, etc.) |
+| `stealth.Script(p)` | func | generate stealth script for profile |
+| `stealth.BundledScript()` | func | bundled 27-patch script (~25KB) |
+| `stealth.ParanoidScript()` | func | paranoid-mode +2 on-demand patches |
+| `stealth.Quick()` | func | quick stealth script |
+| `stealth.ContextHash(opts)` | func | session-isolation hash |
+| `stealth.BuiltinGeoPresets()` | func | 8 built-in geo presets |
+| `stealth.ValidatePreset(p)` | func | validate geo preset |
+| `stealth.ValidateManifest(dir)` | func | validate stealth manifest |
+| `stealth.LaunchFlagCount()` / `stealth.LaunchFlagCountFor(level)` | func | launch flag counts |
+| `stealth.PatchCount()` / `stealth.PatchCountFor(level)` | func | patch counts |
+| `stealth.ReferrerForDomain(rawURL, mem)` | func | referrer from domain memory |
+| `stealth.IsSwiftShader(renderer)` | func | detect SwiftShader |
+| `stealth.IsChromiumFingerprint(config)` | func | validate H2 fingerprint |
+| `stealth.ValidateH2Settings(frame)` | func | validate H2 settings frame |
+| `stealth.DeriveEffectiveType(rtt, downlink)` | func | derive network effective type |
+| `stealth.ParseChromeVersion(ua)` | func | parse Chrome version from UA |
+| `stealth.EnvironmentProfile` | struct | immutable versioned session environment and fingerprint contract |
+| `stealth.NewEnvironmentProfile(...)` | func | validate measured facts and derive stable profile identity |
+| `stealth.NewDocumentScript(profile)` | func | render a JSON-escaped page pre-script |
+| `stealth.NewWorkerScript(profile)` | func | render a worker-safe pre-script with the same identity |
+| `stealth.EnvironmentProfile.ValidateConsistency(probe)` | method | fail closed on observed fingerprint drift |
+| `stealth.STEALTH_ARGS` | var | stealth launch arguments |
+| `stealth.BasePatchCount` / `stealth.ParanoidPatchCount` | const | patch count constants |
+
+## Observation Layer
+
+The `observe` package implements page observation: accessibility tree extraction + diff, network ring buffer + subscriber pattern, console log capture (ring buffer 1000), performance metrics, and output formatters (HAR, NDJSON).
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `observe.NewAnnotator(viewportWidth, viewportHeight)` | func | create annotator |
+| `observe.AXNode` / `observe.AXTreeNode` | struct | accessibility tree node |
+| `observe.DiffAXTrees(before, after)` | func | diff AX trees (edit distance) |
+| `observe.MyersDiff(before, after)` | func | Myers diff algorithm |
+| `observe.SnapshotInteractive(tree)` | func | snapshot interactive elements |
+| `observe.SnapshotByRole(tree, role)` | func | snapshot by ARIA role |
+| `observe.DedupRoleSnapshot(nodes)` | func | deduplicate role snapshot |
+| `observe.FormatHAR(entries)` | func | format entries as a complete HAR document |
+| `observe.FormatNDJSON(events)` | func | format NDJSON output |
+| `observe.FormatConsoleNDJSON(entries)` | func | format console NDJSON |
+| `observe.FormatOutput(format, events)` | func | format captured events as HAR or NDJSON |
+| `observe.HARDocument` | struct | top-level HAR file object; the log nests under `log` |
+| `observe.HARPostData` | struct | request body section of a HAR entry |
+| `observe.HARExporter.FromNetworkEvents(events)` | method | map captured events to HAR entries with headers, timings, post data and credential redaction |
+| `observe.NetworkEvent.Headers` / `.ResponseHeaders` | field | request and response headers kept as separate sets |
+| `observe.TruncateContent(content, maxLen)` | func | truncate content |
+| `observe.ContentRoles` / `observe.InteractiveRoles` / `observe.StructuralRoles` | var | role classification maps |
+| `observe.DefaultConsoleBufferSize` | const | 1000 entries |
+| `observe.DefaultViewportWidth` / `observe.DefaultViewportHeight` | const | 1280×720 |
+
+## Solver / CAPTCHA Pipeline
+
+The `solver` package implements a 2-stage challenge/CAPTCHA pipeline: vision solve (screenshot → LLM vision → instruction → execute) → user fallback. `ChallengeDetector` records deterministic DOM, title, network, response, and visual signals. `ChallengeResolver` is the policy boundary: it admits only allowlisted domains, challenge types and strategies, bounds attempts/duration, and reports `solved` only after a caller-provided postcondition is true. Unsupported and disallowed outcomes remain typed failures.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `solver.NewChallengeDetector()` | func | create challenge detector |
+| `solver.ChallengeDetector` | struct | challenge detector |
+| `solver.ChallengeType` | type | challenge type enum |
+| `solver.TypeNone` | `ChallengeType` | no challenge |
+| `solver.TypeCloudflare` | `ChallengeType` | Cloudflare challenge |
+| `solver.TypeRecaptcha` | `ChallengeType` | reCAPTCHA |
+| `solver.TypeHCaptcha` | `ChallengeType` | hCaptcha |
+| `solver.TypeGeneric` | `ChallengeType` | generic challenge |
+| `solver.InferenceHub` | interface | LLM inference hub interface |
+| `solver.NewInferenceHubHook(hub)` | func | create inference hub hook |
+| `solver.InferenceHubRequest` / `solver.InferenceHubResponse` | struct | inference request/response |
+| `solver.PipelineResult` | struct | pipeline result |
+| `solver.PipelineStage` | type | pipeline stage (vision, fallback) |
+| `solver.PipelineStats` | struct | pipeline statistics |
+| `solver.MetricsStore` | struct | SQLite metrics store |
+| `solver.OpenMetricsStore(path)` | func | open metrics store |
+| `solver.FormatChallengePrompt(challengeType, context)` | func | format challenge prompt |
+| `solver.PageSignals` | struct | page signals for detection |
+| `solver.ChallengeInfo` | struct | detected challenge info |
+| `solver.ChallengeResolver` | struct | policy-gated strategy execution with verified outcome |
+| `solver.ChallengeOutcome` | struct | secret-free typed challenge result |
+| `solver.DefaultVisionModel` | const | `qwen3.6-vision` |
+
+## Human-like Input
+
+The `input` package implements human-like input: Bezier curve mouse movement with jitter, keystroke timing with Gaussian distribution, and touch events for mobile emulation.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `input.GenerateMousePath(start, end, cfg, rng)` | func | Bezier mouse path |
+| `input.MoveMouse(start, end)` | func | simple mouse move |
+| `input.BezierCurve(p0, p1, p2, t)` | func | Bezier curve point |
+| `input.BezierPath(start, end, steps, rng)` | func | Bezier path with jitter |
+| `input.ClickGaussianOffset(sigma, rng)` | func | Gaussian click offset |
+| `input.TypingDelays(text, cfg, rng)` | func | keystroke delays |
+| `input.TypingRhythm(text, cfg, rng)` | func | keystroke rhythm + keys |
+| `input.GaussianJitter(baseMs, sigmaPct, rng)` | func | Gaussian jitter |
+| `input.EaseInOutScroll(totalDistance, steps)` | func | easeInOut scroll steps |
+| `input.Scroll(distance, steps, hasIO, hasSL)` | func | scroll with infinite-scroll detection |
+| `input.DetectInfiniteScroll(hasIO, hasSL)` | func | detect infinite scroll |
+| `input.NewMouseClick(point, button)` | func | mouse click event |
+| `input.DefaultMouseMoveConfig()` | func | default mouse move config |
+| `input.MousePath` / `input.MousePoint` / `input.MouseClick` | struct | mouse types |
+| `input.TypingConfig` | struct | typing configuration |
+| `input.ScrollResult` / `input.ScrollStrategy` | type | scroll result/strategy |
+| `input.TouchEvent` / `input.TouchEventType` | type | touch event types |
+
+## Security Layer
+
+The `security` package implements browser security: SSRF prevention (private IP blocking), indirect prompt injection (IDPI) defense, ad/tracker blocking (40+ patterns), navigation policy (domain allowlist), secret redaction (3-point pipeline), and consent management.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `security.IsPrivateIP(ip)` | func | private IP check (RFC1918, loopback, link-local) |
+| `security.NewAdBlocker()` | func | create ad blocker |
+| `security.AdBlocker` | struct | ad/tracker blocker |
+| `security.AdBlockResult` / `security.AdBlockCategory` | type | ad block result/category |
+| `security.NewRedactor()` | func | create secret redactor |
+| `security.Redactor` | struct | secret redaction pipeline |
+| `security.CheckResult` | struct | redaction check result |
+| `security.ContainsInvisibleChars(s)` | func | detect invisible characters (IDPI) |
+| `security.DetectLoginFlow(text)` | func | detect login flow |
+| `security.NewNavigationPolicy()` | func | create navigation policy |
+| `security.NavigationPolicy` | struct | domain allowlist policy |
+| `security.ConsentPage` / `security.ConsentProfile` | struct | consent management types |
+| `security.ConsentMode` / `security.ConsentAction` | type | consent mode/action enums |
+| `security.AutoConfirm(ctx, page, profile)` | func | auto-confirm consent dialog |
+| `security.ResolveConsentMode(raw)` | func | resolve consent mode |
+| `security.DefaultConsentAction()` | func | default consent action |
+
+## Profile / Session Management
+
+Support state: **supported for isolated persistent Chromium sessions and owner-checked credential/MFA execution**. The real browser persistence and restart fixture is `profile.TestBrowserRuntimePersistentCookieAndStorageAcrossRestart`; authenticated flows require an injected encrypted `CredentialStore`, a `BrowserLoginExecutor`, an allowlisted purpose/domain policy, and a verified postcondition.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `profile.BrowserProfile` | struct | browser profile |
+| `profile.ProfileManager` | struct | multi-profile manager |
+| `profile.CredentialStore` | struct | encrypted credential store (AES-256-GCM) |
+| `profile.SessionManager` | struct | session health + auto-relogin |
+| `profile.CookieJar` | struct | cookie persistence + expiry |
+| `profile.StorageManager` | struct | localStorage/sessionStorage/IndexedDB |
+| `profile.IdentityManager` | struct | per-profile fingerprint identity |
+| `profile.GenerateUUID5(namespace, name)` | func | deterministic UUID5 generation |
+| `profile.ProxyProfileConfig` | struct | session-level proxy config |
+| `profile.ResolvedProxyConfig` | struct | resolved proxy with geo-mode |
+| `profile.GeoMode` | type | geo-mode enum (explicit_wins, proxy_locked) |
+| `profile.KeychainProvider` | struct | in-memory keychain (test) |
+| `profile.SecretProvider` | interface | pluggable keychain abstraction |
+| `profile.CredentialLease` | struct | short-lived decrypted credential with wipe-on-close |
+| `profile.Authenticator` | struct | policy-bounded credential, MFA and postcondition orchestration |
+| `profile.BrowserLoginExecutor` | struct | real CDP form/MFA executor with secret-free evidence |
+| `profile.BrowserRuntime.Authenticate` | method | owner-checked authenticated operation on an owned page |
+
+## Scraper Subsystem
+
+The `scraper` package implements the Scrapling-inspired scraping engine: adaptive selectors (SQLite, survives redesigns), AI element finding via Inference Hub, structured data extraction (JSON-LD, OpenGraph, Twitter Cards, Microdata), concurrent scraping engine (static + renderless + browser pools), differential re-scrape with conditional GET + region hashing, HAR streaming, pagination/infinite-scroll detection, anti-scraping recovery (backoff + escalation), and server impact detection.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `scraper.NewFinder()` | func | create adaptive element finder |
+| `scraper.Finder` | struct | adaptive element locator (CSS → XPath → Text → Attribute → Structural) |
+| `scraper.Result` | struct | find result with strategy + confidence |
+| `scraper.ExtractedPage` | struct | extracted page result |
+| `scraper.StructuredRecord` | struct | structured data record |
+| `scraper.ExtractJSONLD(doc)` | func | extract JSON-LD |
+| `scraper.ExtractOpenGraph(doc)` | func | extract Open Graph |
+| `scraper.AdaptiveSelectorCache` | struct | SQLite adaptive selector cache |
+| `scraper.DomainRateLimiter` | struct | per-domain rate limiter (token bucket) |
+| `scraper.ConcurrentEngine` | struct | concurrent scraping engine |
+| `scraper.HARStreamer` | struct | HAR streaming writer |
+| `scraper.DiffEngine` | struct | differential re-scrape engine |
+| `scraper.PaginationDetector` | struct | pagination + infinite scroll detector |
+| `scraper.RecoveryChain` | struct | anti-scraping recovery chain |
+| `scraper.ImpactDetector` | struct | server impact detector |
+| `scraper.BloomFilter` | struct | URL dedup bloom filter |
+
+## Prompts System
+
+The `prompts` package provides the 9 AgentScope browser agent prompt templates as Go string constants, plus a `TemplateExecutor` that integrates template selection with browser skill execution.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `prompts.SystemPrompt()` | func | base behavior prompt |
+| `prompts.DecomposePrompt()` | func | task decomposition prompt |
+| `prompts.DecomposeReflectionPrompt()` | func | decomposition reflection |
+| `prompts.ObservePrompt()` | func | chunked observation prompt |
+| `prompts.PureReasoningPrompt()` | func | pure reasoning prompt |
+| `prompts.FormFillingPrompt()` | func | form filling prompt |
+| `prompts.FileDownloadPrompt()` | func | file download prompt |
+| `prompts.SummarizePrompt()` | func | task summarization prompt |
+| `prompts.GetPrompt(pt)` | func | get prompt by type |
+| `prompts.AllTemplates()` | func | list all templates |
+| `prompts.RenderTemplate(template, variables)` | func | render template with variables |
+| `prompts.EstimateTokens(text)` | func | estimate token count |
+| `prompts.ShouldUsePureReasoning(situation, tokens)` | func | pure reasoning decision |
+| `prompts.PromptType` | type | prompt type enum |
+| `prompts.PromptTemplate` | struct | prompt template descriptor |
+
+## Actions / Auto-Login
+
+The `actions` package implements auto-login: form detection, login flow identification, and post-login verification.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `actions.DetectLoginForm(ctx, page)` | func | detect login form |
+| `actions.LoginDetection` | struct | login detection result |
+| `actions.LoginForm` / `actions.LoginField` | struct | login form + field |
+| `actions.FormIntent` | struct | form intent for batch fill |
+| `actions.FormField` | struct | form field spec |
+| `actions.VerifyPostLogin(page)` | func | verify post-login state |
+| `actions.LoginPage` / `actions.PostLoginPage` | struct | login page interfaces |
+
+## Platform Capabilities
+
+The `platform` package detects platform capabilities (GPU, CPU, memory, fonts) for stealth fingerprint consistency.
+
+| Symbol | Kind | Purpose |
+|---|---|---|
+| `platform.Detect()` | func | detect platform capabilities |
+| `platform.PlatformCapabilities` | struct | detected capabilities (GPU, CPU, memory, fonts) |
+
+### Performance Notes
+
+`NewContext` cold path was overhauled in TASKs 042 + 048. Per-Context allocations:
+
+- **WebSocket registry and transport**: lazy-initialized. The 256-slot event channel, conns map, and policy-bound HTTP transport allocate only on first `new WebSocket(...)`. Pages without WS pay zero registry or transport overhead. (-65MB across a 4000-context benchmark before the transport hardening.)
+- **Bootstrap registration**: `Runtime.cachedBootstraps` stores the concatenated bootstrap source per snapshot mode. Once warm, subsequent Contexts skip the per-source `registerBootstrap` slice append entirely.
+- **Runtime-level template caching**: `Runtime` now caches v8 `FunctionTemplate` and `ObjectTemplate` instances for storage, timers, console, DOM bridge, and mutation observer trampolines. Each cached template is registered once per Isolate; per-Context callbacks dispatch to the right state via `Runtime.contextFor(info.Context())` (a `sync.Map[*v8.Context]*Context` populated by NewContext, drained by Close). Storage uses `Object.SetInternalField(0, handle)` to encode the per-Context `*memStorage` choice on the receiver. Without this, the v8go callback registry (`Isolate.cbs`) grows unboundedly across Contexts and 6+ templates per install function were re-registered on every NewContext.
+
+Combined effect on `BenchmarkFetchRunScripts` (single-page fetch + script run):
+
+| Stage | B/op | allocs/op | ns/op |
+|---|---|---|---|
+| Baseline | 50774 | 741 | 922000 |
+| Lazy WS + bootstrap-skip | 30856 | 732 | 916000 |
+| Storage / timer / console / dom-bridge / observer template caching | 26344 | 630 | 960000 |
+| Crypto (subtle/AES/complete/asym/extra/pkcs8) + iframe template caching | 23346 | 540 | 909000 |
+| `Object.SetMany` v8go-fork API + fetch / WS / extras_v2 / urlHelper / cascade-style template caching + fetch body slab | 22625 | 513 | 940000 |
+
+100 pages with scripts (no pool): 98 ms / 10.4 MB / 176k allocs -> 100 ms / 7.4 MB / 153k allocs (-29% memory, -13% allocs).
+
+### v8.Context pool
+
+`engine.Config.JSContextPoolSize > 0` (or `js.NewRuntimeWithPool(N)`) enables a pool of v8.Context objects. Each Page.Close returns the underlying v8.Context to the pool; the next NewContext takes one out and runs `__artemis_reset(url)` (a JS function defined in `js/context_pool.go`) instead of running the full install* + flushBootstraps pipeline.
+
+Reset clears: any property added to globalThis since the pristine snapshot was captured, customElements registry, window event listeners, history stack, performance entries, and rebinds location to the new URL. localStorage / sessionStorage are re-bound to the fresh per-Context memStorage via the same `SetInternalField(0, handle)` mechanism used at first build.
+
+This works because every native callback installed on globalThis goes through Runtime-cached templates whose callbacks dispatch via `Runtime.contextFor(info.Context())` — so the v8.Context object can stay across pages while the Go-side `*js.Context` (timers, observers, fetch state, document, etc.) is fresh per page.
+
+| Bench | No pool | Pool=8 | Pool=8 warm | Speedup |
+|---|---|---|---|---|
+| 100 pages with scripts | ~97 ms / 7.4 MB / 153k allocs | **~18.4 ms / 6.5 MB / 100k allocs** | **~18.9 ms / 6.5 MB / 100k allocs** | **5.3x** |
+
+These historical microbenchmark observations are development evidence, not release performance claims. Release comparisons require a reproducible artifact with its environment and corpus.
+
+`JSContextPoolWarm: true` pre-builds all N v8.Contexts at engine.New time. The 100-page bench doesn't show a difference (first-page cold cost amortises across 100 pages) but it eliminates the first-page latency spike for single-request agent flows.
+
+### Lifecycle / leak prevention
+
+Closing a Context tears down all background work owned by it:
+
+- **WebSocket** — every open conn's `context.CancelFunc` is invoked and the underlying `*websocket.Conn` is `CloseNow`'d, which unblocks the per-conn read goroutine. Read goroutines use `tryEvent` (`select { case events <- ev: case <-ctx.Done(): }`) so they exit cleanly even if the events channel is no longer drained. The lazily created policy-bound handshake transport closes idle connections with the owning Context.
+- **Async fetch** — the per-Runtime async cancel context is canceled, so any goroutine blocked inside the user's `FetchFunc` returns and the post-fetch send into the pending channel falls back to the cancel branch (decrementing `inflight` instead of leaking the goroutine).
+- **Iframes** — every sub-Context's Close runs *before* the parent acquires `Runtime.ctxMu`, so iframe teardown doesn't deadlock on the Runtime serialiser.
+
+Verified by `TestContextCloseShutsDownWSGoroutines` and `TestContextCloseCancelsAsyncFetch` (compare `runtime.NumGoroutine()` before / after — must return to baseline within 50ms).
+
+### Concurrency
+
+`Runtime.ctxMu` serialises `NewContext` and `Close` against V8's `GlobalHandles` bookkeeping, which is single-threaded internally. Without this, two goroutines calling `NewContext` concurrently crash V8. Once a Context is built, individual `Eval` calls share the V8 `Locker` and are safe to invoke from concurrent goroutines on different Contexts in the same Runtime.
+
+**Caveats** for pooled mode: user scripts that mutate built-in prototypes (e.g. `Array.prototype.foo = x`), set non-configurable globals, or rely on prototype identity across pages will see leakage between pooled pages. Use `JSContextPoolSize: 0` (the default) for full per-page isolation when running untrusted JS.
+
+### v8go fork additions
+
+- `Object.SetMany(keys []string, vals []interface{})` and `SetManyPrepared(*PreparedKeys, []interface{})` set N (key, value) pairs in a single cgo crossing. Use the prepared form on hot paths so the C-string array is allocated exactly once at package init. Backed by a new `ObjectSetMany` C++ entry point in `v8go.cc`.
+
+## Steering Server
+
+`artemis serve --host 127.0.0.1 --port 9333` runs a JSON-over-WebSocket server that drives the canonical `artemis.Agent` from outside the Go process. NOT Chrome DevTools Protocol; custom shape designed for agent embedding.
+
+```
+ws://127.0.0.1:9333/
+```
+
+### Connection and lifecycle
+
+Every WebSocket handshake requires `Authorization: Bearer <token>`. `--token` or `ARTEMIS_SERVE_TOKEN` supplies the token; when neither is set the CLI generates 256 random bits and prints the token once to stderr without placing it in structured logs. Credential-shaped URL query parameters are rejected. The server API fails closed when no token is configured, compares credentials in constant time, rejects non-loopback binds and DNS-rebind Host headers, and only accepts the compiled loopback/Artemis browser-origin allowlist unless `--origin` supplies an explicit replacement. Universal origin patterns are rejected; there is no origin-verification bypass.
+
+Serve policy decisions and renderless resource snapshots are written to the bounded redacted diagnostics ledger. The authenticated browser protocol never returns raw ledger content; operators use `artemis diagnostics` or the in-process `Agent.Diagnostics()` API.
+
+The first authenticated connection receives `X-Artemis-Client-ID`, an opaque server-signed capability. A reconnect sends the same header to retain access to its sessions and resumable streams. Session owner identity is server-assigned; caller-provided owner fields cannot claim another client. Every session/page/action/list/close/stream/cancel path checks that identity. Token rotation revokes active connections and their sessions.
+
+Rate limits are always active: 30 messages/second with burst 10 per connection plus 120 requests/minute with burst 10 per normalized remote address. Address normalization strips ephemeral ports and unmaps IPv4-mapped IPv6 so reconnecting does not reset the client bucket. Ten consecutive WebSocket violations close the connection with policy-violation status; handshake violations return HTTP 429 with `Retry-After`. Idle client buckets expire after ten minutes.
+
+Requests are envelopes `{id, cmd, params}`. Responses are `{id, ok, value, error}`. `error` is `{code, message, op}`.
+
+### Commands
+
+| Command | Params | Returns |
+|---|---|---|
+| `version` | `{}` | `{version, protocol, capabilities}` |
+| `session.new` | `{profileId?, class?}` | `{sessionId, ownerUserRef}` |
+| `session.list` | `{}` | `{sessions}` for the authenticated client only |
+| `session.close` | `{sessionId}` | `{}` |
+| `page.open` | `{sessionId, url, runScripts?}` | `{pageId, url, status, title}` |
+| `page.close` | `{sessionId, pageId}` | `{closed}` |
+| `page.eval` | `{sessionId, pageId, expr}` | `{value}` |
+| `page.dump` | `{sessionId, pageId, format}` (`html`/`markdown`/`text`/`title`/`links`/`structured`/`semantic`) | `{data}` |
+| `page.click_by_text` | `{sessionId, pageId, text}` | `{}` |
+| `page.type` | `{sessionId, pageId, selector, text}` | `{}` |
+| `page.wait_idle` | `{sessionId, pageId, timeoutMs?}` | `{}` |
+| `page.assert` | `{sessionId, pageId, mode, selector?, substring?, expr?, status?, want?}` | `{pass, got}` |
+| `chromium.act` | `{sessionId, request}` | `{outcome}` |
+| `stream` | `{sessionId, url, runScripts?}` or `{streamId, resumeFrom?}` | `{streamId, resumed?, complete?}` |
+| `cancel` | `{requestId}` | `{cancelled}` |
+| `token.rotate` | `{}` | `{token}` and connection revocation |
+| `heartbeat` | `{}` | `{now}` |
+| `capabilities` | `{}` | `{protocol, server, capabilities}` |
+
+### Protocol contract
+
+- Protocol version `1.1.0` is returned by `version` and attached to responses/events.
+- `ownerUserRef` is server-assigned from `X-Artemis-Client-ID`; the compatibility request field is accepted only when it already matches that authenticated identity.
+- `stream` retains ordered progress and terminal events under the owning client capability for reconnect/resume.
+- `token.rotate` returns a new bearer token, invalidates the old token, closes authenticated connections, cancels in-flight work, and closes their sessions.
+- `heartbeat` keeps idle connections alive and detects stalled peers.
+- CLI flags `--obey-robots`, `--block-private-ips`, `--allowed-port`, `--token`, `--origin`, `--rate`, `--burst`, `--client-rate`, and `--client-burst` control resource governance and access control.
+
+### Error taxonomy
+
+Response errors use stable codes:
+
+- `bad_request` / `bad_params` — malformed envelope or command parameters.
+- `no_session` / `no_page` — stale or unknown ID.
+- `ownership_denied` — cross-client session, stream, owner, or cancellation attempt.
+- `rate_exceeded` — connection or normalized-client budget exhausted.
+- `cancelled` — explicit or lifecycle cancellation.
+- `execution_failed` — runtime failure.
+- `capability_unavailable` — optional runtime not configured.
+- `stale_reference` — session or page already closed.
+
+## Telemetry
+
+Two channels. Both can be wired up by embedders or used directly:
+
+- `telemetry.Tracer` - slog-backed span helper. `Span(ctx, name, attrs...)` returns a Span; call `End()` to emit a single structured log line with duration. Errors via `Span.Error(err)` switch the log level to ERROR. The API mirrors OpenTelemetry shape so a real OTel exporter can replace the slog backend without changing call sites.
+- `telemetry.PhoneHome` - opt-out anonymous counters. Atomic counters for fetches/evals/errors. `Snapshot()` returns the current `PhoneHomeContract` (version, GOOS/GOARCH, counts). `Flush()` emits a single structured log entry. **No URLs, no headers, no page content** ever appear in the contract. Disable via `ARTEMIS_DISABLE_TELEMETRY=true`. Real network transmission is intentionally deferred; the slog stub captures the contract today.
+
+## Performance Optimizations
+
+Hot-path profiling and package benchmarks identified these allocation and contention improvements:
+
+### network/easylist.go — IsAdTrackerDomain label-walk
+
+Replaced linear scan over 48 patterns (with per-call `strings.ToLower` on each pattern) with a pre-built `map[string]struct{}` pattern set + label-walk (check domain, drop leftmost label, repeat). The miss case (production hot path — most domains are NOT ad/tracker) went from 1809ns to 57ns (31x faster). `FilterAdTrackerDomains` on a 100-domain batch went from 94969ns to 5861ns (16x faster).
+
+### js/context_pool.go + js/helpers.go — buffer pre-allocation
+
+`jsonStringLiteral` and `jsStringLit` now pre-allocate their output buffers to `len(s)+2` (the minimum output: 2 quotes + input unchanged), eliminating reallocation growth. `jsonStringLiteral`: 282ns→232ns (-18%), 3→2 allocs. `jsStringLit`: 228ns→167ns (-27%), 4→1 allocs.
+
+### serve/streaming.go — Broadcast fast paths
+
+The `Broadcast` method now fast-paths the common cases: 0 subscribers (skip slice alloc + timestamp, still count broadcast) and 1 subscriber (direct call, no goroutine, no WaitGroup). 0-subscriber: 114ns→43ns (-62%). 1-subscriber: 714ns→118ns (-83%). 2+ subscribers keep the goroutine fan-out.
+
+### webapi/node.go + mutation.go — Attr/Tag fast paths
+
+`Tag()` now checks `DataAtom != 0` (known tag) and returns `Data` directly (already lowercase from atom string), skipping `strings.ToLower` for the common case. `Attr()` fast-paths exact key match (`a.Key == name`) on the first loop (parser lowercases keys), with `EqualFold` fallback on a second loop for user-injected attributes. `GetElementById` and `GetElementsByClassName` inline the attribute lookup to avoid the method call overhead. `GetElementById`: 7003ns→6279ns (-10%). `GetElementsByClassName`: 15255ns→14296ns (-6%).
+
+### Benchmark suite
+
+The benchmark harness remains development tooling. A supported release comparison requires the reproducible artifact, environment, corpus, statistics and regression thresholds.

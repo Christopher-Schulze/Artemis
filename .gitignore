@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+
+# Go build output
+/artemis
+/artemis-smoke
+/bin/
+/dist/
+*.test
+*.out
+*.prof
+coverage.*
+
+# Go module/build cache (local)
+/.go-build/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Env files
+.env
+.env.local
+
+# Logs
+*.log
+
+# Vendored Go (we use Go modules, not vendor by default)
+/vendor/
+
+# Cgo intermediates
+*.o
+*.a
+
+# Benchmark competitor binary (never committed; downloaded at benchmark time)
+benchmark/bin/
+
+# Private planning (kept in the private monorepo, stripped from the public repo)
+docs/tasks.md
+docs/tasks/

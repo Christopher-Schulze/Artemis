@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "matrixVersion": "1.0.0",
+  "date": "2026-07-05T01:37:49.633166Z",
+  "host": "MacBook-Air.local",
+  "results": [
+    {
+      "scenarioId": "nav-001",
+      "engine": "artemis",
+      "wallMs": 0.87,
+      "allocBytes": 31696,
+      "allocCount": 578,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.642622Z"
+    },
+    {
+      "scenarioId": "nav-002",
+      "engine": "artemis",
+      "wallMs": 0.836,
+      "allocBytes": 24808,
+      "allocCount": 507,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.646141Z"
+    },
+    {
+      "scenarioId": "scr-001",
+      "engine": "artemis",
+      "wallMs": 0.843,
+      "allocBytes": 37016,
+      "allocCount": 647,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.650912Z"
+    },
+    {
+      "scenarioId": "scr-002",
+      "engine": "artemis",
+      "wallMs": 0.871,
+      "allocBytes": 34208,
+      "allocCount": 653,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.655572Z"
+    },
+    {
+      "scenarioId": "dom-001",
+      "engine": "artemis",
+      "wallMs": 0.85,
+      "allocBytes": 33872,
+      "allocCount": 680,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.660293Z"
+    },
+    {
+      "scenarioId": "dom-002",
+      "engine": "artemis",
+      "wallMs": 0.946,
+      "allocBytes": 38296,
+      "allocCount": 618,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.664983Z"
+    },
+    {
+      "scenarioId": "md-001",
+      "engine": "artemis",
+      "wallMs": 0.879,
+      "allocBytes": 35256,
+      "allocCount": 668,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.672564Z"
+    },
+    {
+      "scenarioId": "md-002",
+      "engine": "artemis",
+      "wallMs": 0.866,
+      "allocBytes": 34360,
+      "allocCount": 645,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.675308Z"
+    },
+    {
+      "scenarioId": "scr-003",
+      "engine": "artemis",
+      "wallMs": 0.873,
+      "allocBytes": 44584,
+      "allocCount": 723,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.679555Z"
+    },
+    {
+      "scenarioId": "scr-004",
+      "engine": "artemis",
+      "wallMs": 0.869,
+      "allocBytes": 37472,
+      "allocCount": 844,
+      "ok": true,
+      "timestamp": "2026-07-05T01:37:49.684125Z"
+    }
+  ]
+}

@@ -1,0 +1,214 @@
+package cdpops
+
+import (
+	"fmt"
+	"strings"
+
+	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+)
+
+// element.go (spec L4019: bridge/cdpops/element.go - element queries +
+// box model).
+//
+// Low-level CDP ops: element queries and box model retrieval.
+// Provides functions for querying DOM elements by selector/ref and
+// retrieving their box model (position, size, viewport).
+
+// BoxModel represents an element's box model
+// (spec L4019: element queries + box model).
+type BoxModel struct {
+	Content Quad `json:"content"`
+	Padding Quad `json:"padding"`
+	Border  Quad `json:"border"`
+	Margin  Quad `json:"margin"`
+	Width   int  `json:"width"`
+	Height  int  `json:"height"`
+}
+
+// Quad represents a quadrilateral (4 points)
+// (spec L4019: element queries + box model).
+type Quad struct {
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+	X3 float64 `json:"x3"`
+	Y3 float64 `json:"y3"`
+	X4 float64 `json:"x4"`
+	Y4 float64 `json:"y4"`
+}
+
+// ElementAttachmentState distinguishes a current DOM node from a match that
+// detached between selector resolution and observation.
+type ElementAttachmentState string
+
+const (
+	ElementAttached          ElementAttachmentState = "attached"
+	ElementDetached          ElementAttachmentState = "detached"
+	ElementAttachmentUnknown ElementAttachmentState = "unknown"
+)
+
+// ElementLayoutState distinguishes normal lack of layout from CDP failure.
+type ElementLayoutState string
+
+const (
+	ElementLayoutPresent ElementLayoutState = "present"
+	ElementLayoutAbsent  ElementLayoutState = "absent"
+	ElementLayoutUnknown ElementLayoutState = "unknown"
+)
+
+// ActionabilityState aliases the canonical observe-owned classification.
+type ActionabilityState = bridgeobserve.ActionabilityState
+
+// HitState aliases the canonical browser hit-test evidence.
+type HitState = bridgeobserve.HitState
+
+const (
+	HitClear                    = bridgeobserve.HitClear
+	HitCovered                  = bridgeobserve.HitCovered
+	HitUnknown                  = bridgeobserve.HitUnknown
+	ActionabilityReady          = bridgeobserve.ActionabilityReady
+	ActionabilityDetached       = bridgeobserve.ActionabilityDetached
+	ActionabilityNoLayout       = bridgeobserve.ActionabilityNoLayout
+	ActionabilityHidden         = bridgeobserve.ActionabilityHidden
+	ActionabilityDisabled       = bridgeobserve.ActionabilityDisabled
+	ActionabilityNonInteractive = bridgeobserve.ActionabilityNonInteractive
+	ActionabilityCovered        = bridgeobserve.ActionabilityCovered
+	ActionabilityHitUnknown     = bridgeobserve.ActionabilityHitUnknown
+	ActionabilityUnavailable    = bridgeobserve.ActionabilityUnavailable
+)
+
+// ElementInfo represents a queried DOM element
+// (spec L4019: element queries + box model).
+type ElementInfo struct {
+	Ref           string                 `json:"ref"`
+	FrameID       string                 `json:"frameId,omitempty"`
+	TagName       string                 `json:"tagName"`
+	Type          string                 `json:"type,omitempty"`
+	Text          string                 `json:"text,omitempty"`
+	Role          string                 `json:"role,omitempty"`
+	Classes       []string               `json:"classes,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	Value         string                 `json:"value,omitempty"`
+	Attachment    ElementAttachmentState `json:"attachment"`
+	Layout        ElementLayoutState     `json:"layout"`
+	Visible       bool                   `json:"visible"`
+	Interactive   bool                   `json:"interactive"`
+	Disabled      bool                   `json:"disabled"`
+	Hit           HitState               `json:"hit"`
+	Actionability ActionabilityState     `json:"actionability"`
+	Clickable     bool                   `json:"clickable"`
+	Box           *BoxModel              `json:"box,omitempty"`
+}
+
+// ElementQuery represents a query for DOM elements
+// (spec L4019: element queries + box model).
+type ElementQuery struct {
+	Selector string `json:"selector"` // CSS selector or eN ref
+	FrameID  string `json:"frameId,omitempty"`
+	Visible  *bool  `json:"visible,omitempty"` // filter by visibility
+}
+
+// QueryResult is the result of an element query
+// (spec L4019: element queries + box model).
+type QueryResult struct {
+	Elements []ElementInfo `json:"elements"`
+	Total    int           `json:"total"`
+	Error    string        `json:"error,omitempty"`
+}
+
+// QueryElements queries DOM elements by selector
+// (spec L4019: element queries + box model).
+func QueryElements(query ElementQuery) QueryResult {
+	if query.Selector == "" {
+		return QueryResult{Error: "element query: empty selector"}
+	}
+	return QueryResult{Error: "element query: CDP caller required; use ElementClient.QuerySelector"}
+}
+
+// GetBoxModel retrieves the box model for an element
+// (spec L4019: element queries + box model).
+func GetBoxModel(ref string) (*BoxModel, error) {
+	if ref == "" {
+		return nil, fmt.Errorf("box model: empty ref")
+	}
+	return nil, fmt.Errorf("box model: CDP caller required; use ElementClient.GetBoxModel")
+}
+
+// IsElementVisible checks if an element is visible
+// (spec L4019: element queries + box model).
+func IsElementVisible(box *BoxModel) bool {
+	if box == nil {
+		return false
+	}
+	return box.Width > 0 && box.Height > 0
+}
+
+// IsElementClickable checks if an element is clickable
+// (spec L4019: element queries + box model).
+func IsElementClickable(info *ElementInfo) bool {
+	if info == nil {
+		return false
+	}
+	return info.Attachment == ElementAttached && info.Layout == ElementLayoutPresent &&
+		info.Visible && info.Interactive && !info.Disabled && info.Hit == bridgeobserve.HitClear &&
+		info.Actionability == ActionabilityReady
+}
+
+// GetElementCenter returns the center point of an element's box model
+// (spec L4019: element queries + box model).
+func GetElementCenter(box *BoxModel) (float64, float64) {
+	if box == nil {
+		return 0, 0
+	}
+	if box.Content != (Quad{}) {
+		return (box.Content.X1 + box.Content.X3) / 2, (box.Content.Y1 + box.Content.Y3) / 2
+	}
+	return float64(box.Width) / 2, float64(box.Height) / 2
+}
+
+// FilterVisible filters elements to only visible ones
+// (spec L4019: element queries + box model).
+func FilterVisible(elements []ElementInfo) []ElementInfo {
+	var result []ElementInfo
+	for _, e := range elements {
+		if e.Visible {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// FindByRef finds an element by its ref in a list
+// (spec L4019: element queries + box model).
+func FindByRef(elements []ElementInfo, ref string) (*ElementInfo, bool) {
+	for i := range elements {
+		if elements[i].Ref == ref {
+			return &elements[i], true
+		}
+	}
+	return nil, false
+}
+
+// FindByTag finds elements by tag name
+// (spec L4019: element queries + box model).
+func FindByTag(elements []ElementInfo, tag string) []ElementInfo {
+	var result []ElementInfo
+	for _, e := range elements {
+		if strings.EqualFold(e.TagName, tag) {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// String returns a diagnostic summary.
+func (b BoxModel) String() string {
+	return fmt.Sprintf("BoxModel{w:%d h:%d}", b.Width, b.Height)
+}
+
+// String returns a diagnostic summary.
+func (e ElementInfo) String() string {
+	return fmt.Sprintf("ElementInfo{ref:%s tag:%s visible:%v}", e.Ref, e.TagName, e.Visible)
+}
