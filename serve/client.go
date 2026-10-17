@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -113,12 +114,14 @@ func (c *Client) CallLabeled(ctx context.Context, command Command, params, resul
 		return nil, err
 	}
 	if err := c.connection.Write(ctx, websocket.MessageText, data); err != nil {
-		return nil, fmt.Errorf("dispatch %s: %w", command, err)
+		return nil, errors.Join(fmt.Errorf("dispatch %s: %w", command, err), ctx.Err())
 	}
 	for {
 		_, data, err := c.connection.Read(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("receive %s outcome (do not blindly replay effects): %w", command, err)
+			// A cancellation that closes the connection first still reports
+			// context.Canceled, so callers can tell abort from transport loss.
+			return nil, errors.Join(fmt.Errorf("receive %s outcome (do not blindly replay effects): %w", command, err), ctx.Err())
 		}
 		var response Response
 		if err := json.Unmarshal(data, &response); err != nil {

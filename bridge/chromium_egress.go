@@ -184,8 +184,13 @@ func (p *Page) runPolicyRequestWorker(ctx context.Context, jobs <-chan fetchRequ
 // Chromium continues requests still paused when their Fetch session detaches,
 // so every queued or cancelled request is failed before the target closes. A
 // protocol error means the request is no longer paused and a closed transport
-// means the browser went with it; neither leaves an emission to prevent.
+// means the browser went with it; neither leaves an emission to prevent. A
+// target that is already detached or destroyed has no live Fetch session to
+// address, so only owner-initiated retirement of an attached page aborts.
 func (p *Page) abortPausedJob(job fetchRequestJob) {
+	if state := p.State(); state == TargetStateClosed || state == TargetStateDetached {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), policyAbortTimeout)
 	defer cancel()
 	method, params := "Fetch.failRequest", any(fetchFailRequestParams{RequestID: job.payload.RequestID, ErrorReason: "Aborted"})
