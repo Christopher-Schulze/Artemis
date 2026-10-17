@@ -14,7 +14,9 @@ type fastOpenRequestKey struct{}
 
 // httpDialContextFor confines delayed-connect Fast Open to HTTP transports.
 // Generic DialContext keeps normal connect semantics for read-first protocols.
-func (p *Policy) httpDialContextFor(sessionID string, caps platform.PlatformCapabilities, enabled bool) func(context.Context, string, string) (net.Conn, error) {
+// tcpFastOpen is the platform's TCP Fast Open probe; only an available probe
+// admits activation.
+func (p *Policy) httpDialContextFor(sessionID string, tcpFastOpen platform.ProbeResult, enabled bool) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, networkName, address string) (net.Conn, error) {
 		if p == nil {
 			return nil, fmt.Errorf("%w: policy required", ErrPolicyDenied)
@@ -24,7 +26,7 @@ func (p *Policy) httpDialContextFor(sessionID string, caps platform.PlatformCapa
 		}
 		dialer := p.dialer
 		eligible, _ := ctx.Value(fastOpenRequestKey{}).(bool)
-		if enabled && eligible && caps.HasTCPFastOpen && caps.Evidence.TCPFastOpen.State == platform.StateAvailable {
+		if enabled && eligible && tcpFastOpen.State == platform.StateAvailable {
 			dialer.ControlContext = p.fastOpenControl(SessionID(ctx, sessionID))
 		}
 		return p.dialContextWithDialer(ctx, networkName, address, SessionID(ctx, sessionID), &dialer)

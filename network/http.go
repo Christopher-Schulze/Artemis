@@ -76,7 +76,7 @@ type HTTPClient struct {
 	sessionMu     sync.Mutex
 	sessionJars   map[string]http.CookieJar
 	closed        bool
-	caps          platform.PlatformCapabilities
+	mmap          platform.ProbeResult
 	proxyURL      *url.URL
 }
 
@@ -113,8 +113,9 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	}
 	// Pool tuned for crawler-style workloads: lots of subresources from
 	// a small set of hosts, parallel fetches via the async-runtime.
-	caps := platform.Detect()
-	dialContext := policy.httpDialContextFor(cfg.SessionID, caps, !cfg.DisableTCPFastOpen && cfg.ProxyURL == "")
+	// A client needs only the TCP Fast Open and mmap probes; the remaining
+	// platform probes (affinity, memory, container, codec) are not per-client work.
+	dialContext := policy.httpDialContextFor(cfg.SessionID, platform.ProbeTCPFastOpen(), !cfg.DisableTCPFastOpen && cfg.ProxyURL == "")
 	transport := &http.Transport{
 		Proxy:                 nil,
 		DialContext:           dialContext,
@@ -165,7 +166,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	roundTripper = NewWebBotAuthTransport(roundTripper, cfg.WebBotAuth)
 	httpClient := &HTTPClient{
 		cfg:           cfg,
-		caps:          caps,
+		mmap:          platform.ProbeMmap(),
 		chromeHeaders: chromeHeaders,
 		jar:           jar, robots: newRobotsCache(), proxyURL: proxyURL,
 	}

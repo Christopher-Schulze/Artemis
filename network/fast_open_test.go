@@ -42,9 +42,11 @@ func TestHTTPFastOpenOwnedSocketEvidenceAndOptOut(t *testing.T) {
 				}
 				return nil
 			})
-			caps := platform.PlatformCapabilities{HasTCPFastOpen: tc.admitted}
-			caps.Evidence.TCPFastOpen.State = platform.StateAvailable
-			transport := &http.Transport{DialContext: policy.httpDialContextFor("owned-session", caps, tc.enabled)}
+			probe := platform.ProbeResult{State: platform.StateUnavailable}
+			if tc.admitted {
+				probe.State = platform.StateAvailable
+			}
+			transport := &http.Transport{DialContext: policy.httpDialContextFor("owned-session", probe, tc.enabled)}
 			defer transport.CloseIdleConnections()
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
@@ -96,9 +98,7 @@ func TestHTTPFastOpenCannotBypassPolicyOrFailedAudit(t *testing.T) {
 			}
 			return nil
 		})
-		caps := platform.PlatformCapabilities{HasTCPFastOpen: true}
-		caps.Evidence.TCPFastOpen.State = platform.StateAvailable
-		transport := &http.Transport{DialContext: policy.httpDialContextFor("owned-session", caps, true)}
+		transport := &http.Transport{DialContext: policy.httpDialContextFor("owned-session", platform.ProbeResult{State: platform.StateAvailable}, true)}
 		ctx := context.WithValue(t.Context(), fastOpenRequestKey{}, true)
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 		if err != nil {

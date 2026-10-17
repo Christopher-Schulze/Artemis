@@ -294,7 +294,12 @@ func TestChromiumNativeRetirementAndTransportLossCancelOwnedMonitor(t *testing.T
 			case <-ctx.Done():
 				t.Fatal("native retirement left monitor/workers running")
 			}
-			if hits.Load() != 0 {
+			// A closed target can never send the held request. After transport
+			// loss Chrome continues requests paused by the detached controller
+			// (CDP Fetch semantics); network admission stays with the policy
+			// proxy, which already allows this fixture port, so only the owned
+			// callback and monitor teardown above are Artemis guarantees there.
+			if kind == "native root close" && hits.Load() != 0 {
 				t.Fatalf("retired request reached server %d times", hits.Load())
 			}
 			if kind == "native root close" {

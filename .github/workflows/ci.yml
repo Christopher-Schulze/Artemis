@@ -13,6 +13,10 @@ jobs:
   test-linux:
     name: Linux - Build + Vet + Race + Bench
     runs-on: ubuntu-latest
+    env:
+      CC: clang-21
+      CXX: clang++-21
+      CGO_CXXFLAGS: -nostdinc++
     steps:
       - uses: actions/checkout@v5
         with:
@@ -21,13 +25,20 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.27"
+          # go.mod pins `toolchain go1.27.2`; the committed V8 snapshot is
+          # bound to that exact compiler.
+          go-version-file: go.mod
           cache: true
 
-      - name: Install C toolchain
+      - name: Install LLVM Clang 21
+        # V8 is built against Chromium's libc++, so the v8go binding needs
+        # LLVM Clang >= 21 with -nostdinc++ on Linux (docs: Build and Run).
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential lsb-release wget software-properties-common gnupg
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 21
+          clang++-21 --version
 
       - name: gofmt
         run: |
@@ -59,7 +70,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.27"
+          # go.mod pins `toolchain go1.27.2`; the committed V8 snapshot is
+          # bound to that exact compiler.
+          go-version-file: go.mod
           cache: true
 
       - name: Install C toolchain

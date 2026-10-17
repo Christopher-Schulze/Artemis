@@ -59,7 +59,7 @@ func TestResponseScopeActualMappingAndStableValueAPI(t *testing.T) {
 		if !bytes.Equal(response.Body, payload) {
 			return errors.New("actual body changed")
 		}
-		if client.caps.HasMmap && (response.InputMemory.State != platform.StateAvailable || response.InputMemory.Value != uint64(len(payload)) || owner.held < int64(len(payload)) || owner.held >= int64(len(payload)+os.Getpagesize()) || owner.held%int64(os.Getpagesize()) != 0) {
+		if client.mmap.State == platform.StateAvailable && (response.InputMemory.State != platform.StateAvailable || response.InputMemory.Value != uint64(len(payload)) || owner.held < int64(len(payload)) || owner.held >= int64(len(payload)+os.Getpagesize()) || owner.held%int64(os.Getpagesize()) != 0) {
 			return fmt.Errorf("mapping not admitted through consumer lifetime: %+v held=%d", response.InputMemory, owner.held)
 		}
 		if lifecycle.finished != 1 {
@@ -70,7 +70,7 @@ func TestResponseScopeActualMappingAndStableValueAPI(t *testing.T) {
 	if err != nil || borrowed == nil || borrowed.Body != nil || owner.held != 0 {
 		t.Fatalf("scope cleanup failed: %v held=%d", err, owner.held)
 	}
-	if client.caps.HasMmap && owner.releases != 1 {
+	if client.mmap.State == platform.StateAvailable && owner.releases != 1 {
 		t.Fatalf("release count=%d", owner.releases)
 	}
 	response, err := client.Do(t.Context(), Request{URL: server.URL})
@@ -95,7 +95,7 @@ func TestResponseScopeRejectsAdmissionAndJoinsConsumerCleanupErrors(t *testing.T
 			owner.deny = denied
 		}
 		client := newTestClient(t, HTTPClientConfig{MemoryAdmission: owner})
-		if !client.caps.HasMmap {
+		if client.mmap.State != platform.StateAvailable {
 			continue
 		}
 		calls := 0
@@ -113,7 +113,7 @@ func TestResponseScopeRejectsAdmissionAndJoinsConsumerCleanupErrors(t *testing.T
 func TestResponseScopeReadFailureAndCancellationReleaseMapping(t *testing.T) {
 	owner := &scopeMemoryOwner{}
 	client := newTestClient(t, HTTPClientConfig{MemoryAdmission: owner})
-	if !client.caps.HasMmap {
+	if client.mmap.State != platform.StateAvailable {
 		return
 	}
 	_, release, _, err := client.readScopedBody(t.Context(), bytes.NewReader([]byte("short")), (1<<20)+1, 2<<20, true)

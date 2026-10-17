@@ -36,7 +36,7 @@ func (c *HTTPClient) WithResponse(ctx context.Context, r Request, kind TargetKin
 
 func (c *HTTPClient) readScopedBody(ctx context.Context, reader io.Reader, size, limit int64, scoped bool) (body []byte, release func() error, observation platform.ProbeResult, err error) {
 	observation = c.mappedBodyFallback(size, scoped)
-	if !scoped || size <= 1<<20 || size > platform.MaxMappedBufferBytes || !c.caps.HasMmap || c.cfg.MemoryAdmission == nil {
+	if !scoped || size <= 1<<20 || size > platform.MaxMappedBufferBytes || c.mmap.State != platform.StateAvailable || c.cfg.MemoryAdmission == nil {
 		if scoped && c.cfg.MemoryAdmission != nil {
 			body, release, err = readAdmittedResponse(ctx, reader, size, limit, c.cfg.MemoryAdmission)
 			return body, release, observation, err
@@ -58,12 +58,12 @@ func (c *HTTPClient) mappedBodyFallback(size int64, scoped bool) platform.ProbeR
 		observation.Reason = "response below mmap threshold"
 	case size > platform.MaxMappedBufferBytes:
 		observation.Reason = "response above mapped allocation limit; bounded ordinary read"
-	case !c.caps.HasMmap:
-		observation.Reason = c.caps.Evidence.Mmap.Reason
+	case c.mmap.State != platform.StateAvailable:
+		observation.Reason = c.mmap.Reason
 		if observation.Reason == "" {
 			observation.Reason = "mapping support not admitted"
 		}
-		if c.caps.Evidence.Mmap.State == platform.StateUnknown {
+		if c.mmap.State == platform.StateUnknown {
 			observation.State = platform.StateUnknown
 		}
 	case c.cfg.MemoryAdmission == nil:

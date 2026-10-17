@@ -28,8 +28,7 @@ func TestResponseScopeGoInputsHoldActualCapacity(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			owner := &scopeMemoryOwner{}
 			client := newTestClient(t, HTTPClientConfig{MemoryAdmission: owner})
-			client.caps.HasMmap = false
-			client.caps.Evidence.Mmap = platform.ProbeResult{State: platform.StateUnknown, Reason: "unobserved mapping support"}
+			client.mmap = platform.ProbeResult{State: platform.StateUnknown, Reason: "unobserved mapping support"}
 			body, release, proof, err := client.readScopedBody(t.Context(), bytes.NewReader(test.payload), test.size, 2<<20, true)
 			if err != nil || !bytes.Equal(body, test.payload) || owner.held != int64(cap(body)) {
 				t.Fatalf("actual Go storage was not held: %v bytes=%d capacity=%d held=%d", err, len(body), cap(body), owner.held)

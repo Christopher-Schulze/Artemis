@@ -1233,32 +1233,37 @@ func (b *ChromiumBrowser) browserContextExists(ctx context.Context, contextID st
 
 // Page owns one target and flattened CDP session.
 type Page struct {
-	mu                sync.RWMutex
-	lifecycleMu       sync.Mutex
-	targetID          string
-	sessionID         string
-	owner             *BrowserContext
-	state             TargetState
-	stateErr          string
-	targetScriptErr   string
-	removed           bool
-	createdAt         time.Time
-	lastActive        time.Time
-	frameMu           sync.RWMutex
-	frameSessions     map[string]string
-	childSessions     map[string]string
-	frameSub          *CDPSubscription
-	frameCancel       context.CancelFunc
-	frameDone         chan struct{}
-	fetchMu           sync.RWMutex
-	fetchHandler      FetchRequestHandler
-	adSite            atomic.Pointer[string]
-	adBypass          atomic.Bool
-	adBlocked         atomic.Int64
-	targetScripts     TargetScriptConfig
-	navigated         bool
-	lifetime          context.Context
-	cancelLifetime    context.CancelFunc
+	mu              sync.RWMutex
+	lifecycleMu     sync.Mutex
+	targetID        string
+	sessionID       string
+	owner           *BrowserContext
+	state           TargetState
+	stateErr        string
+	targetScriptErr string
+	removed         bool
+	createdAt       time.Time
+	lastActive      time.Time
+	frameMu         sync.RWMutex
+	frameSessions   map[string]string
+	childSessions   map[string]string
+	frameSub        *CDPSubscription
+	frameCancel     context.CancelFunc
+	frameDone       chan struct{}
+	fetchMu         sync.RWMutex
+	fetchHandler    FetchRequestHandler
+	adSite          atomic.Pointer[string]
+	adBypass        atomic.Bool
+	adBlocked       atomic.Int64
+	targetScripts   TargetScriptConfig
+	navigated       bool
+	lifetime        context.Context
+	cancelLifetime  context.CancelFunc
+	// executionCancels holds every admitted execution lease's cancellation
+	// so target retirement can cancel them synchronously before DownSignal.
+	executionMu       sync.Mutex
+	executionSeq      uint64
+	executionCancels  map[uint64]context.CancelFunc
 	dialogs           *tabs.DialogHandler
 	lifecycle         *tabs.TabLifecycle
 	transitionMu      sync.Mutex
@@ -1424,15 +1429,18 @@ func (p *Page) setState(state TargetState, message string) {
 		if state == TargetStateClosed {
 			next = tabs.TabLifecycleClosed
 		}
+		// Retire execution before publishing the down transition: an observer
+		// of DownSignal must never see a live execution lease on a dead target.
+		if p.cancelLifetime != nil {
+			p.cancelLifetime()
+		}
+		p.cancelExecutions()
+		p.cancelFrameRouting()
 		if err := p.transitionLifecycle(next); err != nil {
 			p.mu.Lock()
 			p.retirementErr = errors.Join(p.retirementErr, err)
 			p.mu.Unlock()
 		}
-		if p.cancelLifetime != nil {
-			p.cancelLifetime()
-		}
-		p.cancelFrameRouting()
 	}
 }
 

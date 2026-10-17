@@ -68,10 +68,12 @@ func (p *Page) AcquireExecution(ctx context.Context) (*PageLease, error) {
 	if lifetime != nil {
 		stop = context.AfterFunc(lifetime, cancel)
 	}
+	executionID := p.trackExecution(cancel)
 	cleanup := func() {
 		if stop != nil {
 			stop()
 		}
+		p.untrackExecution(executionID)
 		cancel()
 	}
 	release, err := executor.Acquire(operationCtx, p.targetID)
@@ -138,6 +140,39 @@ func (l *PageLease) Run(page *Page, action func(context.Context)) error {
 	}
 	action(l.Context())
 	return nil
+}
+
+// trackExecution registers one admitted lease's cancellation.
+func (p *Page) trackExecution(cancel context.CancelFunc) uint64 {
+	p.executionMu.Lock()
+	defer p.executionMu.Unlock()
+	if p.executionCancels == nil {
+		p.executionCancels = make(map[uint64]context.CancelFunc)
+	}
+	p.executionSeq++
+	p.executionCancels[p.executionSeq] = cancel
+	return p.executionSeq
+}
+
+func (p *Page) untrackExecution(id uint64) {
+	p.executionMu.Lock()
+	delete(p.executionCancels, id)
+	p.executionMu.Unlock()
+}
+
+// cancelExecutions synchronously cancels every admitted lease context. The
+// lifetime AfterFunc propagation is asynchronous, so target retirement calls
+// this before it publishes the down transition.
+func (p *Page) cancelExecutions() {
+	p.executionMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(p.executionCancels))
+	for _, cancel := range p.executionCancels {
+		cancels = append(cancels, cancel)
+	}
+	p.executionMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
 }
 
 func (p *Page) drainExecution(ctx context.Context) error {

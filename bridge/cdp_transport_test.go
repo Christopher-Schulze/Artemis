@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -358,7 +360,10 @@ func cdpTestServer(t *testing.T, run func(context.Context, *websocket.Conn) erro
 		server.Close()
 		select {
 		case err := <-errs:
-			if err != nil && !errors.Is(err, context.Canceled) && websocket.CloseStatus(err) == -1 {
+			// The client closing its transport at the end of a test is a
+			// normal hang-up, observed as EOF or a closed connection when it
+			// races the cleanup cancellation; protocol errors still fail.
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && websocket.CloseStatus(err) == -1 {
 				t.Errorf("CDP test server: %v", err)
 			}
 		default:

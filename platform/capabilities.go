@@ -40,6 +40,17 @@ func Detect() PlatformCapabilities {
 	}
 }
 
+// ProbeTCPFastOpen runs only the TCP Fast Open probe of Detect, for callers
+// such as per-client HTTP transports that need no other capability.
+func ProbeTCPFastOpen() ProbeResult {
+	return probeTCPFastOpen()
+}
+
+// ProbeMmap runs only the anonymous mapping probe of Detect.
+func ProbeMmap() ProbeResult {
+	return probeMmap()
+}
+
 func probeJPEG() ProbeResult {
 	backend := jpegcodec.Probe()
 	result := ProbeResult{State: StateUnavailable, Source: "linked JPEG codec admission", Reason: backend.Reason}

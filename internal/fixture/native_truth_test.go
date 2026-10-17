@@ -56,7 +56,7 @@ func TestNativeFixtureResponseStatusUsesActualDocumentNotPageOrChild(t *testing.
 	for _, runner := range []runner{&bridgeRunner{}, &artemisRunner{}} {
 		t.Run(runner.name(), func(t *testing.T) {
 			defer func() {
-				cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				cleanup, cancel := context.WithTimeout(context.Background(), nativeRunnerCleanupBudget)
 				defer cancel()
 				runner.stop(cleanup, t)
 			}()

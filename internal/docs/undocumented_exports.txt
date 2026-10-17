@@ -584,7 +584,6 @@ js:FetchRequest
 js:FetchResponse
 js:InstalledBinding
 js:MutationRecordType
-js:NewRuntime
 js:NewRuntimeWithWarmPool
 js:NewSnapshotManifest
 js:ObserveInstalledBindings
@@ -647,7 +646,6 @@ network:MemoryAdmission
 network:Netguard
 network:NewAdBlockDetector
 network:NewAdBlockPerformance
-network:NewHTTPClient
 network:NewPolicy
 network:NewWebBotAuth
 network:NewWebBotAuthTransport
