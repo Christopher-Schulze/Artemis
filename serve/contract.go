@@ -9,6 +9,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
 	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/playwright"
 	"github.com/Christopher-Schulze/Artemis/scraper"
 	"github.com/Christopher-Schulze/Artemis/security"
 )
@@ -17,7 +18,7 @@ import (
 // Clients MUST check that they speak a compatible version. The version
 // is bumped on any breaking change to the envelope shape or to a
 // command's parameter/result schema.
-const ProtocolVersion = "2.4.0"
+const ProtocolVersion = "2.5.0"
 
 // Command names every operation the steering server accepts.
 type Command string
@@ -153,6 +154,16 @@ type PageOpenParams struct {
 	URL        string `json:"url"`
 	RunScripts bool   `json:"runScripts"`
 	AsyncFetch bool   `json:"asyncFetch,omitempty"`
+	EngineIntent
+}
+
+// EngineIntent is the optional engine intent of an open request: engine is
+// auto|artemis|playwright and requires lists "browser:<name>" or
+// "capability:<name>" needs. A request the selected engine cannot serve
+// fails capability_unavailable instead of switching engines.
+type EngineIntent struct {
+	Engine   string   `json:"engine,omitempty"`
+	Requires []string `json:"requires,omitempty"`
 }
 
 // PageCloseParams closes a single page.
@@ -226,6 +237,7 @@ type ChromiumActParams struct {
 type ChromiumOpenParams struct {
 	SessionID string `json:"sessionId"`
 	URL       string `json:"url"`
+	EngineIntent
 }
 
 type ChromiumObserveParams struct {
@@ -453,6 +465,9 @@ type VersionResponse struct {
 	ProcessID    int                  `json:"processId"`
 	Capabilities []artemis.Capability `json:"capabilities"`
 	Health       artemis.Health       `json:"health"`
+	// PlaywrightLane is the BrowserToolCapabilityProjection of the
+	// Playwright peer lane, reported by the capabilities command.
+	PlaywrightLane *playwright.Projection `json:"playwrightLane,omitempty"`
 }
 
 // SessionInfo describes a single session for session.list.

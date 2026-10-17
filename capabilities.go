@@ -137,6 +137,21 @@ var capabilityRegistry = []Capability{
 		BehaviorTest: "mcpserve.TestMCPToolsDriveTheSessionOwnerWithTrustAndTypedErrors",
 	},
 	{
+		ID: "playwright.routing", Description: "Resolve auto/artemis/playwright engine intent before the hybrid router without silent engine substitution", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "router.ResolveTool/artemis.(*Agent).ResolveBrowserTool/serve page.open engine/MCP artemis_open engine", Owner: "router.ResolveTool",
+		BehaviorTest: "router.TestResolveToolNeverSubstitutesAnExplicitEngine",
+	},
+	{
+		ID: "playwright.provisioning", Description: "Admit, cache and project a signed Playwright artifact with last-known-good recovery", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "playwright.Admit/playwright.Cache/CLI playwright", Owner: "playwright.Cache",
+		BehaviorTest: "playwright.TestAdmitRejectsTamperedArtifacts",
+	},
+	{
+		ID: "playwright.execution", Description: "Execute Playwright sessions and agent runs from the admitted artifact", Mode: ModeHybrid,
+		State: SupportUnavailable, Entrypoint: "artemis.(*Agent).PlaywrightLane", Owner: "embedding host sandboxed runtime",
+		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "execution needs an embedding host's sandboxed Playwright runtime",
+	},
+	{
 		ID: "profiles.persistent", Description: "Persist isolated authenticated browser profiles", Mode: ModeChromium,
 		State: SupportSupported, Since: Version, Entrypoint: "profile.NewBrowserRuntime", Owner: "profile.RuntimeManager",
 		BehaviorTest: "profile.TestBrowserRuntimePersistentCookieAndStorageAcrossRestart",

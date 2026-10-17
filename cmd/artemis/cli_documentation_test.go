@@ -19,7 +19,7 @@ func TestEveryCommandHelpFlagHasPublicDocumentation(t *testing.T) {
 	}{
 		{"fetch", cmdFetch}, {"download", cmdDownload}, {"sitemap", cmdSitemap}, {"run", cmdRun}, {"serve", cmdServe}, {"mcp", cmdMCP},
 		{"control", cmdControl}, {"observe", cmdObserve}, {"query", cmdQuery}, {"act", cmdAct},
-		{"session", cmdSession}, {"profile", cmdProfile}, {"doctor", cmdDoctor}, {"trace", cmdTrace},
+		{"session", cmdSession}, {"profile", cmdProfile}, {"doctor", cmdDoctor}, {"playwright", cmdPlaywright}, {"trace", cmdTrace},
 		{"diagnostics", cmdDiagnostics}, {"benchmark", cmdBenchmark},
 	} {
 		t.Run(command.name, func(t *testing.T) {

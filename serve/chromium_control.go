@@ -24,6 +24,9 @@ func (s *Server) cmdChromiumOpen(ctx context.Context, client clientIdentity, req
 	if response != nil {
 		return sessionError(req, response)
 	}
+	if refusal := s.admitEngine(ctx, req, params.SessionID, params.EngineIntent); refusal != nil {
+		return refusal
+	}
 	pageID, evidence, err := session.OpenChromiumPage(ctx, params.URL)
 	if err != nil {
 		return s.taskErrorResponse(req, err, ErrFetchFailed)

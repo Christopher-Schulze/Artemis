@@ -21,6 +21,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/profile"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
@@ -419,7 +420,7 @@ func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, clien
 	case string(CmdVersion):
 		return s.cmdVersion(req)
 	case string(CmdCapabilities):
-		return s.cmdCapabilities(req)
+		return s.cmdCapabilities(ctx, req)
 	case string(CmdHeartbeat):
 		return s.cmdHeartbeat(req)
 	case string(CmdSessionNew):
@@ -665,15 +666,39 @@ func (s *Server) cmdVersion(req *Request) *Response {
 	})
 }
 
-func (s *Server) cmdCapabilities(req *Request) *Response {
+func (s *Server) cmdCapabilities(ctx context.Context, req *Request) *Response {
+	lane := s.agent.PlaywrightLane(ctx)
 	return okResp(req.ID, VersionResponse{
-		Protocol:     ProtocolVersion,
-		Server:       "artemis-serve",
-		InstanceID:   s.instanceID,
-		ProcessID:    os.Getpid(),
-		Capabilities: artemis.Capabilities(),
-		Health:       s.agent.Health(),
+		Protocol:       ProtocolVersion,
+		Server:         "artemis-serve",
+		InstanceID:     s.instanceID,
+		ProcessID:      os.Getpid(),
+		Capabilities:   artemis.Capabilities(),
+		Health:         s.agent.Health(),
+		PlaywrightLane: &lane,
 	})
+}
+
+// admitEngine resolves an open request's engine intent for the session; the
+// standalone server opens only Artemis-owned pages, so any other decision
+// fails typed rather than being redirected.
+func (s *Server) admitEngine(ctx context.Context, req *Request, sessionID string, intent EngineIntent) *Response {
+	parsed, err := artemisrouter.ParseIntent(intent.Engine)
+	if err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
+	}
+	requirements := make([]artemisrouter.ToolRequirement, len(intent.Requires))
+	for i, requirement := range intent.Requires {
+		requirements[i] = artemisrouter.ToolRequirement(requirement)
+	}
+	decision, taskErr := s.agent.ResolveBrowserTool(ctx, sessionID, parsed, requirements)
+	if taskErr != nil {
+		return s.taskErrorResponse(req, taskErr, ErrCapabilityUnavailable)
+	}
+	if decision.Engine != artemisrouter.EngineArtemis {
+		return errResp(req.ID, string(ErrCapabilityUnavailable), fmt.Sprintf("engine %s sessions are opened by an embedding host with a sandboxed Playwright runtime", decision.Engine))
+	}
+	return nil
 }
 
 func (s *Server) cmdHeartbeat(req *Request) *Response {
@@ -800,6 +825,9 @@ func (s *Server) cmdPageOpen(ctx context.Context, client clientIdentity, req *Re
 	session, sessionErr := s.ownedSession(client.id, params.SessionID)
 	if sessionErr != nil {
 		return sessionError(req, sessionErr)
+	}
+	if refusal := s.admitEngine(ctx, req, params.SessionID, params.EngineIntent); refusal != nil {
+		return refusal
 	}
 	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts, artemis.PageOpenOptions{AsyncFetch: params.AsyncFetch})
 	if err != nil {

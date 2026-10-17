@@ -21,6 +21,8 @@ import (
 	artemis "github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
+	"github.com/Christopher-Schulze/Artemis/playwright"
+	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 	"github.com/Christopher-Schulze/Artemis/scraper"
 	"github.com/Christopher-Schulze/Artemis/security"
 )
@@ -93,8 +95,16 @@ func (s *Server) browserSession() (*artemis.Session, error) {
 }
 
 type openInput struct {
-	URL      string `json:"url" jsonschema:"absolute http(s) URL to open"`
-	Chromium bool   `json:"chromium,omitempty" jsonschema:"open in the owned Chromium browser instead of the renderless engine"`
+	URL      string   `json:"url" jsonschema:"absolute http(s) URL to open"`
+	Chromium bool     `json:"chromium,omitempty" jsonschema:"open in the owned Chromium browser instead of the renderless engine"`
+	Engine   string   `json:"engine,omitempty" jsonschema:"engine intent auto, artemis or playwright; a request the chosen engine cannot serve fails capability_unavailable and never switches engines"`
+	Requires []string `json:"requires,omitempty" jsonschema:"needs such as browser:firefox or capability:har that the selected engine must satisfy"`
+}
+
+// browserCapabilities is the artemis_browser_capabilities result.
+type browserCapabilities struct {
+	Capabilities   []artemis.Capability  `json:"capabilities"`
+	PlaywrightLane playwright.Projection `json:"playwrightLane"`
 }
 
 type pageInput struct {
@@ -156,6 +166,7 @@ type webMCPCallInput struct {
 
 func (s *Server) register() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "artemis_open", Description: "Open a URL in a new page of this session and return its page id."}, s.open)
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "artemis_browser_capabilities", Description: "Report Artemis capabilities and the Playwright lane projection (availability, browsers, capabilities, limits, remediation)."}, s.browserCapabilities)
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "artemis_dump", Description: "Return page content as html, markdown, text, title, links, structured or semantic."}, s.dump)
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "artemis_observe", Description: "Capture a bounded DOM/accessibility observation of a Chromium page with refs and its snapshotEpoch."}, s.observe)
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "artemis_act", Description: "Execute one typed action on a Chromium page; ref actions require the current snapshotEpoch."}, s.act)
@@ -185,6 +196,10 @@ func (s *Server) result(value any, trust *security.ContentTrust) (*mcp.CallToolR
 
 // failure reports a typed browser error inside the tool result so the model
 // can self-correct; the stable code leads the text.
+func (s *Server) browserCapabilities(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	return s.result(browserCapabilities{Capabilities: artemis.Capabilities(), PlaywrightLane: s.agent.PlaywrightLane(ctx)}, nil)
+}
+
 func failure(taskErr *artemis.TaskError) (*mcp.CallToolResult, any, error) {
 	text := string(taskErr.Code) + ": " + taskErr.Error()
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
@@ -222,6 +237,21 @@ func (s *Server) open(ctx context.Context, _ *mcp.CallToolRequest, input openInp
 	session, err := s.browserSession()
 	if err != nil {
 		return failure(&artemis.TaskError{Code: artemis.TaskErrorSessionLimit, Op: "mcp_session", Cause: err})
+	}
+	intent, err := artemisrouter.ParseIntent(input.Engine)
+	if err != nil {
+		return invalid(err)
+	}
+	requirements := make([]artemisrouter.ToolRequirement, len(input.Requires))
+	for i, requirement := range input.Requires {
+		requirements[i] = artemisrouter.ToolRequirement(requirement)
+	}
+	decision, taskErr := s.agent.ResolveBrowserTool(ctx, session.SessionID(), intent, requirements)
+	if taskErr != nil {
+		return failure(taskErr)
+	}
+	if decision.Engine != artemisrouter.EngineArtemis {
+		return failure(&artemis.TaskError{Code: artemis.TaskErrorCapabilityUnavailable, Op: "artemis_open", Cause: fmt.Errorf("engine %s pages are opened by an embedding host with a sandboxed Playwright runtime", decision.Engine)})
 	}
 	if input.Chromium {
 		pageID, evidence, taskErr := session.OpenChromiumPage(ctx, input.URL)
@@ -454,8 +484,9 @@ func (s *Server) addPageResource(pageID string) {
 // readObservation returns a fresh observation of the page named by the URI.
 func (s *Server) readObservation(ctx context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	uri := request.Params.URI
-	pageID, ok := strings.CutPrefix(uri, "artemis://pages/")
-	if pageID, ok = strings.CutSuffix(pageID, "/observation"); !ok || pageID == "" || strings.Contains(pageID, "/") {
+	pageID, hasPrefix := strings.CutPrefix(uri, "artemis://pages/")
+	pageID, hasSuffix := strings.CutSuffix(pageID, "/observation")
+	if !hasPrefix || !hasSuffix || pageID == "" || strings.Contains(pageID, "/") {
 		return nil, mcp.ResourceNotFoundError(uri)
 	}
 	session, err := s.browserSession()

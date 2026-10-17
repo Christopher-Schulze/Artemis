@@ -49,6 +49,7 @@ type Agent struct {
 	chromiumCancel              context.CancelFunc
 	chromiumStartErr            error
 	browserPolicy               *BrowserPolicy
+	playwrightLane              playwrightLane
 }
 
 // AgentConfig configures the artemis agent
@@ -90,6 +91,10 @@ type AgentConfig struct {
 	// VisualGrounder is the optional host model capability behind
 	// Session.GroundVisual; nil leaves visual grounding unavailable.
 	VisualGrounder VisualGrounder `json:"-"`
+	// Playwright configures the Playwright peer lane's signed artifact cache;
+	// nil leaves the lane unprovisioned, so explicit Playwright requests fail
+	// typed and auto routing stays on the direct engines.
+	Playwright *PlaywrightLaneConfig `json:"-"`
 }
 
 // AgentState enumerates agent lifecycle states
