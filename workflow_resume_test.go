@@ -245,7 +245,9 @@ func TestWorkflowJournalRefusesCorruptionAndForeignDefinitions(t *testing.T) {
 
 func TestWriterLeaseIsExclusiveExpiringAndKeepsReadersOpen(t *testing.T) {
 	session, pageID, server, orders, ctx := startOrderSession(t)
-	lease, taskErr := session.AcquireWriterLease(pageID, "operator", 200*time.Millisecond)
+	// The lease must outlive the exclusivity checks below on slow hosts; the
+	// expiry half then waits for its actual ExpiresAt.
+	lease, taskErr := session.AcquireWriterLease(pageID, "operator", 3*time.Second)
 	if taskErr != nil {
 		t.Fatal(taskErr)
 	}
@@ -260,8 +262,12 @@ func TestWriterLeaseIsExclusiveExpiringAndKeepsReadersOpen(t *testing.T) {
 		t.Fatalf("lease holder could not write: %+v %v", outcome, taskErr)
 	}
 	def := orderWorkflow(strings.TrimSuffix(server.URL, "/"))
-	if _, taskErr := session.RunWorkflow(ctx, pageID, def, map[string]WorkflowInput{"item": {Value: "chair"}}, WorkflowRunOptions{}); taskErr == nil || taskErr.Code != TaskErrorPolicyDenied || orders.Load() != 0 {
-		t.Fatalf("workflow ran on a page leased to another holder: %v orders=%d", taskErr, orders.Load())
+	_, deniedErr := session.RunWorkflow(ctx, pageID, def, map[string]WorkflowInput{"item": {Value: "chair"}}, WorkflowRunOptions{})
+	if time.Now().After(lease.ExpiresAt) {
+		t.Fatalf("exclusivity checks outlived the lease (expired %s); their outcome proves nothing", lease.ExpiresAt)
+	}
+	if deniedErr == nil || deniedErr.Code != TaskErrorPolicyDenied || orders.Load() != 0 {
+		t.Fatalf("workflow ran on a page leased to another holder: %v orders=%d", deniedErr, orders.Load())
 	}
 	if taskErr := session.ReleaseWriterLease(pageID, "forged"); taskErr == nil {
 		t.Fatal("foreign token released the lease")
@@ -269,7 +275,7 @@ func TestWriterLeaseIsExclusiveExpiringAndKeepsReadersOpen(t *testing.T) {
 	if _, taskErr := session.AcquireWriterLease(pageID, "operator", time.Hour); taskErr == nil || taskErr.Code != TaskErrorInvalidInput {
 		t.Fatalf("lease beyond the 30m bound was granted: %v", taskErr)
 	}
-	expiry := time.NewTimer(300 * time.Millisecond)
+	expiry := time.NewTimer(time.Until(lease.ExpiresAt) + 100*time.Millisecond)
 	select {
 	case <-expiry.C:
 	case <-ctx.Done():
