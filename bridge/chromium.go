@@ -269,35 +269,8 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 	if policy == nil {
 		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "connect browser", Err: fmt.Errorf("network policy required")}
 	}
-	// A just-launched browser can accept the WebSocket upgrade and then
-	// close before the DevTools broker is fully wired — attaching to it
-	// must not fail on that transient EOF. Bounded retries keep the
-	// attach fast in the common case and resilient under load.
-	var transport *CDPTransport
-	var version BrowserVersion
-	var err error
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(50*attempt) * time.Millisecond):
-			}
-		}
-		transport, err = DialCDPTransport(ctx, CDPTransportConfig{URL: endpoint})
-		if err != nil {
-			continue
-		}
-		if versionErr := transport.Call(ctx, "Browser.getVersion", nil, &version); versionErr != nil {
-			_ = transport.Close()
-			transport = nil
-			err = fmt.Errorf("validate browser identity: %w", versionErr)
-			continue
-		}
-		err = nil
-		break
-	}
-	if transport == nil {
+	transport, monitor, version, err := handshakeChromium(ctx, endpoint, processOwner)
+	if err != nil {
 		return nil, err
 	}
 	browser := &ChromiumBrowser{
@@ -306,21 +279,7 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		maxPages: defaultChromiumMaxPages, policy: policy, policyProxy: proxy,
 	}
 	browser.version = version
-	if browser.version.ProtocolVersion == "" || browser.version.Product == "" {
-		_ = transport.Close()
-		return nil, &CDPError{Code: CDPErrorProtocol, Op: "validate browser identity", Err: fmt.Errorf("incomplete Browser.getVersion result")}
-	}
-	monitor, err := transport.Subscribe(256)
-	if err != nil {
-		_ = transport.Close()
-		return nil, err
-	}
 	browser.monitor = monitor
-	if err := transport.Call(ctx, "Target.setDiscoverTargets", setDiscoverTargetsParams{Discover: true}, nil); err != nil {
-		monitor.Close()
-		_ = transport.Close()
-		return nil, fmt.Errorf("enable target discovery: %w", err)
-	}
 	browser.monitorDone = make(chan struct{})
 	go func() {
 		defer close(browser.monitorDone)
