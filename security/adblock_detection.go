@@ -2,8 +2,11 @@ package security
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -20,22 +23,28 @@ type AdBlockerDetection struct {
 	filePath  string
 }
 
-// NewAdBlockerDetection creates a new detection layer with the
-// persistent whitelist at the given path
-// (whitelist file under the browser data dir).
-func NewAdBlockerDetection(whitelistPath string) *AdBlockerDetection {
+// NewAdBlockerDetection opens the persistent site whitelist at
+// whitelistPath (spec L4208: persistent across updates, no auto-expiry). A
+// missing file starts empty; an unreadable or corrupt file is an error so
+// operator decisions are never silently dropped.
+func NewAdBlockerDetection(whitelistPath string) (*AdBlockerDetection, error) {
 	d := &AdBlockerDetection{
 		whitelist: make(map[string]bool),
 		filePath:  whitelistPath,
 	}
-	d.loadWhitelist()
-	return d
+	if err := d.loadWhitelist(); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
-// DefaultAdBlockerDetection creates a detection layer with the
-// default whitelist path.
-func DefaultAdBlockerDetection() *AdBlockerDetection {
-	home, _ := os.UserHomeDir()
+// DefaultAdBlockerDetection opens the whitelist under
+// ~/.artemis/browser/adblock_whitelist.json; embedding hosts pass their own home.
+func DefaultAdBlockerDetection() (*AdBlockerDetection, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("adblock whitelist: %w", err)
+	}
 	return NewAdBlockerDetection(filepath.Join(home, ".artemis", "browser", "adblock_whitelist.json"))
 }
 
@@ -138,21 +147,34 @@ func MatchAdBlockerCSS(classList string) []string {
 	return matches
 }
 
-// IsWhitelisted reports whether a domain is in the persistent
-// adblocker whitelist (spec L4208: persistent across updates, no
-// auto-expiry).
+// IsWhitelisted reports whether domain or one of its parent domains is in
+// the persistent whitelist (spec L4208).
 func (d *AdBlockerDetection) IsWhitelisted(domain string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.whitelist[strings.ToLower(domain)]
+	for domain = strings.ToLower(strings.TrimSpace(domain)); domain != ""; {
+		if d.whitelist[domain] {
+			return true
+		}
+		dot := strings.IndexByte(domain, '.')
+		if dot < 0 {
+			return false
+		}
+		domain = domain[dot+1:]
+	}
+	return false
 }
 
 // AddToWhitelist adds a domain to the persistent whitelist
 // (spec L4208: whitelist domain + reload).
 func (d *AdBlockerDetection) AddToWhitelist(domain string) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" || strings.ContainsAny(domain, "/:@ ") {
+		return fmt.Errorf("adblock whitelist: invalid domain %q", domain)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.whitelist[strings.ToLower(domain)] = true
+	d.whitelist[domain] = true
 	return d.saveWhitelist()
 }
 
@@ -161,7 +183,7 @@ func (d *AdBlockerDetection) AddToWhitelist(domain string) error {
 func (d *AdBlockerDetection) RemoveFromWhitelist(domain string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.whitelist, strings.ToLower(domain))
+	delete(d.whitelist, strings.ToLower(strings.TrimSpace(domain)))
 	return d.saveWhitelist()
 }
 
@@ -173,28 +195,33 @@ func (d *AdBlockerDetection) WhitelistDomains() []string {
 	for domain := range d.whitelist {
 		out = append(out, domain)
 	}
+	sort.Strings(out)
 	return out
 }
 
 // loadWhitelist loads the whitelist from the JSON file
 // (spec L4208: persistent across updates).
-func (d *AdBlockerDetection) loadWhitelist() {
+func (d *AdBlockerDetection) loadWhitelist() error {
 	if d.filePath == "" {
-		return
+		return nil
 	}
 	data, err := os.ReadFile(d.filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return // file doesn't exist yet; start with empty whitelist
+		return fmt.Errorf("adblock whitelist: %w", err)
 	}
 	var domains []string
 	if err := json.Unmarshal(data, &domains); err != nil {
-		return
+		return fmt.Errorf("adblock whitelist %s: %w", d.filePath, err)
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, domain := range domains {
-		d.whitelist[strings.ToLower(domain)] = true
+		d.whitelist[strings.ToLower(strings.TrimSpace(domain))] = true
 	}
+	return nil
 }
 
 // saveWhitelist saves the whitelist to the JSON file.
@@ -206,12 +233,13 @@ func (d *AdBlockerDetection) saveWhitelist() error {
 	for domain := range d.whitelist {
 		domains = append(domains, domain)
 	}
+	sort.Strings(domains)
 	if err := os.MkdirAll(filepath.Dir(d.filePath), 0o750); err != nil {
-		return err
+		return fmt.Errorf("adblock whitelist: %w", err)
 	}
 	data, err := json.Marshal(domains)
 	if err != nil {
-		return err
+		return fmt.Errorf("adblock whitelist: %w", err)
 	}
-	return os.WriteFile(d.filePath, data, 0o600)
+	return writeFileAtomic(d.filePath, data)
 }

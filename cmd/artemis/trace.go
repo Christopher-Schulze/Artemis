@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
@@ -14,6 +16,7 @@ import (
 
 func cmdTrace(args []string) (exitCode int) {
 	fs := newFlagSet("trace")
+	adBlock := addAdBlockFlag(fs)
 	url := fs.String("url", "", "URL to fetch (required)")
 	format := fs.String("format", "json", "output format: json or text")
 	binary := fs.String("binary", "", "Chromium binary path (auto-discovered when empty)")
@@ -38,8 +41,9 @@ Flags:
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *url == "" {
-		errf("trace: --url required")
+	parsedURL, parseErr := neturl.Parse(*url)
+	if parseErr != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || fs.NArg() != 0 {
+		errf("trace: --url must be an HTTP(S) URL; positional arguments are not accepted")
 		return 2
 	}
 	if *format != "json" && *format != "text" {
@@ -49,6 +53,15 @@ Flags:
 	sandboxPolicy, err := parseSandboxPolicy(*sandbox)
 	if err != nil {
 		errf("trace sandbox: %v", err)
+		return 2
+	}
+	budget := process.ResourceBudget{MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile, SessionTimeout: *sessionTimeout}
+	if err := validateCLIResourceBudget(budget); err != nil {
+		errf("trace: %v", err)
+		return 2
+	}
+	if *allowPort < 0 || *allowPort > 65535 {
+		errf("trace destination port must be within 0..65535")
 		return 2
 	}
 
@@ -66,11 +79,9 @@ Flags:
 	browser, err := bridge.LaunchChromium(ctx, process.LaunchConfig{
 		BinaryPath: *binary, Headless: true, Sandbox: sandboxPolicy,
 		AllowPrivateNetworks: policy.AllowPrivateNetworks, AllowedPorts: policy.AllowedPorts,
-		ResourceBudget: process.ResourceBudget{
-			MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile,
-			SessionTimeout: *sessionTimeout,
-		},
+		ResourceBudget:     budget,
 		PolicyDecisionSink: policySink, ResourceSink: resourceSink,
+		DisableAdBlock: !*adBlock,
 	})
 	if err != nil {
 		errf("trace launch: %v", err)
@@ -108,7 +119,9 @@ Flags:
 	}
 	defer func() {
 		if trace.IsActive() {
-			if _, cleanupErr := trace.Stop(context.Background()); cleanupErr != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cleanupCancel()
+			if _, cleanupErr := trace.Stop(cleanupCtx); cleanupErr != nil {
 				errf("trace cleanup: %v", cleanupErr)
 				if exitCode == 0 {
 					exitCode = 1
@@ -122,15 +135,21 @@ Flags:
 		URL: *url, TargetID: page.TargetID(), BrowserContextID: page.BrowserContextID(),
 	}
 	result.Events = append(result.Events, TraceEvent{At: time.Since(t0).Milliseconds(), Stage: "trace_started"})
-	if _, _, err := page.Navigate(ctx, *url); err != nil {
+	frameID, loaderID, err := page.Navigate(ctx, *url)
+	if err != nil {
 		errf("trace navigation: %v", err)
 		return 1
 	}
-	if err := waitDocumentReady(ctx, page); err != nil {
+	response, err := waitTraceDocumentResponse(ctx, trace, frameID, loaderID)
+	if err != nil {
+		errf("trace response: %v", err)
+		return 1
+	}
+	if err := waitDocumentReady(ctx, page, true); err != nil {
 		errf("trace readiness: %v", err)
 		return 1
 	}
-	result.Events = append(result.Events, TraceEvent{At: time.Since(t0).Milliseconds(), Stage: "page_loaded", URL: *url, Status: 200})
+	result.Events = append(result.Events, TraceEvent{At: time.Since(t0).Milliseconds(), Stage: "page_loaded", URL: response.URL, Status: response.Status})
 	if title, titleErr := tracePageTitle(ctx, page); titleErr == nil && title != "" {
 		result.Events = append(result.Events, TraceEvent{At: time.Since(t0).Milliseconds(), Stage: "title", Value: title})
 	}
@@ -145,17 +164,38 @@ Flags:
 	result.TotalMS = time.Since(t0).Milliseconds()
 
 	if *format != "json" {
+		lines := make([]string, 0, len(result.Events))
 		for _, e := range result.Events {
-			fmt.Printf("%+v\n", e)
+			lines = append(lines, fmt.Sprintf("%+v", e))
+		}
+		if err := printText(os.Stdout, strings.Join(lines, "\n")); err != nil {
+			errf("trace output: %v", err)
+			return 1
 		}
 		return 0
 	}
 
-	if err := printJSON(os.Stdout, result); err != nil {
+	if err := printLabeledJSON(os.Stdout, result, *url, "trace"); err != nil {
 		errf("trace: %v", err)
 		return 1
 	}
 	return 0
+}
+
+func waitTraceDocumentResponse(ctx context.Context, trace *telemetry.BrowserTraceRecorder, frameID, loaderID string) (telemetry.TraceNetworkEntry, error) {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		entry, found, err := trace.DocumentResponse(frameID, loaderID)
+		if err != nil || found {
+			return entry, err
+		}
+		select {
+		case <-ctx.Done():
+			return telemetry.TraceNetworkEntry{}, fmt.Errorf("no observed document response: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // TraceResult is the stable JSON output of the trace command.

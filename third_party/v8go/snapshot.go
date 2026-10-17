@@ -9,7 +9,10 @@ package v8go
 import "C"
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"math"
 	"unsafe"
 )
 
@@ -21,9 +24,16 @@ type SnapshotCreator struct {
 }
 
 // NewSnapshotCreator creates a fresh SnapshotCreator with its own
-// isolate. Pure JS evaluated via RunScript becomes part of the default
-// context that NewIsolateFromSnapshot will deserialise.
+// isolate. Pure JS evaluated via RunScript becomes the scripted
+// realm that NewContextFromSnapshot(iso, 0) opens once SetProcessSnapshot
+// installed the blob.
 func NewSnapshotCreator() *SnapshotCreator {
+	if ProcessSnapshotActive() {
+		// The creator must start from V8's own snapshot, which the process
+		// snapshot replaced; such a creator would also break the shared
+		// read-only heap. RunScript and CreateBlob report the refusal.
+		return &SnapshotCreator{}
+	}
 	initializeIfNecessary()
 	return &SnapshotCreator{ptr: C.SnapshotCreatorNew()}
 }
@@ -32,7 +42,7 @@ func NewSnapshotCreator() *SnapshotCreator {
 // origin is used for stack traces only.
 func (s *SnapshotCreator) RunScript(source, origin string) error {
 	if s.ptr == nil {
-		return errors.New("snapshot creator disposed")
+		return errors.New("snapshot creator unavailable: disposed, or a process snapshot is active")
 	}
 	cSrc := C.CString(source)
 	cOri := C.CString(origin)
@@ -40,15 +50,7 @@ func (s *SnapshotCreator) RunScript(source, origin string) error {
 	defer C.free(unsafe.Pointer(cOri))
 	rtn := C.SnapshotCreatorRunScript(s.ptr, cSrc, cOri)
 	if rtn.msg != nil {
-		msg := C.GoString(rtn.msg)
-		C.free(unsafe.Pointer(rtn.msg))
-		if rtn.location != nil {
-			C.free(unsafe.Pointer(rtn.location))
-		}
-		if rtn.stack != nil {
-			C.free(unsafe.Pointer(rtn.stack))
-		}
-		return errors.New(msg)
+		return newJSError(rtn)
 	}
 	return nil
 }
@@ -58,13 +60,11 @@ func (s *SnapshotCreator) RunScript(source, origin string) error {
 // subsequent RunScript calls will fail.
 func (s *SnapshotCreator) CreateBlob() ([]byte, error) {
 	if s.ptr == nil {
-		return nil, errors.New("snapshot creator disposed")
+		return nil, errors.New("snapshot creator unavailable: disposed, or a process snapshot is active")
 	}
 	rtn := C.SnapshotCreatorCreateBlob(s.ptr)
 	if rtn.error.msg != nil {
-		msg := C.GoString(rtn.error.msg)
-		C.free(unsafe.Pointer(rtn.error.msg))
-		return nil, errors.New(msg)
+		return nil, newJSError(rtn.error)
 	}
 	if rtn.data == nil || rtn.length <= 0 {
 		return nil, errors.New("empty snapshot blob")
@@ -85,36 +85,70 @@ func (s *SnapshotCreator) Dispose() {
 	s.ptr = nil
 }
 
-// NewIsolateFromSnapshot creates an isolate seeded with a startup
-// snapshot blob produced by SnapshotCreator. Contexts created on this
-// isolate inherit the snapshot's default context state, skipping the
-// parse + first-run cost of whatever JS was baked in.
-//
-// snapshot must remain valid for the lifetime of the isolate; we copy
-// it into a heap-allocated buffer that IsolateDispose frees.
-func NewIsolateFromSnapshot(snapshot []byte) *Isolate {
-	initializeIfNecessary()
-	if len(snapshot) == 0 {
-		return NewIsolate()
+// ErrV8Initialized is returned by SetProcessSnapshot after V8 started
+// without that snapshot.
+var ErrV8Initialized = errors.New("v8go: V8 is already initialized without this process snapshot")
+
+// SetProcessSnapshot makes snapshot the startup snapshot of every isolate in
+// this process. V8 shares one read-only heap across a process's isolates, so
+// isolates from different snapshots cannot coexist; the snapshot is therefore
+// process-wide and must be set before the first isolate exists. Setting the
+// same bytes again is a no-op. The snapshot's default context is pristine,
+// so plain NewContext realms are unaffected; NewContextFromSnapshot opens the
+// scripted realm. The bytes are copied and kept for the process lifetime.
+func SetProcessSnapshot(snapshot []byte) error {
+	if len(snapshot) == 0 || len(snapshot) > math.MaxInt32 || !SnapshotBlobIsValid(snapshot) {
+		return errors.New("v8go: valid snapshot blob required")
 	}
-	iso := &Isolate{
-		ptr: C.NewIsolateWithSnapshot(
-			(*C.uint8_t)(unsafe.Pointer(&snapshot[0])),
-			C.int(len(snapshot)),
-		),
-		cbs: make(map[int]FunctionCallback),
+	sum := sha256.Sum256(snapshot)
+	processSnapshotMu.Lock()
+	defer processSnapshotMu.Unlock()
+	if processSnapshotSet {
+		if sum == processSnapshotSum {
+			return nil
+		}
+		return errors.New("v8go: a different process snapshot is already set")
 	}
-	iso.null = newValueNull(iso)
-	iso.undefined = newValueUndefined(iso)
-	return iso
+	if v8Initialized {
+		return ErrV8Initialized
+	}
+	C.SetProcessSnapshot((*C.uint8_t)(unsafe.Pointer(&snapshot[0])), C.int(len(snapshot)))
+	processSnapshotSum, processSnapshotSet = sum, true
+	return nil
+}
+
+// ProcessSnapshotActive reports whether isolates of this process start from
+// the process snapshot.
+func ProcessSnapshotActive() bool {
+	processSnapshotMu.Lock()
+	defer processSnapshotMu.Unlock()
+	return processSnapshotSet
+}
+
+// NewContextFromSnapshot opens the scripted realm (additional context index)
+// of the process snapshot on iso.
+func NewContextFromSnapshot(iso *Isolate, index int) (*Context, error) {
+	if iso == nil || iso.ptr == nil || !ProcessSnapshotActive() {
+		return nil, errors.New("v8go: live isolate with a process snapshot required")
+	}
+	ctxRegMu.Lock()
+	ctxSeq++
+	ref := ctxSeq
+	ctxRegMu.Unlock()
+	ptr := C.NewContextFromSnapshot(iso.ptr, C.int(index), C.int(ref))
+	if ptr == nil {
+		return nil, fmt.Errorf("v8go: process snapshot has no context %d", index)
+	}
+	ctx := &Context{ref: ref, ptr: ptr, iso: iso}
+	ctx.register()
+	return ctx, nil
 }
 
 // SnapshotBlobIsValid checks the V8 checksum and serialized snapshot shape
 // against the linked V8 runtime without creating an isolate or mutating the
 // supplied bytes.
 func SnapshotBlobIsValid(snapshot []byte) bool {
-	initializeIfNecessary()
-	if len(snapshot) == 0 {
+	if len(snapshot) == 0 || len(snapshot) > math.MaxInt32 {
 		return false
 	}
 	return C.SnapshotBlobIsValid(

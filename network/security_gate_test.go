@@ -248,11 +248,11 @@ func TestSecurityGateRequestContextCancellation(t *testing.T) {
 }
 
 func TestSecurityGateLifecycleCancellationReachesPolicyResolution(t *testing.T) {
-	var cancellationObserved atomic.Bool
+	var lookups atomic.Int64
 	resolver := securityGateResolverFunc(func(ctx context.Context, _, _ string) ([]netip.Addr, error) {
+		lookups.Add(1)
 		select {
 		case <-ctx.Done():
-			cancellationObserved.Store(true)
 			return nil, ctx.Err()
 		default:
 			return []netip.Addr{netip.MustParseAddr("1.1.1.1")}, nil
@@ -266,11 +266,11 @@ func TestSecurityGateLifecycleCancellationReachesPolicyResolution(t *testing.T) 
 	client.client.Transport = securityGateRoundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("cancelled request reached transport")
 	})
-	if _, err := client.Do(context.Background(), Request{URL: "https://public.example/cancelled"}); !errors.Is(err, ErrPolicyDenied) {
+	if _, err := client.Do(context.Background(), Request{URL: "https://public.example/cancelled"}); !errors.Is(err, ErrPolicyDenied) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("lifecycle cancellation error=%v", err)
 	}
-	if !cancellationObserved.Load() {
-		t.Fatal("policy resolution did not receive the lifecycle-owned cancellation context")
+	if lookups.Load() != 0 {
+		t.Fatal("cancelled lifecycle performed DNS work")
 	}
 }
 

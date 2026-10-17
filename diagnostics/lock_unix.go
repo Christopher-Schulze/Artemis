@@ -36,3 +36,6 @@ func (l *fileLock) release() {
 	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
 	_ = l.file.Close()
 }
+
+// openNoFollow refuses to open a path whose final element is a symlink.
+const openNoFollow = syscall.O_NOFOLLOW

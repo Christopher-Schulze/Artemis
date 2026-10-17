@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
@@ -107,7 +106,7 @@ func TestProcessDiagnosticsCorrelatePolicyAndResourceRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := diagnostics.HashSession("act-session")
+	want := store.SessionRef("act-session")
 	if len(records) != 2 || records[0].Policy == nil || records[1].Resource == nil || records[0].Policy.SessionRef != want || records[1].Resource.SessionRef != want {
 		t.Fatalf("records=%+v want session_ref=%q", records, want)
 	}

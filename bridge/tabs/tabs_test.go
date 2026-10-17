@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -10,12 +11,44 @@ import (
 )
 
 type testTargetSource struct {
-	mu           sync.Mutex
-	nextID       int
-	targets      map[string]Target
-	failCreate   bool
-	failActivate bool
-	failClose    bool
+	mu                 sync.Mutex
+	nextID             int
+	targets            map[string]Target
+	failCreate         bool
+	failActivate       bool
+	failClose          bool
+	failList           bool
+	failListAfterClose bool
+	listCalls          int
+	closeCalls         int
+	closeHadDeadline   bool
+	createResult       Target
+	useCreateResult    bool
+	createErr          error
+	cancelCreate       context.CancelFunc
+	createGate         *targetCreateGate
+	listGates          map[int]*targetListGate
+}
+
+type targetCreateGate struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+type targetListGate struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+type doneProbeContext struct {
+	context.Context
+	doneCalled chan struct{}
+	once       sync.Once
+}
+
+func (c *doneProbeContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.doneCalled) })
+	return c.Context.Done()
 }
 
 func newTestTargetSource() *testTargetSource {
@@ -24,7 +57,12 @@ func newTestTargetSource() *testTargetSource {
 
 func (s *testTargetSource) ListTargets(_ context.Context) ([]Target, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.listCalls++
+	call := s.listCalls
+	if s.failList || (s.failListAfterClose && s.closeCalls > 0) {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("forced list failure")
+	}
 	ids := make([]string, 0, len(s.targets))
 	for id := range s.targets {
 		ids = append(ids, id)
@@ -34,27 +72,49 @@ func (s *testTargetSource) ListTargets(_ context.Context) ([]Target, error) {
 	for _, id := range ids {
 		out = append(out, s.targets[id])
 	}
+	gate := s.listGates[call]
+	s.mu.Unlock()
+	if gate != nil {
+		close(gate.started)
+		<-gate.release
+	}
 	return out, nil
 }
 
 func (s *testTargetSource) CreateTarget(_ context.Context, url string) (Target, error) {
+	s.mu.Lock()
 	if s.failCreate {
+		s.mu.Unlock()
 		return Target{}, fmt.Errorf("forced create failure")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.nextID++
 	target := Target{ID: fmt.Sprintf("target-%d", s.nextID), URL: url, State: "attached"}
-	s.targets[target.ID] = target
-	return target, nil
+	if s.useCreateResult || s.createResult.ID != "" {
+		target = s.createResult
+	}
+	if target.State != "closed" {
+		s.targets[target.ID] = target
+	}
+	gate := s.createGate
+	err := s.createErr
+	cancel := s.cancelCreate
+	s.mu.Unlock()
+	if gate != nil {
+		close(gate.started)
+		<-gate.release
+	}
+	if cancel != nil {
+		cancel()
+	}
+	return target, err
 }
 
 func (s *testTargetSource) ActivateTarget(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.failActivate {
 		return fmt.Errorf("forced activate failure")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	target, ok := s.targets[id]
 	if !ok {
 		return fmt.Errorf("target %s not found", id)
@@ -64,15 +124,20 @@ func (s *testTargetSource) ActivateTarget(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *testTargetSource) CloseTarget(_ context.Context, id string) error {
-	if s.failClose {
-		return fmt.Errorf("forced close failure")
+func (s *testTargetSource) CloseTarget(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_, s.closeHadDeadline = ctx.Deadline()
+	if s.failClose {
+		return fmt.Errorf("forced close failure")
+	}
 	if _, ok := s.targets[id]; !ok {
 		return fmt.Errorf("target %s not found", id)
 	}
+	s.closeCalls++
 	delete(s.targets, id)
 	return nil
 }
@@ -137,6 +202,542 @@ func TestTASK2568_TabLifecycleFailureDoesNotMutateProjection(t *testing.T) {
 	}
 	if got, ok := registry.GetTab(tab.ID); !ok || got.ID != tab.ID {
 		t.Fatal("failed close removed the live source projection")
+	}
+}
+
+func TestTASK2784_CreateProjectsReturnedTargetWithoutListRefresh(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{
+		ID: "created-target", URL: "https://example.com", Title: "Example", State: "attached",
+		ContextID: "browser-context", CreatedAt: time.Unix(100, 0),
+	}
+	source.failList = true
+	registry := NewTabRegistry(source)
+
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if tab.ID != "created-target" || tab.UserID != "owner-1" || tab.BrowserContextID != "browser-context" || !tab.CreatedAt.Equal(time.Unix(100, 0)) {
+		t.Fatalf("created projection=%#v", tab)
+	}
+	source.mu.Lock()
+	listCalls := source.listCalls
+	source.mu.Unlock()
+	if listCalls != 0 {
+		t.Fatalf("create made %d full target-list calls, want 0", listCalls)
+	}
+}
+
+func TestTASK2784_CreateCompensatesKnownPartialTarget(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "partial-target", State: "attached"}
+	source.createErr = errors.New("created page metadata failed")
+	registry := NewTabRegistry(source)
+
+	_, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	var createErr *TargetCreateError
+	if !errors.As(err, &createErr) || createErr.TargetID != "partial-target" || !createErr.Compensated {
+		t.Fatalf("create error=%#v, want confirmed compensation with target identity", err)
+	}
+	if _, ok := registry.GetTab("partial-target"); ok {
+		t.Fatal("compensated target remained in registry")
+	}
+	source.mu.Lock()
+	_, sourceStillOwnsTarget := source.targets["partial-target"]
+	closeCalls := source.closeCalls
+	source.mu.Unlock()
+	if sourceStillOwnsTarget || closeCalls != 1 {
+		t.Fatalf("source target retained=%v close calls=%d", sourceStillOwnsTarget, closeCalls)
+	}
+}
+
+func TestTASK2784_CreateWithoutTargetIDReportsUnknownOutcome(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{State: "attached"}
+	source.useCreateResult = true
+	registry := NewTabRegistry(source)
+
+	_, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	var createErr *TargetCreateError
+	if !errors.As(err, &createErr) || !createErr.OutcomeUnknown || createErr.TargetID != "" {
+		t.Fatalf("create error=%#v, want explicit unknown outcome without target identity", err)
+	}
+	if _, found := registry.GetTab(""); found {
+		t.Fatal("target without an ID was inserted into the registry")
+	}
+}
+
+func TestTASK2784_CreateRetainsOwnedPartialTargetWhenCompensationFails(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "uncertain-target", URL: "https://example.com", State: "attached"}
+	source.createErr = errors.New("target inspection failed")
+	source.failClose = true
+	registry := NewTabRegistry(source)
+
+	_, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	var createErr *TargetCreateError
+	if !errors.As(err, &createErr) || createErr.TargetID != "uncertain-target" || createErr.Compensated {
+		t.Fatalf("create error=%#v, want explicit uncompensated target identity", err)
+	}
+	tab, ok := registry.GetTab("uncertain-target")
+	if !ok || tab.UserID != "owner-1" || tab.State != TabStateOpen {
+		t.Fatalf("uncertain target projection=%#v, found=%v", tab, ok)
+	}
+}
+
+func TestTASK2784_CreateRejectsNonLiveTargetStates(t *testing.T) {
+	for _, state := range []string{"closed", "crashed", "detached"} {
+		t.Run(state, func(t *testing.T) {
+			source := newTestTargetSource()
+			source.createResult = Target{ID: "terminal-target", State: state}
+			registry := NewTabRegistry(source)
+			_, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+			var createErr *TargetCreateError
+			if !errors.As(err, &createErr) || !createErr.Compensated || createErr.TargetID != "terminal-target" {
+				t.Fatalf("non-live create error=%#v, want identified compensated failure", err)
+			}
+			if _, ok := registry.GetTab("terminal-target"); ok {
+				t.Fatal("non-live target was published as a successful tab")
+			}
+			source.mu.Lock()
+			closeCalls := source.closeCalls
+			_, targetRetained := source.targets["terminal-target"]
+			source.mu.Unlock()
+			wantCloseCalls := 1
+			if state == "closed" {
+				wantCloseCalls = 0
+			}
+			if targetRetained || closeCalls != wantCloseCalls {
+				t.Fatalf("non-live target cleanup: retained=%v close calls=%d", targetRetained, closeCalls)
+			}
+		})
+	}
+}
+
+func TestTASK2784_CanceledCreateUsesBoundedContextForCompensation(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "cancelled-create-target", State: "attached"}
+	source.createErr = &TargetCreateError{TargetID: "cancelled-create-target", Err: errors.New("page setup failed")}
+	ctx, cancel := context.WithCancel(context.Background())
+	source.cancelCreate = cancel
+	registry := NewTabRegistry(source)
+
+	_, err := registry.CreateTabContext(ctx, "owner-1", "https://example.com")
+	var createErr *TargetCreateError
+	if !errors.As(err, &createErr) || !createErr.Compensated || createErr.TargetID != "cancelled-create-target" {
+		t.Fatalf("create error=%#v, want successful compensation after caller cancellation", err)
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("caller context error=%v, want canceled", ctx.Err())
+	}
+	if _, ok := registry.GetTab("cancelled-create-target"); ok {
+		t.Fatal("compensated target remained in registry")
+	}
+	source.mu.Lock()
+	_, sourceStillOwnsTarget := source.targets["cancelled-create-target"]
+	closeCalls := source.closeCalls
+	closeHadDeadline := source.closeHadDeadline
+	source.mu.Unlock()
+	if sourceStillOwnsTarget || closeCalls != 1 || !closeHadDeadline {
+		t.Fatalf("source target retained=%v close calls=%d cleanup deadline=%v", sourceStillOwnsTarget, closeCalls, closeHadDeadline)
+	}
+}
+
+func TestTASK2784_SyncRetainsMetadataAndDoesNotInventActivity(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "metadata-target", URL: "https://example.com", Title: "Example", State: "attached",
+		ContextID: "context-1", CreatedAt: time.Unix(100, 0)}
+	registry := NewTabRegistry(source)
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity := time.Unix(200, 0)
+	if !registry.UpdateOwnerMetadata(tab.ID, TabOwnerMetadata{
+		UserID: "owner-1", ProcessID: "process-1", OwnerRef: "turn-1", PriorityLane: "interactive", PolicyState: "allowed", MailboxCap: 32,
+	}) {
+		t.Fatal("owner metadata update failed for a live target")
+	}
+	if !registry.RecordActivity(tab.ID, activity) {
+		t.Fatal("activity update failed for a live target")
+	}
+	source.mu.Lock()
+	target := source.targets[tab.ID]
+	target.URL = ""
+	target.Title = ""
+	target.State = "detached"
+	target.CreatedAt = time.Time{}
+	target.LastActive = time.Time{}
+	source.targets[tab.ID] = target
+	source.mu.Unlock()
+
+	if err := registry.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := registry.GetTab(tab.ID)
+	if !ok {
+		t.Fatal("target missing after sync")
+	}
+	if got.UserID != "owner-1" || got.ProcessID != "process-1" || got.OwnerRef != "turn-1" || got.PriorityLane != "interactive" || got.PolicyState != "allowed" || got.MailboxCap != 32 {
+		t.Fatalf("local metadata lost: %#v", got)
+	}
+	if !got.CreatedAt.Equal(time.Unix(100, 0)) || !got.LastActive.Equal(activity) {
+		t.Fatalf("timestamps changed during observation: created=%v active=%v", got.CreatedAt, got.LastActive)
+	}
+	if got.URL != "https://example.com" || got.Title != "Example" || got.BrowserContextID != "context-1" || got.State != TabStateLost {
+		t.Fatalf("source projection=%#v", got)
+	}
+}
+
+func TestTASK2784_ConcurrentOwnerMetadataUpdatesSurviveSync(t *testing.T) {
+	source := newTestTargetSource()
+	source.targets["target-a"] = Target{ID: "target-a", State: "attached"}
+	source.targets["target-b"] = Target{ID: "target-b", State: "attached"}
+	registry := NewTabRegistry(source)
+	if err := registry.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
+	source.mu.Lock()
+	source.listGates = map[int]*targetListGate{2: gate}
+	source.mu.Unlock()
+	syncDone := make(chan error, 1)
+	go func() { syncDone <- registry.Sync(context.Background()) }()
+	waitForRegistrySignal(t, gate.started, "owner metadata snapshot")
+
+	want := map[string]TabOwnerMetadata{
+		"target-a": {UserID: "owner-a", ProcessID: "process-a", OwnerRef: "turn-a", PriorityLane: "interactive", PolicyState: "allowed", MailboxCap: 32},
+		"target-b": {UserID: "owner-b", ProcessID: "process-b", OwnerRef: "subagent-b", PriorityLane: "background", PolicyState: "restricted", MailboxCap: 16},
+	}
+	updateStarted := make(chan struct{})
+	updateErrors := make(chan string, len(want))
+	var updates sync.WaitGroup
+	for id, metadata := range want {
+		id, metadata := id, metadata
+		updates.Add(1)
+		go func() {
+			defer updates.Done()
+			<-updateStarted
+			if !registry.UpdateOwnerMetadata(id, metadata) {
+				updateErrors <- id
+			}
+		}()
+	}
+	close(updateStarted)
+	updates.Wait()
+	close(gate.release)
+	if err := <-syncDone; err != nil {
+		t.Fatal(err)
+	}
+	close(updateErrors)
+	for id := range updateErrors {
+		t.Fatalf("owner metadata update rejected live target %s", id)
+	}
+
+	for id, metadata := range want {
+		got, ok := registry.GetTab(id)
+		if !ok || got.UserID != metadata.UserID || got.ProcessID != metadata.ProcessID || got.OwnerRef != metadata.OwnerRef ||
+			got.PriorityLane != metadata.PriorityLane || got.PolicyState != metadata.PolicyState || got.MailboxCap != metadata.MailboxCap {
+			t.Fatalf("owner metadata crossed or disappeared for %s: tab=%#v found=%v want=%#v", id, got, ok, metadata)
+		}
+	}
+	source.mu.Lock()
+	listCalls := source.listCalls
+	source.mu.Unlock()
+	if listCalls != 3 {
+		t.Fatalf("sync did not retry the superseded snapshot: list calls=%d want=3", listCalls)
+	}
+}
+
+func TestTASK2784_SyncClearsObservedEmptyPageMetadata(t *testing.T) {
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "metadata-target", URL: "https://example.com", Title: "Example", State: "attached", MetadataKnown: true}
+	registry := NewTabRegistry(source)
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.mu.Lock()
+	target := source.targets[tab.ID]
+	target.URL = ""
+	target.Title = ""
+	target.MetadataKnown = true
+	source.targets[tab.ID] = target
+	source.mu.Unlock()
+
+	if err := registry.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	current, ok := registry.GetTab(tab.ID)
+	if !ok || current.URL != "" || current.Title != "" {
+		t.Fatalf("observed empty page metadata was replaced by stale values: %#v", current)
+	}
+}
+
+func TestTASK2784_ActivationRecordsOnlyConfirmedActivity(t *testing.T) {
+	source := newTestTargetSource()
+	registry := NewTabRegistry(source)
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tab.LastActive.IsZero() {
+		t.Fatalf("creation fabricated last activity: %v", tab.LastActive)
+	}
+	source.failActivate = true
+	if err := registry.ActivateTabContext(context.Background(), tab.ID); err == nil {
+		t.Fatal("failed bridge activation reported success")
+	}
+	stillInactive, _ := registry.GetTab(tab.ID)
+	if !stillInactive.LastActive.IsZero() {
+		t.Fatalf("failed activation recorded activity: %v", stillInactive.LastActive)
+	}
+	source.failActivate = false
+	if err := registry.ActivateTabContext(context.Background(), tab.ID); err != nil {
+		t.Fatal(err)
+	}
+	active, _ := registry.GetTab(tab.ID)
+	if active.State != TabStateActive || active.LastActive.IsZero() {
+		t.Fatalf("successful activation projection=%#v", active)
+	}
+}
+
+func TestTASK2784_InvalidSnapshotDoesNotPartiallyPublish(t *testing.T) {
+	source := newTestTargetSource()
+	registry := NewTabRegistry(source)
+	tab := registry.CreateTab("owner-1", "https://example.com")
+	if tab == nil {
+		t.Fatal("tab creation failed")
+	}
+	source.mu.Lock()
+	target := source.targets[tab.ID]
+	target.URL = "https://changed.example"
+	target.State = "unknown-lifecycle-state"
+	source.targets[tab.ID] = target
+	source.mu.Unlock()
+
+	if err := registry.Sync(context.Background()); err == nil {
+		t.Fatal("unsupported source state was accepted")
+	}
+	current, ok := registry.GetTab(tab.ID)
+	if !ok || current.URL != "https://example.com" || current.State != TabStateOpen {
+		t.Fatalf("invalid snapshot partially published: %#v", current)
+	}
+}
+
+func TestTASK2784_ConcurrentCreateSyncRetainsOwner(t *testing.T) {
+	gate := &targetCreateGate{started: make(chan struct{}), release: make(chan struct{})}
+	source := newTestTargetSource()
+	source.createResult = Target{ID: "concurrent-target", URL: "https://example.com", State: "attached"}
+	source.createGate = gate
+	registry := NewTabRegistry(source)
+	created := make(chan error, 1)
+	go func() {
+		_, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+		created <- err
+	}()
+	waitForRegistrySignal(t, gate.started, "create target source")
+	if err := registry.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	if err := <-created; err != nil {
+		t.Fatal(err)
+	}
+	tab, ok := registry.GetTab("concurrent-target")
+	if !ok || tab.UserID != "owner-1" {
+		t.Fatalf("created target owner lost: tab=%#v found=%v", tab, ok)
+	}
+}
+
+func TestTASK2784_CreateSurvivesEarlierDelayedEmptySnapshot(t *testing.T) {
+	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
+	source := newTestTargetSource()
+	source.listGates = map[int]*targetListGate{1: gate}
+	registry := NewTabRegistry(source)
+	synced := make(chan error, 1)
+	go func() { synced <- registry.Sync(context.Background()) }()
+	waitForRegistrySignal(t, gate.started, "pre-create empty snapshot")
+
+	tab, err := registry.CreateTabContext(context.Background(), "owner-2", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	if err := <-synced; err != nil {
+		t.Fatal(err)
+	}
+	current, ok := registry.GetTab(tab.ID)
+	if !ok || current.UserID != "owner-2" {
+		t.Fatalf("delayed pre-create snapshot lost the created tab owner: tab=%#v found=%v", current, ok)
+	}
+}
+
+func TestTASK2784_ActivityInvalidatesEarlierSnapshotBeforeInitialProjection(t *testing.T) {
+	activity := time.Unix(300, 0)
+	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
+	source := newTestTargetSource()
+	source.targets["root-target"] = Target{ID: "root-target", State: "attached"}
+	source.listGates = map[int]*targetListGate{1: gate}
+	registry := NewTabRegistry(source)
+	synced := make(chan error, 1)
+	go func() { synced <- registry.Sync(context.Background()) }()
+	waitForRegistrySignal(t, gate.started, "pre-activity target snapshot")
+	if registry.RecordActivity("root-target", activity) {
+		t.Fatal("activity was reported stored before the target was projected")
+	}
+	source.mu.Lock()
+	target := source.targets["root-target"]
+	target.LastActive = activity
+	source.targets["root-target"] = target
+	source.mu.Unlock()
+	close(gate.release)
+	if err := <-synced; err != nil {
+		t.Fatal(err)
+	}
+	current, ok := registry.GetTab("root-target")
+	if !ok || !current.LastActive.Equal(activity) {
+		t.Fatalf("pre-activity snapshot overwrote confirmed activity: tab=%#v found=%v", current, ok)
+	}
+}
+
+func TestTASK2784_OlderSyncCannotResurrectConfirmedClose(t *testing.T) {
+	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
+	source := newTestTargetSource()
+	source.targets["target-1"] = Target{ID: "target-1", URL: "https://example.com", State: "attached"}
+	source.listGates = map[int]*targetListGate{1: gate}
+	registry := NewTabRegistry(source)
+	oldSync := make(chan error, 1)
+	go func() { oldSync <- registry.Sync(context.Background()) }()
+	waitForRegistrySignal(t, gate.started, "older sync snapshot")
+	closed, err := registry.CloseTabContext(context.Background(), "target-1")
+	if err != nil || !closed {
+		t.Fatalf("close=(%v,%v), want confirmed close", closed, err)
+	}
+	close(gate.release)
+	if err := <-oldSync; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.GetTab("target-1"); ok {
+		t.Fatal("older source snapshot resurrected a confirmed closed target")
+	}
+}
+
+func TestTASK2784_CloseDoesNotRefreshAfterConfirmedEffect(t *testing.T) {
+	source := newTestTargetSource()
+	source.failListAfterClose = true
+	registry := NewTabRegistry(source)
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, err := registry.CloseTabContext(context.Background(), tab.ID)
+	if err != nil || !closed {
+		t.Fatalf("close=(%v,%v), want success despite any post-effect refresh failure", closed, err)
+	}
+	source.mu.Lock()
+	listCalls := source.listCalls
+	source.mu.Unlock()
+	if listCalls != 1 {
+		t.Fatalf("close performed %d full target-list calls, want only the pre-close observation", listCalls)
+	}
+}
+
+func TestTASK2784_ConcurrentCloseConfirmsExactlyOnce(t *testing.T) {
+	source := newTestTargetSource()
+	registry := NewTabRegistry(source)
+	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type closeResult struct {
+		closed bool
+		err    error
+	}
+	results := make(chan closeResult, 2)
+	for range 2 {
+		go func() {
+			closed, err := registry.CloseTabContext(context.Background(), tab.ID)
+			results <- closeResult{closed: closed, err: err}
+		}()
+	}
+	confirmed := 0
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.closed {
+			confirmed++
+		}
+	}
+	source.mu.Lock()
+	closeCalls := source.closeCalls
+	source.mu.Unlock()
+	if confirmed != 1 || closeCalls != 1 {
+		t.Fatalf("confirmed closes=%d source close calls=%d, want one each", confirmed, closeCalls)
+	}
+}
+
+func TestTASK2784_CanceledLifecycleWaitReturnsBeforePriorOperationFinishes(t *testing.T) {
+	gate := &targetCreateGate{started: make(chan struct{}), release: make(chan struct{})}
+	source := newTestTargetSource()
+	source.targets["existing-target"] = Target{ID: "existing-target", State: "attached"}
+	source.createResult = Target{ID: "created-target", State: "attached"}
+	source.createGate = gate
+	registry := NewTabRegistry(source)
+	var releaseOnce sync.Once
+	releaseCreate := func() { releaseOnce.Do(func() { close(gate.release) }) }
+	t.Cleanup(releaseCreate)
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, err := registry.CreateTabContext(context.Background(), "owner", "https://example.com")
+		createDone <- err
+	}()
+	waitForRegistrySignal(t, gate.started, "create operation holding lifecycle admission")
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	probe := &doneProbeContext{Context: baseCtx, doneCalled: make(chan struct{})}
+	closeDone := make(chan error, 1)
+	go func() {
+		_, err := registry.CloseTabContext(probe, "existing-target")
+		closeDone <- err
+	}()
+	waitForRegistrySignal(t, probe.doneCalled, "queued close observing its cancellation channel")
+	cancel()
+
+	select {
+	case err := <-closeDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued close error=%v, want caller cancellation", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled close remained blocked behind the active lifecycle operation")
+	}
+
+	source.mu.Lock()
+	listCalls, closeCalls := source.listCalls, source.closeCalls
+	source.mu.Unlock()
+	if listCalls != 0 || closeCalls != 0 {
+		t.Fatalf("canceled queued close reached source: list calls=%d close calls=%d", listCalls, closeCalls)
+	}
+
+	releaseCreate()
+	if err := <-createDone; err != nil {
+		t.Fatalf("active create: %v", err)
+	}
+}
+
+func waitForRegistrySignal(t *testing.T, signal <-chan struct{}, description string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", description)
 	}
 }
 

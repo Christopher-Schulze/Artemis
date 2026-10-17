@@ -2,16 +2,13 @@ package network
 
 // tls_fingerprint.go (spec L4373: TLS Fingerprint Spoofing).
 //
-// Scrapling relies on curl_cffi browser impersonation to match the
-// real Chrome TLS fingerprint (JA3, HTTP/2 SETTINGS, HTTP/3). The Go
-// equivalent uses github.com/refraction-networking/utls to present a
-// ClientHello identical to Chrome 145. This module defines the
-// Chrome 145 TLS fingerprint (JA3, JA3 hash, HTTP/2 and HTTP/3
-// fingerprints, ALPN, cipher suites, curves, signature algorithms)
-// and provides verification, parity, and match-score helpers. The
-// utls transport integration is wired at the bridge/ layer; this
-// module provides the fingerprint specification and a stdlib
-// tls.Config projection of the cipher/curve/ALPN settings.
+// This file is static reference metadata, not the emitted transport identity.
+// The live Chrome-like transport (tls_chrome.go) sends uTLS HelloChrome_Auto
+// ClientHellos; its HTTP/2 settings are golang.org/x/net/http2 defaults and
+// the renderless transport has no HTTP/3. Nothing here proves wire parity:
+// the Chrome 145 record (JA3, JA3 hash, HTTP/2 and HTTP/3 strings, ALPN,
+// ciphers, curves, signature algorithms) only supports comparison against an
+// externally captured fingerprint and a stdlib tls.Config projection.
 
 import (
 	"crypto/tls"
@@ -127,9 +124,9 @@ func (f TLSFingerprint) VerifyHTTP3(actual string) bool {
 	return actual == f.HTTP3Fingerprint
 }
 
-// HasParity reports whether all fingerprint components (JA3, JA3
-// hash, HTTP/2, HTTP/3) are set and non-empty (spec L4373: full
-// parity requires every fingerprint populated).
+// HasParity reports whether every reference component (JA3, JA3 hash,
+// HTTP/2, HTTP/3) is populated. It checks record completeness only and is
+// never evidence that a transport emits these values.
 func (f TLSFingerprint) HasParity() bool {
 	return f.JA3 != "" &&
 		f.JA3Hash != "" &&

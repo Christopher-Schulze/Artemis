@@ -6,46 +6,27 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/Christopher-Schulze/Artemis/benchmark"
 )
 
 func main() {
-	skipCompetitor := flag.Bool("skip-competitor", true, "skip competitor side (Artemis-only)")
-	requireHeadToHead := flag.Bool("require-head-to-head", false, "fail if head-to-head comparison cannot be produced honestly")
-	downloadURL := flag.String("download-url", "", "competitor binary download URL")
-	iterations := flag.Int("iterations", 5, "iterations per scenario")
-	outputDir := flag.String("output", "benchmark/results", "output directory for scorecard")
-	benchmarkTag := flag.String("benchmark-tag", "", "environment tag (e.g. cold, warm, renderless)")
-	cpuProfile := flag.String("cpu-profile", "", "write CPU profile to file")
-	memProfile := flag.String("mem-profile", "", "write memory profile to file")
-	flag.Parse()
-	if err := validateOptions(*skipCompetitor, *requireHeadToHead, *iterations, *outputDir); err != nil {
+	options, err := benchmark.ParseOptions(os.Args[1:], os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 		os.Exit(2)
 	}
 
-	cfg := benchmark.HarnessConfig{
-		OutputDir:         *outputDir,
-		Iterations:        *iterations,
-		SkipCompetitor:    *skipCompetitor,
-		RequireHeadToHead: *requireHeadToHead,
-		BenchmarkTag:      *benchmarkTag,
-		Profile: benchmark.ProfileConfig{
-			CPUProfilePath: *cpuProfile,
-			MemProfilePath: *memProfile,
-		},
-		Competitor: benchmark.CompetitorConfig{
-			DownloadURL: *downloadURL,
-		},
-	}
-
-	h := benchmark.NewHarness(cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	h := benchmark.NewHarness(options.Config)
+	ctx, cancel := context.WithTimeout(context.Background(), options.Config.Timeout)
 	defer cancel()
 
 	sc, err := h.Run(ctx)
@@ -54,26 +35,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *requireHeadToHead && !sc.Honest {
-		fmt.Fprintf(os.Stderr, "benchmark: head-to-head required but scorecard is not honest: %s\n", sc.HonestReason)
-		os.Exit(1)
+	if options.Format == "summary" {
+		err = benchmark.PrintSummary(sc)
+	} else {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		err = encoder.Encode(sc)
 	}
-
-	if err := benchmark.PrintSummary(sc); err != nil {
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func validateOptions(skipCompetitor, requireHeadToHead bool, iterations int, outputDir string) error {
-	if iterations <= 0 {
-		return fmt.Errorf("iterations must be positive")
-	}
-	if outputDir == "" {
-		return fmt.Errorf("output must not be empty")
-	}
-	if skipCompetitor && requireHeadToHead {
-		return fmt.Errorf("require-head-to-head cannot be combined with skip-competitor")
-	}
-	return nil
+	cfg := benchmark.DefaultHarnessConfig()
+	cfg.SkipCompetitor = skipCompetitor
+	cfg.RequireHeadToHead = requireHeadToHead
+	cfg.Iterations = iterations
+	cfg.OutputDir = outputDir
+	return benchmark.ValidateConfig(cfg, benchmark.DefaultScenarios())
 }

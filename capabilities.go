@@ -64,9 +64,14 @@ var capabilityRegistry = []Capability{
 		BehaviorTest: "serve.TestSessionOpenEvalDump",
 	},
 	{
-		ID: "agent.high_level", Description: "Execute typed renderless fetch actions through an owned Agent lifecycle", Mode: ModeRenderless,
+		ID: "agent.high_level", Description: "Execute typed fetch actions through an owned lifecycle with optional capability-driven Chromium escalation", Mode: ModeHybrid,
 		State: SupportSupported, Since: Version, Entrypoint: "artemis.(*Agent).ExecuteTask", Owner: "artemis.Agent",
-		BehaviorTest: "artemis.TestAgentExecutesFetchWithObservableEvidence",
+		BehaviorTest: "artemis.TestAgentHybridEscalationTransfersOwnedStateAndActualStatus",
+	},
+	{
+		ID: "agent.action_policy", Description: "Authorize managed commands against validated action and native document constraints before effects", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "artemis.AgentConfig.ActionPolicyPath/PolicyEngine", Owner: "artemis.BrowserPolicy/policy.NavigationPolicy",
+		BehaviorTest: "artemis.TestBrowserPolicyLiveReloadControlsActualOnceOnlyClick",
 	},
 	{
 		ID: "chromium.cdp", Description: "Launch and control Chromium through CDP", Mode: ModeChromium,
@@ -74,7 +79,13 @@ var capabilityRegistry = []Capability{
 		BehaviorTest: "bridge.TestChromiumLifecycleIntegration",
 	},
 	{ID: "chromium.observe", Description: "Capture bounded DOM and accessibility observations with stable references", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "bridge/observe.(*Collector).Capture", Owner: "bridge/observe.Collector", BehaviorTest: "observe_test.TestChromiumObservationFixture"},
+	{ID: "chromium.query", Description: "Query page-owned task projections, material deltas and target blockers within explicit budgets", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "artemis.(*Session).QueryChromiumPage/serve chromium.query/CLI query", Owner: "bridge/observe.Collector/artemis.Session", BehaviorTest: "artemis.TestSessionOwnedTaskQueryRevisionsAndBudgets"},
 	{ID: "chromium.actions", Description: "Execute typed browser actions with actionability and postcondition evidence", Mode: ModeChromium, State: SupportSupported, Since: Version, Entrypoint: "bridge/actions.(*Runtime).Execute", Owner: "bridge/actions.Runtime", BehaviorTest: "actions.TestRuntimeRealChromiumInteractionMatrix"},
+	{
+		ID: "chromium.steering", Description: "Control an authenticated session-owned Chromium page across CLI and WebSocket invocations", Mode: ModeChromium,
+		State: SupportSupported, Since: Version, Entrypoint: "serve.Client/serve.Server chromium.open|observe|act|close", Owner: "artemis.Session/bridge.BrowserContext/observe.LiveCollector",
+		BehaviorTest: "main.TestCLIControlPersistsAcrossProcessesAndRejectsAnotherClient",
+	},
 	{
 		ID: "hybrid.routing", Description: "Escalate deterministically from renderless execution to Chromium", Mode: ModeHybrid,
 		State: SupportSupported, Since: Version, Entrypoint: "router.New/router.(*HybridRouter).Execute", Owner: "router.HybridRouter/router.ChromiumExecutor",
@@ -99,6 +110,31 @@ var capabilityRegistry = []Capability{
 		ID: "chromium.h2_fingerprint", Description: "Match browser HTTP/2 fingerprint settings to a measured Chromium build", Mode: ModeChromium,
 		State: SupportUnavailable, Entrypoint: "stealth.H2Fingerprint", Owner: "stealth.H2Fingerprint",
 		BehaviorTest: "artemis.TestUnavailableCapabilities", UnavailableWhy: "no verified Chromium transport-level H2 parity contract",
+	},
+	{
+		ID: "chromium.visual_grounding", Description: "Bind screenshots to annotated references and act at verified points with reference-first dispatch", Mode: ModeChromium,
+		State: SupportSupported, Since: Version, Entrypoint: "artemis.(*Session).CaptureVisual/ActVisual/serve chromium.visual", Owner: "artemis.Session",
+		BehaviorTest: "artemis.TestVisualActionPrefersReferencesAndRefusesStaleOrCoveredPoints",
+	},
+	{
+		ID: "chromium.webmcp", Description: "Discover and invoke page WebMCP tools through Chrome's experimental WebMCP domain", Mode: ModeChromium,
+		State: SupportExperimental, Since: Version, Entrypoint: "artemis.(*Session).WebMCPTools/InvokeWebMCPTool", Owner: "artemis.Session",
+		BehaviorTest: "artemis.TestWebMCPCatalogBindsFramesOriginsAndRejectsHostileTools",
+	},
+	{
+		ID: "extract.grounded", Description: "Extract declarative schemas from DOM and same-origin JSON with per-field source evidence and completeness", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "artemis.(*Session).ExtractGrounded/ExtractGroundedPages/ExtractResponseJSON/serve page.extract", Owner: "scraper.ExtractGroundedHTML/scraper.ExtractGroundedJSON",
+		BehaviorTest: "artemis.TestGroundedExtractionAcrossChromiumPagesAndDynamicUpdates",
+	},
+	{
+		ID: "renderless.script_containment", Description: "Keep untrusted page JavaScript out of the embedded V8 and run it only in the sandboxed Chromium child", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "AgentConfig.RequireScriptContainment/engine.Config.RequireScriptContainment", Owner: "engine.Engine/artemis.Agent",
+		BehaviorTest: "artemis.TestContainedAgentRunsScriptsOnlyInChromiumAndSurvivesHostileJS",
+	},
+	{
+		ID: "mcp.stdio", Description: "Serve one Artemis session as a Model Context Protocol server on stdio", Mode: ModeHybrid,
+		State: SupportSupported, Since: Version, Entrypoint: "mcpserve.New/CLI mcp", Owner: "mcpserve.Server",
+		BehaviorTest: "mcpserve.TestMCPToolsDriveTheSessionOwnerWithTrustAndTypedErrors",
 	},
 	{
 		ID: "profiles.persistent", Description: "Persist isolated authenticated browser profiles", Mode: ModeChromium,

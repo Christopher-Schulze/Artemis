@@ -66,7 +66,8 @@ func ParsePage(ctx context.Context, id, pageURL, html string) (ParsedPage, error
 	return ParsedPage{URL: artifact.URL, HTML: string(artifact.HTML), Title: artifact.Title, Text: artifact.Text}, nil
 }
 
-// SnapshotBuilderPool reuses snapshot builder slots.
+// SnapshotBuilderPool records the configured snapshot builder concurrency
+// bound; it holds no pooled builders or memory.
 type SnapshotBuilderPool struct {
 	cap int
 }

@@ -2,17 +2,25 @@ package js
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
+	"golang.org/x/net/http/httpguts"
 
 	"github.com/Christopher-Schulze/Artemis/network"
 )
+
+const maxWebSocketMessageBytes = 64 << 10
+const maxWebSocketConnections = 64
+const maxWebSocketWorkers = 128
 
 // wsEventKind identifies which JS-side handler should fire.
 type wsEventKind int
@@ -26,22 +34,25 @@ const (
 
 // wsEvent is one event from the goroutine reader for a WebSocket.
 type wsEvent struct {
-	connID uint32
-	kind   wsEventKind
-	data   []byte
-	binary bool
-	code   int
-	reason string
+	connID   uint32
+	kind     wsEventKind
+	data     []byte
+	binary   bool
+	code     int
+	reason   string
+	clean    bool
+	protocol string
 }
 
 // wsConn is one open WebSocket. Each Context owns a registry.
 type wsConn struct {
-	id     uint32
-	mu     sync.Mutex
-	conn   *websocket.Conn
-	ctx    context.Context // canceled when wsRegistry.closeAll runs
-	cancel context.CancelFunc
-	state  atomic.Int32 // 0..3
+	id       uint32
+	mu       sync.Mutex
+	conn     *websocket.Conn
+	ctx      context.Context // canceled when wsRegistry.closeAll runs
+	cancel   context.CancelFunc
+	state    atomic.Int32 // 0..3
+	sendTail <-chan struct{}
 }
 
 func (c *wsConn) attach(conn *websocket.Conn) bool {
@@ -75,10 +86,14 @@ func (c *wsConn) closeNow() {
 }
 
 type wsRegistry struct {
-	mu     sync.Mutex
-	nextID uint32
-	conns  map[uint32]*wsConn
-	events chan wsEvent
+	mu            sync.Mutex
+	nextID        uint32
+	conns         map[uint32]*wsConn
+	events        chan wsEvent
+	terminal      map[uint32]wsEvent
+	closed        bool
+	workers       sync.WaitGroup
+	activeWorkers int
 }
 
 // newWSRegistry returns a registry with no allocated map or channel.
@@ -99,11 +114,59 @@ func (r *wsRegistry) ensureInit() {
 func (r *wsRegistry) put(c *wsConn) uint32 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed || len(r.conns) >= maxWebSocketConnections || r.nextID >= math.MaxInt32 {
+		return 0
+	}
 	r.ensureInit()
 	r.nextID++
 	c.id = r.nextID
 	r.conns[c.id] = c
 	return c.id
+}
+
+// start registers work before launch under the same owner that closes admission.
+func (r *wsRegistry) start(operation func()) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.activeWorkers >= maxWebSocketWorkers {
+		return false
+	}
+	r.workers.Add(1)
+	r.activeWorkers++
+	go func() {
+		defer r.workers.Done()
+		defer func() { r.mu.Lock(); r.activeWorkers--; r.mu.Unlock() }()
+		operation()
+	}()
+	return true
+}
+
+func (r *wsRegistry) send(conn *wsConn, socket *websocket.Conn, kind websocket.MessageType, data []byte) bool {
+	conn.mu.Lock()
+	previous := conn.sendTail
+	finished := make(chan struct{})
+	conn.sendTail = finished
+	conn.mu.Unlock()
+	if r.start(func() {
+		defer close(finished)
+		if previous != nil {
+			select {
+			case <-previous:
+			case <-conn.ctx.Done():
+				return
+			}
+		}
+		if err := socket.Write(conn.ctx, kind, data); err != nil {
+			r.tryEvent(conn.ctx, wsEvent{connID: conn.id, kind: wsError, reason: err.Error()})
+		}
+	}) {
+		return true
+	}
+	conn.mu.Lock()
+	conn.sendTail = previous
+	conn.mu.Unlock()
+	close(finished)
+	return false
 }
 
 func (r *wsRegistry) get(id uint32) *wsConn {
@@ -116,6 +179,7 @@ func (r *wsRegistry) remove(id uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.conns, id)
+	delete(r.terminal, id)
 }
 
 // tryEvent attempts to deliver an event into the buffered channel,
@@ -134,21 +198,44 @@ func (r *wsRegistry) tryEvent(ctx context.Context, ev wsEvent) bool {
 	}
 }
 
-// tryTerminalEvent delivers close events, which must survive conn-ctx
-// cancellation: __ws_close cancels the conn ctx, and dropping the close
-// event would leave the JS readyState stuck at CLOSING forever. The
-// last-ditch nonblocking send keeps the post bounded when the channel is
-// saturated — under that pressure the close may still drop.
-func (r *wsRegistry) tryTerminalEvent(ctx context.Context, ev wsEvent) bool {
-	if r.tryEvent(ctx, ev) {
-		return true
+// Terminal publication never waits for page execution or the transport context.
+// One retained close per admitted connection survives a full message queue.
+// It is dispatched only after earlier queued messages have drained.
+func (r *wsRegistry) tryTerminalEvent(ev wsEvent) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.conns[ev.connID] == nil {
+		return false
 	}
 	select {
 	case r.events <- ev:
 		return true
 	default:
-		return false
+		if r.terminal == nil {
+			r.terminal = make(map[uint32]wsEvent)
+		}
+		if _, exists := r.terminal[ev.connID]; !exists {
+			r.terminal[ev.connID] = ev
+		}
+		return true
 	}
+}
+
+func (r *wsRegistry) nextTerminalEvent() (wsEvent, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.events) != 0 || len(r.terminal) == 0 {
+		return wsEvent{}, false
+	}
+	var first uint32
+	for id := range r.terminal {
+		if first == 0 || id < first {
+			first = id
+		}
+	}
+	event := r.terminal[first]
+	delete(r.terminal, first)
+	return event, true
 }
 
 // closeAll cancels every WebSocket connection's context and closes the
@@ -157,6 +244,7 @@ func (r *wsRegistry) tryTerminalEvent(ctx context.Context, ev wsEvent) bool {
 // *js.Context. Idempotent and safe under concurrent calls.
 func (r *wsRegistry) closeAll() {
 	r.mu.Lock()
+	r.closed = true
 	conns := make([]*wsConn, 0, len(r.conns))
 	for _, c := range r.conns {
 		conns = append(conns, c)
@@ -166,21 +254,43 @@ func (r *wsRegistry) closeAll() {
 	for _, conn := range conns {
 		conn.closeNow()
 	}
+	r.workers.Wait()
+	r.mu.Lock()
+	clear(r.terminal)
+	for len(r.events) > 0 {
+		<-r.events
+	}
+	r.mu.Unlock()
 }
 
 // drain pulls all currently queued WS events and fires the corresponding
 // JS callbacks. Runs on the V8 thread.
 func (r *wsRegistry) drain(c *Context) int {
 	count := 0
-	for {
+	for count < cap(r.events) {
+		if c.evalCtx.Err() != nil || c.async.ctx.Err() != nil {
+			return count
+		}
 		select {
 		case ev := <-r.events:
 			r.fireEvent(c, ev)
 			count++
 		default:
+			for range maxWebSocketConnections {
+				if c.evalCtx.Err() != nil || c.async.ctx.Err() != nil {
+					return count
+				}
+				terminal, exists := r.nextTerminalEvent()
+				if !exists {
+					return count
+				}
+				r.fireEvent(c, terminal)
+				count++
+			}
 			return count
 		}
 	}
+	return count
 }
 
 func (r *wsRegistry) fireEvent(c *Context, ev wsEvent) {
@@ -191,46 +301,54 @@ func (r *wsRegistry) fireEvent(c *Context, ev wsEvent) {
 	switch ev.kind {
 	case wsOpen:
 		conn.state.Store(1)
-		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'open', null, false, 0, '')", "<artemis-ws-dispatch>")
+		c.runWebSocketDispatch("__ws_dispatch(" + itoa(ev.connID) + ", 'open', null, false, 0, '', false, " + jsStringLit(ev.protocol) + ")")
 	case wsMessage:
-		// Build payload: string for text frames, length-keyed numeric array for binary
-		c.bindWSPayload(ev.connID, ev.data, ev.binary)
-		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'message', __wsLastPayload, "+boolStr(ev.binary)+", 0, '')", "<artemis-ws-dispatch>")
+		if err := c.bindWSPayload(ev.data, ev.binary); err != nil {
+			c.rt.execution.recordFailure(fmt.Errorf("WebSocket payload: %w", err))
+			return
+		}
+		c.runWebSocketDispatch("__ws_dispatch(" + itoa(ev.connID) + ", 'message', __wsLastPayload, " + boolStr(ev.binary) + ", 0, '')")
 	case wsError:
-		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'error', null, false, 0, "+jsStringLit(ev.reason)+")", "<artemis-ws-dispatch>")
+		c.runWebSocketDispatch("__ws_dispatch(" + itoa(ev.connID) + ", 'error', null, false, 0, " + jsStringLit(ev.reason) + ")")
 	case wsClose:
 		conn.state.Store(3)
 		code, ok := checkedIntToUint32(ev.code)
 		if !ok {
 			code = 0
 		}
-		_, _ = c.v8ctx.RunScript("__ws_dispatch("+itoa(ev.connID)+", 'close', null, false, "+itoa(code)+", "+jsStringLit(ev.reason)+")", "<artemis-ws-dispatch>")
+		c.runWebSocketDispatch("__ws_dispatch(" + itoa(ev.connID) + ", 'close', null, false, " + itoa(code) + ", " + jsStringLit(ev.reason) + ", " + boolStr(ev.clean) + ")")
 		r.remove(ev.connID)
 	}
 }
 
+func (c *Context) runWebSocketDispatch(source string) {
+	value, err := c.v8ctx.RunScript(source, "<artemis-ws-dispatch>")
+	if value != nil {
+		value.Release()
+	}
+	c.rt.execution.recordFailure(formatJSError(err))
+}
+
 // bindWSPayload sets globalThis.__wsLastPayload to the Go-side payload
 // so the dispatch RunScript can reference it without escaping bytes.
-func (c *Context) bindWSPayload(connID uint32, data []byte, binary bool) {
-	if binary {
-		arr, err := v8.NewObjectTemplate(c.rt.iso).NewInstance(c.v8ctx)
-		if err != nil {
-			return
-		}
-		length, ok := checkedIntToInt32(len(data))
-		if !ok {
-			_ = c.v8ctx.Global().Set("__wsLastPayload", v8.Null(c.rt.iso))
-			return
-		}
-		_ = arr.Set("length", length)
-		_ = arr.Set("byteLength", length)
-		for i, b := range data {
-			_ = arr.SetIdx(uint32(i), int32(b))
-		}
-		_ = c.v8ctx.Global().Set("__wsLastPayload", arr)
-		return
+func (c *Context) bindWSPayload(data []byte, binary bool) error {
+	if len(data) > maxWebSocketMessageBytes {
+		return errors.New("WebSocket message exceeds byte limit")
 	}
-	_ = c.v8ctx.Global().Set("__wsLastPayload", string(data))
+	var payload *v8.Value
+	var err error
+	if binary {
+		payload, err = c.v8ctx.NewArrayBuffer(data)
+	} else {
+		payload, err = v8.NewValue(c.rt.iso, string(data))
+	}
+	if err != nil {
+		return err
+	}
+	defer payload.Release()
+	global := c.v8ctx.Global()
+	defer global.Release()
+	return global.Set("__wsLastPayload", payload)
 }
 
 func boolStr(b bool) string {
@@ -257,13 +375,16 @@ func (c *Context) webSocketHTTPClient() *http.Client {
 			ResponseHeaderTimeout: 30 * time.Second,
 			ExpectContinueTimeout: time.Second,
 		}
+		if c.proxy != nil {
+			transport.Proxy = http.ProxyURL(c.proxy)
+		}
 		c.wsClient = &http.Client{
 			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= policyConfig.MaxRedirects {
 					return fmt.Errorf("%w: redirect_limit", network.ErrPolicyDenied)
 				}
-				return c.policy.ValidateRequest(
+				return c.validateWebSocketTarget(
 					req.Context(),
 					req.URL.String(),
 					req.Method,
@@ -276,6 +397,15 @@ func (c *Context) webSocketHTTPClient() *http.Client {
 		}
 	})
 	return c.wsClient
+}
+
+// validateWebSocketTarget keeps DNS with the upstream proxy when one routes
+// the handshake (spec L4148); direct connections resolve and check locally.
+func (c *Context) validateWebSocketTarget(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind network.TargetKind, sessionID string) error {
+	if c.proxy != nil {
+		return c.policy.ValidateProxiedRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)
+	}
+	return c.policy.ValidateRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)
 }
 
 func (c *Context) closeWebSocketTransport() {
@@ -298,6 +428,45 @@ type wsTemplates struct {
 	open, send, closeFn *v8.FunctionTemplate
 }
 
+func webSocketProtocols(args []*v8.Value) ([]string, error) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	if !args[1].IsArray() {
+		return nil, errors.New("WebSocket protocols require a normalized array")
+	}
+	array, err := args[1].AsObject()
+	if err != nil {
+		return nil, err
+	}
+	length, err := array.Get("length")
+	if err != nil {
+		return nil, err
+	}
+	count := length.Integer()
+	length.Release()
+	if count > 32 {
+		return nil, errors.New("WebSocket protocol count exceeds limit")
+	}
+	protocols := make([]string, 0, count)
+	for index := int64(0); index < count; index++ {
+		value, err := array.GetIdx(uint32(index))
+		if err != nil {
+			return nil, err
+		}
+		protocol, err := value.StringChecked()
+		value.Release()
+		if err != nil {
+			return nil, err
+		}
+		if len(protocol) > 256 || !httpguts.ValidHeaderFieldName(protocol) || slices.Contains(protocols, protocol) {
+			return nil, errors.New("WebSocket protocol is invalid or duplicated")
+		}
+		protocols = append(protocols, protocol)
+	}
+	return protocols, nil
+}
+
 func (r *Runtime) ensureWSTemplates() *wsTemplates {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -307,30 +476,43 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 	iso := r.iso
 	r.wsTemplates = &wsTemplates{
 		open: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			args := info.Args()
 			if c == nil || len(args) < 1 {
-				return mustValue(iso, int32(0))
+				return r.callbackPrimitive(info, int32(0))
 			}
-			url := args[0].String()
-			ctx, cancel := context.WithCancel(context.Background())
+			url, err := args[0].StringChecked()
+			if err != nil {
+				return r.responseError(info, err)
+			}
+			protocols, err := webSocketProtocols(args)
+			if err != nil {
+				return r.responseError(info, err)
+			}
+			ctx, cancel := context.WithCancel(c.async.ctx)
 			conn := &wsConn{cancel: cancel, ctx: ctx}
 			conn.state.Store(0) // CONNECTING
 			id := c.ws.put(conn)
 			ws := c.ws
-			go func() {
-				if err := c.policy.ValidateRequest(ctx, url, http.MethodGet, "", 0, network.TargetWebSocket, c.sessionID); err != nil {
+			if id == 0 {
+				cancel()
+				return r.responseError(info, errors.New("WebSocket connection admission denied"))
+			}
+			started := ws.start(func() {
+				defer conn.closeNow()
+				if err := c.validateWebSocketTarget(ctx, url, http.MethodGet, "", 0, network.TargetWebSocket, c.sessionID); err != nil {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
-					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
+					ws.tryTerminalEvent(wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
 					return
 				}
 				client := c.webSocketHTTPClient()
 				if client == nil {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: "network policy required"})
-					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
+					ws.tryTerminalEvent(wsEvent{connID: id, kind: wsClose, code: 1006, reason: "policy denied"})
 					return
 				}
-				wsConn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client})
+				wsConn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client, Subprotocols: protocols})
 				if response != nil && response.Body != nil {
 					if closeErr := response.Body.Close(); closeErr != nil && err == nil {
 						err = fmt.Errorf("close WebSocket handshake response body: %w", closeErr)
@@ -338,17 +520,32 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 				}
 				if err != nil {
 					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
-					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1006, reason: "abnormal"})
+					ws.tryTerminalEvent(wsEvent{connID: id, kind: wsClose, code: 1006, reason: "abnormal"})
+					return
+				}
+				if len(protocols) > 0 && !slices.Contains(protocols, wsConn.Subprotocol()) {
+					closeErr := wsConn.CloseNow()
+					ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: fmt.Sprint(errors.Join(errors.New("WebSocket peer did not select an offered protocol"), closeErr))})
+					ws.tryTerminalEvent(wsEvent{connID: id, kind: wsClose, code: 1006})
 					return
 				}
 				if !conn.attach(wsConn) {
 					return
 				}
-				ws.tryEvent(ctx, wsEvent{connID: id, kind: wsOpen})
+				wsConn.SetReadLimit(min(int64(maxWebSocketMessageBytes), c.policy.Config().MaxResponseBodyBytes))
+				ws.tryEvent(ctx, wsEvent{connID: id, kind: wsOpen, protocol: wsConn.Subprotocol()})
 				for {
 					typ, data, err := wsConn.Read(ctx)
 					if err != nil {
-						ws.tryTerminalEvent(ctx, wsEvent{connID: id, kind: wsClose, code: 1000, reason: ""})
+						terminal := wsEvent{connID: id, kind: wsClose, code: 1006}
+						var closed websocket.CloseError
+						if errors.As(err, &closed) {
+							terminal.code, terminal.reason = int(closed.Code), closed.Reason
+							terminal.clean = closed.Code != websocket.StatusAbnormalClosure && closed.Code != websocket.StatusTLSHandshake
+						} else if ctx.Err() == nil {
+							ws.tryEvent(ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
+						}
+						ws.tryTerminalEvent(terminal)
 						return
 					}
 					if !ws.tryEvent(ctx, wsEvent{
@@ -358,10 +555,16 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 						return // Context closed; abandon.
 					}
 				}
-			}()
-			return nodeHandleValue(iso, id)
+			})
+			if !started {
+				conn.closeNow()
+				ws.remove(id)
+				return r.responseError(info, errors.New("WebSocket worker admission denied"))
+			}
+			return r.callbackPrimitive(info, int32(id))
 		}),
 		send: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			args := info.Args()
 			if c == nil || len(args) < 2 {
@@ -371,7 +574,29 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			if !ok {
 				return v8.Null(iso)
 			}
-			data := []byte(args[1].String())
+			var data []byte
+			var err error
+			messageType := websocket.MessageText
+			limit := int64(maxWebSocketMessageBytes)
+			if c.policy != nil {
+				limit = min(limit, c.policy.Config().MaxRequestBodyBytes)
+			}
+			if args[1].IsArrayBuffer() || args[1].IsArrayBufferView() || args[1].IsSharedArrayBuffer() {
+				messageType = websocket.MessageBinary
+				data, err = args[1].BufferBytes(int(limit))
+			} else {
+				var text string
+				text, err = args[1].StringChecked()
+				if int64(len(text)) > limit {
+					err = errors.New("WebSocket send exceeds byte limit")
+				}
+				if err == nil {
+					data = []byte(text)
+				}
+			}
+			if err != nil {
+				return r.responseError(info, err)
+			}
 			conn := c.ws.get(id)
 			if conn == nil {
 				return v8.Null(iso)
@@ -380,14 +605,13 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			if wsConn == nil {
 				return v8.Null(iso)
 			}
-			// Use the per-conn ctx so a Context.Close cancels in-flight sends.
-			ctx := conn.ctx
-			go func() {
-				_ = wsConn.Write(ctx, websocket.MessageText, data)
-			}()
+			if !c.ws.send(conn, wsConn, messageType, data) {
+				return r.responseError(info, errors.New("WebSocket worker admission denied"))
+			}
 			return v8.Null(iso)
 		}),
 		closeFn: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			args := info.Args()
 			if c == nil || len(args) < 1 {
@@ -407,7 +631,14 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 				code = codeValue
 			}
 			if len(args) >= 3 {
-				reason = args[2].String()
+				var err error
+				reason, err = args[2].StringChecked()
+				if err != nil {
+					return r.responseError(info, err)
+				}
+			}
+			if (code != 1000 && (code < 3000 || code > 4999)) || len(reason) > 123 {
+				return r.responseError(info, errors.New("WebSocket close code or reason is invalid"))
 			}
 			conn := c.ws.get(id)
 			if conn == nil {
@@ -415,7 +646,27 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 			}
 			conn.state.Store(2) // CLOSING
 			if wsConn := conn.current(); wsConn != nil {
-				_ = wsConn.Close(websocket.StatusCode(code), reason)
+				conn.mu.Lock()
+				pending := conn.sendTail
+				conn.mu.Unlock()
+				if !c.ws.start(func() {
+					if pending != nil {
+						select {
+						case <-pending:
+						case <-conn.ctx.Done():
+							return
+						}
+					}
+					if err := wsConn.Close(websocket.StatusCode(code), reason); err != nil && conn.ctx.Err() == nil {
+						c.ws.tryEvent(conn.ctx, wsEvent{connID: id, kind: wsError, reason: err.Error()})
+					}
+					conn.cancel()
+				}) {
+					conn.closeNow()
+					c.ws.tryTerminalEvent(wsEvent{connID: id, kind: wsClose, code: 1006, reason: "close worker admission denied"})
+					return r.responseError(info, errors.New("WebSocket close worker admission denied"))
+				}
+				return v8.Undefined(iso)
 			}
 			conn.cancel()
 			return v8.Null(iso)
@@ -427,13 +678,20 @@ func (r *Runtime) ensureWSTemplates() *wsTemplates {
 func installWebSocket(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	t := c.rt.ensureWSTemplates()
 	g := v8ctx.Global()
-	if err := g.Set("__ws_open", t.open.GetFunction(v8ctx)); err != nil {
+	defer g.Release()
+	open := t.open.GetFunction(v8ctx)
+	defer open.Release()
+	send := t.send.GetFunction(v8ctx)
+	defer send.Release()
+	closeFn := t.closeFn.GetFunction(v8ctx)
+	defer closeFn.Release()
+	if err := g.Set("__ws_open", open); err != nil {
 		return err
 	}
-	if err := g.Set("__ws_send", t.send.GetFunction(v8ctx)); err != nil {
+	if err := g.Set("__ws_send", send); err != nil {
 		return err
 	}
-	if err := g.Set("__ws_close", t.closeFn.GetFunction(v8ctx)); err != nil {
+	if err := g.Set("__ws_close", closeFn); err != nil {
 		return err
 	}
 	c.registerBootstrap("artemis-websocket", websocketBootstrap)
@@ -442,11 +700,14 @@ func installWebSocket(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 
 const websocketBootstrap = `
 (() => {
+  const addListener = document.addEventListener, removeListener = document.removeEventListener;
+  const dispatch = document.dispatchEvent;
   const _wsRegistry = new Map(); // connId -> WebSocket instance
-  globalThis.__ws_dispatch = function(connId, kind, payload, binary, code, reason) {
+  Object.defineProperty(globalThis, '__ws_dispatch', {value: function(connId, kind, payload, binary, code, reason, clean, protocol) {
     const ws = _wsRegistry.get(connId);
     if (!ws) return;
     if (kind === 'open') {
+      ws.protocol = protocol;
       ws.readyState = 1;
       ws.dispatchEvent(new Event('open'));
       return;
@@ -454,10 +715,9 @@ const websocketBootstrap = `
     if (kind === 'message') {
       let data = payload;
       if (binary && ws.binaryType === 'arraybuffer') {
-        // payload is a length-keyed numeric array; expose as ArrayBuffer-shaped
         data = payload;
       } else if (binary) {
-        data = new Blob([payload]);
+        data = new Blob([new Uint8Array(payload)]);
       }
       const ev = new MessageEvent('message', {data});
       ws.dispatchEvent(ev);
@@ -470,53 +730,68 @@ const websocketBootstrap = `
       return;
     }
     if (kind === 'close') {
-      ws.readyState = 3;
-      const ev = new CloseEvent('close', {code, reason, wasClean: code === 1000});
-      ws.dispatchEvent(ev);
       _wsRegistry.delete(connId);
+      ws.readyState = 3;
+      const ev = new CloseEvent('close', {code, reason, wasClean: !!clean});
+      ws.dispatchEvent(ev);
     }
-  };
+  }});
 
   class WebSocket {
     constructor(url, protocols) {
+      const list = [], values = protocols === undefined ? [] : typeof protocols === 'string' ? [protocols] : protocols;
+      for (const value of values) {
+        if (typeof value === 'symbol') throw new TypeError('WebSocket protocol requires a string');
+        const protocol = String(value);
+        if (!/^[!#$%&'*+\-.^_\x60|~0-9A-Za-z]+$/.test(protocol) || list.includes(protocol)) throw new DOMException('Invalid WebSocket protocol', 'SyntaxError');
+        if (list.length === 32 || protocol.length > 256) throw new RangeError('WebSocket protocol limit exceeded');
+        list.push(protocol);
+      }
       this.url = String(url);
       this.protocol = '';
-      this.protocols = protocols || [];
+      this.protocols = list;
       this.readyState = 0;
       this.binaryType = 'blob';
       this.bufferedAmount = 0;
-      this._listeners = new Map();
+      Object.defineProperty(this, '__id', {value: {}});
       this.onopen = null; this.onmessage = null; this.onerror = null; this.onclose = null;
-      this._id = __ws_open(this.url);
+      for (const kind of ['open', 'message', 'error', 'close']) {
+        addListener.call(this, kind, event => {
+          const callback = this['on' + kind];
+          if (typeof callback === 'function') callback.call(this, event);
+        });
+      }
+      this._id = __ws_open(this.url, list);
       _wsRegistry.set(this._id, this);
     }
-    addEventListener(type, fn) {
-      if (typeof fn !== 'function') return;
-      let s = this._listeners.get(type);
-      if (!s) { s = new Set(); this._listeners.set(type, s); }
-      s.add(fn);
+    addEventListener(type, fn, options) {
+      addListener.call(this, type, fn, options);
     }
-    removeEventListener(type, fn) {
-      const s = this._listeners.get(type);
-      if (s) s.delete(fn);
+    removeEventListener(type, fn, options) {
+      removeListener.call(this, type, fn, options);
     }
     dispatchEvent(ev) {
-      ev.target = this;
-      ev.currentTarget = this;
-      const handler = this['on' + ev.type];
-      if (typeof handler === 'function') { try { handler.call(this, ev); } catch (e) {} }
-      const s = this._listeners.get(ev.type);
-      if (s) { for (const fn of s) { try { fn.call(this, ev); } catch (e) {} } }
-      return !ev.defaultPrevented;
+      return dispatch.call(this, ev);
     }
     send(data) {
       if (this.readyState !== 1) throw new DOMException('not OPEN', 'InvalidStateError');
-      __ws_send(this._id, String(data));
+      __ws_send(this._id, data);
     }
     close(code, reason) {
-      if (this.readyState === 3) return;
+      if (code === undefined) code = 1000;
+      else {
+        const number = +code;
+        const clamped = Number.isNaN(number) ? 0 : Math.min(65535, Math.max(0, number));
+        const lower = Math.floor(clamped), fraction = clamped - lower;
+        code = fraction < 0.5 || (fraction === 0.5 && lower % 2 === 0) ? lower : lower + 1;
+      }
+      if (code !== 1000 && (code < 3000 || code > 4999)) throw new DOMException('Invalid WebSocket close code', 'InvalidAccessError');
+      if (typeof reason === 'symbol') throw new TypeError('WebSocket close reason requires a string');
+      reason = reason === undefined ? '' : String(reason);
+      if (new TextEncoder().encode(reason).length > 123) throw new DOMException('WebSocket close reason exceeds 123 bytes', 'SyntaxError');
+      if (this.readyState === 2 || this.readyState === 3) return;
       this.readyState = 2;
-      __ws_close(this._id, code || 1000, reason || '');
+      __ws_close(this._id, code, reason);
     }
   }
   WebSocket.CONNECTING = 0;

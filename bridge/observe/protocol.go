@@ -71,7 +71,44 @@ type getNodeForLocationParams struct {
 }
 
 type getNodeForLocationResult struct {
+	BackendNodeID int64  `json:"backendNodeId"`
+	FrameID       string `json:"frameId"`
+}
+
+type backendNodeParams struct {
 	BackendNodeID int64 `json:"backendNodeId"`
+}
+
+type contentQuadsResult struct {
+	Quads [][]float64 `json:"quads"`
+}
+
+type layoutViewport struct {
+	PageX  int `json:"pageX"`
+	PageY  int `json:"pageY"`
+	Width  int `json:"clientWidth"`
+	Height int `json:"clientHeight"`
+}
+
+type layoutMetricsResult struct {
+	Viewport *layoutViewport `json:"cssLayoutViewport"`
+}
+
+type frameOwnerParams struct {
+	FrameID string `json:"frameId"`
+}
+
+type frameOwnerResult struct {
+	BackendNodeID int64 `json:"backendNodeId"`
+}
+
+type boxModelResult struct {
+	Model struct {
+		Content []float64 `json:"content"`
+		Border  []float64 `json:"border"`
+		Width   float64   `json:"width"`
+		Height  float64   `json:"height"`
+	} `json:"model"`
 }
 
 type axValue struct {
@@ -114,6 +151,16 @@ type domNode struct {
 
 type documentResult struct {
 	Root domNode `json:"root"`
+}
+
+type describeNodeParams struct {
+	BackendNodeID int64 `json:"backendNodeId"`
+	Depth         int   `json:"depth"`
+	Pierce        bool  `json:"pierce"`
+}
+
+type describeNodeResult struct {
+	Node domNode `json:"node"`
 }
 
 func (v axValue) String() string {

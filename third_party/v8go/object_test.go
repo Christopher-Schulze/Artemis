@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestObjectMethodCall(t *testing.T) {
@@ -51,6 +51,8 @@ func TestObjectSet(t *testing.T) {
 	ctx := v8.NewContext()
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
+
+	symIter := v8.SymbolIterator(ctx.Isolate())
 	val, _ := ctx.RunScript("const foo = {}; foo", "")
 	obj, _ := val.AsObject()
 	if err := obj.Set("bar", "baz"); err != nil {
@@ -75,6 +77,9 @@ func TestObjectSet(t *testing.T) {
 	}
 	if err := obj.Set("a", 0); err == nil {
 		t.Error("expected error but got <nil>")
+	}
+	if err := obj.SetSymbol(symIter, "sym"); err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 	if err := obj.SetIdx(10, "ten"); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -119,7 +124,7 @@ func TestObjectInternalFields(t *testing.T) {
 		t.Errorf("unexpected value: %q", v)
 	}
 
-	if setErr := obj.SetInternalField(0, t); setErr == nil {
+	if err := obj.SetInternalField(0, t); err == nil {
 		t.Error("expected unsupported value error")
 	}
 
@@ -129,9 +134,7 @@ func TestObjectInternalFields(t *testing.T) {
 		t.Errorf("unexpected value: %q", v)
 	}
 
-	if recoverPanic(func() {
-		fatalIf(t, obj.SetInternalField(1, "baz"))
-	}) == nil {
+	if recoverPanic(func() { obj.SetInternalField(1, "baz") }) == nil {
 		t.Error("expected panic from index out of bounds")
 	}
 }
@@ -142,7 +145,11 @@ func TestObjectGet(t *testing.T) {
 	ctx := v8.NewContext()
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
-	val, _ := ctx.RunScript("const foo = { bar: 'baz'}; foo", "")
+	symIter := v8.SymbolIterator(ctx.Isolate())
+	val, err := ctx.RunScript("const foo = { bar: 'baz', [Symbol.iterator]: 'gee'}; foo", "")
+	if err != nil {
+		t.Fatalf("RunScript failed: %v", err)
+	}
 	obj, _ := val.AsObject()
 	if bar, _ := obj.Get("bar"); bar.String() != "baz" {
 		t.Errorf("unexpected value: %q", bar)
@@ -150,9 +157,10 @@ func TestObjectGet(t *testing.T) {
 	if baz, _ := obj.Get("baz"); !baz.IsUndefined() {
 		t.Errorf("unexpected value: %q", baz)
 	}
-	if _, err := ctx.RunScript("foo[5] = 5", ""); err != nil {
-		t.Fatal(err)
+	if got, _ := obj.GetSymbol(symIter); got.String() != "gee" {
+		t.Errorf("unexpected value: %q", got)
 	}
+	ctx.RunScript("foo[5] = 5", "")
 	if five, _ := obj.GetIdx(5); five.Integer() != 5 {
 		t.Errorf("unexpected value: %q", five)
 	}
@@ -167,13 +175,17 @@ func TestObjectHas(t *testing.T) {
 	ctx := v8.NewContext()
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
-	val, _ := ctx.RunScript("const foo = {a: 1, '2': 2}; foo", "")
+	symIter := v8.SymbolIterator(ctx.Isolate())
+	val, _ := ctx.RunScript("const foo = {a: 1, '2': 2, [Symbol.iterator]: 3}; foo", "")
 	obj, _ := val.AsObject()
 	if !obj.Has("a") {
 		t.Error("expected true, got false")
 	}
 	if obj.Has("c") {
 		t.Error("expected false, got true")
+	}
+	if !obj.HasSymbol(symIter) {
+		t.Error("expected true, got false")
 	}
 	if !obj.HasIdx(2) {
 		t.Error("expected true, got false")
@@ -189,7 +201,8 @@ func TestObjectDelete(t *testing.T) {
 	ctx := v8.NewContext()
 	defer ctx.Isolate().Dispose()
 	defer ctx.Close()
-	val, _ := ctx.RunScript("const foo = { bar: 'baz', '2': 2}; foo", "")
+	symIter := v8.SymbolIterator(ctx.Isolate())
+	val, _ := ctx.RunScript("const foo = { bar: 'baz', '2': 2, [Symbol.iterator]: 3}; foo", "")
 	obj, _ := val.AsObject()
 	if !obj.Has("bar") {
 		t.Error("expected property to exist")
@@ -198,6 +211,12 @@ func TestObjectDelete(t *testing.T) {
 		t.Error("expected delete to return true, got false")
 	}
 	if obj.Has("bar") {
+		t.Error("expected property to be deleted")
+	}
+	if !obj.DeleteSymbol(symIter) {
+		t.Error("expected delete to return true, got false")
+	}
+	if obj.HasSymbol(symIter) {
 		t.Error("expected property to be deleted")
 	}
 	if !obj.DeleteIdx(2) {
@@ -218,20 +237,11 @@ func ExampleObject_global() {
 		fmt.Println(info.Args()[0])
 		return nil
 	})
-	if err := console.Set("log", logfn); err != nil {
-		fmt.Println(err)
-		return
-	}
+	console.Set("log", logfn)
 	consoleObj, _ := console.NewInstance(ctx)
 
-	if err := global.Set("console", consoleObj); err != nil {
-		fmt.Println(err)
-		return
-	}
-	if _, err := ctx.RunScript("console.log('foo')", ""); err != nil {
-		fmt.Println(err)
-		return
-	}
+	global.Set("console", consoleObj)
+	ctx.RunScript("console.log('foo')", "")
 	// Output:
 	// foo
 }

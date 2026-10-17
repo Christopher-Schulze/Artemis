@@ -8,6 +8,9 @@ import (
 // Locality indicates whether a run uses the local fixture server or the real network.
 type Locality string
 
+// SamplePolicy measures page creation through canonical extraction and close.
+const SamplePolicy = "fetch-extract-close-v1"
+
 const (
 	LocalityLocal   Locality = "local"
 	LocalityNetwork Locality = "network"
@@ -33,7 +36,7 @@ type Workload struct {
 
 // NewWorkload returns a workload for the given scenario with sensible defaults.
 func NewWorkload(s Scenario, mode EngineMode, locality Locality, warmth Warmth, iterations int) Workload {
-	if s.EngineMode != "" {
+	if mode == "" && s.EngineMode != "" {
 		mode = s.EngineMode
 	}
 	if mode == "" {
@@ -70,12 +73,21 @@ func (w Workload) String() string {
 
 // IsValid returns true if the workload has all required fields.
 func (w Workload) IsValid() bool {
-	return w.ScenarioID != "" && w.EngineMode != "" && w.Locality != "" && w.Warmth != "" && w.Iterations > 0
+	return w.ScenarioID != "" &&
+		(w.EngineMode == ModeRenderless || w.EngineMode == ModeChromium || w.EngineMode == ModeHybrid) &&
+		(w.Locality == LocalityLocal || w.Locality == LocalityNetwork) &&
+		(w.Warmth == WarmthCold || w.Warmth == WarmthWarm) && w.Iterations > 0
 }
 
 // DefaultWorkloads returns the standard workload matrix for the given scenarios:
-// local cold and warm runs for renderless, chromium, and hybrid modes.
+// local cold and warm runs using each scenario's declared mode and five samples.
 func DefaultWorkloads(scenarios []Scenario) []Workload {
+	return WorkloadsWithIterations(scenarios, 5)
+}
+
+// WorkloadsWithIterations builds the matrix with the caller's sample count.
+// Invalid counts are retained so configuration validation can reject them.
+func WorkloadsWithIterations(scenarios []Scenario, iterations int) []Workload {
 	workloads := []Workload{}
 	for _, s := range scenarios {
 		for _, warmth := range []Warmth{WarmthCold, WarmthWarm} {
@@ -88,9 +100,14 @@ func DefaultWorkloads(scenarios []Scenario) []Workload {
 				EngineMode: mode,
 				Locality:   LocalityLocal,
 				Warmth:     warmth,
-				Iterations: 5,
+				Iterations: iterations,
 			})
 		}
 	}
 	return workloads
+}
+
+// Identity includes the sample policy as well as the execution dimensions.
+func (w Workload) Identity() string {
+	return fmt.Sprintf("%s/samples-%d/%s", w.String(), w.Iterations, SamplePolicy)
 }

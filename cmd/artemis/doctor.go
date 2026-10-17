@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	artemis "github.com/Christopher-Schulze/Artemis"
+	"github.com/Christopher-Schulze/Artemis/bridge"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
@@ -15,6 +18,7 @@ func cmdDoctor(args []string) int {
 	fs := newFlagSet("doctor")
 	format := fs.String("format", "json", "output format: json|text")
 	timeout := fs.Duration("timeout", 10*time.Second, "per-check timeout")
+	binaryPath := fs.String("binary", "", "Chromium executable to probe (auto-discovered when empty)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: artemis doctor [flags]
 
@@ -29,8 +33,8 @@ Flags:
 		errf("doctor format %q invalid", *format)
 		return 2
 	}
-	if *timeout <= 0 {
-		errf("doctor timeout must be positive")
+	if *timeout <= 0 || fs.NArg() != 0 {
+		errf("doctor requires a positive timeout and no positional arguments")
 		return 2
 	}
 
@@ -42,14 +46,20 @@ Flags:
 		Checks:  make([]CheckResult, 0, 4),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
-
-	// Chromium binary discovery check.
-	if binary, err := browserprocess.DiscoverBinary(""); err != nil {
-		result.Checks = append(result.Checks, CheckResult{Name: "chromium", OK: false, Message: err.Error()})
+	binary, discoveryErr := browserprocess.DiscoverBinary(*binaryPath)
+	if discoveryErr != nil {
+		result.Checks = append(result.Checks, CheckResult{Name: "chromium_binary", OK: false, Message: discoveryErr.Error()})
+		result.Checks = append(result.Checks, CheckResult{Name: "chromium", OK: false, Message: "Chromium executable unavailable; no runtime readiness proof"})
 	} else {
-		result.Checks = append(result.Checks, CheckResult{Name: "chromium", OK: true, Message: binary.Path})
+		result.Checks = append(result.Checks, CheckResult{Name: "chromium_binary", OK: true, Message: binary.Path})
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		message, err := doctorChromium(ctx, binary.Path, *timeout)
+		cancel()
+		if err != nil {
+			result.Checks = append(result.Checks, CheckResult{Name: "chromium", OK: false, Message: err.Error()})
+		} else {
+			result.Checks = append(result.Checks, CheckResult{Name: "chromium", OK: true, Message: message})
+		}
 	}
 
 	// Agent start/stop check.
@@ -58,11 +68,14 @@ Flags:
 	if err != nil {
 		result.Checks = append(result.Checks, CheckResult{Name: "agent_start", OK: false, Message: err.Error()})
 	} else {
-		if err := agent.Start(ctx); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		startErr := agent.Start(ctx)
+		stopErr := agent.Stop()
+		err := errors.Join(startErr, stopErr, ctx.Err())
+		cancel()
+		if err != nil {
 			result.Checks = append(result.Checks, CheckResult{Name: "agent_start", OK: false, Message: err.Error()})
-			_ = agent.Stop()
 		} else {
-			_ = agent.Stop()
 			result.Checks = append(result.Checks, CheckResult{Name: "agent_start", OK: true, Message: fmt.Sprintf("started and stopped in %s", time.Since(start).Round(time.Millisecond))})
 		}
 	}
@@ -80,12 +93,17 @@ Flags:
 	}
 
 	if *format == "text" {
+		lines := make([]string, 0, len(result.Checks))
 		for _, c := range result.Checks {
 			status := "PASS"
 			if !c.OK {
 				status = "FAIL"
 			}
-			fmt.Printf("[%s] %s: %s\n", status, c.Name, c.Message)
+			lines = append(lines, fmt.Sprintf("[%s] %s: %s", status, c.Name, c.Message))
+		}
+		if err := printText(os.Stdout, strings.Join(lines, "\n")); err != nil {
+			errf("doctor output: %v", err)
+			return 1
 		}
 		if result.OK {
 			return 0
@@ -101,6 +119,24 @@ Flags:
 		return 0
 	}
 	return 1
+}
+
+func doctorChromium(ctx context.Context, binary string, timeout time.Duration) (message string, probeErr error) {
+	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{BinaryPath: binary, Headless: true, StartupTimeout: timeout, ShutdownTimeout: timeout})
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		probeErr = errors.Join(probeErr, browser.Close())
+		if probeErr != nil {
+			message = ""
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	version := browser.Version()
+	return fmt.Sprintf("%s; CDP %s handshake and owned shutdown verified", version.Product, version.ProtocolVersion), nil
 }
 
 // DoctorResult is the stable JSON output of the doctor command.

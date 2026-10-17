@@ -3,17 +3,22 @@ package benchmark
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/process"
 )
 
 // CompetitorConfig controls the competitor binary download and execution.
@@ -26,47 +31,56 @@ type CompetitorConfig struct {
 	// harness reports honestly.
 	DownloadURL string
 	// ExpectedSHA256 is the hex-encoded SHA256 of the expected binary.
-	// If non-empty, the downloaded binary is verified against this.
+	// Required before downloading or executing any competitor binary.
 	ExpectedSHA256 string
 	// VersionArgs are the command-line arguments used to retrieve the version.
-	// Default: ["--version"].
+	// Default: ["version"].
 	VersionArgs []string
 	// Port is the port the competitor binary listens on.
 	Port int
 	// Timeout is the maximum time to wait for the competitor to start.
 	Timeout time.Duration
+	// MaxDownloadBytes bounds downloaded executables. Default: 256 MiB.
+	MaxDownloadBytes int64
 }
 
 // DefaultCompetitorConfig returns the default competitor configuration.
 // The binary is stored under benchmark/bin/ which is gitignored.
 func DefaultCompetitorConfig() CompetitorConfig {
 	return CompetitorConfig{
-		BinaryDir: filepath.Join("benchmark", "bin"),
-		Port:      9223,
-		Timeout:   30 * time.Second,
+		BinaryDir:        filepath.Join("benchmark", "bin"),
+		Port:             9223,
+		Timeout:          30 * time.Second,
+		MaxDownloadBytes: 256 * 1024 * 1024,
 	}
 }
 
 // CompetitorRunner manages the competitor binary lifecycle: download,
 // start, run scenarios, stop.
 type CompetitorRunner struct {
-	cfg CompetitorConfig
-	cmd *exec.Cmd
+	cfg            CompetitorConfig
+	cmd            *exec.Cmd
+	waitDone       chan struct{}
+	waitErr        error
+	transport      *bridge.CDPTransport
+	verifiedSHA256 string
+	verifiedFile   os.FileInfo
+	contextStopped atomic.Bool
 }
 
 // NewCompetitorRunner creates a runner with the given config.
 func NewCompetitorRunner(cfg CompetitorConfig) *CompetitorRunner {
 	if cfg.BinaryDir == "" {
-		cfg = DefaultCompetitorConfig()
-	}
-	if cfg.Port == 0 {
-		cfg.Port = 9223
+		cfg.BinaryDir = DefaultCompetitorConfig().BinaryDir
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
 	if len(cfg.VersionArgs) == 0 {
-		cfg.VersionArgs = []string{"--version"}
+		cfg.VersionArgs = []string{"version"}
+	}
+	if cfg.MaxDownloadBytes == 0 {
+		cfg.MaxDownloadBytes = DefaultCompetitorConfig().MaxDownloadBytes
 	}
 	return &CompetitorRunner{cfg: cfg}
 }
@@ -83,17 +97,26 @@ func (r *CompetitorRunner) BinaryPath() string {
 // IsAvailable reports whether the competitor binary is already
 // downloaded and executable.
 func (r *CompetitorRunner) IsAvailable() bool {
-	info, err := os.Stat(r.BinaryPath())
+	info, err := os.Lstat(r.BinaryPath())
 	if err != nil {
 		return false
 	}
-	return !info.IsDir()
+	return info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode()&0o111 != 0)
 }
 
 // EnsureBinary downloads the competitor binary if not already present.
 // If DownloadURL is empty or the download fails, it returns an error
 // explaining the situation honestly.
 func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
+	if ctx == nil {
+		return fmt.Errorf("competitor context required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateCompetitorConfig(r.cfg); err != nil {
+		return err
+	}
 	if r.IsAvailable() {
 		if err := r.verifyChecksum(); err != nil {
 			return err
@@ -104,69 +127,34 @@ func (r *CompetitorRunner) EnsureBinary(ctx context.Context) (returnErr error) {
 		return fmt.Errorf("competitor binary not available: no download URL configured")
 	}
 
-	if err := os.MkdirAll(r.cfg.BinaryDir, 0o750); err != nil {
-		return fmt.Errorf("competitor binary mkdir: %w", err)
+	if err := r.downloadBinary(ctx); err != nil {
+		return err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.cfg.DownloadURL, nil)
-	if err != nil {
-		return fmt.Errorf("competitor download request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("competitor download: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			returnErr = errors.Join(returnErr, fmt.Errorf("competitor response close: %w", closeErr))
-		}
-	}()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("competitor download: HTTP %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(r.BinaryPath())
-	if err != nil {
-		return fmt.Errorf("competitor binary create: %w", err)
-	}
-	_, copyErr := io.Copy(out, resp.Body)
-	if copyErr != nil {
-		closeErr := out.Close()
-		removeErr := os.Remove(r.BinaryPath())
-		return errors.Join(fmt.Errorf("competitor binary write: %w", copyErr), closeErr, removeErr)
-	}
-	if runtime.GOOS != "windows" {
-		if chmodErr := out.Chmod(0o700); chmodErr != nil {
-			closeErr := out.Close()
-			removeErr := os.Remove(r.BinaryPath())
-			return errors.Join(fmt.Errorf("competitor binary chmod: %w", chmodErr), closeErr, removeErr)
-		}
-	}
-	closeErr := out.Close()
-	if closeErr != nil {
-		removeErr := os.Remove(r.BinaryPath())
-		return errors.Join(fmt.Errorf("competitor binary close: %w", closeErr), removeErr)
-	}
-
-	if err := r.verifyChecksum(); err != nil {
-		removeErr := os.Remove(r.BinaryPath())
-		return errors.Join(err, removeErr)
-	}
-
-	return nil
+	return r.verifyChecksum()
 }
 
 func newCompetitorCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
 	command := exec.CommandContext(ctx, executable)
 	command.Args = append(command.Args, args...)
+	command.WaitDelay = time.Second
+	process.ConfigureProcessGroup(command)
+	command.Cancel = func() error { return process.SignalProcessGroup(command.Process, syscall.SIGKILL) }
 	return command
 }
 
 func (r *CompetitorRunner) verifyChecksum() error {
-	if r.cfg.ExpectedSHA256 == "" {
-		return nil
+	r.verifiedSHA256 = ""
+	r.verifiedFile = nil
+	digest, err := hex.DecodeString(r.cfg.ExpectedSHA256)
+	if err != nil || len(digest) != sha256.Size {
+		return fmt.Errorf("competitor execution requires a pinned SHA256 digest")
+	}
+	if !r.IsAvailable() {
+		return fmt.Errorf("competitor binary must be a regular executable file")
+	}
+	before, err := os.Lstat(r.BinaryPath())
+	if err != nil {
+		return err
 	}
 	got, err := fileSHA256(r.BinaryPath())
 	if err != nil {
@@ -175,8 +163,31 @@ func (r *CompetitorRunner) verifyChecksum() error {
 	if !strings.EqualFold(got, r.cfg.ExpectedSHA256) {
 		return fmt.Errorf("competitor checksum mismatch: got %s, want %s", got, r.cfg.ExpectedSHA256)
 	}
+	after, err := os.Lstat(r.BinaryPath())
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(before, after) || before.Size() != after.Size() || before.ModTime() != after.ModTime() {
+		return fmt.Errorf("competitor changed during verification")
+	}
+	r.verifiedSHA256 = got
+	r.verifiedFile = after
 	return nil
 }
+
+func (r *CompetitorRunner) verifyExecutedFile() error {
+	info, err := os.Lstat(r.BinaryPath())
+	if err != nil {
+		return err
+	}
+	if r.verifiedFile == nil || !info.Mode().IsRegular() || !os.SameFile(info, r.verifiedFile) || info.Size() != r.verifiedFile.Size() || info.ModTime() != r.verifiedFile.ModTime() {
+		return fmt.Errorf("competitor executable identity changed during execution")
+	}
+	return nil
+}
+
+// VerifiedSHA256 returns the digest verified immediately before execution.
+func (r *CompetitorRunner) VerifiedSHA256() string { return r.verifiedSHA256 }
 
 func fileSHA256(path string) (sum string, returnErr error) {
 	f, err := os.Open(filepath.Clean(path))
@@ -196,157 +207,173 @@ func fileSHA256(path string) (sum string, returnErr error) {
 }
 
 // Version runs the binary's version command and returns the captured output.
-func (r *CompetitorRunner) Version() (string, error) {
-	if !r.IsAvailable() {
-		return "", fmt.Errorf("competitor binary not available")
+func (r *CompetitorRunner) Version(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("competitor version context required")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := r.verifyChecksum(); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := newCompetitorCommand(ctx, r.BinaryPath(), r.cfg.VersionArgs...).CombinedOutput()
+	out := &boundedCommandOutput{limit: 64 * 1024}
+	command := newCompetitorCommand(ctx, r.BinaryPath(), r.cfg.VersionArgs...)
+	command.Stdout, command.Stderr = out, out
+	err := command.Run()
+	if command.Process != nil {
+		err = errors.Join(err, process.SignalProcessGroup(command.Process, syscall.SIGKILL))
+	}
+	err = errors.Join(err, r.verifyExecutedFile())
 	if err != nil {
 		return "", fmt.Errorf("competitor version: %w", err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	version := strings.TrimSpace(out.buffer.String())
+	if version == "" {
+		return "", fmt.Errorf("competitor version returned empty output")
+	}
+	return version, nil
 }
 
 // Start launches the competitor binary as a subprocess listening on
-// the configured port. It waits for the HTTP endpoint to become
-// reachable before returning.
+// a reserved loopback port. Readiness requires a working CDP handshake.
 func (r *CompetitorRunner) Start(ctx context.Context) error {
-	if !r.IsAvailable() {
-		return fmt.Errorf("competitor binary not available: run EnsureBinary first")
+	if ctx == nil {
+		return fmt.Errorf("competitor start context required")
+	}
+	if r.cmd != nil {
+		return fmt.Errorf("competitor is already started")
+	}
+	if err := validateCompetitorConfig(r.cfg); err != nil {
+		return err
+	}
+	if err := r.verifyChecksum(); err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", r.cfg.Port))
+	if err != nil {
+		return fmt.Errorf("reserve competitor port: %w", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		return err
+	}
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
 	}
 
 	r.cmd = newCompetitorCommand(ctx, r.BinaryPath(),
-		"--port", fmt.Sprintf("%d", r.cfg.Port),
-		"--headless",
+		"serve", "--host", "127.0.0.1", "--port", port,
 	)
-	r.cmd.Stdout = os.Stderr
-	r.cmd.Stderr = os.Stderr
+	r.contextStopped.Store(false)
+	cancelCommand := r.cmd.Cancel
+	r.cmd.Cancel = func() error {
+		err := cancelCommand()
+		if err == nil {
+			r.contextStopped.Store(true)
+		}
+		return err
+	}
+	output := &boundedCommandOutput{limit: 64 * 1024}
+	r.cmd.Stdout, r.cmd.Stderr = output, output
 
 	if err := r.cmd.Start(); err != nil {
+		r.cmd = nil
 		return fmt.Errorf("competitor start: %w", err)
 	}
-
-	// Wait for the HTTP endpoint to become reachable
-	addr := fmt.Sprintf("127.0.0.1:%d", r.cfg.Port)
-	deadline := time.Now().Add(r.cfg.Timeout)
-	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
-	for time.Now().Before(deadline) {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
-		if err == nil {
-			if closeErr := conn.Close(); closeErr != nil {
-				stopErr := r.Stop()
-				return errors.Join(fmt.Errorf("competitor probe close: %w", closeErr), stopErr)
-			}
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			stopErr := r.Stop()
-			return errors.Join(ctx.Err(), stopErr)
-		case <-time.After(200 * time.Millisecond):
-		}
+	command := r.cmd
+	r.waitDone = make(chan struct{})
+	go func() {
+		r.waitErr = command.Wait()
+		close(r.waitDone)
+	}()
+	if err := r.connect(ctx, address); err != nil {
+		return err
 	}
-
-	stopErr := r.Stop()
-	return errors.Join(fmt.Errorf("competitor did not become reachable within %s", r.cfg.Timeout), stopErr)
-}
-
-// Stop terminates the competitor subprocess.
-func (r *CompetitorRunner) Stop() error {
-	if r.cmd != nil && r.cmd.Process != nil {
-		cmd := r.cmd
-		r.cmd = nil
-		var stopErr error
-		if signalErr := cmd.Process.Signal(os.Interrupt); signalErr != nil && !errors.Is(signalErr, os.ErrProcessDone) {
-			stopErr = fmt.Errorf("competitor interrupt: %w", signalErr)
-		}
-		if waitErr := cmd.Wait(); waitErr != nil && !errors.Is(waitErr, os.ErrProcessDone) {
-			stopErr = errors.Join(stopErr, fmt.Errorf("competitor wait: %w", waitErr))
-		}
-		return stopErr
+	if err := r.verifyExecutedFile(); err != nil {
+		return errors.Join(err, r.Stop())
 	}
 	return nil
 }
 
-// RunScenario runs the competitor against a single scenario by
-// fetching the URL via the competitor's HTTP API. The scenarioURL
-// must be reachable from the competitor process.
+// Stop terminates the competitor subprocess.
+func (r *CompetitorRunner) Stop() error {
+	var stopErr error
+	if r.transport != nil {
+		stopErr = r.transport.Close()
+		r.transport = nil
+	}
+	if r.cmd != nil && r.cmd.Process != nil {
+		cmd := r.cmd
+		alreadyExited := false
+		select {
+		case <-r.waitDone:
+			alreadyExited = true
+		default:
+		}
+		interruptErr := process.SignalProcessGroup(cmd.Process, syscall.SIGINT)
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-r.waitDone:
+		case <-timer.C:
+			if err := process.SignalProcessGroup(cmd.Process, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				stopErr = errors.Join(stopErr, err)
+			}
+			<-r.waitDone
+		}
+		stopErr = errors.Join(stopErr, process.SignalProcessGroup(cmd.Process, syscall.SIGKILL))
+		stopErr = errors.Join(stopErr, r.verifyExecutedFile())
+		// Wait joins exec's cancellation watcher before these flags are read.
+		if !r.contextStopped.Load() {
+			if alreadyExited {
+				stopErr = errors.Join(stopErr, fmt.Errorf("competitor exited before owned stop"), r.waitErr)
+			}
+			if interruptErr != nil && !errors.Is(interruptErr, os.ErrProcessDone) {
+				stopErr = errors.Join(stopErr, fmt.Errorf("competitor interrupt: %w", interruptErr))
+			}
+		}
+		var exitError *exec.ExitError
+		if r.waitErr != nil && !errors.As(r.waitErr, &exitError) && !errors.Is(r.waitErr, context.Canceled) {
+			stopErr = errors.Join(stopErr, r.waitErr)
+		}
+		r.cmd = nil
+		r.waitDone = nil
+		return stopErr
+	}
+	return stopErr
+}
+
+// RunScenario measures a real CDP navigation and canonical Go extraction.
 func (r *CompetitorRunner) RunScenario(ctx context.Context, s Scenario, scenarioURL string) ScenarioResult {
 	result := ScenarioResult{
 		ScenarioID: s.ID,
 		Engine:     EngineCompetitor,
+		EngineMode: string(s.EngineMode),
 		Timestamp:  time.Now().UTC(),
 	}
-
-	if r.cmd == nil {
+	if r.transport == nil || r.cmd == nil {
 		result.Error = "competitor not started"
 		return result
 	}
-
-	// Fetch via the competitor's HTTP API
-	apiURL := fmt.Sprintf("http://127.0.0.1:%d/fetch?url=%s", r.cfg.Port, urlEncode(scenarioURL))
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	evidence, err := r.runCDPScenario(ctx, s, scenarioURL)
+	result.WallMs = float64(time.Since(start)) / float64(time.Millisecond)
+	result.Throughput = result.ToMetricSet().ThroughputForPages(1)
+	result.Validation = evidence
 	if err != nil {
-		result.WallMs = float64(time.Since(start).Microseconds()) / 1000.0
-		result.Error = fmt.Sprintf("competitor request: %v", err)
+		result.Error = err.Error()
 		return result
 	}
-	resp, err := http.DefaultClient.Do(req)
-	wallMs := float64(time.Since(start).Microseconds()) / 1000.0
-
-	if err != nil {
-		result.WallMs = wallMs
-		result.Error = fmt.Sprintf("competitor fetch: %v", err)
-		return result
+	result.Validated = evidence.Passed
+	result.OK = evidence.Passed
+	if !result.OK {
+		result.Error = "scenario semantic assertions failed"
 	}
-	if resp.StatusCode != 200 {
-		closeErr := resp.Body.Close()
-		result.WallMs = wallMs
-		result.Error = fmt.Sprintf("competitor HTTP %d", resp.StatusCode)
-		if closeErr != nil {
-			result.Error = fmt.Sprintf("%s; response close: %v", result.Error, closeErr)
-		}
-		return result
-	}
-	if closeErr := resp.Body.Close(); closeErr != nil {
-		result.WallMs = wallMs
-		result.Error = fmt.Sprintf("competitor response close: %v", closeErr)
-		return result
-	}
-
-	result.WallMs = wallMs
-	result.OK = true
 	return result
 }
 
 // Close stops the competitor if running.
 func (r *CompetitorRunner) Close() error {
 	return r.Stop()
-}
-
-// urlEncode is a minimal URL encoder for query parameters.
-func urlEncode(s string) string {
-	var b []byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '-' || c == '_' || c == '.' || c == '~' || c == ':' || c == '/' || c == '?' {
-			b = append(b, c)
-		} else {
-			b = append(b, '%')
-			b = append(b, hexNib(c>>4))
-			b = append(b, hexNib(c&0xf))
-		}
-	}
-	return string(b)
-}
-
-func hexNib(n byte) byte {
-	if n < 10 {
-		return '0' + n
-	}
-	return 'a' + (n - 10)
 }

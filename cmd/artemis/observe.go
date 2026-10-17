@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,10 +13,15 @@ import (
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
 	artemisobserve "github.com/Christopher-Schulze/Artemis/observe"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+	"github.com/Christopher-Schulze/Artemis/security"
+	"github.com/Christopher-Schulze/Artemis/serve"
 )
 
 func cmdObserve(args []string) (exitCode int) {
 	fs := newFlagSet("observe")
+	adBlock := addAdBlockFlag(fs)
+	control := addControlFlags(fs)
+	policyFlags := addBrowserPolicyFlags(fs)
 	binary := fs.String("binary", "", "Chromium binary path (auto-discovered when empty)")
 	timeout := fs.Duration("timeout", 20*time.Second, "navigation and capture timeout")
 	interactive := fs.Bool("interactive", false, "emit only interactive nodes")
@@ -30,6 +35,52 @@ func cmdObserve(args []string) (exitCode int) {
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: artemis observe [flags] <url>"); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *control.server != "" {
+		if fs.NArg() != 0 || *control.pageID == "" {
+			errf("persistent observe requires --page and no URL (use chromium.open to create a page)")
+			return 2
+		}
+		if err := rejectLocalControlFlags(fs, controlAllowed("format", "interactive")); err != nil {
+			errf("observe: %v", err)
+			return 2
+		}
+		if *timeout <= 0 {
+			errf("observe timeout must be positive")
+			return 2
+		}
+		outputFormat, err := parseObserveFormat(*format)
+		if err != nil {
+			errf("observe: %v", err)
+			return 2
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		client, err := control.connect(ctx)
+		if err != nil {
+			errf("observe: %v", err)
+			return 1
+		}
+		defer cleanupOnReturn(&exitCode, "observe control close", client.Close)()
+		mode := bridgeobserve.ModeFull
+		if *interactive {
+			mode = bridgeobserve.ModeInteractive
+		}
+		var evidence artemisobserve.ObservationEvidence
+		trust, err := client.CallLabeled(ctx, serve.CmdChromiumObserve, serve.ChromiumObserveParams{SessionID: *control.sessionID, PageID: *control.pageID, Mode: string(mode)}, &evidence)
+		if err != nil {
+			errf("observe: %v", err)
+			return 1
+		}
+		if trust == nil {
+			errf("observe: response has no trust label")
+			return 1
+		}
+		if err := writeObserveOutput(os.Stdout, outputFormat, evidence, trust.Origin); err != nil {
+			errf("observe output: %v", err)
+			return 1
+		}
+		return 0
 	}
 	if fs.NArg() != 1 {
 		fs.Usage()
@@ -51,6 +102,11 @@ func cmdObserve(args []string) (exitCode int) {
 		errf("observe sandbox: %v", err)
 		return 2
 	}
+	budget := browserprocess.ResourceBudget{MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile, SessionTimeout: *sessionTimeout}
+	if err := validateCLIResourceBudget(budget); err != nil {
+		errf("observe: %v", err)
+		return 2
+	}
 	_, policySink, resourceSink, err := newProcessDiagnostics("chromium", fmt.Sprintf("observe-%d", os.Getpid()))
 	if err != nil {
 		errf("observe diagnostics: %v", err)
@@ -58,14 +114,24 @@ func cmdObserve(args []string) (exitCode int) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	actionPolicy, err := policyFlags.start(ctx)
+	if err != nil {
+		errf("observe policy: %v", err)
+		return 1
+	}
+	defer actionPolicy.Stop()
+	for _, action := range []string{"navigate", "observe"} {
+		if err := checkCLIActionPolicy(ctx, actionPolicy, action, fs.Arg(0)); err != nil {
+			errf("observe policy: %v", err)
+			return 1
+		}
+	}
 	browser, err := bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
 		BinaryPath: *binary, Headless: true, Sandbox: sandboxPolicy,
-		ResourceBudget: browserprocess.ResourceBudget{
-			MaxCPUPercent: *maxCPU, MaxMemoryBytes: *maxMemory, MaxProfileDiskBytes: *maxProfile,
-			SessionTimeout: *sessionTimeout,
-		},
+		ResourceBudget:     budget,
 		PolicyDecisionSink: policySink,
 		ResourceSink:       resourceSink,
+		DisableAdBlock:     !*adBlock,
 	})
 	if err != nil {
 		errf("observe launch: %v", err)
@@ -100,7 +166,7 @@ func cmdObserve(args []string) (exitCode int) {
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "observe collector close", collector.Close)()
-	if err = waitDocumentReady(ctx, page); err != nil {
+	if err = waitDocumentReady(ctx, page, false); err != nil {
 		errf("observe readiness: %v", err)
 		return 1
 	}
@@ -108,12 +174,26 @@ func cmdObserve(args []string) (exitCode int) {
 	if *interactive {
 		mode = bridgeobserve.ModeInteractive
 	}
+	target, err := page.FramePolicyURL(ctx, "")
+	if err != nil {
+		errf("observe policy context: %v", err)
+		return 1
+	}
+	if err := checkCLIActionPolicy(ctx, actionPolicy, "observe", target); err != nil {
+		errf("observe policy: %v", err)
+		return 1
+	}
 	evidence, err := collector.Capture(ctx, mode, "")
 	if err != nil {
 		errf("observe capture: %v", err)
 		return 1
 	}
-	if err = writeObserveOutput(os.Stdout, outputFormat, evidence); err != nil {
+	pageURL, err := page.CurrentURL(ctx)
+	if err != nil {
+		errf("observe output origin: %v", err)
+		return 1
+	}
+	if err = writeObserveOutput(os.Stdout, outputFormat, evidence, pageURL); err != nil {
 		errf("observe output: %v", err)
 		return 1
 	}
@@ -149,7 +229,7 @@ func parseObserveFormat(value string) (observeFormat, error) {
 // writeObserveOutput renders one capture in the selected format. The HAR and
 // NDJSON paths route the captured network events through the spec-mandated
 // formatters in observe/format.go (spec L4024).
-func writeObserveOutput(out io.Writer, format observeFormat, evidence artemisobserve.ObservationEvidence) error {
+func writeObserveOutput(out io.Writer, format observeFormat, evidence artemisobserve.ObservationEvidence, pageURL string) error {
 	switch format {
 	case formatHAR, formatNDJSON:
 		target := artemisobserve.OutputFormatHAR
@@ -160,22 +240,40 @@ func writeObserveOutput(out io.Writer, format observeFormat, evidence artemisobs
 		if err != nil {
 			return err
 		}
-		if _, err = out.Write(encoded); err != nil {
+		trust, err := newCLIIDPI().Label(pageURL, "observe", encoded)
+		if err != nil {
 			return err
 		}
 		if format == formatHAR {
-			_, err = io.WriteString(out, "\n")
-			return err
+			if encoded, err = security.WithHARTrustMember(encoded, trust); err != nil {
+				return err
+			}
+			return writeCLIOutput(out, append(encoded, '\n'))
 		}
-		return nil
+		return writeLabeledNDJSON(out, encoded, trust)
 	default:
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(evidence)
+		return printLabeledJSON(out, evidence, pageURL, "observe")
 	}
 }
 
-func waitDocumentReady(ctx context.Context, page *bridge.Page) error {
+// writeLabeledNDJSON adds the trust member to every NDJSON record.
+func writeLabeledNDJSON(out io.Writer, encoded []byte, trust security.ContentTrust) error {
+	var labeled bytes.Buffer
+	for _, line := range bytes.Split(encoded, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		record, err := security.WithTrustMember(line, trust)
+		if err != nil {
+			return err
+		}
+		labeled.Write(record)
+		labeled.WriteByte('\n')
+	}
+	return writeCLIOutput(out, labeled.Bytes())
+}
+
+func waitDocumentReady(ctx context.Context, page *bridge.Page, requireComplete bool) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -185,7 +283,7 @@ func waitDocumentReady(ctx context.Context, page *bridge.Page) error {
 			} `json:"result"`
 		}
 		err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &result)
-		if err == nil && (result.Result.Value == "interactive" || result.Result.Value == "complete") {
+		if err == nil && (result.Result.Value == "complete" || (!requireComplete && result.Result.Value == "interactive")) {
 			return nil
 		}
 		select {

@@ -129,6 +129,14 @@ func NewProfileManager(baseDir string, gate *BrowserProfileAccessGate) *ProfileM
 	return m
 }
 
+// Err reports initialization failure; slice-only List cannot carry that error.
+func (m *ProfileManager) Err() error {
+	if m == nil {
+		return errors.New("profile manager: nil")
+	}
+	return m.loadErr
+}
+
 // DefaultProfileBaseDir returns the browser profiles dir.
 func DefaultProfileBaseDir() string {
 	home, err := os.UserHomeDir()

@@ -7,10 +7,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/bridge"
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/network"
+	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+	"github.com/Christopher-Schulze/Artemis/renderless"
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
+	"github.com/Christopher-Schulze/Artemis/security"
 )
 
 // api.go is the public API for the artemis package.
@@ -40,18 +44,52 @@ type Agent struct {
 	profileSessionPublicationMu sync.Mutex
 	chromiumActions             ChromiumActions
 	profileRuntime              profileRuntime
+	chromiumMu                  sync.Mutex
+	chromiumBrowser             *bridge.ChromiumBrowser
+	chromiumCancel              context.CancelFunc
+	chromiumStartErr            error
+	browserPolicy               *BrowserPolicy
 }
 
 // AgentConfig configures the artemis agent
 type AgentConfig struct {
-	MaxSessions   int                  `json:"maxSessions"`
-	MaxTabs       int                  `json:"maxTabs"`
-	ScriptTimeout time.Duration        `json:"scriptTimeout"`
-	FetchTimeout  time.Duration        `json:"fetchTimeout"`
-	UserAgent     string               `json:"userAgent"`
-	ObeyRobots    bool                 `json:"obeyRobots"`
-	PolicyConfig  network.PolicyConfig `json:"policyConfig"`
-	Diagnostics   diagnostics.Config   `json:"diagnostics"`
+	MaxSessions   int           `json:"maxSessions"`
+	MaxTabs       int           `json:"maxTabs"`
+	ScriptTimeout time.Duration `json:"scriptTimeout"`
+	FetchTimeout  time.Duration `json:"fetchTimeout"`
+	UserAgent     string        `json:"userAgent"`
+	ObeyRobots    bool          `json:"obeyRobots"`
+	// WebBotAuth is the operator-gated Web Bot Auth signer for renderless HTTP.
+	WebBotAuth   *network.WebBotAuth  `json:"-"`
+	PolicyConfig network.PolicyConfig `json:"policyConfig"`
+	Diagnostics  diagnostics.Config   `json:"diagnostics"`
+	// SessionBudget controls the one live engine's hard resource ceilings.
+	SessionBudget engine.SessionBudget `json:"sessionBudget"`
+	// MemoryAdmission optionally supplements those ceilings with an embedding
+	// application's shared transient-memory authority.
+	MemoryAdmission network.MemoryAdmission `json:"-"`
+	// Chromium enables lazy owned CDP control. Nil keeps renderless-only operation.
+	Chromium *browserprocess.LaunchConfig `json:"-"`
+	// ActionPolicyPath is an optional bounded JSON action/navigation policy.
+	ActionPolicyPath string `json:"actionPolicyPath,omitempty"`
+	// ConfirmActions adds non-dispatching confirmation categories.
+	ConfirmActions []string `json:"confirmActions,omitempty"`
+	// PolicyEngine is the embedding host's additional authorization boundary.
+	PolicyEngine bridge.PolicyEngine `json:"-"`
+	// AdBlock is the ad/tracker blocker shared by renderless and Chromium
+	// (spec L4206-L4210); nil builds one with the embedded base list.
+	AdBlock *security.AdBlocker `json:"-"`
+	// DisableAdBlock turns ad/tracker blocking off for both engines.
+	DisableAdBlock bool `json:"disableAdBlock,omitempty"`
+	// RequireScriptContainment keeps untrusted page JavaScript out of the
+	// embedded V8: script-requiring routes fall back to the sandboxed
+	// Chromium child (or fail capability_unavailable without Chromium) and
+	// renderless pages open script-free only. Embedders holding host secrets
+	// set it.
+	RequireScriptContainment bool `json:"requireScriptContainment,omitempty"`
+	// VisualGrounder is the optional host model capability behind
+	// Session.GroundVisual; nil leaves visual grounding unavailable.
+	VisualGrounder VisualGrounder `json:"-"`
 }
 
 // AgentState enumerates agent lifecycle states
@@ -68,20 +106,25 @@ const (
 
 // Session represents an active browser automation session
 type Session struct {
-	mu         sync.RWMutex
-	owner      *Agent
-	ctx        context.Context
-	cancel     context.CancelFunc
-	operations sync.WaitGroup
-	id         string
-	userID     string
-	createdAt  time.Time
-	tabs       int
-	active     bool
-	pages      map[string]*engine.Page
-	pageSeq    uint64
-	managed    bool
-	profileID  string
+	mu              sync.RWMutex
+	owner           *Agent
+	ctx             context.Context
+	cancel          context.CancelFunc
+	operations      sync.WaitGroup
+	id              string
+	userID          string
+	createdAt       time.Time
+	tabs            int
+	active          bool
+	pages           map[string]*engine.Page
+	pageSeq         uint64
+	managed         bool
+	profileID       string
+	chromiumMu      sync.Mutex
+	chromiumContext *bridge.BrowserContext
+	chromiumPages   map[string]*ownedChromiumPage
+	adBlockFindings map[string]*security.AdBlockFinding
+	handoffs        map[string]handoffOpen
 }
 
 // Task represents a browser automation task
@@ -140,17 +183,28 @@ func (a *Agent) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	policy, err := NewBrowserPolicy(ctx, config)
+	if err != nil {
+		return a.failStart(nil, err)
+	}
 	runtime, err := factory.Start(ctx, config)
 	if err != nil {
+		policy.Stop()
 		return a.failStart(runtime, err)
 	}
 	if runtime == nil {
+		policy.Stop()
 		return a.failStart(nil, fmt.Errorf("runtime factory returned nil"))
 	}
 	if err := ctx.Err(); err != nil {
+		policy.Stop()
 		return a.failStart(runtime, err)
 	}
-	return a.finishStart(runtime)
+	if err := a.finishStart(runtime, policy); err != nil {
+		policy.Stop()
+		return err
+	}
+	return nil
 }
 
 func (a *Agent) beginStart() (RuntimeFactory, AgentConfig, error) {
@@ -175,7 +229,7 @@ func (a *Agent) failStart(runtime RenderlessRuntime, err error) error {
 	return classifyTaskError("start", err)
 }
 
-func (a *Agent) finishStart(runtime RenderlessRuntime) error {
+func (a *Agent) finishStart(runtime RenderlessRuntime, policy *BrowserPolicy) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	hybrid, hybridErr := a.buildHybridRouter(runtime)
 	if hybridErr != nil {
@@ -199,11 +253,13 @@ func (a *Agent) finishStart(runtime RenderlessRuntime) error {
 		return newTaskError(TaskErrorInvalidTransition, "start", transitionErr)
 	}
 	a.runtime = runtime
+	a.browserPolicy = policy
 	a.hybrid = hybrid
 	a.runCtx = runCtx
 	a.cancel = cancel
 	a.lifecycleGeneration++
 	a.state = AgentStateRunning
+	policy.StartHotReload()
 	a.mu.Unlock()
 	a.telemetry.Record(AgentEvent{Type: AgentEventStarted, At: time.Now()})
 	return nil
@@ -218,8 +274,24 @@ func (a *Agent) Stop() error {
 	if cancel != nil {
 		cancel()
 	}
+	a.mu.RLock()
+	policy := a.browserPolicy
+	a.mu.RUnlock()
+	if policy != nil {
+		policy.Stop()
+	}
 	a.operations.Wait()
 	sessionErr := a.closeSessions()
+	a.chromiumMu.Lock()
+	if a.chromiumBrowser != nil {
+		sessionErr = errors.Join(sessionErr, a.chromiumBrowser.Close())
+		a.chromiumBrowser = nil
+	}
+	if a.chromiumCancel != nil {
+		a.chromiumCancel()
+		a.chromiumCancel = nil
+	}
+	a.chromiumMu.Unlock()
 	var closeErr error
 	if runtime != nil {
 		closeErr = runtime.Close()
@@ -288,7 +360,9 @@ func (a *Agent) State() AgentState {
 func (a *Agent) Config() AgentConfig {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.config
+	config := a.config
+	config.ConfirmActions = append([]string(nil), config.ConfirmActions...)
+	return config
 }
 
 // Diagnostics returns the runtime's redacted retention-bounded audit records.
@@ -304,6 +378,19 @@ func (a *Agent) Diagnostics() ([]diagnostics.Record, error) {
 		return nil, newTaskError(TaskErrorInvalidTransition, "diagnostics", fmt.Errorf("state %s", state))
 	}
 	return provider.Diagnostics()
+}
+
+// DiagnosticSessionRef returns the installation-keyed pseudonym under which
+// diagnostics record a session; empty when the runtime keeps no diagnostics.
+func (a *Agent) DiagnosticSessionRef(sessionID string) string {
+	a.mu.RLock()
+	runtime := a.runtime
+	a.mu.RUnlock()
+	provider, ok := runtime.(interface{ DiagnosticSessionRef(string) string })
+	if !ok {
+		return ""
+	}
+	return provider.DiagnosticSessionRef(sessionID)
 }
 
 // CreateSession creates a new browser session
@@ -356,6 +443,12 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 		return failedTaskResult(task.ID, start, err)
 	}
 	defer a.operations.Done()
+	if pointer, ok := task.Action.(*FetchAction); ok {
+		if pointer == nil {
+			return failedTaskResult(task.ID, start, newTaskError(TaskErrorInvalidInput, "execute", fmt.Errorf("nil fetch action")))
+		}
+		task.Action = *pointer
+	}
 	if taskErr := validateTask(task); taskErr != nil {
 		return failedTaskResult(task.ID, start, taskErr)
 	}
@@ -366,6 +459,16 @@ func (a *Agent) ExecuteTask(ctx context.Context, task Task) TaskResult {
 	defer done()
 	execCtx, cancel := executionContext(ctx, lease.runCtx, sessionCtx, task, lease.config)
 	defer cancel()
+	if fetch, ok := task.Action.(FetchAction); ok {
+		if err := a.authorizeBrowserRequest(execCtx, bridge.PolicyRequest{Action: "navigate", URL: fetch.URL, Method: "GET"}); err != nil {
+			return failedTaskResult(task.ID, start, classifyTaskError("browser_policy", err))
+		}
+		if fetch.EvaluateExpression != "" {
+			if err := a.authorizeBrowserRequest(execCtx, bridge.PolicyRequest{Action: "evaluate", URL: fetch.URL}); err != nil {
+				return failedTaskResult(task.ID, start, classifyTaskError("browser_policy", err))
+			}
+		}
+	}
 	data, dispatchErr := executeTaskThroughRouter(execCtx, lease, task)
 	if dispatchErr != nil {
 		return failedTaskResult(task.ID, start, classifyTaskError("execute", dispatchErr))
@@ -388,6 +491,7 @@ func validatePageResult(result *PageResult) *TaskError {
 }
 
 type executionLease struct {
+	owner      *Agent
 	runtime    RenderlessRuntime
 	dispatcher Dispatcher
 	hybrid     *artemisrouter.HybridRouter
@@ -397,6 +501,9 @@ type executionLease struct {
 
 func executeTaskThroughRouter(ctx context.Context, lease executionLease, task Task) (*PageResult, error) {
 	if lease.hybrid == nil {
+		if fetch, ok := task.Action.(FetchAction); ok && fetch.EvaluateExpression != "" {
+			return nil, newTaskError(TaskErrorCapabilityUnavailable, "evaluate", fmt.Errorf("evaluation requires the owned route resource"))
+		}
 		return lease.dispatcher.Execute(ctx, lease.runtime, task)
 	}
 	var action FetchAction
@@ -415,23 +522,29 @@ func executeTaskThroughRouter(ctx context.Context, lease executionLease, task Ta
 	if action.RunScripts {
 		signals.ScriptCount = 1
 	}
+	capabilities := renderless.CapabilityProfileForEngine(nil)
+	if runtime, ok := lease.runtime.(*ownedEngineRuntime); ok {
+		capabilities = renderless.CapabilityProfileForEngine(runtime.Engine)
+	}
+	auth := artemisrouter.AuthState{}
+	if session, ok := lease.owner.Session(task.SessionID); ok {
+		session.chromiumMu.Lock()
+		if session.chromiumContext != nil {
+			auth = artemisrouter.AuthState{Required: true, SessionID: session.id, OwnerUserRef: session.userID}
+		}
+		session.chromiumMu.Unlock()
+	}
 	result, err := lease.hybrid.Execute(ctx, artemisrouter.RouteRequest{
-		URL: action.URL, Action: artemisrouter.ActionFetch, Signals: signals,
-		State:   artemisrouter.BrowserState{SessionID: task.SessionID},
+		URL: action.URL, Action: artemisrouter.ActionFetch, Signals: signals, AsyncFetch: action.AsyncFetch,
+		State: artemisrouter.BrowserState{SessionID: task.SessionID}, Auth: auth,
 		TraceID: task.ID, EvidenceID: task.ID,
+		RequiredWebAPIs: action.RequiredWebAPIs, NeedsRealSemantics: action.NeedsRealSemantics, ForceMode: artemisrouter.Mode(action.Mode),
+		Capabilities: capabilities,
 	})
 	if err != nil {
 		return nil, routeErrorToTaskError(err)
 	}
-	pageResult := &PageResult{
-		URL: result.Output.URL, StatusCode: result.Output.StatusCode, Title: result.Output.Title,
-		HTML: result.Output.HTML, Text: result.Output.Text, Markdown: result.Output.Markdown,
-		Links: result.Output.Links,
-	}
-	if closeErr := result.Close(); closeErr != nil {
-		return nil, newTaskError(TaskErrorExecutionFailed, "route close", fmt.Errorf("release route resource: %w", closeErr))
-	}
-	return pageResult, nil
+	return finishTaskRoute(ctx, lease, action, &result)
 }
 
 func routeErrorToTaskError(err error) *TaskError {
@@ -465,7 +578,7 @@ func (a *Agent) beginExecution() (executionLease, *TaskError) {
 		return executionLease{}, newTaskError(TaskErrorBrowserCrash, "execute", fmt.Errorf("renderless runtime is unhealthy"))
 	}
 	a.operations.Add(1)
-	return executionLease{runtime: a.runtime, dispatcher: a.dispatcher, hybrid: a.hybrid, runCtx: a.runCtx, config: a.config}, nil
+	return executionLease{owner: a, runtime: a.runtime, dispatcher: a.dispatcher, hybrid: a.hybrid, runCtx: a.runCtx, config: a.config}, nil
 }
 
 func (a *Agent) buildHybridRouter(runtime RenderlessRuntime) (*artemisrouter.HybridRouter, error) {
@@ -473,10 +586,33 @@ func (a *Agent) buildHybridRouter(runtime RenderlessRuntime) (*artemisrouter.Hyb
 		return nil, nil
 	}
 	executor := artemisrouter.RuntimeExecutor{Runtime: runtime}
-	return artemisrouter.New(artemisrouter.Config{Executors: map[artemisrouter.Mode]artemisrouter.Executor{
+	executors := map[artemisrouter.Mode]artemisrouter.Executor{
 		artemisrouter.ModeStaticFetch:  executor,
 		artemisrouter.ModeRenderlessJS: executor,
-	}})
+	}
+	if a.config.RequireScriptContainment {
+		// Without an in-process JS mode the router falls back from
+		// renderless_js to the sandboxed Chromium executor.
+		executors[artemisrouter.ModeStaticFetch] = scriptFreeExecutor{inner: executor}
+		delete(executors, artemisrouter.ModeRenderlessJS)
+	}
+	if a.config.Chromium != nil {
+		executors[artemisrouter.ModeChromiumCDP] = ownedChromiumExecutor{agent: a}
+		executors[artemisrouter.ModeStealth] = ownedChromiumExecutor{agent: a}
+	}
+	return artemisrouter.New(artemisrouter.Config{Executors: executors})
+}
+
+// scriptFreeExecutor runs the static route without executing page scripts.
+type scriptFreeExecutor struct {
+	inner artemisrouter.Executor
+}
+
+var _ artemisrouter.Executor = scriptFreeExecutor{}
+
+func (e scriptFreeExecutor) Execute(ctx context.Context, request artemisrouter.ExecutionRequest) (artemisrouter.ExecutionOutput, error) {
+	request.Signals.ScriptCount, request.Signals.HasExternalScripts, request.AsyncFetch = 0, false, false
+	return e.inner.Execute(ctx, request)
 }
 
 func validateTask(task Task) *TaskError {
@@ -485,6 +621,12 @@ func validateTask(task Task) *TaskError {
 	}
 	if task.Timeout < 0 {
 		return newTaskError(TaskErrorInvalidInput, "execute", fmt.Errorf("task timeout cannot be negative"))
+	}
+	if fetch, ok := task.Action.(FetchAction); ok && fetch.URL == "" {
+		return newTaskError(TaskErrorInvalidInput, "execute", fmt.Errorf("fetch URL required"))
+	}
+	if fetch, ok := task.Action.(FetchAction); ok {
+		return validateTaskExpression(fetch.EvaluateExpression)
 	}
 	return nil
 }
@@ -518,10 +660,10 @@ func taskTimeout(task Task, config AgentConfig) time.Duration {
 	if task.Timeout > 0 {
 		return task.Timeout
 	}
-	if fetch, ok := task.Action.(FetchAction); ok && fetch.RunScripts {
+	if fetch, ok := task.Action.(FetchAction); ok && (fetch.RunScripts || fetch.EvaluateExpression != "") {
 		return config.ScriptTimeout
 	}
-	if fetch, ok := task.Action.(*FetchAction); ok && fetch != nil && fetch.RunScripts {
+	if fetch, ok := task.Action.(*FetchAction); ok && fetch != nil && (fetch.RunScripts || fetch.EvaluateExpression != "") {
 		return config.ScriptTimeout
 	}
 	return config.FetchTimeout

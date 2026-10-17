@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,14 +53,13 @@ func TestHarnessArtemisOnly(t *testing.T) {
 		t.Errorf("artemis results = %d, want %d", artemisResults, len(workloads))
 	}
 
-	// All Artemis results should be OK
+	// Every fixture has a real semantic outcome. The known document-title
+	// lifecycle gap must be reported as invalid rather than hidden as success.
 	for _, r := range sc.Results {
 		if r.Engine != EngineArtemis {
 			continue
 		}
-		if !r.OK {
-			t.Errorf("scenario %s: artemis not OK: %s", r.ScenarioID, r.Error)
-		}
+		assertArtemisSemanticOutcome(t, r)
 		if r.WallMs <= 0 {
 			t.Errorf("scenario %s: wall ms = %.3f, want > 0", r.ScenarioID, r.WallMs)
 		}
@@ -84,6 +84,18 @@ func TestHarnessArtemisOnly(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatal("scorecard.json is empty")
+	}
+	var persisted Scorecard
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Options.Iterations != cfg.Iterations || len(persisted.Samples) != len(workloads)*cfg.Iterations || len(persisted.Priming) != len(scenarios) {
+		t.Fatalf("actual sample or priming evidence lost: options=%+v samples=%d priming=%d", persisted.Options, len(persisted.Samples), len(persisted.Priming))
+	}
+	for _, result := range persisted.Results {
+		if result.SampleCount != cfg.Iterations || result.Execution.Iterations != cfg.Iterations {
+			t.Fatalf("iteration count lost: %+v", result)
+		}
 	}
 
 	// Verify markdown contains expected sections
@@ -127,11 +139,12 @@ func TestHarnessCompetitorUnavailable(t *testing.T) {
 	}
 
 	// Should have Artemis results (OK) and competitor results (not OK)
-	artemisOK := 0
+	artemisResults := 0
 	competitorErrors := 0
 	for _, r := range sc.Results {
-		if r.Engine == EngineArtemis && r.OK {
-			artemisOK++
+		if r.Engine == EngineArtemis {
+			artemisResults++
+			assertArtemisSemanticOutcome(t, r)
 		}
 		if r.Engine == EngineCompetitor && !r.OK && r.Error != "" {
 			competitorErrors++
@@ -140,11 +153,11 @@ func TestHarnessCompetitorUnavailable(t *testing.T) {
 
 	scenarios := DefaultScenarios()
 	workloads := DefaultWorkloads(scenarios)
-	if artemisOK != len(workloads) {
-		t.Errorf("artemis OK = %d, want %d", artemisOK, len(workloads))
+	if artemisResults != len(workloads) {
+		t.Errorf("artemis results = %d, want %d", artemisResults, len(workloads))
 	}
-	if competitorErrors != len(scenarios) {
-		t.Errorf("competitor errors = %d, want %d", competitorErrors, len(scenarios))
+	if competitorErrors != len(workloads) {
+		t.Errorf("competitor errors = %d, want %d", competitorErrors, len(workloads))
 	}
 }
 
@@ -204,12 +217,7 @@ func TestScenarioByID(t *testing.T) {
 }
 
 func TestScorecardSummary(t *testing.T) {
-	sc := NewScorecard()
-	sc.Mode = ModeHeadToHead
-	sc.AddResult(ScenarioResult{ScenarioID: "s1", Engine: EngineArtemis, WallMs: 1.0, OK: true})
-	sc.AddResult(ScenarioResult{ScenarioID: "s1", Engine: EngineCompetitor, WallMs: 2.0, OK: true})
-	sc.AddResult(ScenarioResult{ScenarioID: "s2", Engine: EngineArtemis, WallMs: 0.5, OK: true})
-	sc.AddResult(ScenarioResult{ScenarioID: "s2", Engine: EngineCompetitor, WallMs: 3.0, OK: true})
+	sc := comparisonScorecard(t, 2)
 
 	summaries := sc.Summarize()
 	if len(summaries) != 2 {
@@ -319,11 +327,7 @@ func TestCurrentEnvironment(t *testing.T) {
 }
 
 func TestScorecardHonestyHeadToHead(t *testing.T) {
-	sc := NewScorecard()
-	sc.Mode = ModeHeadToHead
-	sc.Honest = true
-	sc.AddResult(ScenarioResult{ScenarioID: "s1", Engine: EngineArtemis, WallMs: 1.0, OK: true})
-	sc.AddResult(ScenarioResult{ScenarioID: "s1", Engine: EngineCompetitor, WallMs: 2.0, OK: true})
+	sc := comparisonScorecard(t, 1)
 
 	su := sc.Summarize()
 	if len(su) != 2 {
@@ -410,6 +414,19 @@ func TestValidateScenario(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && indexOf(s, substr) >= 0
+}
+
+func assertArtemisSemanticOutcome(t *testing.T, result ScenarioResult) {
+	t.Helper()
+	if result.ScenarioID == "scr-003" && result.Validation.Title != "Loaded" {
+		if result.OK || result.Validated || result.Error == "" || result.FailedSamples == 0 {
+			t.Fatalf("document-title lifecycle failure hidden: %+v", result)
+		}
+		return
+	}
+	if !result.OK || !result.Validated || !result.Validation.Passed {
+		t.Errorf("scenario %s invalid: %s", result.ScenarioID, result.Error)
+	}
 }
 
 func indexOf(s, substr string) int {

@@ -9,11 +9,13 @@ import (
 	"syscall"
 )
 
-func configureProcessGroup(cmd *exec.Cmd) {
+// ConfigureProcessGroup isolates an owned command and its descendants.
+func ConfigureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func signalProcessGroup(process *os.Process, signal syscall.Signal) error {
+// SignalProcessGroup signals only the group created for an owned command.
+func SignalProcessGroup(process *os.Process, signal syscall.Signal) error {
 	if process == nil {
 		return nil
 	}

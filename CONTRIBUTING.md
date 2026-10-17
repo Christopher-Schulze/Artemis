@@ -61,7 +61,10 @@ fork must:
 1. Update `ARTEMIS_PATCHES.md` with the new patch description.
 2. Update `third_party/v8go/PROVENANCE.md` if the upstream version or binary
    provenance changes.
-3. Keep the BSD-style upstream license attribution intact.
+3. Rebuild the prebuilt darwin binding archives after any `.cc` or `.h`
+   change: `go run ./cmd/artemis-v8go-binding -llvm <llvm>/bin` (LLVM Clang
+   >= 21); `TestBindingArchiveMatchesSources` enforces it.
+4. Keep the BSD-style upstream license attribution intact.
 
 ## Security Issues
 

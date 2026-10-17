@@ -97,3 +97,18 @@ func TestRobotsCacheEntry_IsExpired(t *testing.T) {
 		t.Fatal("expected not expired")
 	}
 }
+
+func TestRobotsCompatibilityUsesCanonicalSpecificityAndMetadata(t *testing.T) {
+	policy := ParseRobotsTxt("User-agent: *\nAllow: /area\nDisallow: /area/private\nDisallow: /*.zip$\nUser-agent: NamedBot\nCrawl-delay: 0.25\nSitemap: https://example.com/map.xml\nDisallow: /named\n", "other")
+	if policy.ParseError != nil || policy.IsURLAllowed("/area/private") || !policy.IsURLAllowed("/area/public") || policy.IsURLAllowed("/file.zip") {
+		t.Fatalf("compatibility evaluator diverged: %+v", policy)
+	}
+	named := ParseRobotsTxt("User-agent: NamedBot\nCrawl-delay: 0.25\nSitemap: https://example.com/map.xml\nDisallow: /named\n", "NamedBot/1")
+	if named.CrawlDelay != 250*time.Millisecond || len(named.Sitemaps) != 1 || named.IsURLAllowed("/named") {
+		t.Fatalf("canonical metadata missing: %+v", named)
+	}
+	failed := ParseRobotsTxt(strings.Repeat("x", (1<<20)+1), "bot")
+	if failed.ParseError == nil || failed.IsURLAllowed("/public") {
+		t.Fatal("fatal canonical parse became a compatibility grant")
+	}
+}

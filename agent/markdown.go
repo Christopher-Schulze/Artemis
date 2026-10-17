@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"net/url"
 	"strconv"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"github.com/Christopher-Schulze/Artemis/internal/pool"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
@@ -48,24 +50,14 @@ func acquireReset(mc *mdConverter) *mdConverter {
 	return mc
 }
 
+// releaseMDConverter wipes the converter's page text and returns it to the
+// pool; converters grown beyond pool.MaxRetainedBytes are dropped.
 func releaseMDConverter(mc *mdConverter) {
+	if mc.b.Cap() > pool.MaxRetainedBytes {
+		return
+	}
+	mc.b.Wipe()
 	mdConverterPool.Put(mc)
-}
-
-// builderPool reuses strings.Builder instances for short-lived text
-// accumulation (table cells, code blocks, raw text collection).
-var builderPool = sync.Pool{
-	New: func() interface{} { return &strings.Builder{} },
-}
-
-func acquireBuilder() *strings.Builder {
-	b := builderPool.Get().(*strings.Builder)
-	b.Reset()
-	return b
-}
-
-func releaseBuilder(b *strings.Builder) {
-	builderPool.Put(b)
 }
 
 // Markdown renders the document body as CommonMark-flavored Markdown.
@@ -81,7 +73,7 @@ func Markdown(d *webapi.Document) string {
 	mc.walk(body)
 	// Clone before the converter re-enters the pool: TrimSpace slices the
 	// pooled buffer and the returned string must outlive reuse.
-	result := strings.TrimSpace(strings.Clone(mc.b.String()))
+	result := strings.TrimSpace(mc.b.String())
 	releaseMDConverter(mc)
 	return result
 }
@@ -100,7 +92,7 @@ func bodyOrRoot(n *html.Node) *html.Node {
 }
 
 type mdConverter struct {
-	b        strings.Builder
+	b        pool.Buffer
 	base     string
 	baseURL  *url.URL
 	listKind []byte
@@ -187,14 +179,13 @@ func (m *mdConverter) walkChildren(n *html.Node) {
 }
 
 func (m *mdConverter) ensureBlankLine() {
-	s := m.b.String()
-	if len(s) == 0 {
+	if m.b.Len() == 0 {
 		return
 	}
-	if strings.HasSuffix(s, "\n\n") {
+	if m.b.HasSuffix("\n\n") {
 		return
 	}
-	if strings.HasSuffix(s, "\n") {
+	if m.b.HasSuffix("\n") {
 		m.b.WriteByte('\n')
 		return
 	}
@@ -214,7 +205,7 @@ func (m *mdConverter) heading(n *html.Node, level int) {
 	var inner mdConverter
 	inner.base = m.base
 	inner.walkChildren(n)
-	m.b.WriteString(strings.TrimSpace(inner.b.String()))
+	m.b.Write(bytes.TrimSpace(inner.b.Bytes()))
 	m.b.WriteString("\n\n")
 }
 
@@ -243,7 +234,7 @@ func (m *mdConverter) link(n *html.Node) {
 	href = m.resolveURL(href)
 	inner := acquireMDConverterInner(m)
 	inner.walkChildren(n)
-	text := strings.TrimSpace(strings.Clone(inner.b.String()))
+	text := strings.TrimSpace(inner.b.String())
 	releaseMDConverter(inner)
 	if text == "" {
 		text = href
@@ -293,14 +284,14 @@ func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 func (m *mdConverter) codeBlock(n *html.Node) {
 	m.ensureBlankLine()
 	m.b.WriteString("```\n")
-	buf := acquireBuilder()
+	buf := pool.GetBuffer()
 	collectRawText(n, buf)
-	m.b.WriteString(strings.TrimRight(buf.String(), "\n"))
-	releaseBuilder(buf)
+	m.b.Write(bytes.TrimRight(buf.Bytes(), "\n"))
+	pool.PutBuffer(buf)
 	m.b.WriteString("\n```\n\n")
 }
 
-func collectRawText(n *html.Node, b *strings.Builder) {
+func collectRawText(n *html.Node, b *pool.Buffer) {
 	if n == nil {
 		return
 	}
@@ -335,7 +326,7 @@ func (m *mdConverter) list(n *html.Node, kind byte) {
 		inner.listKind = append(inner.listKind, m.listKind...)
 		inner.olIndex = append(inner.olIndex, m.olIndex...)
 		inner.walkChildren(c)
-		text := strings.ReplaceAll(strings.TrimSpace(strings.Clone(inner.b.String())), "\n", "\n"+indent+"  ")
+		text := strings.ReplaceAll(strings.TrimSpace(inner.b.String()), "\n", "\n"+indent+"  ")
 		releaseMDConverter(inner)
 		m.b.WriteString(text)
 		m.b.WriteByte('\n')
@@ -349,7 +340,7 @@ func (m *mdConverter) blockquote(n *html.Node) {
 	m.ensureBlankLine()
 	inner := acquireMDConverterInner(m)
 	inner.walkChildren(n)
-	text := strings.TrimRight(strings.Clone(inner.b.String()), "\n")
+	text := strings.TrimRight(inner.b.String(), "\n")
 	releaseMDConverter(inner)
 	if text == "" {
 		return
@@ -405,12 +396,10 @@ func tableRows(n *html.Node) [][]string {
 			var cells []string
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
-					b := acquireBuilder()
+					b := pool.GetBuffer()
 					collectRawText(c, b)
-					// Clone: collapseInline may return its input, which
-					// would alias the pooled buffer after release.
-					cells = append(cells, strings.TrimSpace(collapseInline(strings.Clone(b.String()))))
-					releaseBuilder(b)
+					cells = append(cells, strings.TrimSpace(collapseInline(b.String())))
+					pool.PutBuffer(b)
 				}
 			}
 			if len(cells) > 0 {
@@ -443,7 +432,7 @@ func collapseInline(s string) string {
 	if !needsInlineCollapse(s) {
 		return s
 	}
-	b := acquireBuilder()
+	b := pool.GetBuffer()
 	b.Grow(len(s))
 	prevSpace := false
 	for i := 0; i < len(s); i++ {
@@ -458,8 +447,8 @@ func collapseInline(s string) string {
 		b.WriteByte(c)
 		prevSpace = false
 	}
-	result := strings.Clone(b.String())
-	releaseBuilder(b)
+	result := b.String()
+	pool.PutBuffer(b)
 	return result
 }
 

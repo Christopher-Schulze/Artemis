@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,22 +23,28 @@ type identity struct {
 	backend int64
 }
 type remembered struct {
-	ref   string
-	node  Node
-	epoch uint64
+	ref          string
+	node         Node
+	epoch        uint64
+	bytes        int
+	older, newer *remembered
 }
 
 type Collector struct {
-	caller     Caller
-	config     Config
-	mu         sync.Mutex
-	epoch      uint64
-	root       int64
-	frame      string
-	nextRef    uint64
-	refs       map[string]remembered
-	identities map[identity]string
-	last       Snapshot
+	caller         Caller
+	config         Config
+	mu             sync.Mutex
+	epoch          uint64
+	root           int64
+	frame          string
+	nextRef        uint64
+	refs           map[string]*remembered
+	identities     map[identity]string
+	last           Snapshot
+	oldest, newest *remembered
+	referenceBytes int
+	queryLease     chan struct{}
+	queryBaseline  *queryBaseline
 }
 
 func NewCollector(caller Caller, config Config) (*Collector, error) {
@@ -44,6 +52,11 @@ func NewCollector(caller Caller, config Config) (*Collector, error) {
 		return nil, errors.New("observation: CDP caller required")
 	}
 	defaults := DefaultConfig()
+	var err error
+	config, err = retentionConfig(config, defaults)
+	if err != nil {
+		return nil, err
+	}
 	if config.MaxNodes <= 0 {
 		config.MaxNodes = defaults.MaxNodes
 	}
@@ -69,7 +82,7 @@ func NewCollector(caller Caller, config Config) (*Collector, error) {
 	if config.ReResolveThreshold <= 0 || config.ReResolveThreshold > 1 {
 		config.ReResolveThreshold = defaults.ReResolveThreshold
 	}
-	return &Collector{caller: caller, config: config, refs: make(map[string]remembered), identities: make(map[identity]string)}, nil
+	return &Collector{caller: caller, config: config, refs: make(map[string]*remembered), identities: make(map[identity]string), queryLease: make(chan struct{}, 1)}, nil
 }
 
 func callCDP[R any, P any](ctx context.Context, caller Caller, method string, params P) (R, error) {
@@ -89,6 +102,10 @@ func callCDPFrame[R any, P any](ctx context.Context, caller FrameCaller, frameID
 }
 
 func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (Snapshot, error) {
+	return c.captureSelected(ctx, mode, subtreeRef, nil)
+}
+
+func (c *Collector) captureSelected(ctx context.Context, mode Mode, subtreeRef string, scope *nodeScope) (Snapshot, error) {
 	if ctx == nil {
 		return Snapshot{}, errors.New("observation: context required")
 	}
@@ -117,6 +134,16 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 		return Snapshot{}, fmt.Errorf("get frame tree: %w", err)
 	}
 	frameIDs := flattenFrames(frames.FrameTree)
+	if scope != nil {
+		for _, frameID := range frameIDs {
+			scope.frames[frameID] = true
+		}
+		if router, ok := c.caller.(FrameCaller); ok {
+			for frameID := range router.FrameSessions() {
+				scope.frames[frameID] = true
+			}
+		}
+	}
 	document, err := callCDP[documentResult](ctx, c.caller, "DOM.getDocument", getDocumentParams{Depth: -1, Pierce: true})
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("get pierced DOM document: %w", err)
@@ -124,7 +151,9 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 	shadowPaths := make(map[int64][]string)
 	collectShadowPaths(document.Root, nil, shadowPaths)
 	axByBackend := make(map[int64]axNode)
+	admitted := make(map[string]bool)
 	warnings := make([]string, 0)
+	frameIncomplete := false
 	for _, frameID := range frameIDs {
 		if router, ok := c.caller.(FrameCaller); ok {
 			if _, attached := router.FrameSessions()[frameID]; attached {
@@ -132,20 +161,32 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 			}
 		}
 		tree, err := callCDP[axTreeResult](ctx, c.caller, "Accessibility.getFullAXTree", getAXTreeParams{FrameID: frameID})
+		if err == nil && len(tree.Nodes) == 0 {
+			err = errors.New("no nodes")
+		}
 		if err != nil {
 			if frameID == frames.FrameTree.Frame.ID {
 				return Snapshot{}, fmt.Errorf("get main-frame AX tree: %w", err)
 			}
-			warnings = append(warnings, "AX tree unavailable for frame "+frameID)
+			warnings = append(warnings, "frame "+frameID+" Accessibility.getFullAXTree: "+err.Error())
+			frameIncomplete = true
 			continue
 		}
+		admitted[frameID] = true
 		for _, ax := range tree.Nodes {
 			if !ax.Ignored && ax.BackendNodeID != 0 {
 				axByBackend[ax.BackendNodeID] = ax
 			}
 		}
 	}
-	nodes, root, reasons := c.buildNodes(dom, axByBackend)
+	dom = admittedDocuments(dom, admitted)
+	parents := make(map[string]map[int64]int64)
+	addSnapshotParents(dom, parents)
+	if scope != nil {
+		scope.parents = parents
+	}
+	nodes, root, reasons := c.buildNodesSelected(dom, axByBackend, scope)
+	applyShadowPaths(nodes, shadowPaths)
 	if router, ok := c.caller.(FrameCaller); ok {
 		frameSessions := router.FrameSessions()
 		attachedFrameIDs := make([]string, 0, len(frameSessions))
@@ -154,70 +195,80 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 		}
 		sort.Strings(attachedFrameIDs)
 		for _, frameID := range attachedFrameIDs {
-			if _, err := callCDPFrame[emptyResult](ctx, router, frameID, "Accessibility.enable", emptyParams{}); err != nil {
-				warnings = append(warnings, "Accessibility unavailable for OOPIF "+frameID+": "+err.Error())
-			}
-			if _, err := callCDPFrame[emptyResult](ctx, router, frameID, "DOM.enable", emptyParams{}); err != nil {
-				warnings = append(warnings, "DOM unavailable for OOPIF "+frameID+": "+err.Error())
-			}
-			frameDOM, err := callCDPFrame[domSnapshotResult](ctx, router, frameID, "DOMSnapshot.captureSnapshot", params)
+			captured, err := captureFrame(ctx, router, frameID, params)
 			if err != nil {
-				warnings = append(warnings, "DOM snapshot unavailable for OOPIF "+frameID+": "+err.Error())
+				warnings = append(warnings, "OOPIF observation unavailable: "+err.Error())
+				frameIncomplete = true
 				continue
 			}
-			frameAX, err := callCDPFrame[axTreeResult](ctx, router, frameID, "Accessibility.getFullAXTree", emptyParams{})
-			if err != nil {
-				warnings = append(warnings, "AX tree unavailable for OOPIF "+frameID+": "+err.Error())
-			}
-			frameAXByBackend := make(map[int64]axNode)
-			for _, ax := range frameAX.Nodes {
-				if !ax.Ignored && ax.BackendNodeID != 0 {
-					frameAXByBackend[ax.BackendNodeID] = ax
-				}
-			}
-			frameNodes, _, frameReasons := c.buildNodes(frameDOM, frameAXByBackend)
+			addSnapshotParents(captured.dom, parents)
+			frameNodes, _, frameReasons := c.buildNodesSelected(captured.dom, captured.ax, scope)
+			frameShadowPaths := make(map[int64][]string)
+			collectShadowPaths(captured.document, nil, frameShadowPaths)
+			applyShadowPaths(frameNodes, frameShadowPaths)
 			nodes = append(nodes, frameNodes...)
 			for _, reason := range frameReasons {
 				if !contains(reasons, reason) {
 					reasons = append(reasons, reason)
 				}
 			}
-			frameDocument, err := callCDPFrame[documentResult](ctx, router, frameID, "DOM.getDocument", getDocumentParams{Depth: -1, Pierce: true})
-			if err == nil {
-				collectShadowPaths(frameDocument.Root, nil, shadowPaths)
-			}
 		}
 	}
 	if document.Root.BackendNodeID != 0 {
 		root = document.Root.BackendNodeID
 	}
-	for i := range nodes {
-		if path := shadowPaths[nodes[i].BackendNodeID]; len(path) > 0 {
-			nodes[i].ShadowPath = path
+	if frameIncomplete {
+		reasons = append(reasons, "frame_observation")
+	}
+	if scope != nil {
+		scope.prioritizeTarget(nodes)
+	}
+	if scope != nil && len(nodes) > scope.options.MaxNodes {
+		nodes = nodes[:scope.options.MaxNodes]
+		if !contains(reasons, "max_nodes") {
+			reasons = append(reasons, "max_nodes")
 		}
 	}
-	warnings = append(warnings, c.applyHitTests(ctx, nodes, frames.FrameTree.Frame.ID)...)
+	warnings = append(warnings, c.applyHitTestsWithParents(ctx, nodes, frames.FrameTree, parents)...)
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	mainFrame := frames.FrameTree.Frame.ID
 	if c.epoch == 0 || c.root != root || c.frame != mainFrame {
+		if c.epoch == math.MaxUint64 {
+			return Snapshot{}, errors.New("observation: navigation epoch exhausted")
+		}
 		c.epoch++
 		c.root = root
 		c.frame = mainFrame
+	}
+	c.pruneReferences()
+	if scope != nil && (scope.root != nil && (scope.root.epoch != c.epoch || !scope.foundRoot) || scope.options.FrameID != "" && !scope.frames[scope.options.FrameID]) {
+		return Snapshot{}, fmt.Errorf("query: subtree epoch or frame is no longer observed; frame failures: %v", warnings)
+	}
+	if scope != nil && scope.root != nil && scope.target != nil && scope.target.epoch == c.epoch {
+		target := scope.target.node
+		if _, observed := parents[target.FrameID][target.BackendNodeID]; observed && (target.FrameID != scope.root.node.FrameID || !isDescendantOf(target.BackendNodeID, scope.root.node.BackendNodeID, parents[target.FrameID])) {
+			return Snapshot{}, errors.New("query: target is outside requested subtree")
+		}
 	}
 	for i := range nodes {
 		if !nodes[i].Interactive && nodes[i].Name == "" {
 			continue
 		}
-		key := identity{epoch: c.epoch, frame: nodes[i].FrameID, backend: nodes[i].BackendNodeID}
-		ref := c.identities[key]
-		if ref == "" {
-			c.nextRef++
-			ref = "e" + strconv.FormatUint(c.nextRef, 10)
-			c.identities[key] = ref
+		if err := c.rememberNode(&nodes[i]); err != nil {
+			return Snapshot{}, err
 		}
-		nodes[i].Ref = ref
-		c.refs[ref] = remembered{ref: ref, node: cloneNode(nodes[i]), epoch: c.epoch}
+	}
+	for i := range nodes {
+		if nodes[i].Ref == "" && (nodes[i].Interactive || nodes[i].Name != "") || nodes[i].Ref != "" && c.refs[nodes[i].Ref] == nil {
+			nodes[i].Ref = ""
+			if !contains(reasons, "reference_retention") {
+				reasons = append(reasons, "reference_retention")
+			}
+		}
 	}
 	if mode == ModeInteractive || mode == ModeEvidence {
 		nodes = filterInteractive(nodes)
@@ -227,9 +278,12 @@ func (c *Collector) Capture(ctx context.Context, mode Mode, subtreeRef string) (
 		if !ok {
 			return Snapshot{}, fmt.Errorf("observation: subtree ref %q not found", subtreeRef)
 		}
-		nodes = filterSubtree(nodes, rememberedNode.node.BackendNodeID)
+		nodes = filterSubtree(nodes, rememberedNode.node.BackendNodeID, rememberedNode.node.FrameID)
 	}
 	snapshot := Snapshot{Schema: Schema, Epoch: c.epoch, CapturedAt: time.Now().UTC(), Mode: mode, RootBackendNodeID: root, Nodes: nodes, TotalNodes: len(nodes), Truncated: len(reasons) > 0, TruncationReasons: reasons, Warnings: warnings}
+	if scope != nil {
+		snapshot.Mode, snapshot.TotalNodes = scope.options.Mode, scope.matched
+	}
 	snapshot = c.boundJSON(snapshot)
 	c.last = cloneSnapshot(snapshot)
 	return cloneSnapshot(snapshot), nil
@@ -270,44 +324,47 @@ func cloneNode(node Node) Node {
 	return clone
 }
 
-func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, mainFrame string) []string {
-	parents := make(map[int64]int64, len(nodes))
+func (c *Collector) applyHitTests(ctx context.Context, nodes []Node, tree frameTree) []string {
+	parents := make(map[string]map[int64]int64)
 	for _, node := range nodes {
-		parents[node.BackendNodeID] = node.ParentBackendNodeID
+		if parents[node.FrameID] == nil {
+			parents[node.FrameID] = make(map[int64]int64)
+		}
+		parents[node.FrameID][node.BackendNodeID] = node.ParentBackendNodeID
 	}
+	return c.applyHitTestsWithParents(ctx, nodes, tree, parents)
+}
+
+func (c *Collector) applyHitTestsWithParents(ctx context.Context, nodes []Node, tree frameTree, parents map[string]map[int64]int64) []string {
 	tested := 0
 	warnings := make([]string, 0)
+	geometry := newPointerGeometry(c.caller, tree)
+	warnings = append(warnings, geometry.loadFrameTrees(ctx)...)
 	for i := range nodes {
 		node := &nodes[i]
-		if !node.Interactive || !node.Visible || node.Box == nil || node.FrameID != mainFrame {
+		node.Interactable = false
+		if !node.Interactive || !node.Visible || node.Disabled || node.Box == nil {
 			continue
 		}
 		if tested >= c.config.MaxHitTests {
-			warnings = append(warnings, "hit-test budget exhausted")
-			break
+			if !contains(warnings, "hit-test budget exhausted") {
+				warnings = append(warnings, "hit-test budget exhausted")
+			}
+			continue
 		}
 		tested++
-		result, err := callCDP[getNodeForLocationResult](ctx, c.caller, "DOM.getNodeForLocation", getNodeForLocationParams{
-			X:                         int(math.Round(node.Box.X + node.Box.Width/2)),
-			Y:                         int(math.Round(node.Box.Y + node.Box.Height/2)),
-			IncludeUserAgentShadowDOM: false,
-			IgnorePointerEventsNone:   false,
-		})
+		hit, _, _, err := geometry.hit(ctx, *node, parents[node.FrameID])
 		if err != nil {
-			warnings = append(warnings, "hit test unavailable for backend node "+strconv.FormatInt(node.BackendNodeID, 10)+": "+err.Error())
+			warnings = append(warnings, "hit test unavailable for frame "+node.FrameID+" backend node "+strconv.FormatInt(node.BackendNodeID, 10)+": "+err.Error())
 			continue
 		}
-		if result.BackendNodeID == node.BackendNodeID || isDescendantOf(result.BackendNodeID, node.BackendNodeID, parents) {
-			node.Hit = HitClear
-			continue
-		}
-		node.Hit = HitCovered
-		node.Interactable = false
+		node.Hit = hit
+		node.Interactable = ClassifyActionability(node) == ActionabilityReady
 	}
 	return warnings
 }
 
-func (c *Collector) buildNodes(result domSnapshotResult, axNodes map[int64]axNode) ([]Node, int64, []string) {
+func (c *Collector) buildNodesSelected(result domSnapshotResult, axNodes map[int64]axNode, scope *nodeScope) ([]Node, int64, []string) {
 	out := make([]Node, 0)
 	reasons := make([]string, 0)
 	root := int64(0)
@@ -348,15 +405,9 @@ func (c *Collector) buildNodes(result domSnapshotResult, axNodes map[int64]axNod
 			if parent >= 0 && parent < len(depths) {
 				depths[i] = depths[parent] + 1
 			}
-			if depths[i] > c.config.MaxDepth {
+			if depths[i] > c.config.MaxDepth && scope == nil {
 				if !contains(reasons, "max_depth") {
 					reasons = append(reasons, "max_depth")
-				}
-				continue
-			}
-			if len(out) >= c.config.MaxNodes {
-				if !contains(reasons, "max_nodes") {
-					reasons = append(reasons, "max_nodes")
 				}
 				continue
 			}
@@ -375,7 +426,7 @@ func (c *Collector) buildNodes(result domSnapshotResult, axNodes map[int64]axNod
 			}
 			name = c.redactAndBound(name, attributes, false)
 			value = c.redactAndBound(value, attributes, true)
-			node := Node{BackendNodeID: backend, FrameID: frameID, Role: role, Name: name, Value: value, Tag: tag, Attributes: redactAttributes(attributes, c.config.SensitiveAttributes), Depth: depths[i], Order: len(out), Disabled: disabled || hasAttribute(attributes, "disabled"), Focused: focused, Interactive: isInteractive(role, tag, attributes), Hit: HitUnknown}
+			node := Node{BackendNodeID: backend, FrameID: frameID, Role: role, Name: name, Value: value, Tag: tag, Attributes: redactAttributes(attributes, c.config.SensitiveAttributes), Depth: depths[i], Order: i, Disabled: disabled || hasAttribute(attributes, "disabled"), Focused: focused, Interactive: isInteractive(role, tag, attributes), Hit: HitUnknown}
 			if parent >= 0 && parent < len(document.Nodes.BackendNodeID) {
 				node.ParentBackendNodeID = document.Nodes.BackendNodeID[parent]
 			}
@@ -384,8 +435,31 @@ func (c *Collector) buildNodes(result domSnapshotResult, axNodes map[int64]axNod
 				node.Box = &box
 				node.Visible = visible(item.box, item.styles)
 			}
-			node.Interactable = node.Interactive && node.Visible && !node.Disabled
+			node.Interactable = false
 			node.ShadowPath = shadowPath(document.Nodes, parent, result.Strings)
+			limit := c.config.MaxNodes
+			if scope != nil {
+				if !scope.matches(node, c.config.ReResolveThreshold) {
+					continue
+				}
+				scope.matched++
+				limit = scope.options.MaxNodes
+				if depths[i] > c.config.MaxDepth {
+					if !contains(reasons, "max_depth") {
+						reasons = append(reasons, "max_depth")
+					}
+					continue
+				}
+			}
+			if len(out) >= limit {
+				if scope != nil && scope.isTarget(node) {
+					out[len(out)-1] = node
+				}
+				if !contains(reasons, "max_nodes") {
+					reasons = append(reasons, "max_nodes")
+				}
+				continue
+			}
 			out = append(out, node)
 		}
 	}
@@ -401,20 +475,34 @@ func (c *Collector) buildNodes(result domSnapshotResult, axNodes map[int64]axNod
 func (c *Collector) Resolve(ctx context.Context, ref string) (Resolution, error) {
 	ref = normalizeRef(ref)
 	c.mu.Lock()
-	rememberedNode, ok := c.refs[ref]
+	entry, ok := c.refs[ref]
+	var rememberedNode remembered
+	if ok {
+		rememberedNode = *entry
+	}
 	c.mu.Unlock()
 	if !ok {
 		return Resolution{Status: ResolutionStale, Reason: "unknown stable reference"}, nil
 	}
-	snapshot, err := c.Capture(ctx, ModeFull, "")
+	scope := &nodeScope{options: QueryOptions{Mode: ModeFull, MaxNodes: c.config.MaxNodes}, target: &scopeAnchor{node: rememberedNode.node, epoch: rememberedNode.epoch}, parents: make(map[string]map[int64]int64), frames: make(map[string]bool), semanticOnly: true}
+	snapshot, err := c.captureSelected(ctx, ModeFull, "", scope)
 	if err != nil {
 		return Resolution{}, err
+	}
+	c.mu.Lock()
+	_, retained := c.refs[ref]
+	c.mu.Unlock()
+	if !retained {
+		return Resolution{Status: ResolutionStale, Reason: "stable reference expired or evicted during observation"}, nil
 	}
 	for i := range snapshot.Nodes {
 		n := snapshot.Nodes[i]
 		if n.BackendNodeID == rememberedNode.node.BackendNodeID && n.FrameID == rememberedNode.node.FrameID && snapshot.Epoch == rememberedNode.epoch {
 			return Resolution{Status: ResolutionExact, Node: &n, Confidence: 1}, nil
 		}
+	}
+	if ClassifyMissingActionability(snapshot) == ActionabilityUnavailable {
+		return Resolution{Status: ResolutionUnavailable, Reason: "fresh target observation is incomplete"}, nil
 	}
 	candidates := make([]struct {
 		node  Node
@@ -453,6 +541,9 @@ func (c *Collector) Resolve(ctx context.Context, ref string) (Resolution, error)
 }
 
 func DiffSnapshots(before, after Snapshot) Diff {
+	if sameSnapshotNodes(before.Nodes, after.Nodes) {
+		return Diff{Added: []Node{}, Changed: []Node{}, Removed: []Node{}}
+	}
 	b := make(map[string]Node, len(before.Nodes))
 	a := make(map[string]Node, len(after.Nodes))
 	for _, n := range before.Nodes {
@@ -602,7 +693,7 @@ func isInteractive(role, tag string, a map[string]string) bool {
 	case "button", "link", "textbox", "combobox", "checkbox", "radio", "option", "menuitem", "tab", "switch", "slider":
 		return true
 	}
-	return tag == "button" || tag == "select" || tag == "textarea" || tag == "input" || a["contenteditable"] == "true"
+	return tag == "button" || tag == "select" || tag == "textarea" || tag == "input" || a["contenteditable"] == "true" || a["draggable"] == "true"
 }
 func visible(box Rect, styles []string) bool {
 	if box.Width <= 0 || box.Height <= 0 {
@@ -631,7 +722,7 @@ func (c *Collector) redactAndBound(value string, a map[string]string, isValue bo
 		return "[REDACTED]"
 	}
 	if len(value) > c.config.MaxTextBytes {
-		return value[:c.config.MaxTextBytes]
+		return boundedUTF8(value, c.config.MaxTextBytes)
 	}
 	return value
 }
@@ -675,10 +766,13 @@ func filterInteractive(nodes []Node) []Node {
 	}
 	return out
 }
-func filterSubtree(nodes []Node, root int64) []Node {
+func filterSubtree(nodes []Node, root int64, frameID string) []Node {
 	included := map[int64]bool{root: true}
 	out := []Node{}
 	for _, n := range nodes {
+		if n.FrameID != frameID {
+			continue
+		}
 		if included[n.BackendNodeID] || included[n.ParentBackendNodeID] {
 			included[n.BackendNodeID] = true
 			out = append(out, n)
@@ -724,7 +818,19 @@ func nodeKey(n Node) string {
 	return n.FrameID + ":" + strconv.FormatInt(n.BackendNodeID, 10)
 }
 func changed(a, b Node) bool {
-	return a.Name != b.Name || a.Value != b.Value || a.Visible != b.Visible || a.Disabled != b.Disabled || a.Focused != b.Focused || !rectEqual(a.Box, b.Box)
+	return a.BackendNodeID != b.BackendNodeID || a.FrameID != b.FrameID || a.ParentBackendNodeID != b.ParentBackendNodeID || a.Role != b.Role || a.Name != b.Name || a.Value != b.Value || a.Tag != b.Tag || a.Depth != b.Depth || a.Order != b.Order || a.Visible != b.Visible || a.Disabled != b.Disabled || a.Focused != b.Focused || a.Interactive != b.Interactive || a.Interactable != b.Interactable || a.Hit != b.Hit || !maps.Equal(a.Attributes, b.Attributes) || !slices.Equal(a.ShadowPath, b.ShadowPath) || !rectEqual(a.Box, b.Box)
+}
+
+func sameSnapshotNodes(a, b []Node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Ref != b[i].Ref || changed(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
 }
 func rectEqual(a, b *Rect) bool {
 	if a == nil || b == nil {
@@ -735,7 +841,13 @@ func rectEqual(a, b *Rect) bool {
 func sortNodes(nodes []Node) {
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].FrameID == nodes[j].FrameID {
-			return nodes[i].Order < nodes[j].Order
+			if nodes[i].Order != nodes[j].Order {
+				return nodes[i].Order < nodes[j].Order
+			}
+			if nodes[i].BackendNodeID != nodes[j].BackendNodeID {
+				return nodes[i].BackendNodeID < nodes[j].BackendNodeID
+			}
+			return nodes[i].Ref < nodes[j].Ref
 		}
 		return nodes[i].FrameID < nodes[j].FrameID
 	})

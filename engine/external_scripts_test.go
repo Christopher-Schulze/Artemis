@@ -97,6 +97,7 @@ func TestExternalScriptCachedPerPage(t *testing.T) {
 
 func TestExternalScript404DoesNotAbort(t *testing.T) {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/missing.js", http.NotFound)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeTestBody(t, w, `<html><body>
 			<script src="/missing.js"></script>

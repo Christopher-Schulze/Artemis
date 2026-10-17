@@ -1,7 +1,8 @@
-// Package docs guards documentation.md against drift from the real
-// code surface. The doc-coverage test (TASK-2335) asserts that key
-// public symbols from every artemis subsystem are referenced in
-// documentation.md, and that all required sections exist.
+// Package docs guards documentation.md against drift from the real code
+// surface: exported product declarations are derived from source and checked
+// against the documentation and an explicit ratchet baseline, and required
+// sections are parsed as headings. Drift fixtures in surface_drift_test.go
+// prove that each guard fails.
 package docs
 
 import (
@@ -35,151 +36,29 @@ func docPath(t *testing.T) string {
 	return ""
 }
 
-// TestDocCoveragePublicSurface verifies that key public symbols from
-// every artemis subsystem are referenced in documentation.md. This is
-// a failable guard: if a new public symbol is added to a subsystem
-// but not documented, the test fails (after the symbol is added to
-// the required list below).
+// TestDocCoveragePublicSurface derives the public surface from source: every
+// exported top-level function and type of an in-scope product package must
+// be referenced as pkg.Name in documentation.md or listed in
+// undocumented_exports.txt. The baseline is a ratchet: each entry must name a
+// live, still undocumented declaration, so a new export cannot slip through
+// and a documented export must leave the baseline.
 func TestDocCoveragePublicSurface(t *testing.T) {
-	content, err := os.ReadFile(docPath(t))
+	path := docPath(t)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read documentation.md: %v", err)
 	}
-	doc := string(content)
-
-	// Each entry is a string that must appear in documentation.md.
-	// These are real exported symbols verified via `go doc`.
-	required := []string{
-		// engine
-		"engine.New",
-		"engine.Config",
-		"engine.Fetch",
-		"engine.Page",
-		"engine.FetchOpts",
-		"engine.Engine.Submit",
-		// webapi
-		"webapi.Document",
-		"webapi.Node",
-		"webapi.Walk",
-		// parser
-		"parser.ParseHTML",
-		// agent
-		"agent.Markdown",
-		"agent.StructuredData",
-		"agent.SemanticTree",
-		"agent.Forms",
-		"agent.ClickByText",
-		"agent.Type",
-		// network
-		"network.ParseRobots",
-		"network.IsPrivateOrLocal",
-		// js
-		"js.Console",
-		"js.FuncConsole",
-		// css
-		"css.Cascade",
-		// serve
-		"serve.New",
-		// telemetry
-		"telemetry.Tracer",
-		"telemetry.PhoneHome",
-		// bridge (hybrid router + provider)
-		"bridge.ExecutionRouter",
-		"bridge.NewExecutionRouter",
-		"bridge.RouteStatic",
-		"bridge.RouteRendered",
-		"bridge.BrowserProvider",
-		"bridge.ProviderRegistry",
-		"bridge.NewProviderRegistry",
-		"bridge.LocalChromeProvider",
-		"bridge.BrowserSession",
-		// bridge/actions
-		"actions.NewClickAction",
-		"actions.NewTypeAction",
-		"actions.NewFormFill",
-		"actions.NewScrollAction",
-		"actions.ResolveSelector",
-		"actions.FormBatch",
-		// bridge/cdpops
-		"cdpops.GetBoxModel",
-		"cdpops.IsElementVisible",
-		"cdpops.GenerateBezierPath",
-		"cdpops.NewNavigator",
-		// bridge/tabs
-		"tabs.NewTabRegistry",
-		"tabs.NewTabExecutor",
-		"tabs.NewDialogHandler",
-		// renderless
-		"renderless.NewEngine",
-		"renderless.EngineConfig",
-		"renderless.ContextPool",
-		"renderless.RenderlessCapabilityProfile",
-		"renderless.InterceptHandler",
-		// stealth
-		"stealth.StealthDefault",
-		"stealth.StealthStealth",
-		"stealth.StealthParanoid",
-		"stealth.DetermineStealthLevel",
-		"stealth.Profile",
-		"stealth.BundledScript",
-		"stealth.BuiltinGeoPresets",
-		// observe
-		"observe.NewAnnotator",
-		"observe.AXNode",
-		"observe.DiffAXTrees",
-		"observe.FormatHAR",
-		"observe.FormatNDJSON",
-		// solver
-		"solver.NewChallengeDetector",
-		"solver.ChallengeType",
-		"solver.TypeCloudflare",
-		"solver.TypeRecaptcha",
-		"solver.TypeHCaptcha",
-		"solver.InferenceHub",
-		"solver.PipelineResult",
-		// input
-		"input.GenerateMousePath",
-		"input.BezierCurve",
-		"input.TypingDelays",
-		"input.TypingRhythm",
-		"input.ClickGaussianOffset",
-		"input.DetectInfiniteScroll",
-		// security
-		"security.IsPrivateIP",
-		"security.NewAdBlocker",
-		"security.NewRedactor",
-		"security.NavigationPolicy",
-		"security.AutoConfirm",
-		// profile
-		"profile.GenerateUUID5",
-		"profile.ProxyProfileConfig",
-		// scraper
-		"scraper.NewFinder",
-		"scraper.Finder",
-		"scraper.ExtractedPage",
-		"scraper.AdaptiveSelectorCache",
-		// prompts
-		"prompts.SystemPrompt",
-		"prompts.GetPrompt",
-		"prompts.AllTemplates",
-		"prompts.RenderTemplate",
-		// actions
-		"actions.DetectLoginForm",
-		"actions.VerifyPostLogin",
-		// platform
-		"platform.Detect",
-		"platform.PlatformCapabilities",
+	baseline, err := readBaseline("undocumented_exports.txt")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	var missing []string
-	for _, sym := range required {
-		if !strings.Contains(doc, sym) {
-			missing = append(missing, sym)
-		}
+	root := filepath.Dir(filepath.Dir(path))
+	problems, err := coverageProblems(root, string(content), baseline)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(missing) > 0 {
-		t.Errorf("documentation.md is missing %d public symbol(s):\n%s",
-			len(missing), strings.Join(missing, "\n"))
+	if len(problems) > 0 {
+		t.Errorf("documentation coverage drift (%d):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 }
 
@@ -228,32 +107,15 @@ func TestDocCoverageSections(t *testing.T) {
 		"## Telemetry",
 	}
 
+	present := headings(doc)
 	var missing []string
 	for _, section := range requiredSections {
-		if !strings.Contains(doc, section) {
+		if !present[section] {
 			missing = append(missing, section)
 		}
 	}
 	if len(missing) > 0 {
-		t.Errorf("documentation.md is missing %d section(s):\n%s",
+		t.Errorf("documentation.md is missing %d section heading(s):\n%s",
 			len(missing), strings.Join(missing, "\n"))
 	}
-}
-
-// TestDocCoverageCanFail proves the doc-coverage guard can actually
-// detect a missing symbol. It checks that a deliberately-fake symbol
-// name is not in the documentation, confirming the scanner works.
-func TestDocCoverageCanFail(t *testing.T) {
-	content, err := os.ReadFile(docPath(t))
-	if err != nil {
-		t.Fatalf("read documentation.md: %v", err)
-	}
-	doc := string(content)
-
-	// A symbol that should never appear in real documentation.
-	fakeSymbol := "this.fake.symbol.does.not.exist.in.real.code"
-	if strings.Contains(doc, fakeSymbol) {
-		t.Errorf("fake symbol %q found in documentation — the guard would not catch missing symbols", fakeSymbol)
-	}
-	t.Logf("negative check passed: fake symbol %q is correctly absent", fakeSymbol)
 }

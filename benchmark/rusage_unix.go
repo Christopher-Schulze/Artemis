@@ -3,6 +3,10 @@
 package benchmark
 
 import (
+	"errors"
+	"fmt"
+	"math"
+	"runtime"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -15,8 +19,7 @@ type rusage struct {
 }
 
 // currentRusage returns the current process user+system CPU time in milliseconds
-// and the peak RSS in bytes. On platforms where getrusage is not available
-// it returns zeroes.
+// and the lifetime peak RSS in bytes. Unavailable measurements return errors.
 func currentRusage() (rusage, error) {
 	var ru unix.Rusage
 	if err := unix.Getrusage(unix.RUSAGE_SELF, &ru); err != nil {
@@ -26,20 +29,28 @@ func currentRusage() (rusage, error) {
 	cpu := float64(ru.Utime.Sec)*1000.0 + float64(ru.Utime.Usec)/1000.0
 	cpu += float64(ru.Stime.Sec)*1000.0 + float64(ru.Stime.Usec)/1000.0
 
-	// Maxrss units differ by platform: Linux reports kilobytes, Darwin bytes.
-	// Use a conservative heuristic: values larger than 1 TiB are treated as bytes,
-	// otherwise kilobytes. This is sufficient for benchmark processes and
-	// avoids adding a build tag per OS.
-	rss := ru.Maxrss
-	const tebibyte = 1024 * 1024 * 1024 * 1024
-	if rss < tebibyte {
-		rss *= 1024
+	rss, err := rssBytes(ru.Maxrss, runtime.GOOS)
+	if err != nil {
+		return rusage{}, err
 	}
 
 	return rusage{CPUMs: cpu, RSSBytes: rss}, nil
 }
 
-// rusageDiff returns the CPU time and RSS delta between a start and end rusage.
+func rssBytes(value int64, operatingSystem string) (int64, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("negative peak RSS")
+	}
+	if operatingSystem == "darwin" {
+		return value, nil
+	}
+	if value > math.MaxInt64/1024 {
+		return 0, fmt.Errorf("peak RSS exceeds signed byte range")
+	}
+	return value * 1024, nil
+}
+
+// rusageDiff returns CPU consumed in the interval and lifetime peak process RSS.
 func rusageDiff(start, end rusage) rusage {
 	cpu := end.CPUMs - start.CPUMs
 	if cpu < 0 {
@@ -59,13 +70,11 @@ func measureFunc(f func() error) (MetricSet, error) {
 		return MetricSet{}, err
 	}
 	t0 := time.Now()
-	if measureErr := f(); measureErr != nil {
-		return MetricSet{}, measureErr
-	}
-	wall := float64(time.Since(t0).Microseconds()) / 1000.0
+	measureErr := f()
+	wall := float64(time.Since(t0)) / float64(time.Millisecond)
 	end, err := currentRusage()
 	if err != nil {
-		return MetricSet{}, err
+		return MetricSet{WallMs: wall}, errors.Join(measureErr, err)
 	}
 	diff := rusageDiff(start, end)
 	return MetricSet{
@@ -73,5 +82,5 @@ func measureFunc(f func() error) (MetricSet, error) {
 		CPUMs:      diff.CPUMs,
 		RSSBytes:   diff.RSSBytes,
 		Throughput: MetricSet{WallMs: wall}.ThroughputForPages(1),
-	}, nil
+	}, measureErr
 }

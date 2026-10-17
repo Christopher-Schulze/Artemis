@@ -92,7 +92,10 @@ func TestMatchAdBlockerCSS(t *testing.T) {
 }
 
 func TestAdBlockerDetectionWhitelist(t *testing.T) {
-	d := NewAdBlockerDetection(t.TempDir() + "/whitelist.json")
+	d, err := NewAdBlockerDetection(t.TempDir() + "/whitelist.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if d.IsWhitelisted("example.com") {
 		t.Error("example.com should not be whitelisted initially")
@@ -126,13 +129,19 @@ func TestAdBlockerDetectionWhitelist(t *testing.T) {
 
 func TestAdBlockerDetectionWhitelistPersistence(t *testing.T) {
 	path := t.TempDir() + "/whitelist.json"
-	d1 := NewAdBlockerDetection(path)
+	d1, err := NewAdBlockerDetection(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := d1.AddToWhitelist("persist-test.com"); err != nil {
 		t.Fatalf("AddToWhitelist: %v", err)
 	}
 
 	// Create a new instance that loads from the same file
-	d2 := NewAdBlockerDetection(path)
+	d2, err := NewAdBlockerDetection(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !d2.IsWhitelisted("persist-test.com") {
 		t.Error("whitelist should persist across instances")
 	}

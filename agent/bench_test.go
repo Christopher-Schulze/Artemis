@@ -65,3 +65,42 @@ func BenchmarkSemantic(b *testing.B) {
 		_ = Semantic(d)
 	}
 }
+
+// sizedDoc builds a document of sections content blocks, the governed
+// payload classes of the pooled dump paths.
+func sizedDoc(tb testing.TB, sections int) *webapi.Document {
+	tb.Helper()
+	var s strings.Builder
+	s.WriteString(`<!doctype html><html><head><title>B</title></head><body>`)
+	for i := 0; i < sections; i++ {
+		s.WriteString(`<section><h2>Heading</h2><p>paragraph text with <a href="/x">a link</a> and more words</p><pre>code block</pre><table><tr><td>a</td><td>b</td></tr></table><ul><li>1</li><li>2</li></ul></section>`)
+	}
+	s.WriteString(`</body></html>`)
+	d, err := parser.ParseHTML(strings.NewReader(s.String()), "https://e.test/")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return d
+}
+
+var payloadClasses = []struct {
+	name     string
+	sections int
+}{{"small", 5}, {"median", 50}, {"large", 2000}}
+
+func BenchmarkDumpPayloadClasses(b *testing.B) {
+	for _, class := range payloadClasses {
+		d := sizedDoc(b, class.sections)
+		for _, dump := range []struct {
+			name string
+			run  func(*webapi.Document) string
+		}{{"html", HTML}, {"text", Text}, {"markdown", Markdown}} {
+			b.Run(dump.name+"/"+class.name, func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					_ = dump.run(d)
+				}
+			})
+		}
+	}
+}

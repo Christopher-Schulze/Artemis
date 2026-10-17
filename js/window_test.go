@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
 	"github.com/Christopher-Schulze/Artemis/webapi"
@@ -162,7 +163,8 @@ func TestLocalAndSessionStorageAreIndependent(t *testing.T) {
 
 func TestSetTimeoutFiresAfterScript(t *testing.T) {
 	c := newCtxFromHTML(t, `<html></html>`, nil)
-	// Schedule. The fn will run when fireTimers drains after this Eval.
+	started := time.Now()
+	// Zero-delay work runs after the script; delayed work keeps its deadline.
 	if _, err := c.Eval(context.Background(), `
 		var fired = 0;
 		setTimeout(() => { fired++; }, 0);
@@ -170,9 +172,27 @@ func TestSetTimeoutFiresAfterScript(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("schedule: %v", err)
 	}
-	v, _ := c.Eval(context.Background(), `fired`)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	v, err := c.Eval(ctx, `fired`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for v.Int64() != 11 && ctx.Err() == nil {
+		select {
+		case <-time.After(time.Millisecond):
+		case <-ctx.Done():
+		}
+		v, err = c.Eval(ctx, `fired`)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if v.Int64() != 11 {
 		t.Errorf("fired = %d, want 11", v.Int64())
+	}
+	if time.Since(started) < 100*time.Millisecond {
+		t.Fatal("100ms timer fired before its real deadline")
 	}
 }
 

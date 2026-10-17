@@ -168,16 +168,16 @@ func NewPopupBlocker(enabled bool) *PopupBlocker {
 // ShouldBlock reports whether a new target (tab) should be blocked
 // as a popup (spec L4216).
 func (p *PopupBlocker) ShouldBlock(openerTabID string, isPopup bool) bool {
-	if !p.enabled {
-		return false
-	}
-	if !isPopup {
-		return false
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.enabled && isPopup && openerTabID != ""
+}
+
+// RecordClosed counts only a popup with a confirmed browser close receipt.
+func (p *PopupBlocker) RecordClosed() {
+	p.mu.Lock()
 	p.blocked++
-	return true
+	p.mu.Unlock()
 }
 
 // BlockedCount returns the total number of blocked popups.

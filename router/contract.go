@@ -160,6 +160,7 @@ type CapabilityEvidence struct {
 // RouteRequest is the complete deterministic input to one route execution.
 type RouteRequest struct {
 	URL                string
+	AsyncFetch         bool
 	Method             string
 	Headers            http.Header
 	Body               []byte
@@ -227,6 +228,7 @@ func (p Policy) allows(mode Mode) bool {
 // ExecutionRequest is passed to exactly one engine attempt.
 type ExecutionRequest struct {
 	Mode       Mode
+	AsyncFetch bool
 	URL        string
 	Method     string
 	Headers    http.Header
@@ -249,6 +251,8 @@ type PageOutput struct {
 	Markdown   string
 	Title      string
 	Links      []agent.Link
+	// Degradations lists subresources that did not load or run.
+	Degradations []string
 }
 
 // ExecutionOutput is a verified engine result. Verified must be true; an

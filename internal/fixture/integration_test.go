@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	artemis "github.com/Christopher-Schulze/Artemis"
-	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/bridge"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
@@ -36,7 +36,6 @@ type runner interface {
 	name() string
 	start(ctx context.Context, t *testing.T, srv *Server)
 	stop(ctx context.Context, t *testing.T)
-	canRun(sc Scenario) (bool, string)
 	run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult
 }
 
@@ -44,9 +43,13 @@ type runner interface {
 // corpus through every supported Artemis path and asserts the same semantic
 // outcomes wherever a path is capable of exercising the scenario.
 func TestFixtureCorpusThroughAllPaths(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 	t.Setenv("ARTEMIS_REPLAY_DIR", t.TempDir())
+	scenarios, err := srv.CorpusScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	runners := []runner{
 		&engineRunner{},
@@ -64,19 +67,29 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 			r.start(ctx, t, srv)
 			defer r.stop(ctx, t)
 
-			for _, sc := range DefaultScenarios() {
+			for _, sc := range scenarios {
 				sc := sc
-				ok, reason := r.canRun(sc)
-				if !ok {
-					q, qok := IsQuarantined(r.name(), sc, reason)
-					if !qok {
-						t.Fatalf("no-skip enforcement: %s cannot run %s (reason %q) and is not quarantined (or expired)", r.name(), sc.ID, reason)
-					}
-					t.Logf("%s: skip %s: %s (quarantined by %s until %s)", r.name(), sc.ID, reason, q.Owner, q.Expires.Format(time.RFC3339))
-					continue
-				}
 				t.Run(sc.ID, func(t *testing.T) {
+					manifest, err := srv.CorpusManifest(r.name(), sc)
+					if err != nil {
+						t.Fatal(err)
+					}
+					eligibility, err := AssessEligibility(r.name(), sc, time.Now())
+					if err != nil {
+						t.Fatalf("fixture eligibility: %v", err)
+					}
+					if eligibility.State != EligibilityReady {
+						metadata, err := json.Marshal(eligibility)
+						if err != nil {
+							t.Fatal(err)
+						}
+						t.Fatalf("zero passing coverage: %s", metadata)
+					}
+					if assertCorpusChallengeDenial(ctx, t, r, sc, srv) {
+						return
+					}
 					result := r.run(ctx, t, sc, srv)
+					result.FixtureManifest = &manifest
 					if replayDir := os.Getenv("ARTEMIS_REPLAY_DIR"); replayDir != "" {
 						if _, err := CaptureReplay(sc, r.name(), result, 0, SystemMetadata(), DefaultRedactionConfig(), replayDir); err != nil {
 							t.Errorf("replay capture: %v", err)
@@ -89,37 +102,43 @@ func TestFixtureCorpusThroughAllPaths(t *testing.T) {
 	}
 }
 
+// Guarded runners must deny the actual challenge. This verifies a failure,
+// contributes zero passing page coverage and cannot produce a page replay.
+func assertCorpusChallengeDenial(ctx context.Context, t *testing.T, candidate runner, sc Scenario, srv *Server) bool {
+	t.Helper()
+	if sc.Kind != KindChallenge {
+		return false
+	}
+	switch owner := candidate.(type) {
+	case *routerRunner:
+		result, err := owner.rtr.Execute(ctx, router.RouteRequest{URL: srv.URL(sc.Path), Signals: hybridSignals(sc), Action: router.ActionFetch})
+		defer closeTestResource(t, "denied route close", result.Close)
+		var failure *router.RouteError
+		if !errors.As(err, &failure) || failure.Code != router.ErrorChallenge || !errors.Is(err, router.ErrChallengeDetected) || result.Success || result.Resource != nil || result.Output.StatusCode != 0 {
+			t.Fatalf("challenge guard lost its actual denial: result=%+v err=%v", result, err)
+		}
+	case *agentRunner:
+		session, err := owner.agent.CreateSession("fixture-runner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer closeTestResource(t, "denied Agent session close", session.Close)
+		result := owner.agent.ExecuteTask(ctx, artemis.Task{ID: sc.ID, SessionID: session.SessionID(), Timeout: 30 * time.Second,
+			Action: artemis.FetchAction{URL: srv.URL(sc.Path)}})
+		if result.Success || result.Data != nil || result.ErrorCode != artemis.TaskErrorExecutionFailed || !strings.Contains(result.Error, router.ErrorChallenge) {
+			t.Fatalf("Agent challenge guard lost its actual denial: %+v", result)
+		}
+	default:
+		return false
+	}
+	t.Log("actual challenge denied; zero passing page coverage; no page replay")
+	return true
+}
+
 func assertCrossResult(t *testing.T, sc Scenario, got CrossResult) {
-	wantStatus := sc.Expect.Status
-	if wantStatus == 0 {
-		wantStatus = 200
-	}
-	if got.StatusCode != 0 && got.StatusCode != wantStatus {
-		t.Errorf("status = %d, want %d", got.StatusCode, wantStatus)
-	}
-	if sc.Expect.Title != "" && got.Title != sc.Expect.Title {
-		t.Errorf("title = %q, want %q", got.Title, sc.Expect.Title)
-	}
-	for _, s := range sc.Expect.Contains {
-		if !strings.Contains(got.Text, s) {
-			t.Errorf("text missing %q", s)
-		}
-	}
-	for _, s := range sc.Expect.NotContains {
-		if strings.Contains(got.Text, s) {
-			t.Errorf("text contains %q", s)
-		}
-	}
-	if sc.Expect.URL != "" && !strings.Contains(got.URL, sc.Expect.URL) {
-		t.Errorf("url = %q, want containing %q", got.URL, sc.Expect.URL)
-	}
-	if sc.Expect.Eval != "" {
-		if got.EvalErr != "" {
-			t.Errorf("eval %q error: %s", sc.Expect.Eval, got.EvalErr)
-		}
-		if !strings.Contains(got.EvalResult, sc.Expect.EvalContains) {
-			t.Errorf("eval %q = %q, want containing %q", sc.Expect.Eval, got.EvalResult, sc.Expect.EvalContains)
-		}
+	t.Helper()
+	if err := ValidateCrossResult(sc, got); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -152,53 +171,18 @@ func (r *engineRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *engineRunner) canRun(sc Scenario) (bool, string) { return Check("renderless", sc) }
-
 func (r *engineRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
-	page, err := r.eng.Fetch(ctx, srv.URL(sc.Path), engine.FetchOpts{
-		RunScripts: sc.RunScripts,
-		AsyncFetch: sc.AsyncFetch,
-	})
+	result, err := RunEngineScenario(ctx, r.eng, sc, srv)
 	if err != nil {
-		t.Fatalf("engine Fetch: %v", err)
+		t.Fatalf("engine fixture: %v", err)
 	}
-	defer closeTestResource(t, "page close", page.Close)
-	if sc.RunScripts && sc.WaitForIdle {
-		if err := page.WaitIdle(ctx); err != nil {
-			t.Fatalf("engine WaitIdle: %v", err)
-		}
-	}
-	return resultFromEnginePage(ctx, t, page, sc)
+	return result
 }
 
 func resultFromEnginePage(ctx context.Context, t *testing.T, page *engine.Page, sc Scenario) CrossResult {
 	t.Helper()
-	var evalRes string
-	var evalErr string
-	if sc.Expect.Eval != "" {
-		v, err := page.Eval(ctx, sc.Expect.Eval)
-		if err != nil {
-			evalErr = err.Error()
-		} else {
-			evalRes = v.String()
-		}
-	}
-	links := make([]string, 0, len(page.Links()))
-	for _, l := range page.Links() {
-		links = append(links, l.Href)
-	}
-	return CrossResult{
-		URL:        page.URL(),
-		StatusCode: page.StatusCode(),
-		Title:      page.Title(),
-		Text:       page.Text(),
-		HTML:       page.HTML(),
-		Markdown:   page.Markdown(),
-		EvalResult: evalRes,
-		EvalErr:    evalErr,
-		Links:      links,
-	}
+	return ObserveEnginePage(ctx, page, sc)
 }
 
 // -----------------------------------------------------------------------------
@@ -259,122 +243,19 @@ func (r *bridgeRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *bridgeRunner) canRun(sc Scenario) (bool, string) { return Check("chromium", sc) }
-
 func (r *bridgeRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
-	if _, _, err := r.page.Navigate(ctx, srv.URL(sc.Path)); err != nil {
-		t.Fatalf("bridge Navigate: %v", err)
-	}
-	if err := waitForReadyStateComplete(ctx, r.page); err != nil {
-		t.Fatalf("bridge wait for ready state: %v", err)
-	}
-	return resultFromBridgePage(ctx, t, r.page, sc)
+	return navigateFixturePage(ctx, t, r.page, sc, srv.URL(sc.Path))
 }
 
-func waitForReadyStateComplete(ctx context.Context, page callCaller) error {
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		var res struct {
-			Result struct {
-				Value string `json:"value"`
-			} `json:"result"`
-		}
-		if err := page.Call(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &res); err != nil {
-			return err
-		}
-		if res.Result.Value == "complete" {
-			return nil
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	return fmt.Errorf("document.readyState did not become complete")
-}
-
-type callCaller interface {
-	Call(context.Context, string, any, any) error
-}
-
-func resultFromBridgePage(ctx context.Context, t *testing.T, page *bridge.Page, sc Scenario) CrossResult {
+func navigateFixturePage(ctx context.Context, t *testing.T, page *bridge.Page, sc Scenario, target string) CrossResult {
 	t.Helper()
-	var snap struct {
-		Result struct {
-			Value struct {
-				URL      string       `json:"url"`
-				Title    string       `json:"title"`
-				HTML     string       `json:"html"`
-				Text     string       `json:"text"`
-				Markdown string       `json:"markdown"`
-				Links    []bridgeLink `json:"links"`
-			} `json:"value"`
-		} `json:"result"`
+	result, err := RunNativeScenario(ctx, page, sc, target)
+	if err != nil {
+		t.Fatalf("native fixture navigation/observation: %v", err)
 	}
-	if err := page.Call(ctx, "Runtime.evaluate", map[string]any{
-		"expression":    chromiumSnapshotExpression,
-		"returnByValue": true,
-		"awaitPromise":  true,
-	}, &snap); err != nil {
-		t.Fatalf("bridge snapshot: %v", err)
-	}
-	var evalRes, evalErr string
-	if sc.Expect.Eval != "" {
-		var eval struct {
-			Result struct {
-				Value string `json:"value"`
-			} `json:"result"`
-		}
-		if err := page.Call(ctx, "Runtime.evaluate", map[string]any{
-			"expression":    sc.Expect.Eval,
-			"returnByValue": true,
-		}, &eval); err != nil {
-			evalErr = err.Error()
-		} else {
-			evalRes = eval.Result.Value
-		}
-	}
-	links := make([]string, 0, len(snap.Result.Value.Links))
-	for _, l := range snap.Result.Value.Links {
-		links = append(links, l.Href)
-	}
-	return CrossResult{
-		URL:        snap.Result.Value.URL,
-		StatusCode: 200,
-		Title:      snap.Result.Value.Title,
-		Text:       snap.Result.Value.Text,
-		HTML:       snap.Result.Value.HTML,
-		Markdown:   snap.Result.Value.Markdown,
-		EvalResult: evalRes,
-		EvalErr:    evalErr,
-		Links:      links,
-	}
+	return result
 }
-
-type bridgeLink struct {
-	Href  string `json:"href"`
-	Text  string `json:"text"`
-	Title string `json:"title"`
-}
-
-const chromiumSnapshotExpression = `(async () => {
-  if (document.readyState === "loading") {
-    await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, {once: true}));
-  }
-  const root = document.documentElement;
-  const body = document.body;
-  const links = Array.from(document.querySelectorAll("a[href]")).map((a) => ({
-    href: a.href,
-    text: (a.innerText || a.textContent || "").trim(),
-    title: a.getAttribute("title") || ""
-  }));
-  return {
-    url: location.href,
-    title: document.title,
-    html: root ? root.outerHTML : "",
-    text: body ? (body.innerText || body.textContent || "") : "",
-    markdown: "",
-    links
-  };
-})()`
 
 // -----------------------------------------------------------------------------
 // router runner (hybrid)
@@ -441,8 +322,8 @@ func (r *routerRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 
 	rtr, err := router.New(router.Config{
 		Executors: map[router.Mode]router.Executor{
-			router.ModeStaticFetch:  router.RuntimeExecutor{Runtime: eng, RunScripts: true},
-			router.ModeRenderlessJS: router.RuntimeExecutor{Runtime: eng, RunScripts: true},
+			router.ModeStaticFetch:  router.RuntimeExecutor{Runtime: eng, RunScripts: true, AsyncFetch: true},
+			router.ModeRenderlessJS: router.RuntimeExecutor{Runtime: eng, RunScripts: true, AsyncFetch: true},
 			router.ModeChromiumCDP:  router.ChromiumExecutor{Page: page},
 			router.ModeStealth:      router.ChromiumExecutor{Page: page},
 		},
@@ -472,67 +353,13 @@ func (r *routerRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *routerRunner) canRun(sc Scenario) (bool, string) { return Check("hybrid", sc) }
-
 func (r *routerRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
-	signals := signalsForScenario(sc)
-	req := router.RouteRequest{
-		URL:     srv.URL(sc.Path),
-		Signals: signals,
-		Action:  router.ActionFetch,
-		Policy:  router.Policy{},
-		State:   router.BrowserState{},
-	}
-	result, err := r.rtr.Execute(ctx, req)
+	result, err := RunHybridScenario(ctx, r.rtr, r.page, sc, srv)
 	if err != nil {
-		if sc.Kind == KindChallenge && strings.Contains(err.Error(), "challenge") {
-			return CrossResult{StatusCode: sc.Expect.Status, Text: "Forbidden"}
-		}
 		t.Fatalf("router.Execute: %v", err)
 	}
-	if result.Resource != nil {
-		defer closeTestResource(t, "router resource close", result.Resource.Close)
-	}
-	return CrossResult{
-		URL:        result.Output.URL,
-		StatusCode: result.Output.StatusCode,
-		Title:      result.Output.Title,
-		Text:       result.Output.Text,
-		HTML:       result.Output.HTML,
-		Markdown:   result.Output.Markdown,
-		Links:      linkHrefs(result.Output.Links),
-	}
-}
-
-func linkHrefs(links []agent.Link) []string {
-	out := make([]string, 0, len(links))
-	for i := range links {
-		out = append(out, links[i].Href)
-	}
-	return out
-}
-
-func signalsForScenario(sc Scenario) bridge.RouterSignals {
-	s := bridge.RouterSignals{
-		IsHTML:      true,
-		ScriptCount: sc.ScriptCount,
-	}
-	if s.ScriptCount == 0 && sc.RunScripts {
-		s.ScriptCount = 1
-	}
-	s.HasExternalScripts = s.ScriptCount > 0 && strings.Contains(sc.HTML, "<script src=")
-	switch sc.Kind {
-	case KindCanvas:
-		s.NeedsCanvas = true
-	case KindShadowDOM:
-		s.HasShadowDOM = true
-	case KindFrame, KindDialog:
-		s.NeedsLayout = true
-	case KindWebSocket, KindServiceWorker:
-		s.HasWebComponents = true
-	}
-	return s
+	return result
 }
 
 // -----------------------------------------------------------------------------
@@ -552,7 +379,7 @@ func (r *serveRunner) name() string { return "serve" }
 
 func (r *serveRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	t.Helper()
-	agent, err := artemis.NewAgent(artemis.AgentConfig{PolicyConfig: srv.PolicyConfig()})
+	agent, err := artemis.NewAgent(artemis.AgentConfig{PolicyConfig: srv.PolicyConfig(), PolicyEngine: fixtureControlPolicy(t, srv)})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
@@ -602,8 +429,6 @@ func (r *serveRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *serveRunner) canRun(sc Scenario) (bool, string) { return Check("serve", sc) }
-
 func (r *serveRunner) dial(t *testing.T) *websocket.Conn {
 	t.Helper()
 	header := http.Header{"Authorization": []string{"Bearer " + serveFixtureToken}}
@@ -652,6 +477,7 @@ func (r *serveRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 		SessionID:  r.sessID,
 		URL:        srv.URL(sc.Path),
 		RunScripts: sc.RunScripts,
+		AsyncFetch: sc.AsyncFetch,
 	})
 	var open serve.PageOpenResult
 	if err := serve.DecodeTypedResult(&resp, &open); err != nil {
@@ -774,7 +600,7 @@ func (r *agentRunner) name() string { return "agent" }
 
 func (r *agentRunner) start(ctx context.Context, t *testing.T, srv *Server) {
 	t.Helper()
-	agent, err := artemis.NewAgent(artemis.AgentConfig{PolicyConfig: srv.PolicyConfig()})
+	agent, err := artemis.NewAgent(artemis.AgentConfig{PolicyConfig: srv.PolicyConfig(), PolicyEngine: fixtureControlPolicy(t, srv)})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
@@ -790,28 +616,31 @@ func (r *agentRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *agentRunner) canRun(sc Scenario) (bool, string) { return Check("agent", sc) }
-
 func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	session, err := r.agent.CreateSession("fixture-runner")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
+	defer closeTestResource(t, "fixture Agent session close", session.Close)
 	result := r.agent.ExecuteTask(ctx, artemis.Task{
 		ID:        sc.ID,
 		SessionID: session.SessionID(),
 		Timeout:   30 * time.Second,
-		Action:    artemis.FetchAction{URL: srv.URL(sc.Path), RunScripts: sc.RunScripts},
+		Action:    artemis.FetchAction{URL: srv.URL(sc.Path), RunScripts: sc.RunScripts, AsyncFetch: sc.AsyncFetch, EvaluateExpression: sc.Expect.Eval},
 	})
 	if !result.Success {
-		if sc.Kind == KindChallenge && strings.Contains(result.Error, "challenge") {
-			return CrossResult{StatusCode: sc.Expect.Status, Text: "Forbidden"}
-		}
 		t.Fatalf("ExecuteTask failed: code=%s error=%q", result.ErrorCode, result.Error)
 	}
 	if result.Data == nil {
 		t.Fatal("ExecuteTask returned no data")
+	}
+	var evaluation string
+	if sc.Expect.Eval != "" {
+		if result.Data.Evaluation == nil {
+			t.Fatal("ExecuteTask omitted requested evaluation")
+		}
+		evaluation = *result.Data.Evaluation
 	}
 	links := make([]string, 0, len(result.Data.Links))
 	for _, l := range result.Data.Links {
@@ -825,7 +654,25 @@ func (r *agentRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *S
 		HTML:       result.Data.HTML,
 		Markdown:   result.Data.Markdown,
 		Links:      links,
+		EvalResult: evaluation,
 	}
+}
+
+func fixtureControlPolicy(t *testing.T, server *Server) *bridge.NavigationPolicy {
+	t.Helper()
+	data, err := json.Marshal(bridge.PolicyFile{Version: bridge.PolicyFileVersion, Default: bridge.PolicyFileDeny,
+		Allow: []string{"navigate", "evaluate", "wait", "extract", "tab_close"},
+		Rules: []bridge.PolicyRule{{Action: bridge.PolicyFileAllow, Pattern: regexp.QuoteMeta(server.BaseURL()) + "/.*"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := bridge.NewStaticNavigationPolicy(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(policy.Stop)
+	return policy
 }
 
 // -----------------------------------------------------------------------------
@@ -871,8 +718,6 @@ func (r *artemisRunner) stop(ctx context.Context, t *testing.T) {
 	}
 }
 
-func (r *artemisRunner) canRun(sc Scenario) (bool, string) { return Check("artemis", sc) }
-
 func (r *artemisRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv *Server) CrossResult {
 	t.Helper()
 	if r.session == "" {
@@ -902,7 +747,7 @@ func (r *artemisRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv 
 		r.pageID = ""
 		r.page = nil
 	}
-	pid, page, err := r.runtime.NewPage(ctx, r.session, "owner", srv.URL(sc.Path))
+	pid, page, err := r.runtime.NewPage(ctx, r.session, "owner", "about:blank")
 	if err != nil {
 		r.pageID = ""
 		r.page = nil
@@ -910,8 +755,5 @@ func (r *artemisRunner) run(ctx context.Context, t *testing.T, sc Scenario, srv 
 	}
 	r.pageID = pid
 	r.page = page
-	if err := waitForReadyStateComplete(ctx, page); err != nil {
-		t.Fatalf("artemis wait for ready state: %v", err)
-	}
-	return resultFromBridgePage(ctx, t, page, sc)
+	return navigateFixturePage(ctx, t, page, sc, srv.URL(sc.Path))
 }

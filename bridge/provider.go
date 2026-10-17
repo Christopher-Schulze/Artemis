@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -13,10 +14,8 @@ import (
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
-// BrowserProvider is the interface for multi-backend browser abstraction.
-// Implementations select runtime backend via config/credentials:
-// local headless Chromium (default), Camofox REST backend, or cloud
-// providers (Browserbase, Firecrawl - deferred P7).
+// BrowserProvider owns a validated browser runtime. Provider configuration
+// alone cannot establish availability; unsupported adapters deny launch.
 type BrowserProvider interface {
 	// Name returns a short, human-readable name for logs and diagnostics.
 	Name() string
@@ -113,7 +112,7 @@ func (r *ProviderRegistry) Register(name string, p BrowserProvider) {
 	r.providers[strings.ToLower(name)] = p
 }
 
-// Get returns the provider with the given name, or the default if not found.
+// Get returns the named provider, or the default when the name is empty.
 func (r *ProviderRegistry) Get(name string) (BrowserProvider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -190,8 +189,8 @@ func (p *LocalChromeProvider) Name() string {
 func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig) (*BrowserSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.session != nil && p.session.Runtime != nil && p.session.Runtime.Healthy() {
-		return nil, fmt.Errorf("bridge: local Chrome provider already owns session %q", p.session.SessionID)
+	if p.session != nil && p.session.Runtime != nil && !p.session.Runtime.Stopped() {
+		return nil, fmt.Errorf("bridge: local Chrome provider retains session %q until verified cleanup", p.session.SessionID)
 	}
 	if config.SessionName == "" {
 		config.SessionName = "artemis-session"
@@ -225,8 +224,7 @@ func (p *LocalChromeProvider) Launch(ctx context.Context, config ProviderConfig)
 	}
 	if config.MaxTabs > 0 {
 		if err := runtime.SetMaxPages(config.MaxTabs); err != nil {
-			_ = runtime.Close()
-			return nil, fmt.Errorf("bridge: configure tab limit: %w", err)
+			return nil, errors.Join(fmt.Errorf("bridge: configure tab limit: %w", err), runtime.Close())
 		}
 	}
 	session := &BrowserSession{
@@ -252,7 +250,9 @@ func (p *LocalChromeProvider) Close() error {
 		return nil
 	}
 	err := p.session.Runtime.Close()
-	p.session = nil
+	if p.session.Runtime.Stopped() {
+		p.session = nil
+	}
 	return err
 }
 
@@ -263,43 +263,26 @@ func (p *LocalChromeProvider) Healthy() bool {
 	return p.session != nil && p.session.Runtime != nil && p.session.Runtime.Healthy()
 }
 
-// CamofoxProvider connects to a Camofox REST backend (Camoufox/Firefox fork
-// with C++ fingerprint spoofing).
-type CamofoxProvider struct {
-	session *BrowserSession
-}
+// CamofoxProvider preserves provider selection compatibility. The canonical
+// action runtime requires CDP; a REST URL alone cannot provide that contract.
+type CamofoxProvider struct{}
 
 // Name returns the provider name.
 func (p *CamofoxProvider) Name() string {
 	return "camofox"
 }
 
-// Launch creates a Camofox browser session via REST API.
+// Launch rejects the unavailable adapter before any browser effect.
 func (p *CamofoxProvider) Launch(ctx context.Context, config ProviderConfig) (*BrowserSession, error) {
-	camofoxURL := os.Getenv("CAMOFOX_URL")
-	if camofoxURL == "" {
-		return nil, fmt.Errorf("camofox: CAMOFOX_URL env var required")
-	}
-	session := &BrowserSession{
-		ProviderName: p.Name(),
-		SessionID:    config.SessionName,
-		CDPURL:       camofoxURL,
-		Features: map[string]bool{
-			"fingerprint_spoofing": true,
-			"firefox_backend":      true,
-		},
-	}
-	p.session = session
-	return session, nil
+	return nil, fmt.Errorf("camofox: canonical browser actions require a validated CDP runtime: %w", errors.ErrUnsupported)
 }
 
 // Close releases the Camofox session.
 func (p *CamofoxProvider) Close() error {
-	p.session = nil
 	return nil
 }
 
-// Healthy reports whether the Camofox provider is configured.
+// Healthy never treats configuration as proof of an available runtime.
 func (p *CamofoxProvider) Healthy() bool {
-	return os.Getenv("CAMOFOX_URL") != ""
+	return false
 }

@@ -1,8 +1,8 @@
 // Package benchmark implements the Artemis head-to-head benchmark harness
 // (TASK-2338). The harness runs Artemis and a competitor engine across a
 // versioned scenario matrix, records per-scenario wall time / memory /
-// allocations into a committed scorecard, and proves Artemis wins on the
-// covered set.
+// allocations into a scorecard. A comparison requires validated equivalent
+// outcomes and does not assume either engine wins.
 //
 // The competitor binary is downloaded at benchmark time into a gitignored
 // local path (benchmark/bin/) and is never committed. If the download is
@@ -12,7 +12,7 @@ package benchmark
 // ScenarioMatrixVersion is the schema version for the scenario matrix.
 // Bump when scenarios are added, removed, or their HTML fixtures change
 // in a way that affects comparability.
-const ScenarioMatrixVersion = "1.0.0"
+const ScenarioMatrixVersion = "2.0.0"
 
 // ScenarioKind categorizes a benchmark scenario by the engine surface
 // it exercises.
@@ -131,7 +131,7 @@ func DefaultScenarios() []Scenario {
 			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Article: The Future of Web Scraping",
 			ExpectLinks:      3,
-			ExpectParagraphs: 6,
+			ExpectParagraphs: 5,
 		},
 		{
 			ID:          "scr-002",
@@ -246,7 +246,7 @@ func DefaultScenarios() []Scenario {
 			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Markdown Test",
 			ExpectLinks:      1,
-			ExpectParagraphs: 2,
+			ExpectParagraphs: 1,
 		},
 		{
 			ID:          "md-002",
@@ -272,7 +272,7 @@ func DefaultScenarios() []Scenario {
 			EngineMode:       ModeRenderless,
 			ExpectTitle:      "Complex Markdown",
 			ExpectLinks:      2,
-			ExpectParagraphs: 5,
+			ExpectParagraphs: 4,
 		},
 		{
 			ID:          "scr-003",
@@ -300,7 +300,7 @@ func DefaultScenarios() []Scenario {
 </body></html>`,
 			ScriptCount:      10,
 			EngineMode:       ModeRenderless,
-			ExpectTitle:      "Script Heavy Page",
+			ExpectTitle:      "Loaded",
 			ExpectLinks:      2,
 			ExpectParagraphs: 1,
 		},

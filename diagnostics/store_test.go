@@ -18,12 +18,12 @@ func TestStorePersistsClosedRedactedSchema(t *testing.T) {
 	}
 	decision := PolicyDecision{
 		Operation: "navigation", Transport: "https", Host: "example.test", Port: 443,
-		Result: "allow", ReasonCode: "policy_match", SessionRef: HashSession("raw-session"),
+		Result: "allow", ReasonCode: "policy_match", SessionRef: store.SessionRef("raw-session"),
 	}
 	if appendPolicyErr := store.AppendPolicy(decision); appendPolicyErr != nil {
 		t.Fatal(appendPolicyErr)
 	}
-	if appendResourceErr := store.AppendResource(ResourceUsage{Scope: "renderless", SessionRef: HashSession("raw-session"), Requests: 2, ResponseBytes: 64, DiskBytes: 32}); appendResourceErr != nil {
+	if appendResourceErr := store.AppendResource(ResourceUsage{Scope: "renderless", SessionRef: store.SessionRef("raw-session"), Requests: 2, ResponseBytes: 64, DiskBytes: 32}); appendResourceErr != nil {
 		t.Fatal(appendResourceErr)
 	}
 	data, err := os.ReadFile(filepath.Clean(path))
@@ -64,7 +64,7 @@ func TestStoreEnforcesAgeCountAndByteRetention(t *testing.T) {
 	for index := 0; index < 4; index++ {
 		if appendErr := store.AppendPolicy(PolicyDecision{
 			Operation: "navigation", Transport: "https", Host: "example.test", Port: 443,
-			Result: "deny", ReasonCode: "host_not_allowed", SessionRef: HashSession(string(rune('a' + index))),
+			Result: "deny", ReasonCode: "host_not_allowed", SessionRef: store.SessionRef(string(rune('a' + index))),
 		}); appendErr != nil {
 			t.Fatal(appendErr)
 		}
@@ -101,7 +101,7 @@ func TestStoreEnforcesByteRetentionIndependently(t *testing.T) {
 	for _, host := range []string{"one.example", "two.example", "three.example"} {
 		if appendErr := store.AppendPolicy(PolicyDecision{
 			Operation: "navigation", Transport: "https", Host: host, Port: 443,
-			Result: "allow", ReasonCode: "policy_match", SessionRef: HashSession(host),
+			Result: "allow", ReasonCode: "policy_match", SessionRef: store.SessionRef(host),
 		}); appendErr != nil {
 			t.Fatal(appendErr)
 		}
@@ -126,12 +126,23 @@ func TestStoreRejectsSensitiveOrCorruptRecords(t *testing.T) {
 	}
 	for _, decision := range []PolicyDecision{
 		{Operation: "navigation", Transport: "https", Host: "example.test/path?token=secret", Port: 443, Result: "allow", ReasonCode: "policy_match"},
-		{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "raw reason with spaces"},
 		{Operation: "navigation", Transport: "https", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "policy_match", SessionRef: "raw-session"},
 	} {
 		if appendErr := store.AppendPolicy(decision); appendErr == nil {
 			t.Fatalf("accepted unsafe decision %+v", decision)
 		}
+	}
+	// Caller-chosen operation, transport and reason values never reach the
+	// ledger: anything outside the closed sets is recorded as a fixed value.
+	if err := store.AppendPolicy(PolicyDecision{Operation: "sk_live_secret", Transport: "javascript", Host: "example.test", Port: 443, Result: "allow", ReasonCode: "token:abc123secret"}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.Snapshot()
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
+	if got := *records[0].Policy; got.Operation != "unknown" || got.Transport != "other" || got.ReasonCode != "other" {
+		t.Fatalf("open value reached the ledger: %+v", got)
 	}
 	path := filepath.Join(t.TempDir(), "artemis.jsonl")
 	if err := os.WriteFile(path, []byte(`{"timestamp":"2026-07-18T10:00:00Z","type":"policy_decision","policy":{"operation":"navigation","transport":"https","result":"allow","reason_code":"policy_match"},"page_content":"secret"}`+"\n"), 0o600); err != nil {

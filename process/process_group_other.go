@@ -8,9 +8,11 @@ import (
 	"syscall"
 )
 
-func configureProcessGroup(_ *exec.Cmd) {}
+// ConfigureProcessGroup retains the platform's direct-process semantics.
+func ConfigureProcessGroup(_ *exec.Cmd) {}
 
-func signalProcessGroup(process *os.Process, signal syscall.Signal) error {
+// SignalProcessGroup signals the owned process on platforms without groups.
+func SignalProcessGroup(process *os.Process, signal syscall.Signal) error {
 	if process == nil {
 		return nil
 	}

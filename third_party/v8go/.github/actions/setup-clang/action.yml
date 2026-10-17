@@ -1,0 +1,58 @@
+name: Set Up Clang
+description: |
+  Installs the Clang version required by the libc++ headers in
+  deps/include_libcxx/, and sets CC and CXX. On Linux, it also sets
+  CLANG_FORMAT if clang-format-{version} is in extra-packages.
+
+  Chromium's libc++ follows LLVM trunk, so the minimum version increases
+  with V8 upgrades. See _LIBCPP_CLANG_VER in
+  deps/include_libcxx/__configuration/compiler.h.
+
+inputs:
+  version:
+    description: The LLVM major version.
+    default: '21'
+  windows-version:
+    description: The full LLVM version on Windows, as Chocolatey needs it.
+    default: '21.1.8'
+  extra-packages:
+    description: Additional Debian packages, with {version} substituted.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+  - name: Install Clang (Linux)
+    if: runner.os == 'Linux'
+    shell: bash
+    run: |
+      curl -fsSL https://apt.llvm.org/llvm.sh -o "$RUNNER_TEMP/llvm.sh"
+      sudo bash "$RUNNER_TEMP/llvm.sh" ${{ inputs.version }}
+      extra="${{ inputs.extra-packages }}"
+      [ -z "$extra" ] || sudo apt-get install -yq ${extra//\{version\}/${{ inputs.version }}}
+      echo "CC=clang-${{ inputs.version }}" >>"$GITHUB_ENV"
+      echo "CXX=clang++-${{ inputs.version }}" >>"$GITHUB_ENV"
+      if command -v "clang-format-${{ inputs.version }}" >/dev/null; then
+        echo "CLANG_FORMAT=clang-format-${{ inputs.version }}" >>"$GITHUB_ENV"
+      fi
+
+  - name: Install Clang (macOS)
+    if: runner.os == 'macOS'
+    shell: bash
+    run: |
+      brew install llvm@${{ inputs.version }}
+      prefix="$(brew --prefix llvm@${{ inputs.version }})"
+      echo "CC=$prefix/bin/clang" >>"$GITHUB_ENV"
+      echo "CXX=$prefix/bin/clang++" >>"$GITHUB_ENV"
+
+  - name: Install Clang (Windows)
+    if: runner.os == 'Windows'
+    shell: bash
+    run: |
+      choco install llvm --version=${{ inputs.windows-version }} -y --no-progress --force
+      echo "C:\\Program Files\\LLVM\\bin" >>"$GITHUB_PATH"
+      # Go splits CC on spaces, so it can't be a full path under
+      # "Program Files". Go's linker only skips GNU-only flags for
+      # MSVC-target clang if it sees -fuse-ld=lld here or in -extldflags.
+      echo "CC=clang -fuse-ld=lld" >>"$GITHUB_ENV"
+      echo "CXX=clang++ -fuse-ld=lld" >>"$GITHUB_ENV"

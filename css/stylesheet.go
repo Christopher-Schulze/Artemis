@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/andybalholm/cascadia"
+	csssyntax "github.com/tdewolff/parse/v2/css"
 )
 
 // Rule is one CSS rule: a (possibly comma-separated) selector list plus
@@ -15,204 +16,126 @@ type Rule struct {
 	// per individual selector; we keep them split so we can match each
 	// against an element and pick the highest specificity.
 	Selectors []cascadia.Sel
-	// Decls is the parsed declaration block. Each value may carry a
-	// trailing " !important" sentinel; cascade uses Important to detect.
+	// Declarations preserves complete source order for cascade expansion.
+	Declarations []Declaration
+	// Decls is the last winning value for each literal property name.
 	Decls map[string]string
 	// Important records which decls were declared `!important`.
-	Important map[string]bool
+	Important   map[string]bool
+	identifiers []cssSelectorIdentifier
 }
 
 // Stylesheet is a parsed CSS document.
 type Stylesheet struct {
-	Rules []Rule
+	Rules       []Rule
+	Diagnostics []Diagnostic
+	Origin      Origin
 }
 
-// ParseStylesheet parses a CSS source text into a Stylesheet. The
-// parser tokenises rule blocks by balancing braces, ignores @-rules
-// (their bodies are not applied), and skips selectors that fail to
-// compile through cascadia.
+// Err rejects using a partial stylesheet as complete CSS evidence.
+func (s *Stylesheet) Err() error {
+	if s == nil {
+		return cssDiagnostic(DiagnosticSyntax, 0, "stylesheet required")
+	}
+	return cssDiagnosticsError(s.Diagnostics)
+}
+
+// ParseStylesheet retains bounded diagnostics for every rejected construct.
+// Strings, comments and functional values share the declaration token owner.
 func ParseStylesheet(src string) *Stylesheet {
 	out := &Stylesheet{}
-	src = stripComments(src)
-	i := 0
-	n := len(src)
-	for i < n {
-		// Skip whitespace
-		for i < n && isSpace(src[i]) {
-			i++
+	tokens, err := tokenizeCSS(src)
+	if err != nil {
+		out.Diagnostics = []Diagnostic{*err}
+		return out
+	}
+	for tokens = trimCSSTokens(tokens); len(tokens) > 0; tokens = trimCSSTokens(tokens) {
+		if tokens[0].kind == csssyntax.CDOToken || tokens[0].kind == csssyntax.CDCToken {
+			tokens = tokens[1:]
+			continue
 		}
-		if i >= n {
+		if len(out.Rules) >= maxCSSRules {
+			out.Diagnostics = appendCSSDiagnostic(out.Diagnostics, *cssDiagnostic(DiagnosticBudget, tokens[0].offset, "CSS rule count limit exceeded"))
 			break
 		}
-		if src[i] == '@' {
-			// skip @-rule: until matching `;` for short forms or
-			// balanced `{...}` for block forms.
-			i = skipAtRule(src, i)
+		if tokens[0].kind == csssyntax.AtKeywordToken {
+			out.Diagnostics = appendCSSDiagnostic(out.Diagnostics, *cssDiagnostic(DiagnosticUnsupported, tokens[0].offset, "CSS at-rule requires browser semantics"))
+			tokens = afterCSSAtRule(tokens)
 			continue
 		}
-		// selector list runs until the next `{`.
-		selStart := i
-		for i < n && src[i] != '{' {
-			i++
+		opening := cssBoundary(tokens, csssyntax.LeftBraceToken)
+		if opening == len(tokens) {
+			out.Diagnostics = appendCSSDiagnostic(out.Diagnostics, *cssDiagnostic(DiagnosticSyntax, tokens[0].offset, "CSS rule block required"))
+			break
 		}
-		if i >= n {
-			return out
+		body := tokens[opening+1:]
+		closing := cssBoundary(body, csssyntax.RightBraceToken)
+		rule, diagnostics := parseCSSRule(tokens[:opening], body[:closing])
+		for _, diagnostic := range diagnostics {
+			out.Diagnostics = appendCSSDiagnostic(out.Diagnostics, diagnostic)
 		}
-		selectorRaw := strings.TrimSpace(src[selStart:i])
-		i++ // past '{'
-		blockStart := i
-		depth := 1
-		for i < n && depth > 0 {
-			switch src[i] {
-			case '{':
-				depth++
-			case '}':
-				depth--
-			}
-			i++
+		if len(rule.Selectors) > 0 {
+			out.Rules = append(out.Rules, rule)
 		}
-		blockEnd := i - 1
-		if blockEnd < blockStart {
-			continue
-		}
-		body := src[blockStart:blockEnd]
-		decls, important := parseDeclBlock(body)
-		if len(decls) == 0 || selectorRaw == "" {
-			continue
-		}
-		// Compile each comma-separated selector via cascadia.
-		var sels []cascadia.Sel
-		for _, part := range splitSelectors(selectorRaw) {
-			s, err := cascadia.Parse(part)
-			if err != nil || s == nil {
-				continue
-			}
-			sels = append(sels, s)
-		}
-		if len(sels) == 0 {
-			continue
-		}
-		out.Rules = append(out.Rules, Rule{
-			SelectorRaw: selectorRaw,
-			Selectors:   sels,
-			Decls:       decls,
-			Important:   important,
-		})
+		tokens = body[closing+1:]
 	}
 	return out
 }
 
-// parseDeclBlock parses a rule body (the text between `{` and `}`).
-// Returns the property map plus a parallel `important` map.
-func parseDeclBlock(body string) (map[string]string, map[string]bool) {
-	decls := map[string]string{}
-	important := map[string]bool{}
-	for _, decl := range strings.Split(body, ";") {
-		decl = strings.TrimSpace(decl)
-		if decl == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(decl, ":")
-		if !ok {
-			continue
-		}
-		k = strings.ToLower(strings.TrimSpace(k))
-		v = strings.TrimSpace(v)
-		if k == "" {
-			continue
-		}
-		// Strip an actual trailing "!important" priority marker. Text that
-		// merely contains the token inside a string or function is a value.
-		if idx := strings.LastIndex(strings.ToLower(v), "!important"); idx >= 0 && strings.TrimSpace(v[idx+len("!important"):]) == "" {
-			before := strings.TrimSpace(v[:idx])
-			decls[k] = before
-			important[k] = true
-			continue
-		}
-		if important[k] {
-			continue
-		}
-		decls[k] = v
+func afterCSSAtRule(tokens []cssToken) []cssToken {
+	boundary := cssBoundary(tokens, csssyntax.SemicolonToken, csssyntax.LeftBraceToken)
+	if boundary == len(tokens) {
+		return nil
 	}
-	return decls, important
+	if tokens[boundary].kind == csssyntax.SemicolonToken {
+		return tokens[boundary+1:]
+	}
+	body := tokens[boundary+1:]
+	closing := cssBoundary(body, csssyntax.RightBraceToken)
+	return body[closing+1:]
 }
 
-// splitSelectors splits a selector list at top-level commas (cascadia
-// handles complex selectors but not lists).
-func splitSelectors(s string) []string {
-	var out []string
-	var cur strings.Builder
-	depth := 0
-	for _, r := range s {
-		switch r {
-		case '(', '[':
-			depth++
-		case ')', ']':
-			if depth > 0 {
-				depth--
-			}
-		case ',':
-			if depth == 0 {
-				if t := strings.TrimSpace(cur.String()); t != "" {
-					out = append(out, t)
-				}
-				cur.Reset()
-				continue
-			}
-		}
-		cur.WriteRune(r)
+func parseCSSRule(selectorTokens, body []cssToken) (Rule, []Diagnostic) {
+	selectors, err := compileCSSSelectors(trimCSSTokens(selectorTokens))
+	if err != nil {
+		return Rule{}, []Diagnostic{*err}
 	}
-	if t := strings.TrimSpace(cur.String()); t != "" {
-		out = append(out, t)
-	}
-	return out
+	declarations := parseCSSDeclarations(body)
+	values, priorities := cssDeclarationMaps(declarations.Declarations)
+	return Rule{SelectorRaw: strings.TrimSpace(cssTokenText(selectorTokens)), Selectors: selectors,
+		Declarations: declarations.Declarations, Decls: values, Important: priorities,
+		identifiers: cssSelectorIdentifiers(selectorTokens)}, declarations.Diagnostics
 }
 
-// stripComments removes /* ... */ blocks from src.
-func stripComments(src string) string {
-	var b strings.Builder
-	b.Grow(len(src))
-	i := 0
-	for i < len(src) {
-		if i+1 < len(src) && src[i] == '/' && src[i+1] == '*' {
-			j := strings.Index(src[i+2:], "*/")
-			if j < 0 {
-				return b.String()
-			}
-			i = i + 2 + j + 2
-			continue
-		}
-		b.WriteByte(src[i])
-		i++
+func compileCSSSelectors(tokens []cssToken) ([]cascadia.Sel, *Diagnostic) {
+	if len(tokens) == 0 {
+		return nil, cssDiagnostic(DiagnosticSyntax, 0, "CSS selector required")
 	}
-	return b.String()
-}
-
-// skipAtRule advances past an @-rule starting at position i. Returns
-// the index of the first character after the rule.
-func skipAtRule(src string, i int) int {
-	n := len(src)
-	for i < n {
-		switch src[i] {
-		case ';':
-			return i + 1
-		case '{':
-			depth := 1
-			i++
-			for i < n && depth > 0 {
-				switch src[i] {
-				case '{':
-					depth++
-				case '}':
-					depth--
-				}
-				i++
-			}
-			return i
-		}
-		i++
+	if len(cssTokenText(tokens)) > maxCSSSelectorBytes {
+		return nil, cssDiagnostic(DiagnosticBudget, tokens[0].offset, "CSS selector byte limit exceeded")
 	}
-	return n
+	var result []cascadia.Sel
+	for len(tokens) > 0 {
+		if len(result) >= maxCSSSelectors {
+			return nil, cssDiagnostic(DiagnosticBudget, tokens[0].offset, "CSS selector list limit exceeded")
+		}
+		boundary := cssBoundary(tokens, csssyntax.CommaToken)
+		selector, diagnostic := cssSelectorText(tokens[:boundary])
+		if diagnostic != nil {
+			return nil, diagnostic
+		}
+		compiled, err := cascadia.Parse(selector)
+		if err != nil || compiled == nil {
+			return nil, cssDiagnostic(DiagnosticUnsupported, tokens[0].offset, "CSS selector is malformed or unsupported")
+		}
+		result = append(result, compiled)
+		if boundary == len(tokens) {
+			return result, nil
+		}
+		tokens = trimCSSTokens(tokens[boundary+1:])
+		if len(tokens) == 0 {
+			return nil, cssDiagnostic(DiagnosticSyntax, 0, "CSS selector required after comma")
+		}
+	}
+	return result, nil
 }
-
-func isSpace(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' }

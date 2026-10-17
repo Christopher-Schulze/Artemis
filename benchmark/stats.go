@@ -93,9 +93,18 @@ type RegressionBudget struct {
 
 // Check returns true if the new value is within the budget relative to the baseline.
 func (b RegressionBudget) Check(baseline, current float64) (bool, string) {
+	if _, err := MetricKindFromString(string(b.MetricKind)); err != nil {
+		return false, err.Error()
+	}
+	if !finiteNonnegative(baseline) || !finiteNonnegative(current) || !finiteNonnegative(b.MaxDelta) || !finiteNonnegative(b.MaxPercent) || (b.MaxDelta == 0 && b.MaxPercent == 0) {
+		return false, "finite nonnegative measurements and a positive budget are required"
+	}
 	if baseline == 0 {
+		if current == 0 || b.MetricKind == MetricThroughput {
+			return true, ""
+		}
 		if b.MaxDelta == 0 {
-			return true, "no baseline and no max delta"
+			return false, "relative regression cannot be evaluated against a zero baseline"
 		}
 		if current <= b.MaxDelta {
 			return true, ""
@@ -104,12 +113,15 @@ func (b RegressionBudget) Check(baseline, current float64) (bool, string) {
 	}
 
 	delta := current - baseline
+	if b.MetricKind == MetricThroughput {
+		delta = -delta
+	}
 	if b.MaxDelta != 0 && delta > b.MaxDelta {
 		return false, fmt.Sprintf("%s delta=%s exceeds maxDelta=%s", b.MetricKind, FormatMetric(b.MetricKind, delta), FormatMetric(b.MetricKind, b.MaxDelta))
 	}
 
-	if b.MaxPercent != 0 && current/baseline > 1+b.MaxPercent {
-		return false, fmt.Sprintf("%s regressed %.2f%%, budget %.2f%%", b.MetricKind, (current/baseline-1)*100, b.MaxPercent*100)
+	if b.MaxPercent != 0 && delta/baseline > b.MaxPercent {
+		return false, fmt.Sprintf("%s regressed %.2f%%, budget %.2f%%", b.MetricKind, delta/baseline*100, b.MaxPercent*100)
 	}
 	return true, ""
 }

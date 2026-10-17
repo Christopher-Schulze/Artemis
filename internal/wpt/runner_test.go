@@ -76,9 +76,10 @@ func TestRunnerUnregisteredPath(t *testing.T) {
 	}()
 
 	_, err = r.RunCase(context.Background(), TestCase{
-		Path:     "not-in-testdata.html",
-		Name:     "missing",
-		Expected: OutcomeFail,
+		Path:         "not-in-testdata.html",
+		Name:         "missing",
+		Expected:     OutcomeFail,
+		CapabilityID: "renderless.javascript",
 	})
 	if err == nil {
 		t.Fatal("expected error for unregistered WPT path")
@@ -118,7 +119,9 @@ func TestRunnerRejectsMissingHarnessResults(t *testing.T) {
 			t.Errorf("close runner: %v", closeErr)
 		}
 	}()
-	r.Server.RegisterHTML("/no-results.html", "<html><head><title>No results</title></head><body></body></html>")
+	if err := r.Server.RegisterHTML("/no-results.html", "<html><head><title>No results</title></head><body></body></html>"); err != nil {
+		t.Fatalf("register actual missing-harness fixture: %v", err)
+	}
 
 	_, err = r.RunCase(context.Background(), TestCase{
 		Path:         "no-results.html",
@@ -144,6 +147,8 @@ func TestResultValidate(t *testing.T) {
 		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: ""},
 		{Path: "a.html", Name: "n", Status: "UNKNOWN(9)", HarnessStatus: "OK"},
 		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: "UNKNOWN(9)"},
+		{Path: "a.html", Name: "n", Status: "invented", HarnessStatus: "OK"},
+		{Path: "a.html", Name: "n", Status: "PASS", HarnessStatus: "ERROR"},
 	}
 	for i, r := range invalid {
 		if err := r.Validate(); err == nil {

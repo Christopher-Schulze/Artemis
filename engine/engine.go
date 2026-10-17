@@ -20,6 +20,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/js"
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/parser"
+	"github.com/Christopher-Schulze/Artemis/security"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
@@ -61,6 +62,14 @@ type FetchOpts struct {
 	// concurrent fetch() calls run in parallel. Use Page.WaitIdle to
 	// block until pending fetches settle.
 	AsyncFetch bool
+	// Crawl marks this fetch as crawler traffic (sitemap-driven or bulk
+	// crawling). Spec L4416: crawls respect robots.txt by default, including
+	// every redirect hop, unless Config.IgnoreRobotsForCrawls is set.
+	// Ordinary agent fetches behave like a user's browser.
+	Crawl bool
+	// AdBlockBypass loads this page without ad/tracker blocking; Layer 2
+	// uses it for the verification reload (spec L4208 Case B).
+	AdBlockBypass bool
 }
 
 // RequestInfo describes an outbound request handed to OnRequest hooks.
@@ -80,6 +89,10 @@ type ResponseInfo struct {
 	FinalURL string
 }
 
+// ErrScriptContainmentRequired is returned by Fetch when page scripts are
+// requested from an engine whose configuration requires script containment.
+var ErrScriptContainmentRequired = errors.New("engine: page scripts require a contained runtime; this engine runs script-free")
+
 // ErrRobotsDisallowed is returned when ObeyRobots is on and the page's
 // URL is forbidden by robots.txt for the configured UserAgent.
 var ErrRobotsDisallowed = network.ErrRobotsDisallowed
@@ -98,6 +111,8 @@ type Engine struct {
 	requireIngress bool
 	session        *sessionBudgetController
 	diagnostics    *diagnostics.Store
+	dnsCache       *network.DNSPrefetchCache
+	adBlock        *security.AdBlocker
 }
 
 // Download is the verified metadata for a committed session download.
@@ -118,23 +133,37 @@ func New(cfg Config) (*Engine, error) {
 	}
 	resourceSink := func(sessionID string, usage SessionUsage) error {
 		return diagnosticStore.AppendResource(diagnostics.ResourceUsage{
-			Scope: "renderless", SessionRef: diagnostics.HashSession(sessionID), Requests: usage.Requests,
+			Scope: "renderless", SessionRef: diagnosticStore.SessionRef(sessionID), Requests: usage.Requests,
 			ResponseBytes: usage.ResponseBytes, DiskBytes: usage.DiskBytes,
 			ActiveTabs: usage.ActiveTabs, Concurrent: usage.Concurrent, SessionStopped: usage.Cancelled,
 		})
 	}
+	dnsCache, err := network.OpenDNSPrefetchCache(cfg.DNSCachePath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("engine: dns cache: %w", err)
+	}
 	session := newSessionBudgetController(cfg.SessionBudget, cfg.SessionID, resourceSink)
-	policy, err := network.NewPolicy(cfg.PolicyConfig, nil, func(decision network.Decision) error {
+	session.sharedMemory = cfg.MemoryAdmission
+	session.liveLimits = cfg.AdmissionLimits
+	policy, err := network.NewPolicy(cfg.PolicyConfig, dnsCache, func(decision network.Decision) error {
 		return diagnosticStore.AppendPolicy(diagnostics.PolicyDecision{
 			Operation: string(decision.Kind), Transport: decision.Scheme, Host: decision.Host,
 			Port: decision.Port, Result: string(decision.Action), ReasonCode: decision.Reason,
-			SessionRef: diagnostics.HashSession(decision.SessionID),
+			SessionRef: diagnosticStore.SessionRef(decision.SessionID),
 		})
 	})
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("engine: build network policy: %w", err), session.close())
+		return nil, errors.Join(fmt.Errorf("engine: build network policy: %w", err), session.close(), dnsCache.Close())
 	}
 	cfg.PolicyConfig = policy.Config()
+	var adBlock *security.AdBlocker
+	if !cfg.DisableAdBlock {
+		adBlock = cfg.AdBlock
+		if adBlock == nil {
+			adBlock = security.NewAdBlocker()
+		}
+		policy.SetRequestFilter(adBlock)
+	}
 	client, err := network.NewHTTPClient(network.HTTPClientConfig{
 		UserAgent:        cfg.UserAgent,
 		ChromeLike:       cfg.chromeDefault,
@@ -144,16 +173,18 @@ func New(cfg Config) (*Engine, error) {
 		Policy:           policy,
 		SessionID:        cfg.SessionID,
 		RequestLifecycle: session,
+		MemoryAdmission:  session,
+		WebBotAuth:       cfg.WebBotAuth,
 	})
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("engine: build http client: %w", err), session.close())
+		return nil, errors.Join(fmt.Errorf("engine: build http client: %w", err), session.close(), dnsCache.Close())
 	}
 	var rt *js.Runtime
 	switch {
 	case cfg.JSContextPoolSize > 0 && cfg.JSContextPoolWarm:
 		rt, err = js.NewRuntimeWithWarmPool(cfg.JSContextPoolSize)
 		if err != nil {
-			return nil, errors.Join(fmt.Errorf("engine: warm pool: %w", err), client.Close(), session.close())
+			return nil, errors.Join(fmt.Errorf("engine: warm pool: %w", err), client.Close(), session.close(), dnsCache.Close())
 		}
 	case cfg.JSContextPoolSize > 0:
 		rt = js.NewRuntimeWithPool(cfg.JSContextPoolSize)
@@ -161,24 +192,51 @@ func New(cfg Config) (*Engine, error) {
 		rt = js.NewRuntime()
 	}
 	return &Engine{
-		cfg: cfg, client: client, policy: policy, jsRT: rt, session: session,
+		cfg: cfg, client: client, policy: policy, jsRT: rt, session: session, dnsCache: dnsCache,
 		diagnostics: diagnosticStore, ingress: cfg.DownloadIngress,
-		requireIngress: cfg.RequireDownloadIngress,
+		requireIngress: cfg.RequireDownloadIngress, adBlock: adBlock,
 	}, nil
 }
 
 // Config returns a copy of the active configuration.
-func (e *Engine) Config() Config { return e.cfg }
+func (e *Engine) Config() Config {
+	config := e.cfg
+	return config
+}
 
 // HTTPClient exposes the underlying network client. Phase 1 callers
 // use it for cookie inspection.
 func (e *Engine) HTTPClient() *network.HTTPClient { return e.client }
 
+// SessionLocalStorageSnapshot reads retained state for an owned route escalation.
+func (e *Engine) SessionLocalStorageSnapshot(sessionID, rawURL string) map[string]string {
+	return e.jsRT.SessionLocalStorageSnapshot(sessionID, rawURL)
+}
+
 // SessionUsage returns an atomic snapshot of the active hard-budget counters.
 func (e *Engine) SessionUsage() SessionUsage { return e.session.usage() }
 
+// SessionUsageFor returns one network session's budget consumption.
+func (e *Engine) SessionUsageFor(sessionID string) SessionUsage {
+	return e.session.sessionUsage(sessionID)
+}
+
+// InputMemoryAdmission exposes the already configured shared input owner.
+func (e *Engine) InputMemoryAdmission() network.MemoryAdmission {
+	if e == nil {
+		return nil
+	}
+	return e.session
+}
+
 // Diagnostics returns a redacted snapshot of the bounded audit ledger.
 func (e *Engine) Diagnostics() ([]diagnostics.Record, error) { return e.diagnostics.Snapshot() }
+
+// DiagnosticSessionRef returns the installation-keyed pseudonym under which
+// diagnostics record sessionID, so an operator can select its records.
+func (e *Engine) DiagnosticSessionRef(sessionID string) string {
+	return e.diagnostics.SessionRef(sessionID)
+}
 
 // Download fetches raw content under TargetDownload policy and atomically
 // commits it to this engine session's owned download directory.
@@ -222,6 +280,9 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 	if opts.MaxBodyBytes < 0 {
 		return nil, errors.New("engine: maximum body bytes override must not be negative")
 	}
+	if e.cfg.RequireScriptContainment && (opts.RunScripts || opts.RunInlineScripts || opts.AsyncFetch) {
+		return nil, ErrScriptContainmentRequired
+	}
 	ctx, release := e.session.mergeContext(ctx)
 	defer release()
 	sessionID := network.SessionID(ctx, e.cfg.SessionID)
@@ -244,15 +305,14 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			headers.Set("Content-Type", ct)
 		}
 	}
-	// Robots check (best-effort)
-	if e.cfg.ObeyRobots && method == http.MethodGet {
-		if u, perr := url.Parse(rawURL); perr == nil && u.Host != "" {
-			if policy, perr := e.client.FetchRobots(ctx, u); perr == nil {
-				if !policy.Allowed(e.cfg.UserAgent, u.Path) {
-					return nil, fmt.Errorf("engine: %w: %s", ErrRobotsDisallowed, rawURL)
-				}
-			}
+	// Configured crawler admission completes before the page request lease;
+	// a governed fetch also marks its context so redirect hops are admitted.
+	if e.robotsGoverned(opts) && method == http.MethodGet {
+		agent, err := e.checkRobots(ctx, rawURL, headers)
+		if err != nil {
+			return nil, err
 		}
+		ctx = network.WithRobotsAgent(ctx, agent)
 	}
 	// OnRequest interception
 	if opts.OnRequest != nil {
@@ -276,7 +336,7 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			if mock.Status < 100 || mock.Status > 599 {
 				return nil, fmt.Errorf("engine: OnRequest response status %d is invalid", mock.Status)
 			}
-			if err := e.session.admitSynthetic(int64(len(mock.Body))); err != nil {
+			if err := e.session.admitSynthetic(ctx, int64(len(mock.Body))); err != nil {
 				return nil, err
 			}
 			if err := e.session.acquireTab(sessionID); err != nil {
@@ -296,14 +356,17 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 			if finalURL == "" {
 				finalURL = rawURL
 			}
+			scope := newAdBlockScope(finalURL, opts)
 			jsCtx, err := e.jsRT.NewContext(doc, js.ContextOpts{
 				Console:        opts.Console,
-				Fetch:          e.jsFetchFunc(),
+				Fetch:          e.jsFetchFunc(sessionID, scope),
 				AsyncFetch:     opts.AsyncFetch,
 				Navigator:      e.navigatorDefaults(opts.Navigator),
-				LoadStylesheet: e.stylesheetLoader(finalURL),
-				LoadIFrame:     e.iframeLoader(finalURL),
+				LoadStylesheet: e.stylesheetLoader(finalURL, sessionID, scope),
+				LoadIFrame:     e.iframeLoader(finalURL, sessionID, scope),
+				RequestContext: network.WithAdBlockScope(ctx, scope),
 				Policy:         e.policy,
+				Proxy:          e.client.ProxyURL(),
 				SessionID:      sessionID,
 			})
 			if err != nil {
@@ -321,10 +384,11 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 				},
 				session:   e.session,
 				sessionID: sessionID,
+				adBlocked: scope.Blocked,
 			}
 			tabOwned = false
 			if opts.RunInlineScripts || opts.RunScripts {
-				if err := e.runScripts(ctx, jsCtx, doc, finalURL); err != nil {
+				if err := e.runScripts(ctx, page, jsCtx, doc, finalURL, scope); err != nil {
 					return nil, errors.Join(err, page.Close())
 				}
 			}
@@ -343,56 +407,19 @@ func (e *Engine) Fetch(ctx context.Context, rawURL string, opts FetchOpts) (resu
 		Headers:      headers,
 		MaxBodyBytes: opts.MaxBodyBytes,
 	}
-	resp, err := e.client.Do(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("engine: fetch %s: %w", rawURL, err)
-	}
-	doc, err := parser.ParseHTML(bytes.NewReader(resp.Body), resp.FinalURL)
-	if err != nil {
-		return nil, fmt.Errorf("engine: parse %s: %w", resp.FinalURL, err)
-	}
-
-	jsCtx, err := e.jsRT.NewContext(doc, js.ContextOpts{
-		Console:        opts.Console,
-		Fetch:          e.jsFetchFunc(),
-		AsyncFetch:     opts.AsyncFetch,
-		Navigator:      e.navigatorDefaults(opts.Navigator),
-		GetCookie:      e.cookieGetter(resp.FinalURL),
-		SetCookie:      e.cookieSetter(resp.FinalURL),
-		LoadStylesheet: e.stylesheetLoader(resp.FinalURL),
-		LoadIFrame:     e.iframeLoader(resp.FinalURL),
-		Policy:         e.policy,
-		SessionID:      sessionID,
+	var page *Page
+	err := e.client.WithResponse(ctx, req, network.TargetNavigation, func(resp *network.Response) error {
+		var err error
+		page, err = e.pageFromResponse(ctx, opts, sessionID, resp)
+		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("engine: js context: %w", err)
-	}
-	if err := e.session.acquireTab(sessionID); err != nil {
-		jsCtx.Close()
-		return nil, err
-	}
-
-	page := &Page{
-		url:        resp.FinalURL,
-		statusCode: resp.StatusCode,
-		headers:    resp.Headers.Clone(),
-		document:   doc,
-		rawBody:    append([]byte(nil), resp.Body...),
-		jsCtx:      jsCtx,
-		download: func(filename, contentType string, content []byte) (*Download, error) {
-			return e.storePageDownload(sessionID, filename, contentType, content)
-		},
-		session:   e.session,
-		sessionID: sessionID,
-	}
-
-	if opts.RunInlineScripts || opts.RunScripts {
-		if err := e.runScripts(ctx, jsCtx, doc, resp.FinalURL); err != nil {
-			return nil, errors.Join(err, page.Close())
+		if page != nil {
+			err = errors.Join(err, page.Close())
 		}
+		return nil, fmt.Errorf("engine: fetch %s: %w", rawURL, err)
 	}
-
-	return page, nil
+	return e.applyAdBlockLayer2(ctx, method, opts, page), nil
 }
 
 func (e *Engine) downloadManager(sessionID string) (*artemisdownload.DownloadManager, error) {
@@ -495,12 +522,19 @@ func removeDownloadFile(path string) (returnErr error) {
 	return returnErr
 }
 
-// ReleaseSession removes runtime-only download synchronization state after all
-// work for sessionID has stopped. Committed files remain under the owned store.
-func (e *Engine) ReleaseSession(sessionID string) {
+// ReleaseSession forgets cookies, origin storage, download synchronization,
+// disk usage and the session budget account after all owned pages and
+// in-flight operations have stopped.
+func (e *Engine) ReleaseSession(sessionID string) error {
+	e.session.releaseSession(sessionID)
+	if err := e.client.ReleaseSession(sessionID); err != nil {
+		return err
+	}
+	e.jsRT.ReleaseSessionStorage(sessionID)
 	e.downloadMu.Lock()
 	delete(e.downloads, sessionID)
 	e.downloadMu.Unlock()
+	return nil
 }
 
 func (e *Engine) recordDownload(sessionID string, manager *artemisdownload.DownloadManager, download *Download) (*Download, error) {
@@ -542,18 +576,17 @@ func (e *Engine) Close() error {
 	if e.jsRT != nil {
 		e.jsRT.Close()
 	}
-	return firstErr
+	return errors.Join(firstErr, e.dnsCache.Close())
 }
 
 // runScripts walks the document and executes every <script> in document
 // order. External scripts (`src=...`) are fetched via the engine's HTTP
 // client, cached per URL, and executed against the same JS context.
-// Ordinary script errors do not abort the page; session-budget failures are
-// always propagated because they cancel the owning engine.
-func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.Document, baseURL string) error {
+// Script and callback failures prevent acknowledging a partially executed page.
+func (e *Engine) runScripts(ctx context.Context, page *Page, jsCtx *js.Context, doc *webapi.Document, baseURL string, scope network.AdBlockScope) error {
 	root := doc.Root()
 	if root == nil {
-		return nil
+		return jsCtx.CompleteDocumentLoading(ctx)
 	}
 	// Cache script text per absolute URL; base URL is parsed once outside
 	// the walk instead of per script tag.
@@ -561,6 +594,10 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 	base, _ := url.Parse(baseURL)
 	var runErr error
 	webapi.Walk(root, func(n *webapi.Node) webapi.WalkAction {
+		if err := ctx.Err(); err != nil {
+			runErr = err
+			return webapi.WalkStop
+		}
 		if n.Type() != webapi.NodeElement || n.Tag() != "script" {
 			return webapi.WalkContinue
 		}
@@ -582,15 +619,21 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 			if cached, ok := cache[absURL]; ok {
 				code = cached
 			} else {
-				resp, err := e.client.Do(ctx, network.Request{Method: http.MethodGet, URL: absURL})
+				resp, err := e.client.DoTarget(withAdBlockResource(ctx, scope, "script"), network.Request{Method: http.MethodGet, URL: absURL}, network.TargetSubresource)
 				if err != nil {
-					if budgetErr := e.session.err(); budgetErr != nil {
+					if budgetErr := e.session.sessionErr(network.SessionID(ctx, e.cfg.SessionID)); budgetErr != nil {
 						runErr = budgetErr
 						return webapi.WalkStop
+					}
+					// A blocked or unreachable script does not run, as in a
+					// browser; the page records it instead of hiding it.
+					if !errors.Is(err, network.ErrAdBlocked) {
+						page.degradations = append(page.degradations, "external_script_failed: "+absURL+": "+err.Error())
 					}
 					return webapi.WalkContinue
 				}
 				if resp.StatusCode != 200 {
+					page.degradations = append(page.degradations, fmt.Sprintf("external_script_status: %s: %d", absURL, resp.StatusCode))
 					return webapi.WalkContinue
 				}
 				cache[absURL] = string(resp.Body)
@@ -602,105 +645,63 @@ func (e *Engine) runScripts(ctx context.Context, jsCtx *js.Context, doc *webapi.
 		if strings.TrimSpace(code) == "" {
 			return webapi.WalkContinue
 		}
-		if _, evalErr := jsCtx.Eval(ctx, code); evalErr != nil {
-			if budgetErr := e.session.err(); budgetErr != nil {
-				runErr = budgetErr
-				return webapi.WalkStop
-			}
-			return webapi.WalkContinue
+		if evalErr := jsCtx.EvalDiscard(ctx, code); evalErr != nil {
+			runErr = errors.Join(evalErr, e.session.sessionErr(network.SessionID(ctx, e.cfg.SessionID)))
+			return webapi.WalkStop
 		}
-		if budgetErr := e.session.err(); budgetErr != nil {
+		if budgetErr := e.session.sessionErr(network.SessionID(ctx, e.cfg.SessionID)); budgetErr != nil {
 			runErr = budgetErr
 			return webapi.WalkStop
 		}
 		return webapi.WalkContinue
 	})
-	return runErr
-}
-
-// cookieGetter returns a function that serializes the cookies for
-// rawURL as `name=value; name2=value2`.
-func (e *Engine) cookieGetter(rawURL string) func() string {
-	// Parse once: the closure runs per document.cookie read.
-	u, err := url.Parse(rawURL)
-	if err != nil || u == nil {
-		return func() string { return "" }
+	if runErr != nil {
+		return runErr
 	}
-	return func() string {
-		jar := e.client.CookieJar()
-		if jar == nil {
-			return ""
-		}
-		cs := jar.Cookies(u)
-		parts := make([]string, 0, len(cs))
-		for _, c := range cs {
-			parts = append(parts, c.Name+"="+c.Value)
-		}
-		return strings.Join(parts, "; ")
-	}
-}
-
-// cookieSetter returns a function that ingests a Set-Cookie-style line
-// and stores the cookie in the jar against rawURL.
-func (e *Engine) cookieSetter(rawURL string) func(string) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u == nil {
-		return func(string) {}
-	}
-	return func(line string) {
-		jar := e.client.CookieJar()
-		if jar == nil {
-			return
-		}
-		// Parse via http.ReadResponse-style parsing: build a fake header
-		// with Set-Cookie: <line> and use http.Response.Cookies.
-		resp := &http.Response{Header: http.Header{}}
-		resp.Header.Add("Set-Cookie", line)
-		jar.SetCookies(u, resp.Cookies())
-	}
+	return jsCtx.CompleteDocumentLoading(ctx)
 }
 
 // iframeLoader returns a function that fetches an iframe's HTML body
 // resolved against pageURL.
-func (e *Engine) iframeLoader(pageURL string) js.IFrameLoader {
+func (e *Engine) iframeLoader(pageURL, sessionID string, scope network.AdBlockScope) js.IFrameLoader {
 	base, _ := url.Parse(pageURL)
-	return func(href string) ([]byte, error) {
+	return func(ctx context.Context, href string) (*js.IFrameResponse, error) {
 		abs := href
 		if base != nil {
 			if ref, err := url.Parse(href); err == nil {
 				abs = base.ResolveReference(ref).String()
 			}
 		}
-		resp, err := e.client.Do(context.Background(), network.Request{
+		resp, err := e.client.DoTarget(network.WithSessionID(withAdBlockResource(ctx, scope, "subdocument"), sessionID), network.Request{
 			Method: http.MethodGet,
 			URL:    abs,
-		})
+		}, network.TargetSubframe)
 		if err != nil {
 			return nil, err
 		}
 		if resp.StatusCode != 200 {
 			return nil, fmt.Errorf("iframe %s: status %d", abs, resp.StatusCode)
 		}
-		return resp.Body, nil
+		return &js.IFrameResponse{URL: resp.FinalURL, Body: resp.Body}, nil
 	}
 }
 
 // stylesheetLoader returns a function that fetches a CSS stylesheet
 // resolved against pageURL. Used for `<link rel=stylesheet>` external
 // loads at Context init.
-func (e *Engine) stylesheetLoader(pageURL string) js.StylesheetLoader {
+func (e *Engine) stylesheetLoader(pageURL, sessionID string, scope network.AdBlockScope) js.StylesheetLoader {
 	base, _ := url.Parse(pageURL)
-	return func(href string) ([]byte, error) {
+	return func(ctx context.Context, href string) ([]byte, error) {
 		abs := href
 		if base != nil {
 			if ref, err := url.Parse(href); err == nil {
 				abs = base.ResolveReference(ref).String()
 			}
 		}
-		resp, err := e.client.Do(context.Background(), network.Request{
+		resp, err := e.client.DoTarget(network.WithSessionID(withAdBlockResource(ctx, scope, "stylesheet"), sessionID), network.Request{
 			Method: http.MethodGet,
 			URL:    abs,
-		})
+		}, network.TargetSubresource)
 		if err != nil {
 			return nil, err
 		}
@@ -712,7 +713,7 @@ func (e *Engine) stylesheetLoader(pageURL string) js.StylesheetLoader {
 }
 
 // jsFetchFunc adapts the engine's network client into a js.FetchFunc.
-func (e *Engine) jsFetchFunc() js.FetchFunc {
+func (e *Engine) jsFetchFunc(sessionID string, scope network.AdBlockScope) js.FetchFunc {
 	return func(ctx context.Context, req js.FetchRequest) (*js.FetchResponse, error) {
 		hdrs := make(http.Header, len(req.Headers))
 		for k, v := range req.Headers {
@@ -722,12 +723,12 @@ func (e *Engine) jsFetchFunc() js.FetchFunc {
 		if len(req.Body) > 0 {
 			body = bytes.NewReader(req.Body)
 		}
-		resp, err := e.client.Do(ctx, network.Request{
+		resp, err := e.client.DoTarget(network.WithSessionID(withAdBlockResource(ctx, scope, "xhr"), sessionID), network.Request{
 			Method:  req.Method,
 			URL:     req.URL,
 			Body:    body,
 			Headers: hdrs,
-		})
+		}, network.TargetSubresource)
 		if err != nil {
 			return nil, err
 		}

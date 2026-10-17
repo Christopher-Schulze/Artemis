@@ -2,8 +2,9 @@ package renderless
 
 import (
 	"fmt"
-	"strings"
-	"sync"
+
+	"github.com/Christopher-Schulze/Artemis/css"
+	"golang.org/x/net/html"
 )
 
 // css.go (spec L4022: renderless/css.go - CSS parse/cascade/computed
@@ -18,17 +19,13 @@ import (
 // CSSRule represents a CSS rule
 // (spec L4022: CSS parse/cascade/computed style).
 type CSSRule struct {
-	Selector    string            `json:"selector"`
-	Properties  map[string]string `json:"properties"`
-	Specificity int               `json:"specificity"`
-	Source      string            `json:"source"` // stylesheet source
+	css.Rule
+	Source string `json:"source"`
 }
 
 // CSSParser parses CSS text into rules
 // (spec L4022: CSS parse/cascade/computed style).
-type CSSParser struct {
-	mu sync.Mutex
-}
+type CSSParser struct{}
 
 // NewCSSParser creates a new CSSParser
 // (spec L4022: CSS parse/cascade/computed style).
@@ -38,132 +35,57 @@ func NewCSSParser() *CSSParser {
 
 // Parse parses CSS text into rules
 // (spec L4022: CSS parse/cascade/computed style).
-func (p *CSSParser) Parse(css string) []CSSRule {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	var rules []CSSRule
-	// Simple CSS parser: selector { prop: val; }
-	for len(css) > 0 {
-		braceStart := strings.Index(css, "{")
-		if braceStart < 0 {
-			break
-		}
-		braceEnd := strings.Index(css, "}")
-		if braceEnd < 0 {
-			break
-		}
-		selector := strings.TrimSpace(css[:braceStart])
-		declarations := strings.TrimSpace(css[braceStart+1 : braceEnd])
-		properties := parseDeclarations(declarations)
-		if selector != "" && len(properties) > 0 {
-			rules = append(rules, CSSRule{
-				Selector:    selector,
-				Properties:  properties,
-				Specificity: computeSpecificity(selector),
-			})
-		}
-		css = css[braceEnd+1:]
+func (p *CSSParser) Parse(source string) ([]CSSRule, error) {
+	sheet := css.ParseStylesheet(source)
+	if err := sheet.Err(); err != nil {
+		return nil, err
 	}
-	return rules
-}
-
-// parseDeclarations parses CSS declarations into a property map
-func parseDeclarations(decl string) map[string]string {
-	props := make(map[string]string)
-	for _, part := range strings.Split(decl, ";") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		colon := strings.Index(part, ":")
-		if colon < 0 {
-			continue
-		}
-		prop := strings.TrimSpace(part[:colon])
-		val := strings.TrimSpace(part[colon+1:])
-		if prop != "" && val != "" {
-			props[prop] = val
-		}
+	rules := make([]CSSRule, 0, len(sheet.Rules))
+	for _, rule := range sheet.Rules {
+		rules = append(rules, CSSRule{Rule: rule})
 	}
-	return props
-}
-
-// computeSpecificity computes a simple CSS specificity score
-// (spec L4022: CSS parse/cascade/computed style).
-func computeSpecificity(selector string) int {
-	spec := 0
-	// ID selectors (#id) -> 100
-	spec += strings.Count(selector, "#") * 100
-	// Class selectors (.class) -> 10
-	spec += strings.Count(selector, ".") * 10
-	// Type selectors (div, p, etc.) -> 1
-	parts := strings.Fields(selector)
-	for _, part := range parts {
-		cleanPart := strings.TrimLeft(part, ".#")
-		if cleanPart != "" && !strings.Contains(part, ".") && !strings.Contains(part, "#") {
-			spec += 1
-		}
-	}
-	return spec
+	return rules, nil
 }
 
 // ComputedStyle computes the final style for an element
 // (spec L4022: CSS parse/cascade/computed style).
 type ComputedStyle struct {
-	mu    sync.RWMutex
-	rules []CSSRule
+	sheet *css.Stylesheet
 }
 
 // NewComputedStyle creates a new ComputedStyle
 // (spec L4022: CSS parse/cascade/computed style).
 func NewComputedStyle(rules []CSSRule) *ComputedStyle {
-	return &ComputedStyle{rules: rules}
+	sheet := &css.Stylesheet{Rules: make([]css.Rule, 0, len(rules))}
+	for _, rule := range rules {
+		sheet.Rules = append(sheet.Rules, rule.Rule)
+	}
+	return &ComputedStyle{sheet: sheet}
 }
 
-// Compute computes the style for a given element selector
+// Compute resolves one property on the actual owning DOM element.
 // (spec L4022: CSS parse/cascade/computed style).
-func (c *ComputedStyle) Compute(elementSelector string) map[string]string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	// Sort rules by specificity (lowest first, so higher wins)
-	sorted := make([]CSSRule, len(c.rules))
-	copy(sorted, c.rules)
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].Specificity < sorted[i].Specificity {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
+func (c *ComputedStyle) Compute(node *html.Node, inline, property string) (string, error) {
+	if c == nil || c.sheet == nil {
+		return "", &css.Diagnostic{Code: css.DiagnosticSyntax, Reason: "computed stylesheet required"}
 	}
-	result := make(map[string]string)
-	for _, rule := range sorted {
-		if matchesSelector(elementSelector, rule.Selector) {
-			for prop, val := range rule.Properties {
-				result[prop] = val // higher specificity overrides
-			}
-		}
+	style, err := css.Cascade([]*css.Stylesheet{c.sheet}, node, inline)
+	if err != nil {
+		return "", err
 	}
-	return result
-}
-
-// matchesSelector checks if an element selector matches a CSS selector
-// (spec L4022: CSS parse/cascade/computed style).
-func matchesSelector(element, selector string) bool {
-	if selector == "*" {
-		return true
-	}
-	return strings.Contains(element, selector) || strings.Contains(selector, element)
+	return style.Value(property)
 }
 
 // RuleCount returns the number of CSS rules
 // (spec L4022: CSS parse/cascade/computed style).
 func (c *ComputedStyle) RuleCount() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.rules)
+	if c == nil || c.sheet == nil {
+		return 0
+	}
+	return len(c.sheet.Rules)
 }
 
 // String returns a diagnostic summary.
 func (r CSSRule) String() string {
-	return fmt.Sprintf("CSSRule{selector:%s props:%d spec:%d}", r.Selector, len(r.Properties), r.Specificity)
+	return fmt.Sprintf("CSSRule{selector:%s declarations:%d}", r.SelectorRaw, len(r.Declarations))
 }

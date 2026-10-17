@@ -5,9 +5,10 @@
 package v8go_test
 
 import (
+	"errors"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestPromiseFulfilled(t *testing.T) {
@@ -110,6 +111,36 @@ func TestPromiseRejected(t *testing.T) {
 	}
 }
 
+func TestPromiseThenCanThrow(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	res, _ := v8.NewPromiseResolver(ctx)
+
+	promThenVal := res.GetPromise().ThenWithError(func(info *v8.FunctionCallbackInfo) (*v8.Value, error) {
+		return nil, errors.New("faked error")
+	})
+	promThen, err := promThenVal.AsPromise()
+	if err != nil {
+		t.Fatalf("AsPromise failed: %v", err)
+	}
+
+	val, _ := v8.NewValue(iso, "foo")
+	res.Resolve(val)
+
+	if s := promThen.State(); s != v8.Rejected {
+		t.Fatalf("unexpected state for Promise, want Rejected (%v) got: %v", v8.Rejected, s)
+	}
+
+	if result := promThen.Result(); result.String() != "faked error" {
+		t.Errorf("expected the Promise result to match the resolve value, but got: %s", result)
+	}
+}
+
 func TestPromiseThenPanic(t *testing.T) {
 	t.Parallel()
 
@@ -122,20 +153,14 @@ func TestPromiseThenPanic(t *testing.T) {
 	prom := res.GetPromise()
 
 	t.Run("no callbacks", func(t *testing.T) {
-		defer func() {
-			if recover() == nil {
-				t.Error("expected a panic")
-			}
-		}()
+		defer func() { recover() }()
 		prom.Then()
+		t.Errorf("expected a panic")
 	})
 	t.Run("3 callbacks", func(t *testing.T) {
-		defer func() {
-			if recover() == nil {
-				t.Error("expected a panic")
-			}
-		}()
+		defer func() { recover() }()
 		fn := func(_ *v8.FunctionCallbackInfo) *v8.Value { return nil }
 		prom.Then(fn, fn, fn)
+		t.Errorf("expected a panic")
 	})
 }

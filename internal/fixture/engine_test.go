@@ -26,12 +26,19 @@ func newTestEngine(t *testing.T, srv *Server) *engine.Engine {
 }
 
 func TestDefaultScenariosEngine(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
+	scenarios, err := srv.CorpusScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	for _, sc := range DefaultScenarios() {
+	for _, sc := range scenarios {
 		sc := sc
 		t.Run(sc.ID, func(t *testing.T) {
+			if _, err := srv.CorpusManifest("renderless", sc); err != nil {
+				t.Fatal(err)
+			}
 			eng := newTestEngine(t, srv)
 			defer closeTestResource(t, "engine close", eng.Close)
 
@@ -113,7 +120,7 @@ func min(a, b int) int {
 }
 
 func TestFixtureCookiePersistence(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -138,7 +145,7 @@ func TestFixtureCookiePersistence(t *testing.T) {
 }
 
 func TestFixtureBasicAuth(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -163,7 +170,7 @@ func TestFixtureBasicAuth(t *testing.T) {
 }
 
 func TestFixtureChallenge(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -187,7 +194,7 @@ func TestFixtureChallenge(t *testing.T) {
 }
 
 func TestFixtureFormPOST(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -224,7 +231,7 @@ func TestFixtureFormPOST(t *testing.T) {
 }
 
 func TestFixtureFormGET(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -258,7 +265,7 @@ func TestFixtureFormGET(t *testing.T) {
 }
 
 func TestFixtureFileUpload(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -295,7 +302,7 @@ func TestFixtureFileUpload(t *testing.T) {
 }
 
 func TestFixtureSPA(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)
@@ -321,7 +328,7 @@ func TestFixtureSPA(t *testing.T) {
 }
 
 func TestFixtureWebsocketExists(t *testing.T) {
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	eng := newTestEngine(t, srv)

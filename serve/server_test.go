@@ -15,13 +15,20 @@ import (
 	"github.com/coder/websocket"
 
 	artemis "github.com/Christopher-Schulze/Artemis"
+	"github.com/Christopher-Schulze/Artemis/bridge"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 const testAuthToken = "artemis-test-token"
 
-func testAgentConfig() artemis.AgentConfig {
-	return artemis.AgentConfig{PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
+func testAgentConfig(t *testing.T) artemis.AgentConfig {
+	t.Helper()
+	policy, err := bridge.NewStaticNavigationPolicy([]byte(`{"default":"allow"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(policy.Stop)
+	return artemis.AgentConfig{PolicyEngine: policy, PolicyConfig: network.PolicyConfig{AllowPrivateNetworks: true, AllowedPorts: allTestPorts()}}
 }
 
 func allTestPorts() []int {
@@ -69,7 +76,7 @@ func stopTestStreamingServer(t *testing.T, server *StreamingServer) {
 
 func startServer(t *testing.T) (string, func()) {
 	t.Helper()
-	agent, err := artemis.NewAgent(testAgentConfig())
+	agent, err := artemis.NewAgent(testAgentConfig(t))
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}
@@ -127,7 +134,7 @@ func testRateLimit() RateLimit {
 // every connection, so the auth gate in handleWS can be exercised directly.
 func startServerWithAuth(t *testing.T, token string) (string, func()) {
 	t.Helper()
-	agent, err := artemis.NewAgent(testAgentConfig())
+	agent, err := artemis.NewAgent(testAgentConfig(t))
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}
@@ -305,7 +312,7 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestServerLifecycleListenAndShutdown(t *testing.T) {
-	agent, err := artemis.NewAgent(testAgentConfig())
+	agent, err := artemis.NewAgent(testAgentConfig(t))
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}

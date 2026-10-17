@@ -136,3 +136,83 @@ func TestCloneNodeDeepShallow(t *testing.T) {
 		t.Errorf("deep clone missing p")
 	}
 }
+
+func TestInsertionRejectsCyclesBeforeChangingTree(t *testing.T) {
+	for _, test := range []struct {
+		name, parentID, childID string
+		insert                  bool
+	}{
+		{"append self", "outer", "outer", false},
+		{"append ancestor", "inner", "outer", false},
+		{"insert self", "inner", "inner", true},
+		{"insert ancestor", "inner", "outer", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			doc := parseFix(t, `<div id="outer"><p id="inner"><i id="ref"></i></p></div>`)
+			parent := GetElementById(doc.Root(), test.parentID)
+			child := GetElementById(doc.Root(), test.childID)
+			reference := GetElementById(doc.Root(), "ref")
+			beforeParent, beforeChild := parent.raw.Parent, child.raw.Parent
+			var err error
+			if test.insert {
+				err = InsertBefore(parent, child, reference)
+			} else {
+				err = AppendChild(parent, child)
+			}
+			if err == nil {
+				t.Fatal("cycle-producing insertion succeeded")
+			}
+			if parent.raw.Parent != beforeParent || child.raw.Parent != beforeChild || reference.raw.Parent != GetElementById(doc.Root(), "inner").raw {
+				t.Fatal("rejected insertion changed actual tree ownership")
+			}
+		})
+	}
+}
+
+func TestInsertBeforeInvalidReferencePreservesSourceAndSelfReference(t *testing.T) {
+	doc := parseFix(t, `<div id="source"><p id="child"></p><i id="after"></i></div><div id="target"><b id="ref"></b></div>`)
+	source := GetElementById(doc.Root(), "source")
+	target := GetElementById(doc.Root(), "target")
+	child := GetElementById(doc.Root(), "child")
+	after := GetElementById(doc.Root(), "after")
+	reference := GetElementById(doc.Root(), "ref")
+	if err := InsertBefore(source, child, reference); err == nil {
+		t.Fatal("foreign reference accepted")
+	}
+	if child.raw.Parent != source.raw || child.raw.NextSibling != after.raw || source.raw.FirstChild != child.raw || reference.raw.Parent != target.raw {
+		t.Fatal("invalid reference detached or reordered source child")
+	}
+	if err := InsertBefore(source, child, child); err != nil {
+		t.Fatalf("valid self-reference failed: %v", err)
+	}
+	if child.raw.Parent != source.raw || child.raw.NextSibling != after.raw || source.raw.FirstChild != child.raw {
+		t.Fatal("self-reference reordered tree")
+	}
+}
+
+func TestChildInsertionRejectsInvalidOwners(t *testing.T) {
+	parent, child := CreateElement("div"), CreateElement("span")
+	for _, test := range []struct {
+		name          string
+		parent, child *Node
+	}{
+		{"nil parent", nil, child},
+		{"nil child", parent, nil},
+		{"zero parent", &Node{}, child},
+		{"zero child", parent, &Node{}},
+		{"text parent", CreateTextNode("actual"), child},
+		{"document child", parent, Wrap(&html.Node{Type: html.DocumentNode})},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := AppendChild(test.parent, test.child); err == nil {
+				t.Fatal("invalid append accepted")
+			}
+			if err := InsertBefore(test.parent, test.child, nil); err == nil {
+				t.Fatal("invalid insertion accepted")
+			}
+		})
+	}
+	if parent.FirstChild() != nil || child.Parent() != nil {
+		t.Fatal("rejected insertion mutated valid arguments")
+	}
+}

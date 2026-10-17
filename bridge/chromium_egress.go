@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,7 +25,8 @@ type fetchRequestPattern struct {
 }
 
 type fetchEnableParams struct {
-	Patterns []fetchRequestPattern `json:"patterns"`
+	Patterns           []fetchRequestPattern `json:"patterns"`
+	HandleAuthRequests bool                  `json:"handleAuthRequests"`
 }
 
 type fetchRequestPaused struct {
@@ -72,6 +74,8 @@ const (
 
 // FetchResolution is translated to one typed Fetch CDP command. Body is raw
 // content and is base64 encoded only at the CDP boundary.
+// PostData is a strict base64 request-body override. Nil Headers preserves
+// the original headers; a non-nil empty slice explicitly removes them.
 type FetchResolution struct {
 	Kind            FetchResolutionKind
 	URL             string
@@ -87,6 +91,8 @@ type FetchResolution struct {
 // FetchRequestResolver resolves one paused request. Resolution may happen
 // after the worker context expires, so callers must supply a live bounded
 // context for the CDP command.
+// Each supplied resolver admits at most one terminal attempt. Overrides are
+// revalidated through the page network policy before they can be dispatched.
 type FetchRequestResolver func(context.Context, FetchResolution) error
 
 // FetchRequestHandler receives policy-approved requests. handled=true means
@@ -95,15 +101,16 @@ type FetchRequestResolver func(context.Context, FetchResolution) error
 type FetchRequestHandler func(context.Context, FetchRequest, FetchRequestResolver) (handled bool, err error)
 
 type fetchRequestJob struct {
-	sessionID string
-	payload   fetchRequestPaused
+	sessionID    string
+	payload      fetchRequestPaused
+	authRequired bool
 }
 
 func (p *Page) enableSessionPolicy(ctx context.Context, sessionID string) error {
 	if err := p.owner.browser.transport.CallSession(ctx, sessionID, "Network.enable", nil, nil); err != nil {
 		return fmt.Errorf("enable Network domain: %w", err)
 	}
-	params := fetchEnableParams{Patterns: []fetchRequestPattern{{URLPattern: "*", RequestStage: "Request"}}}
+	params := fetchEnableParams{Patterns: []fetchRequestPattern{{URLPattern: "*", RequestStage: "Request"}}, HandleAuthRequests: true}
 	if err := p.owner.browser.transport.CallSession(ctx, sessionID, "Fetch.enable", params, nil); err != nil {
 		return fmt.Errorf("enable Fetch interception: %w", err)
 	}
@@ -111,8 +118,11 @@ func (p *Page) enableSessionPolicy(ctx context.Context, sessionID string) error 
 }
 
 func (p *Page) handleFetchEvent(event CDPEvent, jobs chan<- fetchRequestJob) bool {
-	if event.Method != "Fetch.requestPaused" || !p.ownsPolicySession(event.SessionID) {
+	if (event.Method != "Fetch.requestPaused" && event.Method != "Fetch.authRequired") || !p.ownsPolicySession(event.SessionID) {
 		return true
+	}
+	if event.Method == "Fetch.authRequired" {
+		return p.enqueueAuthChallenge(event, jobs)
 	}
 	var payload fetchRequestPaused
 	if err := json.Unmarshal(event.Params, &payload); err != nil {
@@ -132,13 +142,33 @@ func (p *Page) handleFetchEvent(event CDPEvent, jobs chan<- fetchRequestJob) boo
 	}
 }
 
-func (p *Page) runPolicyRequestWorker(jobs <-chan fetchRequestJob) {
-	for job := range jobs {
-		ctx, cancel := context.WithTimeout(context.Background(), policyRequestTimeout)
-		err := p.enforcePausedRequest(ctx, job)
+func (p *Page) runPolicyRequestWorker(ctx context.Context, jobs <-chan fetchRequestJob) {
+	for {
+		var job fetchRequestJob
+		select {
+		case <-ctx.Done():
+			return
+		case next, ok := <-jobs:
+			if !ok || ctx.Err() != nil {
+				return
+			}
+			job = next
+		}
+		if !p.ownsPolicySession(job.sessionID) {
+			continue
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, policyRequestTimeout)
+		var err error
+		if job.authRequired {
+			err = p.cancelAuthChallenge(requestCtx, job.sessionID, job.payload.RequestID)
+		} else {
+			err = p.enforcePausedRequest(requestCtx, job)
+		}
 		cancel()
 		if err != nil {
-			p.failNetworkEnforcement(err)
+			if ctx.Err() == nil {
+				p.failNetworkEnforcement(err)
+			}
 			return
 		}
 	}
@@ -147,6 +177,7 @@ func (p *Page) runPolicyRequestWorker(jobs <-chan fetchRequestJob) {
 func (p *Page) enforcePausedRequest(ctx context.Context, job fetchRequestJob) error {
 	request := job.payload.Request
 	kind := p.policyTargetKind(job.sessionID, job.payload)
+	ctx = p.adBlockContext(ctx, kind, job.sessionID, job.payload)
 	contentType := fetchHeader(request.Headers, "content-type")
 	contentLength := fetchContentLength(request.Headers, request.PostData, request.HasPostData)
 	err := p.owner.browser.policy.ValidateRequest(ctx, request.URL, request.Method, contentType, contentLength, kind, job.sessionID)
@@ -156,21 +187,27 @@ func (p *Page) enforcePausedRequest(ctx context.Context, job fetchRequestJob) er
 		})
 	}
 	if handler := p.fetchRequestHandler(); handler != nil {
-		handled, handlerErr := handler(ctx, fetchRequest(job), func(resolveCtx context.Context, resolution FetchResolution) error {
-			return p.resolveFetchRequest(resolveCtx, job.sessionID, job.payload.RequestID, resolution)
-		})
+		resolver, freezeErr := p.newFetchResolver(job)
+		if freezeErr != nil {
+			return p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{Kind: FetchResolutionFail, ErrorReason: "BlockedByClient"})
+		}
+		handled, handlerErr := handler(ctx, resolver.requestCopy(), resolver.resolve)
 		if handlerErr != nil {
-			failErr := p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{
+			if resolver.resolved() && errors.Is(handlerErr, network.ErrPolicyDenied) {
+				return nil
+			}
+			failErr := resolver.resolve(ctx, FetchResolution{
 				Kind: FetchResolutionFail, ErrorReason: "Failed",
 			})
-			if failErr != nil {
+			if failErr != nil && !errors.Is(failErr, ErrFetchAlreadyResolved) {
 				return fmt.Errorf("fetch request handler: %w; fail paused request: %v", handlerErr, failErr)
 			}
 			return fmt.Errorf("fetch request handler: %w", handlerErr)
 		}
-		if handled {
+		if handled || resolver.resolved() {
 			return nil
 		}
+		return resolver.resolve(ctx, FetchResolution{Kind: FetchResolutionContinue})
 	}
 	if err := p.resolveFetchRequest(ctx, job.sessionID, job.payload.RequestID, FetchResolution{Kind: FetchResolutionContinue}); err != nil {
 		return fmt.Errorf("resolve paused request %s: %w", job.payload.RequestID, err)
@@ -212,6 +249,21 @@ func (p *Page) resolveFetchRequest(ctx context.Context, sessionID, requestID str
 	if requestID == "" {
 		return fmt.Errorf("resolve fetch request: request ID required")
 	}
+	if p == nil || p.owner == nil || p.owner.browser == nil {
+		return fmt.Errorf("resolve fetch request: owning page required")
+	}
+	p.owner.mu.Lock()
+	contextClosed := p.owner.closed
+	p.owner.mu.Unlock()
+	if contextClosed {
+		return &TargetError{TargetID: p.targetID, State: TargetStateClosed, Message: "owning context closed"}
+	}
+	if err := p.ensureAttached(); err != nil {
+		return err
+	}
+	if !p.ownsPolicySession(sessionID) {
+		return fmt.Errorf("%w: unowned_fetch_session", network.ErrPolicyDenied)
+	}
 	method, params, err := fetchResolutionCommand(requestID, resolution)
 	if err != nil {
 		return err
@@ -223,11 +275,11 @@ func (p *Page) resolveFetchRequest(ctx context.Context, sessionID, requestID str
 }
 
 type fetchContinueRequestParams struct {
-	RequestID string        `json:"requestId"`
-	URL       string        `json:"url,omitempty"`
-	Method    string        `json:"method,omitempty"`
-	Headers   []FetchHeader `json:"headers,omitempty"`
-	PostData  string        `json:"postData,omitempty"`
+	RequestID string         `json:"requestId"`
+	URL       string         `json:"url,omitempty"`
+	Method    string         `json:"method,omitempty"`
+	Headers   *[]FetchHeader `json:"headers,omitempty"`
+	PostData  string         `json:"postData,omitempty"`
 }
 
 type fetchFulfillRequestParams struct {
@@ -248,7 +300,7 @@ func fetchResolutionCommand(requestID string, resolution FetchResolution) (strin
 	case FetchResolutionContinue:
 		return "Fetch.continueRequest", fetchContinueRequestParams{
 			RequestID: requestID, URL: resolution.URL, Method: resolution.Method,
-			Headers: append([]FetchHeader(nil), resolution.Headers...), PostData: resolution.PostData,
+			Headers: fetchHeaderOverrides(resolution.Headers), PostData: resolution.PostData,
 		}, nil
 	case FetchResolutionFulfill:
 		status := resolution.StatusCode
@@ -272,6 +324,14 @@ func fetchResolutionCommand(requestID string, resolution FetchResolution) (strin
 	default:
 		return "", nil, fmt.Errorf("resolve fetch request: unsupported resolution %q", resolution.Kind)
 	}
+}
+
+func fetchHeaderOverrides(headers []FetchHeader) *[]FetchHeader {
+	if headers == nil {
+		return nil
+	}
+	copy := append([]FetchHeader{}, headers...)
+	return &copy
 }
 
 func validFetchErrorReason(reason string) string {
@@ -330,9 +390,10 @@ func fetchHeader(headers map[string]any, name string) string {
 
 func fetchContentLength(headers map[string]any, postData string, hasPostData bool) int64 {
 	if raw := fetchHeader(headers, "content-length"); raw != "" {
-		if length, err := strconv.ParseInt(raw, 10, 64); err == nil && length >= 0 {
+		if length, err := strconv.ParseInt(raw, 10, 64); err == nil && length >= int64(len(postData)) {
 			return length
 		}
+		return -1
 	}
 	if hasPostData && postData == "" {
 		return -1
@@ -348,10 +409,28 @@ func (p *Page) failNetworkEnforcement(err error) {
 		return
 	}
 	browser := p.owner.browser
+	p.owner.mu.Lock()
+	if p.owner.closed {
+		p.owner.mu.Unlock()
+		return
+	}
 	browser.mu.Lock()
+	p.mu.RLock()
+	closing := p.removed || p.state == TargetStateClosed || browser.closed
+	p.mu.RUnlock()
+	if closing {
+		browser.mu.Unlock()
+		p.owner.mu.Unlock()
+		return
+	}
 	if browser.terminal == nil && !browser.closed {
 		browser.terminal = fmt.Errorf("browser network enforcement failed: %w", err)
 	}
 	browser.mu.Unlock()
-	_ = browser.transport.Close()
+	p.owner.mu.Unlock()
+	if closeErr := browser.transport.Close(); closeErr != nil {
+		browser.mu.Lock()
+		browser.terminal = errors.Join(browser.terminal, fmt.Errorf("close failed network enforcement transport: %w", closeErr))
+		browser.mu.Unlock()
+	}
 }

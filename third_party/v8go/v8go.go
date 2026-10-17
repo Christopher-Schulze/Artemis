@@ -12,6 +12,7 @@ package v8go
 import "C"
 import (
 	"strings"
+	"sync"
 	"unsafe"
 )
 
@@ -35,6 +36,19 @@ func initializeIfNecessary() {
 		cflags := C.CString("--no-freeze_flags_after_init")
 		defer C.free(unsafe.Pointer(cflags))
 		C.SetFlags(cflags)
+		processSnapshotMu.Lock()
+		v8Initialized = true
+		processSnapshotMu.Unlock()
 		C.Init()
 	})
 }
+
+var v8once sync.Once
+
+// Artemis process snapshot state (snapshot.go).
+var (
+	processSnapshotMu  sync.Mutex
+	v8Initialized      bool
+	processSnapshotSum [32]byte
+	processSnapshotSet bool
+)

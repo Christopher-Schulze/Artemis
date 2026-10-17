@@ -3,63 +3,48 @@ package js
 import (
 	"time"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
-// installPerformance installs `performance.now()`, `performance.timeOrigin`,
-// `performance.mark`, `performance.measure` (entries are snapshot-only
-// until full PerformanceObserver lands).
-func installPerformance(iso *v8.Isolate, v8ctx *v8.Context) error {
-	origin := time.Now()
+// installPerformance binds the owning Context's clock. Entry methods are owned
+// by the existing parity bootstrap in both fresh and snapshot-created realms.
+func installPerformance(c *Context) error {
+	global := c.v8ctx.Global()
+	defer global.Release()
 
 	// When a startup snapshot is loaded, performance already exists with
 	// the JS-side mark/measure/getEntries* implementations from the parity
 	// bootstrap. We only need to (re)bind the Go-backed now() with the
 	// real time origin and timeOrigin. Otherwise build the full object.
-	var obj *v8.Object
-	if existing, err := v8ctx.Global().Get("performance"); err == nil && existing.IsObject() {
-		obj, _ = existing.AsObject()
+	obj, err := bindingObject(global, c.v8ctx, "performance")
+	if err != nil {
+		return err
 	}
-	freshBuild := obj == nil
-	if freshBuild {
-		tmpl := v8.NewObjectTemplate(iso)
-		fresh, err := tmpl.NewInstance(v8ctx)
-		if err != nil {
-			return err
-		}
-		obj = fresh
+	defer obj.Release()
+	function := c.rt.ensurePerformanceTemplate().GetFunction(c.v8ctx)
+	defer function.Release()
+	if err := obj.Set("now", function); err != nil {
+		return err
 	}
+	if err := obj.Set("timeOrigin", float64(c.performanceOrigin.UnixMilli())); err != nil {
+		return err
+	}
+	return global.Set("performance", obj)
+}
 
-	nowFn := v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
-		ms := float64(time.Since(origin).Microseconds()) / 1000.0
-		out, _ := v8.NewValue(iso, ms)
-		return out
-	})
-	_ = obj.Set("now", nowFn.GetFunction(v8ctx))
-	_ = obj.Set("timeOrigin", float64(origin.UnixMilli()))
-
-	if freshBuild {
-		// Without a snapshot the JS-side mark/measure aren't installed,
-		// so provide no-op stubs to keep feature detection passing.
-		noop := v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
-			return v8.Null(iso)
-		})
-		_ = obj.Set("mark", noop.GetFunction(v8ctx))
-		_ = obj.Set("measure", noop.GetFunction(v8ctx))
-		_ = obj.Set("clearMarks", noop.GetFunction(v8ctx))
-		_ = obj.Set("clearMeasures", noop.GetFunction(v8ctx))
-		emptyArr := v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
-			arr, err := v8.NewObjectTemplate(iso).NewInstance(info.Context())
-			if err != nil {
-				return v8.Null(iso)
+func (r *Runtime) ensurePerformanceTemplate() *v8.FunctionTemplate {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.performanceTemplate == nil {
+		r.performanceTemplate = v8.NewFunctionTemplate(r.iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
+			c := r.contextFor(info.Context())
+			if c == nil {
+				return v8.Undefined(r.iso)
 			}
-			_ = arr.Set("length", int32(0))
-			return arr.Value
+			milliseconds := float64(time.Since(c.performanceOrigin).Microseconds()) / 1000
+			return r.callbackPrimitive(info, milliseconds)
 		})
-		_ = obj.Set("getEntries", emptyArr.GetFunction(v8ctx))
-		_ = obj.Set("getEntriesByName", emptyArr.GetFunction(v8ctx))
-		_ = obj.Set("getEntriesByType", emptyArr.GetFunction(v8ctx))
-		return v8ctx.Global().Set("performance", obj)
 	}
-	return nil
+	return r.performanceTemplate
 }

@@ -5,9 +5,11 @@
 package v8go_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestCPUProfileNode(t *testing.T) {
@@ -21,21 +23,18 @@ func TestCPUProfileNode(t *testing.T) {
 	cpuProfiler := v8.NewCPUProfiler(iso)
 	defer cpuProfiler.Dispose()
 
-	title := "cpuprofilenodetest"
-	cpuProfiler.StartProfiling(title)
-
-	_, err := ctx.RunScript(profileScript, "script.js")
-	fatalIf(t, err)
-	val, err := ctx.Global().Get("start")
-	fatalIf(t, err)
-	fn, err := val.AsFunction()
-	fatalIf(t, err)
-	timeout, err := v8.NewValue(iso, int32(1000))
-	fatalIf(t, err)
-	_, err = fn.Call(ctx.Global(), timeout)
-	fatalIf(t, err)
-
-	cpuProfile := cpuProfiler.StopProfiling(title)
+	cpuProfile := cpuProfiler.Do("cpuprofilenodetest", func() {
+		_, err := ctx.RunScript(profileScript, "script.js")
+		fatalIf(t, err)
+		val, err := ctx.Global().Get("start")
+		fatalIf(t, err)
+		fn, err := val.AsFunction()
+		fatalIf(t, err)
+		timeout, err := v8.NewValue(iso, int32(1000))
+		fatalIf(t, err)
+		_, err = fn.Call(ctx.Global(), timeout)
+		fatalIf(t, err)
+	})
 	if cpuProfile == nil {
 		t.Fatal("expected profile not to be nil")
 	}
@@ -53,7 +52,7 @@ func TestCPUProfileNode(t *testing.T) {
 		}
 	}
 	if startNode == nil {
-		t.Fatal("expected node not to be nil")
+		t.Fatalf("expected node not to be nil; profile:\n%s", formatProfileNode(rootNode))
 	}
 	checkNode(t, startNode, "script.js", "start", 23, 15)
 
@@ -89,7 +88,7 @@ func findChild(t *testing.T, node *v8.CPUProfileNode, functionName string) *v8.C
 		}
 	}
 	if child == nil {
-		t.Fatal("failed to find child node")
+		t.Fatalf("failed to find child node %q of %q; profile:\n%s", functionName, node.GetFunctionName(), formatProfileNode(node))
 	}
 	return child
 }
@@ -109,4 +108,19 @@ func checkNode(t *testing.T, node *v8.CPUProfileNode, scriptResourceName string,
 	if node.GetColumnNumber() != column {
 		t.Fatalf("expected node at column %d, but got %d", column, node.GetColumnNumber())
 	}
+}
+
+// formatProfileNode returns the profile tree under node, for diagnosing
+// failures. Profiles are sampled, so tests occasionally miss nodes.
+func formatProfileNode(node *v8.CPUProfileNode) string {
+	var sb strings.Builder
+	var format func(node *v8.CPUProfileNode, depth int)
+	format = func(node *v8.CPUProfileNode, depth int) {
+		fmt.Fprintf(&sb, "%s%s (%s:%d:%d) hits=%d\n", strings.Repeat("  ", depth), node.GetFunctionName(), node.GetScriptResourceName(), node.GetLineNumber(), node.GetColumnNumber(), node.GetHitCount())
+		for i := 0; i < node.GetChildrenCount(); i++ {
+			format(node.GetChild(i), depth+1)
+		}
+	}
+	format(node, 0)
+	return sb.String()
 }

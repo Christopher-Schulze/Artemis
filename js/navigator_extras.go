@@ -1,10 +1,10 @@
 package js
 
-import v8 "rogchap.com/v8go"
+import v8 "github.com/tommie/v8go"
 
 // installNavigatorExtras adds NavigatorUAData (UA reduction API),
-// clipboard, geolocation, and Permissions to navigator. All are stubs
-// that satisfy feature detection and never fail.
+// clipboard, geolocation denial and permission compatibility to navigator.
+// The generated capability profile owns their semantic support classification.
 func installNavigatorExtras(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	c.registerBootstrap("artemis-navigator-extras", navigatorExtrasBootstrap)
 	return nil
@@ -65,12 +65,12 @@ const navigatorExtrasBootstrap = `
   navigator.geolocation = {
     getCurrentPosition(_succ, err) {
       if (typeof err === 'function') {
-        try { err({code: 1, message: 'permission denied'}); } catch (e) {}
+        try { err({code: 1, message: 'permission denied'}); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
       }
     },
     watchPosition(_succ, err) {
       if (typeof err === 'function') {
-        try { err({code: 1, message: 'permission denied'}); } catch (e) {}
+        try { err({code: 1, message: 'permission denied'}); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
       }
       return 0;
     },

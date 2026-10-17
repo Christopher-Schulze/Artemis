@@ -72,6 +72,23 @@ const (
 	WaitNetworkAlmostIdle WaitCondition = "networkalmostidle"
 )
 
+// LifecycleEvent is one Page.lifecycleEvent notification for the caller's target.
+type LifecycleEvent struct {
+	FrameID  string `json:"frameId"`
+	LoaderID string `json:"loaderId"`
+	Name     string `json:"name"`
+}
+
+// LifecycleWatcher streams Page.lifecycleEvent notifications for the caller's
+// own target until stop is called. Network wait conditions require it.
+type LifecycleWatcher interface {
+	WatchLifecycle() (events <-chan LifecycleEvent, stop func(), err error)
+}
+
+// ErrLifecycleEventsRequired rejects network wait conditions on callers that
+// cannot observe Page.lifecycleEvent; readyState cannot prove network idleness.
+var ErrLifecycleEventsRequired = errors.New("wait: network idle conditions require Page.lifecycleEvent support")
+
 // Navigator manages page navigation
 // (spec L4019: page navigation + wait).
 type Navigator struct {
@@ -80,6 +97,9 @@ type Navigator struct {
 	currentURL string
 	lastNav    time.Time
 	caller     Caller
+	// ops serializes whole navigation operations so an overlapping call can
+	// never publish its state or URL over a newer operation.
+	ops chan struct{}
 }
 
 // NewNavigator creates a new Navigator
@@ -89,7 +109,65 @@ func NewNavigator(callers ...Caller) *Navigator {
 	if len(callers) > 0 {
 		caller = callers[0]
 	}
-	return &Navigator{state: NavigationStateIdle, caller: caller}
+	return &Navigator{state: NavigationStateIdle, caller: caller, ops: make(chan struct{}, 1)}
+}
+
+func (n *Navigator) acquire(ctx context.Context) (func(), error) {
+	select {
+	case n.ops <- struct{}{}:
+		return func() { <-n.ops }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// lifecycleName maps network wait conditions to Chrome lifecycle event names.
+func lifecycleName(condition WaitCondition) string {
+	switch condition {
+	case WaitNetworkIdle:
+		return "networkIdle"
+	case WaitNetworkAlmostIdle:
+		return "networkAlmostIdle"
+	default:
+		return ""
+	}
+}
+
+// watchLifecycle subscribes before any navigation effect so no event is missed.
+func (n *Navigator) watchLifecycle(ctx context.Context, condition WaitCondition) (<-chan LifecycleEvent, func(), error) {
+	if lifecycleName(condition) == "" {
+		return nil, func() {}, nil
+	}
+	watcher, ok := n.caller.(LifecycleWatcher)
+	if !ok {
+		return nil, nil, ErrLifecycleEventsRequired
+	}
+	events, stop, err := watcher.WatchLifecycle()
+	if err != nil {
+		return nil, nil, fmt.Errorf("wait: watch lifecycle: %w", err)
+	}
+	if err := n.caller.Call(ctx, "Page.setLifecycleEventsEnabled", lifecycleEventsParams{Enabled: true}, &emptyResult{}); err != nil {
+		stop()
+		return nil, nil, fmt.Errorf("wait: enable lifecycle events: %w", err)
+	}
+	return events, stop, nil
+}
+
+// waitLifecycle waits for the named lifecycle event of exactly one frame/loader.
+func waitLifecycle(ctx context.Context, events <-chan LifecycleEvent, name, frameID, loaderID string) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-events:
+			if !ok {
+				return errors.New("wait: lifecycle event stream closed")
+			}
+			if event.Name == name && (frameID == "" || event.FrameID == frameID) && (loaderID == "" || event.LoaderID == loaderID) {
+				return nil
+			}
+		}
+	}
 }
 
 // Navigate navigates to a URL
@@ -115,17 +193,27 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
-	n.mu.Lock()
-	n.state = NavigationStateLoading
-	n.mu.Unlock()
 	timeout := req.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	release, err := n.acquire(callCtx)
+	if err != nil {
+		return NavigationResult{Success: false, URL: req.URL, State: NavigationStateAborted, Error: err.Error(), Duration: time.Since(start)}
+	}
+	defer release()
+	events, stopWatch, err := n.watchLifecycle(callCtx, req.WaitUntil)
+	if err != nil {
+		n.setError(err)
+		return NavigationResult{Success: false, URL: req.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+	}
+	defer stopWatch()
+	n.mu.Lock()
+	n.state = NavigationStateLoading
+	n.mu.Unlock()
 	var response NavigationResponse
-	var err error
 	if navigatorCaller, ok := n.caller.(NavigatorCaller); ok {
 		err = navigatorCaller.Navigate(callCtx, req.URL, req.Referer, &response)
 	} else {
@@ -135,7 +223,11 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 		err = fmt.Errorf("navigation: %s", response.ErrorText)
 	}
 	if err == nil {
-		err = n.waitForCondition(callCtx, req.WaitUntil)
+		if name := lifecycleName(req.WaitUntil); name != "" {
+			err = waitLifecycle(callCtx, events, name, response.FrameID, response.LoaderID)
+		} else {
+			err = n.waitForCondition(callCtx, req.WaitUntil)
+		}
 	}
 	if err != nil {
 		n.setError(err)
@@ -175,7 +267,17 @@ func (n *Navigator) WaitForLoad(ctx context.Context, condition WaitCondition, ti
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if err := n.waitForCondition(waitCtx, condition); err != nil {
+	release, err := n.acquire(waitCtx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if lifecycleName(condition) != "" {
+		err = n.waitCurrentDocumentLifecycle(waitCtx, condition)
+	} else {
+		err = n.waitForCondition(waitCtx, condition)
+	}
+	if err != nil {
 		n.setError(err)
 		return err
 	}
@@ -183,6 +285,28 @@ func (n *Navigator) WaitForLoad(ctx context.Context, condition WaitCondition, ti
 	n.state = NavigationStateComplete
 	n.mu.Unlock()
 	return nil
+}
+
+// waitCurrentDocumentLifecycle waits for a network condition of the current
+// main-frame document. Re-enabling lifecycle events makes Chrome replay the
+// current document's reached states, so an already idle page is not missed.
+func (n *Navigator) waitCurrentDocumentLifecycle(ctx context.Context, condition WaitCondition) error {
+	if _, ok := n.caller.(LifecycleWatcher); !ok {
+		return ErrLifecycleEventsRequired
+	}
+	if err := n.caller.Call(ctx, "Page.setLifecycleEventsEnabled", lifecycleEventsParams{Enabled: false}, &emptyResult{}); err != nil {
+		return fmt.Errorf("wait: reset lifecycle events: %w", err)
+	}
+	var tree frameTreeResult
+	if err := n.caller.Call(ctx, "Page.getFrameTree", nil, &tree); err != nil {
+		return fmt.Errorf("wait: main frame: %w", err)
+	}
+	events, stop, err := n.watchLifecycle(ctx, condition)
+	if err != nil {
+		return err
+	}
+	defer stop()
+	return waitLifecycle(ctx, events, lifecycleName(condition), tree.FrameTree.Frame.ID, tree.FrameTree.Frame.LoaderID)
 }
 
 // State returns the current navigation state
@@ -203,14 +327,14 @@ func (n *Navigator) CurrentURL() string {
 
 // GoBack navigates back in history
 // (spec L4019: page navigation + wait).
-func (n *Navigator) GoBack(ctx context.Context) NavigationResult {
-	return n.navigateHistory(ctx, -1)
+func (n *Navigator) GoBack(ctx context.Context, authorize ...func(context.Context, string) error) NavigationResult {
+	return n.navigateHistory(ctx, -1, authorize...)
 }
 
 // GoForward navigates forward in history
 // (spec L4019: page navigation + wait).
-func (n *Navigator) GoForward(ctx context.Context) NavigationResult {
-	return n.navigateHistory(ctx, 1)
+func (n *Navigator) GoForward(ctx context.Context, authorize ...func(context.Context, string) error) NavigationResult {
+	return n.navigateHistory(ctx, 1, authorize...)
 }
 
 // Reload reloads the current page
@@ -224,6 +348,11 @@ func (n *Navigator) Reload(ctx context.Context) NavigationResult {
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
+	release, err := n.acquire(ctx)
+	if err != nil {
+		return NavigationResult{Success: false, State: NavigationStateAborted, Error: err.Error(), Duration: time.Since(start)}
+	}
+	defer release()
 	n.mu.Lock()
 	n.state = NavigationStateLoading
 	currentURL := n.currentURL
@@ -243,15 +372,23 @@ func (n *Navigator) Reload(ctx context.Context) NavigationResult {
 	return NavigationResult{Success: true, URL: currentURL, State: NavigationStateComplete, Duration: time.Since(start)}
 }
 
-func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationResult {
+func (n *Navigator) navigateHistory(ctx context.Context, delta int, authorize ...func(context.Context, string) error) NavigationResult {
 	start := time.Now()
 	if ctx == nil {
 		return NavigationResult{Success: false, State: NavigationStateError, Error: "history: context required", Duration: time.Since(start)}
+	}
+	if len(authorize) > 1 {
+		return NavigationResult{Success: false, State: NavigationStateError, Error: "history: at most one authority", Duration: time.Since(start)}
 	}
 	if err := n.requireCaller(); err != nil {
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
+	release, err := n.acquire(ctx)
+	if err != nil {
+		return NavigationResult{Success: false, State: NavigationStateAborted, Error: err.Error(), Duration: time.Since(start)}
+	}
+	defer release()
 	var history navigationHistoryResult
 	if err := n.caller.Call(ctx, "Page.getNavigationHistory", navigationHistoryParams{}, &history); err != nil {
 		n.setError(err)
@@ -263,10 +400,16 @@ func (n *Navigator) navigateHistory(ctx context.Context, delta int) NavigationRe
 		n.setError(err)
 		return NavigationResult{Success: false, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
 	}
+	entry := history.Entries[index]
+	if len(authorize) == 1 && authorize[0] != nil {
+		if err := authorize[0](ctx, entry.URL); err != nil {
+			n.setError(err)
+			return NavigationResult{Success: false, URL: entry.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
+		}
+	}
 	n.mu.Lock()
 	n.state = NavigationStateLoading
 	n.mu.Unlock()
-	entry := history.Entries[index]
 	if err := n.caller.Call(ctx, "Page.navigateToHistoryEntry", navigateToHistoryEntryParams{EntryID: entry.ID}, &emptyResult{}); err != nil {
 		n.setError(err)
 		return NavigationResult{Success: false, URL: entry.URL, State: NavigationStateError, Error: err.Error(), Duration: time.Since(start)}
@@ -314,7 +457,7 @@ func (n *Navigator) documentReady(ctx context.Context, condition WaitCondition) 
 	switch condition {
 	case WaitDOMContentLoaded:
 		return result.Result.Value == "interactive" || result.Result.Value == "complete", nil
-	case WaitLoad, WaitNetworkIdle, WaitNetworkAlmostIdle:
+	case WaitLoad:
 		return result.Result.Value == "complete", nil
 	default:
 		return false, fmt.Errorf("wait: invalid condition %q", condition)

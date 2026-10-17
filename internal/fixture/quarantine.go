@@ -1,127 +1,44 @@
 package fixture
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
 // Quarantine records a known, time-bounded skip for a runner/scenario pair.
 // A quarantine is not an excuse to ignore a failure: it is a tracked, owned,
 // expiring contract that prevents skipped scenarios from disappearing into an
 // indefinite skip list.
 type Quarantine struct {
-	Runner  string
-	Reason  string
-	Owner   string
-	Expires time.Time
-	Match   func(Scenario) bool
+	Runner  string              `json:"runner"`
+	Reason  string              `json:"reason"`
+	Owner   string              `json:"owner"`
+	Expires time.Time           `json:"expires"`
+	Match   func(Scenario) bool `json:"-"`
 }
 
-// quarantineExpiry is the default deadline for currently quarantined skips.
-// Quarantined behavior must be either fixed or re-approved before this date.
+// quarantineExpiryStr retains the deadline of the retired capability contracts.
 const quarantineExpiryStr = "2026-09-30T00:00:00Z"
 
-// QuarantineExpiry returns the default quarantine expiration time.
+// QuarantineExpiry returns the historical capability-contract deadline.
 func QuarantineExpiry() time.Time {
-	// Parsing is safe because the string is a constant; on failure, the init
-	// panic makes the failure immediate and loud.
-	t, err := time.Parse(time.RFC3339, quarantineExpiryStr)
-	if err != nil {
-		panic(fmt.Sprintf("fixture: bad quarantineExpiryStr: %v", err))
-	}
-	return t
+	return time.Date(2026, time.September, 30, 0, 0, 0, 0, time.UTC)
 }
 
-// DefaultQuarantines returns the canonical set of known, time-bounded skips
-// for the cross-adapter fixture corpus. The list matches the adapter
-// limitations encoded in integration_test.go runners.
+// DefaultQuarantines returns the current declared capability restrictions.
+// Retired restrictions do not mask observed runtime or semantic failures.
 func DefaultQuarantines() []Quarantine {
-	exp := QuarantineExpiry()
-	owner := "devin"
-	return []Quarantine{
-		{
-			Runner:  "chromium",
-			Reason:  "bridge does not support AsyncFetch interception",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.AsyncFetch },
-		},
-		{
-			Runner:  "chromium",
-			Reason:  "bridge cannot verify non-200 HTTP status",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.Expect.Status != 0 && sc.Expect.Status != 200 },
-		},
-		{
-			Runner:  "hybrid",
-			Reason:  "router does not support eval",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.Expect.Eval != "" },
-		},
-		{
-			Runner:  "hybrid",
-			Reason:  "router does not support WaitForIdle or AsyncFetch",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.WaitForIdle || sc.AsyncFetch },
-		},
-		{
-			Runner:  "hybrid",
-			Reason:  "router cannot verify non-200 HTTP status",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.Status != 0 && sc.Status != 200 },
-		},
-		{
-			Runner:  "serve",
-			Reason:  "serve page.open does not enable AsyncFetch",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.AsyncFetch },
-		},
-		{
-			Runner:  "agent",
-			Reason:  "Agent.ExecuteTask does not support Eval",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.Expect.Eval != "" },
-		},
-		{
-			Runner:  "agent",
-			Reason:  "Agent.ExecuteTask does not support WaitForIdle or AsyncFetch",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.WaitForIdle || sc.AsyncFetch },
-		},
-		{
-			Runner:  "artemis",
-			Reason:  "BrowserRuntime does not support AsyncFetch interception",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.AsyncFetch },
-		},
-		{
-			Runner:  "artemis",
-			Reason:  "BrowserRuntime cannot verify non-200 HTTP status",
-			Owner:   owner,
-			Expires: exp,
-			Match:   func(sc Scenario) bool { return sc.Expect.Status != 0 && sc.Expect.Status != 200 },
-		},
-	}
+	return []Quarantine{}
 }
 
-// Check returns whether a runner is capable of exercising the scenario, and
-// if not, the reason from the quarantine list. If the scenario is not
-// quarantined, the runner is considered supported.
+// Check describes whether a known runner may attempt the scenario under the
+// declared restrictions. It does not prove actual capability or passing coverage.
 func Check(runner string, sc Scenario) (bool, string) {
-	for _, q := range DefaultQuarantines() {
-		if q.Runner == runner && q.Match(sc) {
-			return false, q.Reason
-		}
+	eligibility, err := AssessEligibility(runner, sc, time.Now())
+	if err != nil {
+		return false, err.Error()
 	}
-	return true, ""
+	if eligibility.State == EligibilityReady {
+		return true, ""
+	}
+	return false, eligibility.Restrictions[0].Reason
 }
 
 // IsQuarantined reports whether a runner's skip reason is covered by a
@@ -132,14 +49,15 @@ func IsQuarantined(runner string, sc Scenario, reason string) (Quarantine, bool)
 }
 
 func isQuarantined(runner string, sc Scenario, reason string, now time.Time, list []Quarantine) (Quarantine, bool) {
-	for _, q := range list {
+	eligibility, err := assessEligibility(runner, sc, now, list)
+	if err != nil {
+		return Quarantine{}, false
+	}
+	for _, q := range eligibility.Restrictions {
 		if q.Runner != runner || q.Reason != reason {
 			continue
 		}
-		if !q.Match(sc) {
-			continue
-		}
-		if now.After(q.Expires) {
+		if !now.Before(q.Expires) {
 			continue
 		}
 		return q, true

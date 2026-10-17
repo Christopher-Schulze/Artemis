@@ -61,6 +61,7 @@ func TestTASK2253_GenerateClickPath(t *testing.T) {
 func TestTASK2253_ClickWithMovement(t *testing.T) {
 	result := ClickWithMovement(
 		context.Background(),
+		nil,
 		"e5",
 		input.MousePoint{X: 0, Y: 0},
 		input.MousePoint{X: 200, Y: 200},

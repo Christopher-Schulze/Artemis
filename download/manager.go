@@ -248,6 +248,28 @@ func (s *BrowserStage) AdoptContext(ctx context.Context, filename, declaredType 
 	return download, nil
 }
 
+// StagedSize returns the size of a completed staged file before adoption.
+func (s *BrowserStage) StagedSize(filename string) (int64, error) {
+	if s == nil {
+		return 0, errors.New("download stage unavailable")
+	}
+	if filepath.Base(filename) != filename || filename == "." || filename == ".." || strings.TrimSpace(filename) == "" {
+		return 0, errors.New("download stage filename invalid")
+	}
+	source := filepath.Join(s.dir, filename)
+	if err := ensureDownloadContained(s.dir, source); err != nil {
+		return 0, err
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return 0, fmt.Errorf("download stage: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return 0, errors.New("download stage: staged file is not regular")
+	}
+	return info.Size(), nil
+}
+
 // Close removes this attempt's partial and completed staging files only.
 func (s *BrowserStage) Close() error {
 	if s == nil {

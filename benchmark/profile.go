@@ -21,11 +21,12 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 		return func() error { return nil }, nil
 	}
 
+	var cpuFile *os.File
 	if cfg.CPUProfilePath != "" {
 		if err := os.MkdirAll(filepath.Dir(cfg.CPUProfilePath), 0o750); cfg.CPUProfilePath != "" && filepath.Dir(cfg.CPUProfilePath) != "." && err != nil {
 			return nil, fmt.Errorf("profile dir: %w", err)
 		}
-		f, err := os.Create(cfg.CPUProfilePath)
+		f, err := os.OpenFile(cfg.CPUProfilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("cpu profile: %w", err)
 		}
@@ -36,32 +37,37 @@ func StartProfile(cfg ProfileConfig) (func() error, error) {
 			}
 			return nil, fmt.Errorf("start cpu profile: %w", err)
 		}
+		cpuFile = f
 	}
 
-	return func() error {
-		if cfg.CPUProfilePath != "" {
+	return func() (stopErr error) {
+		if cpuFile != nil {
 			pprof.StopCPUProfile()
+			if err := cpuFile.Close(); err != nil {
+				stopErr = fmt.Errorf("close CPU profile: %w", err)
+			}
+			cpuFile = nil
 		}
 		if cfg.MemProfilePath != "" {
 			if err := os.MkdirAll(filepath.Dir(cfg.MemProfilePath), 0o750); cfg.MemProfilePath != "" && filepath.Dir(cfg.MemProfilePath) != "." && err != nil {
-				return fmt.Errorf("mem profile dir: %w", err)
+				return errors.Join(stopErr, fmt.Errorf("mem profile dir: %w", err))
 			}
-			f, err := os.Create(cfg.MemProfilePath)
+			f, err := os.OpenFile(cfg.MemProfilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 			if err != nil {
-				return fmt.Errorf("mem profile: %w", err)
+				return errors.Join(stopErr, fmt.Errorf("mem profile: %w", err))
 			}
 			writeErr := pprof.WriteHeapProfile(f)
 			closeErr := f.Close()
 			if writeErr != nil {
 				if closeErr != nil {
-					return errors.Join(fmt.Errorf("write heap profile: %w", writeErr), fmt.Errorf("close memory profile: %w", closeErr))
+					return errors.Join(stopErr, fmt.Errorf("write heap profile: %w", writeErr), fmt.Errorf("close memory profile: %w", closeErr))
 				}
-				return fmt.Errorf("write heap profile: %w", writeErr)
+				return errors.Join(stopErr, fmt.Errorf("write heap profile: %w", writeErr))
 			}
 			if closeErr != nil {
-				return fmt.Errorf("close memory profile: %w", closeErr)
+				return errors.Join(stopErr, fmt.Errorf("close memory profile: %w", closeErr))
 			}
 		}
-		return nil
+		return stopErr
 	}, nil
 }

@@ -6,22 +6,45 @@ on:
       - master
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to check out at. Defaults to the parent workflow's github.sha."
+        required: false
+        type: string
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.17.2
     - name: Checkout
-      uses: actions/checkout@v2
-    - name: Go Test
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.sha }}
+
+    - name: Set Up Clang
+      uses: ./.github/actions/setup-clang
+      with:
+        # For -fsanitize=address.
+        extra-packages: libclang-rt-{version}-dev
+
+    - name: Install Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: stable
+
+    - name: Set Up Workspace
+      # Submodules shouldn't cause a download.
+      run: |
+        set -o pipefail
+        go work init . $(ls ./deps/*_*/cgo.go | xargs -r dirname)
+
+    - name: Build Test
       env:
-        CC: clang
-        CXX: clang++
+        CGO_CXXFLAGS: "-nostdinc++"
       run: |
         go test -c --tags leakcheck
-        ./v8go.test
+
+    - name: Run Test
+      run: ./v8go.test

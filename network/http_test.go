@@ -169,10 +169,12 @@ func TestDoAllowsSameOriginBodyRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	previous.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	redirect, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://127.0.0.1:12345/session", strings.NewReader("credential=value"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	redirect.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if err := client.client.CheckRedirect(redirect, []*http.Request{previous}); err != nil {
 		t.Fatalf("same-origin redirect denied: %v", err)
 	}

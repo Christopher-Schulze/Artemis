@@ -7,12 +7,14 @@ package engine
 import (
 	"context"
 	"errors"
+	"reflect"
 	"runtime"
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/download"
 	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/security"
 )
 
 // Default values used when a Config field is left at its zero value.
@@ -39,6 +41,12 @@ type Config struct {
 	chromeDefault bool
 	// ProxyURL routes outbound traffic through the given proxy URL.
 	ProxyURL string
+	// DNSCachePath persists the bounded DNS cache (spec L4512 L2) across
+	// restarts. Empty keeps the in-memory L1 cache only.
+	DNSCachePath string
+	// WebBotAuth is the operator-gated Web Bot Auth signer applied to every
+	// renderless HTTP request. Nil keeps requests unsigned.
+	WebBotAuth *network.WebBotAuth `json:"-"`
 	// Timeout is the per-request deadline.
 	Timeout time.Duration
 	// MaxBodyBytes caps response body size; 0 means unlimited.
@@ -46,12 +54,21 @@ type Config struct {
 	// ObeyRobots fetches /robots.txt for each new host and refuses to
 	// fetch URLs that the configured UserAgent is not allowed to crawl.
 	ObeyRobots bool
+	// IgnoreRobotsForCrawls opts crawl fetches (FetchOpts.Crawl) out of the
+	// default robots.txt admission (spec L4416 respect_robots_txt=true).
+	IgnoreRobotsForCrawls bool
+	// AdBlock is the shared ad/tracker blocker (spec L4206); nil builds one
+	// with the embedded base list. Blocking is on by default.
+	AdBlock *security.AdBlocker `json:"-"`
+	// DisableAdBlock turns ad/tracker blocking off (spec L4210 setting).
+	DisableAdBlock bool
 	// PolicyConfig controls the outbound network security policy. The
 	// zero value denies private/local/metadata/file/data/unsupported
 	// targets and restricts ports to 80/443.
 	PolicyConfig network.PolicyConfig
-	// SessionID correlates redacted network-policy decisions across
-	// HTTP, JavaScript fetch, iframe, stylesheet, and WebSocket paths.
+	// SessionID owns cookies/origin storage and correlates redacted network
+	// decisions across HTTP, JavaScript fetch, frames and stylesheets. A bound
+	// network.WithSessionID context selects an independent owner partition.
 	SessionID string
 	// Diagnostics configures the redacted retention-bounded audit ledger.
 	// An empty path keeps the bounded ledger in memory only.
@@ -78,6 +95,20 @@ type Config struct {
 	// SessionBudget contains hard limits shared by all renderless work owned
 	// by this engine unit.
 	SessionBudget SessionBudget
+	// AdmissionLimits supplies live tab and concurrency ceilings from the
+	// embedding application's pressure-aware authority. It is consulted on
+	// every admission, so a pressure change applies without restarting
+	// sessions; nil keeps only the static SessionBudget.
+	AdmissionLimits func() AdmissionLimits
+	// MemoryAdmission supplies the embedding application's shared transient
+	// input/image capacity owner in addition to the session ceiling. Nil uses only this
+	// standalone engine's existing session budget.
+	MemoryAdmission network.MemoryAdmission
+	// RequireScriptContainment refuses in-process execution of page scripts:
+	// an embedder that holds host secrets sets it so untrusted JavaScript
+	// runs only behind an OS process boundary (the sandboxed Chromium child),
+	// never in the embedded V8. Script-free fetches are unaffected.
+	RequireScriptContainment bool
 	// JSContextPoolSize enables the v8.Context pool for JS execution.
 	// Pooled Contexts skip ~30% of NewContext CPU cost (install* and
 	// flushBootstraps) by reusing a previously-built v8.Context after
@@ -128,6 +159,15 @@ func (c *Config) applyDefaults() {
 }
 
 func (c Config) validate() error {
+	if c.MemoryAdmission != nil {
+		value := reflect.ValueOf(c.MemoryAdmission)
+		switch value.Kind() {
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+			if value.IsNil() {
+				return errors.New("engine: typed-nil memory admission")
+			}
+		}
+	}
 	if c.Timeout < time.Millisecond {
 		return errors.New("engine: request timeout must be at least 1ms")
 	}

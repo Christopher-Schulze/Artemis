@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/network"
+	"github.com/Christopher-Schulze/Artemis/platform"
 )
 
 const (
@@ -71,7 +72,18 @@ type LaunchConfig struct {
 	ArtifactVersion                string
 	RequireDependencyAuthorization bool
 	ChildProcessRegistrar          ChildProcessRegistrar
+	CPUAdmission                   CPUAdmission
+	RequireCPUAdmission            bool
+	CPUCount                       int
+	CPUAffinity                    []int
 	resourceSampler                resourceSampler
+	// NetworkPolicy supplies the complete browser egress contract when configured.
+	NetworkPolicy *network.PolicyConfig
+	// AdBlock filters subresource requests (spec L4206); nil installs the
+	// embedded base blocklist. Blocking is on by default.
+	AdBlock network.RequestFilter
+	// DisableAdBlock turns ad/tracker blocking off (spec L4210 setting).
+	DisableAdBlock bool
 }
 
 // Browser owns a launched Chromium process and its disposable profile.
@@ -95,11 +107,13 @@ type Browser struct {
 	cleanupOnce     sync.Once
 	cleanupErr      error
 	unregisterChild func()
+	releaseCPU      func() error
+	cpuAffinity     platform.ProbeResult
 	warnings        []string
 }
 
 // Launch starts Chromium with an isolated loopback CDP endpoint.
-func Launch(ctx context.Context, config LaunchConfig) (*Browser, error) {
+func Launch(ctx context.Context, config LaunchConfig) (browser *Browser, returnErr error) {
 	if ctx == nil {
 		return nil, invalidConfig("context required")
 	}
@@ -116,21 +130,35 @@ func Launch(ctx context.Context, config LaunchConfig) (*Browser, error) {
 			return nil, &Error{Code: ErrorLaunchFailed, Op: "authorize Chromium", Err: authorizeErr}
 		}
 	}
+	ctx, releaseCPU, err := reserveLaunchCPU(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	cpuTransferred := false
+	defer func() {
+		if releaseCPU != nil && !cpuTransferred {
+			returnErr = errors.Join(returnErr, releaseCPU())
+		}
+	}()
 	profileDir, removeProfile, profileLease, err := prepareProfile(normalized.UserDataDir)
 	if err != nil {
 		return nil, err
 	}
-	browser, err := startProcess(ctx, normalized, binary, profileDir, profileLease, removeProfile)
-	if err != nil {
-		_ = releaseProfileLease(profileLease)
+	browser, cpuTransferred, err = startProcess(ctx, normalized, binary, profileDir, profileLease, removeProfile, releaseCPU)
+	if err != nil && !cpuTransferred {
+		err = errors.Join(err, releaseProfileLease(profileLease))
 		if removeProfile {
-			_ = os.RemoveAll(profileDir)
+			err = errors.Join(err, os.RemoveAll(profileDir))
 		}
 	}
 	return browser, err
 }
 
 func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
+	if config.CPUCount < 0 || config.CPUCount > 65536 || len(config.CPUAffinity) > 65536 || (config.CPUCount > 0 && len(config.CPUAffinity) > config.CPUCount) {
+		return LaunchConfig{}, Binary{}, invalidConfig("bounded CPU count must contain the requested affinity set")
+	}
+	config.CPUAffinity = append([]int(nil), config.CPUAffinity...)
 	if config.StartupTimeout == 0 {
 		config.StartupTimeout = defaultStartupTimeout
 	}
@@ -276,56 +304,71 @@ func releaseProfileLease(lease string) error {
 
 // dependency-authority-flow: Launch authorizes binary.Path before delegating
 // the actual process start to this boundary helper.
-func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profileDir, profileLease string, removeProfile bool) (*Browser, error) {
+func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profileDir, profileLease string, removeProfile bool, releaseCPU func() error) (*Browser, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, &Error{Code: ErrorCancelled, Op: "start", Err: err}
+		return nil, false, &Error{Code: ErrorCancelled, Op: "start", Err: err}
 	}
 	args := chromiumArgs(config, profileDir)
 	cmd := newProcessCommand(ctx, binary.Path, profileDir, removeProfile, args)
 	cmd.WaitDelay = config.ShutdownTimeout
-	configureProcessGroup(cmd)
+	ConfigureProcessGroup(cmd)
 	output := newCappedOutput(config.OutputLimit)
 	cmd.Stdout = output
 	cmd.Stderr = output
 	browser := &Browser{
 		cmd: cmd, profileDir: profileDir, profileLease: profileLease, removeProfile: removeProfile,
 		shutdown: config.ShutdownTimeout, output: output, done: make(chan struct{}), processDone: make(chan struct{}), ready: make(chan struct{}),
+		releaseCPU: releaseCPU,
 	}
 	if config.Sandbox == SandboxDisabled {
 		browser.warnings = []string{"Chromium sandbox is disabled by explicit policy"}
 	}
-	if err := cmd.Start(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, &Error{Code: ErrorCancelled, Op: "start", Err: ctxErr}
+	proof, startErr := platform.RunCPUAffinity(ctx, config.CPUAffinity, func(execCtx context.Context) error {
+		if err := execCtx.Err(); err != nil {
+			return err
 		}
-		return nil, &Error{Code: ErrorLaunchFailed, Op: "start", Err: err}
+		return cmd.Start()
+	})
+	browser.cpuAffinity = proof
+	if startErr != nil {
+		if cmd.Process != nil {
+			browser.startLifetime(ctx, config)
+			return nil, true, errors.Join(startErr, browser.Close())
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, &Error{Code: ErrorCancelled, Op: "start", Err: errors.Join(startErr, ctxErr)}
+		}
+		return nil, false, &Error{Code: ErrorLaunchFailed, Op: "start", Err: startErr}
 	}
-	unregisterChild := func() {}
 	if config.ChildProcessRegistrar != nil {
 		cleanup, err := config.ChildProcessRegistrar.RegisterChild(cmd.Process.Pid, filepath.Base(binary.Path))
 		if err != nil {
-			killErr := cmd.Process.Kill()
-			waitErr := cmd.Wait()
-			return nil, &Error{Code: ErrorLaunchFailed, Op: "register Chromium process", Err: errors.Join(err, killErr, waitErr)}
+			browser.startLifetime(ctx, config)
+			return nil, true, &Error{Code: ErrorLaunchFailed, Op: "register Chromium process", Err: errors.Join(err, browser.Close())}
 		}
 		if cleanup != nil {
-			unregisterChild = cleanup
+			browser.unregisterChild = cleanup
 		}
 	}
-	browser.unregisterChild = unregisterChild
-	go browser.wait()
-	go browser.supervise(ctx, config)
+	browser.startLifetime(ctx, config)
 	endpoint, err := browser.waitForEndpoint(ctx, config.StartupTimeout)
 	if err != nil {
-		_ = browser.Close()
-		return nil, err
+		return nil, true, errors.Join(err, browser.Close())
 	}
 	browser.mu.Lock()
 	browser.endpoint = endpoint
 	browser.mu.Unlock()
 	close(browser.ready)
-	return browser, nil
+	return browser, true, nil
 }
+
+func (b *Browser) startLifetime(ctx context.Context, config LaunchConfig) {
+	go b.wait()
+	go b.supervise(ctx, config)
+}
+
+// CPUAffinity reports the actual process-start path, not a platform guess.
+func (b *Browser) CPUAffinity() platform.ProbeResult { return b.cpuAffinity }
 
 func chromiumArgs(config LaunchConfig, profileDir string) []string {
 	args := []string{
@@ -423,7 +466,9 @@ func (b *Browser) wait() {
 	b.waitErr = err
 	unregisterChild := b.unregisterChild
 	b.mu.Unlock()
-	unregisterChild()
+	if unregisterChild != nil {
+		unregisterChild()
+	}
 	close(b.processDone)
 }
 
@@ -528,7 +573,7 @@ func (b *Browser) reapHelpers() {
 	closing := b.closing
 	b.mu.RUnlock()
 	if !closing {
-		_ = signalProcessGroup(b.cmd.Process, syscall.SIGKILL)
+		_ = SignalProcessGroup(b.cmd.Process, syscall.SIGKILL)
 	}
 }
 
@@ -665,18 +710,19 @@ func (b *Browser) Err() error {
 	b.mu.RLock()
 	err := b.waitErr
 	terminalErr := b.terminalErr
+	cleanupErr := b.cleanupErr
 	closing := b.closing
 	b.mu.RUnlock()
 	if terminalErr != nil {
-		return terminalErr
+		return errors.Join(terminalErr, cleanupErr)
 	}
 	if closing {
-		return nil
+		return cleanupErr
 	}
 	if err == nil {
 		err = errors.New("process exited unexpectedly")
 	}
-	return &Error{Code: ErrorBrowserCrash, Op: "supervise running browser", Err: fmt.Errorf("%w; output: %s", err, b.Output())}
+	return &Error{Code: ErrorBrowserCrash, Op: "supervise running browser", Err: errors.Join(fmt.Errorf("%w; output: %s", err, b.Output()), cleanupErr)}
 }
 
 // Close terminates the owned process group and removes owned profile state.
@@ -704,6 +750,10 @@ func (b *Browser) close() error {
 func (b *Browser) cleanup() {
 	b.cleanupOnce.Do(func() {
 		var result error
+		if err := b.settleCPU(); err != nil {
+			b.cleanupErr = err
+			return
+		}
 		activePort := filepath.Join(b.profileDir, "DevToolsActivePort")
 		if err := os.Remove(activePort); err != nil && !errors.Is(err, os.ErrNotExist) {
 			result = errors.Join(result, fmt.Errorf("remove DevTools endpoint file: %w", err))
@@ -725,7 +775,7 @@ func (b *Browser) terminate() error {
 	case <-b.processDone:
 		return nil
 	default:
-		if err := signalProcessGroup(b.cmd.Process, syscall.SIGTERM); err != nil {
+		if err := SignalProcessGroup(b.cmd.Process, syscall.SIGTERM); err != nil {
 			return fmt.Errorf("terminate Chromium process group: %w", err)
 		}
 		timer := time.NewTimer(b.shutdown)
@@ -739,7 +789,7 @@ func (b *Browser) terminate() error {
 			}
 			return nil
 		case <-timer.C:
-			if err := signalProcessGroup(b.cmd.Process, syscall.SIGKILL); err != nil {
+			if err := SignalProcessGroup(b.cmd.Process, syscall.SIGKILL); err != nil {
 				return fmt.Errorf("kill Chromium process group: %w", err)
 			}
 		}

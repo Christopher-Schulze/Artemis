@@ -9,6 +9,9 @@ import (
 func TestProfileManagerPersistsMetadataAndSwitchState(t *testing.T) {
 	root := t.TempDir()
 	manager := NewProfileManager(root, nil)
+	if err := manager.Err(); err != nil {
+		t.Fatalf("valid empty manager initialization failed: %v", err)
+	}
 	if err := manager.Create(&BrowserProfile{Name: "one", OwnerUserRef: "owner"}); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +51,17 @@ func TestProfileManagerCorruptMetadataFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	corrupt := NewProfileManager(root, nil)
+	if err := corrupt.Err(); err == nil {
+		t.Fatal("corrupt initialization was hidden from slice-only callers")
+	}
 	if _, err := corrupt.Get("one", "owner"); err == nil {
 		t.Fatal("corrupt metadata did not fail closed")
+	}
+}
+
+func TestNilProfileManagerInitializationError(t *testing.T) {
+	var manager *ProfileManager
+	if err := manager.Err(); err == nil {
+		t.Fatal("nil manager reported successful initialization")
 	}
 }

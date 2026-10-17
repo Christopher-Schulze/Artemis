@@ -1,30 +1,38 @@
 package security
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-// EasyList auto-update system (spec L4206).
-// Layer 1: embedded base blocklist + EasyList/EasyPrivacy auto-update
-// every 24h from easylist.to. Update security: HTTPS only with
-// certificate pinning on easylist.to + SHA256 checksum from separate
-// source + gradual rollout (50% immediate, 100% after 1h if no
-// errors) + size sanity (<2x old list) + fallback to cached +
-// rollback if >5 breakages/1h.
+// EasyList auto-update (spec L4206). Every feed is downloaded over pinned
+// HTTPS from its primary source and verified against an independent mirror:
+// both must yield the same SHA-256 over the filter lines (comment headers
+// differ per mirror). A list larger than twice its predecessor is refused.
+// Verified versions are stored with a manifest (rule count, size and gzip
+// size as proof per shipped version), at most MaxVersions are kept, the
+// newest valid cached version is loaded at start and every new version
+// enters the AdBlocker gradual rollout. Failures keep the cached version.
 
-// EasyListSources are the official EasyList download URLs
-// (spec L4206: Sources: easylist.to + easylist-downloads.adblockplus.org).
+// EasyListSources are the official EasyList download URLs (primary first).
 var EasyListSources = []string{
 	"https://easylist.to/easylist/easylist.txt",
 	"https://easylist-downloads.adblockplus.org/easylist.txt",
@@ -36,37 +44,60 @@ var EasyPrivacySources = []string{
 	"https://easylist-downloads.adblockplus.org/easyprivacy.txt",
 }
 
-// EasyListUpdateConfig configures the EasyList auto-update
-// (spec L4206).
-type EasyListUpdateConfig struct {
-	// UpdateInterval is the time between update checks (default 24h).
-	UpdateInterval time.Duration
-	// Sources are the EasyList download URLs.
-	Sources []string
-	// ChecksumSources are the SHA256 checksum URLs (separate source).
-	ChecksumSources []string
-	// StorageDir is where blocklists are stored
-	// (blocklists under the browser data dir, max 3 versions).
-	StorageDir string
-	// MaxVersions is the max number of versions to keep (default 3).
-	MaxVersions int
-	// GradualRolloutPercent is the immediate rollout percentage
-	// (spec: 50% immediate, 100% after 1h if no errors).
-	GradualRolloutPercent int
-	// GradualRolloutDelay is the delay before full rollout
-	// (spec: 1h if no errors).
-	GradualRolloutDelay time.Duration
-	// MaxBreakagesPerHour is the breakage threshold for rollback
-	// (spec: >5 breakages/1h).
-	MaxBreakagesPerHour int
-	// MaxSizeMultiplier is the max size ratio vs old list
-	// (spec: <2x old list).
-	MaxSizeMultiplier float64
-	// HTTPTimeout is the timeout for HTTP downloads.
-	HTTPTimeout time.Duration
+// EasyListPins are SHA-256 SPKI pins (base64) of the root CAs that issue the
+// EasyList hosts: Google Trust Services R1-R4 and GlobalSign Root CA for
+// easylist.to, ISRG Root X1/X2 and ISRG Root YR for
+// easylist-downloads.adblockplus.org. Roots, not leaves, are pinned so
+// routine certificate renewal does not stop updates.
+var EasyListPins = []string{
+	"hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=", // GTS Root R1
+	"Vfd95BwDeSQo+NUYxVEEIlvkOlWY2SalKK1lPhzOx78=", // GTS Root R2
+	"QXnt2YHvdHR3tJYmQIr0Paosp6t/nggsEGD4QJZ3Q0g=", // GTS Root R3
+	"mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=", // GTS Root R4
+	"K87oWBWM9UZfyddvDfoxL+8lpNyoUB2ptGtn0fv6G2Q=", // GlobalSign Root CA
+	"C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=", // ISRG Root X1
+	"diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=", // ISRG Root X2
+	"fk6IOKit1ild5647BH06ujSIq5XbCgqlbYl6ANhhi88=", // ISRG Root YR
 }
 
-// DefaultEasyListUpdateConfig returns the spec-mandated config.
+// ErrEasyListPin is returned when a source's certificate chain carries no
+// pinned key.
+var ErrEasyListPin = errors.New("easylist: certificate chain does not match a pinned key")
+
+// EasyListFeed is one list with its primary source and verification mirror.
+type EasyListFeed struct {
+	Name     string          `json:"name"`
+	Category AdBlockCategory `json:"category"`
+	Primary  string          `json:"primary"`
+	Mirror   string          `json:"mirror"`
+}
+
+// DefaultEasyListFeeds returns EasyList (ads) and EasyPrivacy (trackers).
+func DefaultEasyListFeeds() []EasyListFeed {
+	return []EasyListFeed{
+		{Name: "easylist", Category: AdBlockCategoryAd, Primary: EasyListSources[0], Mirror: EasyListSources[1]},
+		{Name: "easyprivacy", Category: AdBlockCategoryTracker, Primary: EasyPrivacySources[0], Mirror: EasyPrivacySources[1]},
+	}
+}
+
+// EasyListUpdateConfig configures the update pipeline.
+type EasyListUpdateConfig struct {
+	UpdateInterval        time.Duration // default 24h
+	Feeds                 []EasyListFeed
+	StorageDir            string // versions and manifest.json
+	MaxVersions           int    // default 3
+	GradualRolloutPercent int    // default 50
+	GradualRolloutDelay   time.Duration
+	MaxBreakagesPerHour   int
+	MaxSizeMultiplier     float64 // default 2.0
+	MaxListBytes          int64   // per download, default 16 MiB
+	HTTPTimeout           time.Duration
+	Pins                  []string       // SPKI SHA-256 pins, default EasyListPins
+	RootCAs               *x509.CertPool // nil selects the system roots
+}
+
+// DefaultEasyListUpdateConfig returns the spec-mandated config with storage
+// under ~/.artemis/browser/blocklists; embedding hosts pass their own home.
 func DefaultEasyListUpdateConfig() EasyListUpdateConfig {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -74,340 +105,453 @@ func DefaultEasyListUpdateConfig() EasyListUpdateConfig {
 	}
 	return EasyListUpdateConfig{
 		UpdateInterval:        24 * time.Hour,
-		Sources:               EasyListSources,
-		ChecksumSources:       []string{},
+		Feeds:                 DefaultEasyListFeeds(),
 		StorageDir:            filepath.Join(home, ".artemis", "browser", "blocklists"),
 		MaxVersions:           3,
 		GradualRolloutPercent: 50,
-		GradualRolloutDelay:   1 * time.Hour,
+		GradualRolloutDelay:   time.Hour,
 		MaxBreakagesPerHour:   5,
 		MaxSizeMultiplier:     2.0,
-		HTTPTimeout:           30 * time.Second,
+		MaxListBytes:          16 << 20,
+		HTTPTimeout:           60 * time.Second,
+		Pins:                  EasyListPins,
 	}
 }
 
-// EasyListUpdater manages the EasyList auto-update lifecycle
-// (spec L4206).
+// RolloutConfig returns the AdBlocker rollout settings of this config.
+func (c EasyListUpdateConfig) RolloutConfig() AdBlockRolloutConfig {
+	return AdBlockRolloutConfig{Percent: c.GradualRolloutPercent, Delay: c.GradualRolloutDelay, MaxBreakages: c.MaxBreakagesPerHour, BreakageWindow: time.Hour}
+}
+
+// AdBlockFeedManifest is the proof record of one feed in a version.
+type AdBlockFeedManifest struct {
+	Name            string           `json:"name"`
+	Category        AdBlockCategory  `json:"category"`
+	Primary         string           `json:"primary"`
+	Mirror          string           `json:"mirror"`
+	RulesSHA256     string           `json:"rulesSha256"`
+	Bytes           int              `json:"bytes"`
+	CompressedBytes int              `json:"compressedBytes"`
+	Stats           AdBlockRuleStats `json:"stats"`
+	File            string           `json:"file"`
+}
+
+// AdBlockListManifest is the proof record of one stored list version.
+type AdBlockListManifest struct {
+	ID           string                `json:"id"`
+	SHA256       string                `json:"sha256"`
+	Rules        int                   `json:"rules"`
+	Bytes        int                   `json:"bytes"`
+	DownloadedAt time.Time             `json:"downloadedAt"`
+	Feeds        []AdBlockFeedManifest `json:"feeds"`
+}
+
+type easyListStore struct {
+	Versions []AdBlockListManifest `json:"versions"`
+}
+
+// EasyListUpdater downloads, verifies, stores and installs list versions.
 type EasyListUpdater struct {
-	mu         sync.Mutex
-	cfg        EasyListUpdateConfig
-	current    *EasyListVersion
-	breakages  []time.Time // breakage timestamps for rollback detection
-	httpClient *http.Client
+	cfg     EasyListUpdateConfig
+	blocker *AdBlocker
+	client  *http.Client
+	now     func() time.Time
+
+	mu        sync.Mutex
+	current   *AdBlockListManifest
+	nextCheck time.Time
 }
 
-// EasyListVersion represents one downloaded blocklist version.
-type EasyListVersion struct {
-	URL          string    `json:"url"`
-	SHA256       string    `json:"sha256"`
-	Size         int       `json:"size"`
-	DownloadedAt time.Time `json:"downloadedAt"`
-	Rules        []string  `json:"rules"`
-	FilePath     string    `json:"filePath"`
-}
+// easyListRetryInterval spaces retries after a failed update.
+const easyListRetryInterval = time.Hour
 
-// NewEasyListUpdater creates a new updater with the given config.
-func NewEasyListUpdater(cfg EasyListUpdateConfig) *EasyListUpdater {
-	if cfg.Sources == nil {
-		cfg = DefaultEasyListUpdateConfig()
+// NewEasyListUpdater validates cfg and returns an updater installing into
+// blocker.
+func NewEasyListUpdater(cfg EasyListUpdateConfig, blocker *AdBlocker) (*EasyListUpdater, error) {
+	switch {
+	case blocker == nil:
+		return nil, errors.New("easylist: blocker required")
+	case cfg.StorageDir == "":
+		return nil, errors.New("easylist: storage directory required")
+	case len(cfg.Feeds) == 0:
+		return nil, errors.New("easylist: at least one feed required")
+	case len(cfg.Pins) == 0:
+		return nil, errors.New("easylist: certificate pins required")
 	}
-	return &EasyListUpdater{
-		cfg:        cfg,
-		breakages:  make([]time.Time, 0, cfg.MaxBreakagesPerHour+1),
-		httpClient: &http.Client{Timeout: cfg.HTTPTimeout},
-	}
-}
-
-// DownloadAndVerify downloads a blocklist from the given URL,
-// computes its SHA256 checksum, and verifies size sanity
-// (spec L4206: HTTPS only, SHA256 checksum, size sanity <2x old list).
-func (u *EasyListUpdater) DownloadAndVerify(url string, oldSize int) (*EasyListVersion, error) {
-	return u.DownloadAndVerifyContext(context.Background(), url, oldSize)
-}
-
-// DownloadAndVerifyContext downloads and verifies a blocklist using ctx for
-// the complete HTTP request lifetime.
-func (u *EasyListUpdater) DownloadAndVerifyContext(ctx context.Context, url string, oldSize int) (version *EasyListVersion, returnErr error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("download %s: context required", url)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("download %s: request: %w", url, err)
-	}
-	resp, err := u.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("download %s: %w", url, err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			version = nil
-			returnErr = errors.Join(returnErr, fmt.Errorf("download %s: close response body: %w", url, closeErr))
+	for _, feed := range cfg.Feeds {
+		if !strings.HasPrefix(feed.Primary, "https://") || !strings.HasPrefix(feed.Mirror, "https://") || feed.Primary == feed.Mirror || feed.Name == "" || strings.ContainsAny(feed.Name, `/\.`) {
+			return nil, fmt.Errorf("easylist: feed %q needs a name and distinct HTTPS primary and mirror sources", feed.Name)
 		}
-	}()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
 	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", url, err)
+	if cfg.UpdateInterval <= 0 {
+		cfg.UpdateInterval = 24 * time.Hour
 	}
-
-	// Size sanity: new list must be < 2x old list size
-	// (spec L4206: size sanity <2x old list).
-	if oldSize > 0 && len(data) > int(float64(oldSize)*u.cfg.MaxSizeMultiplier) {
-		return nil, fmt.Errorf("size sanity failed: new %d > %.1fx old %d", len(data), u.cfg.MaxSizeMultiplier, oldSize)
+	if cfg.MaxVersions <= 0 {
+		cfg.MaxVersions = 3
 	}
-
-	// Compute SHA256 checksum (spec L4206: SHA256 checksum).
-	hash := sha256.Sum256(data)
-	checksum := hex.EncodeToString(hash[:])
-
-	// Parse ABP filter rules
-	rules := parseABPRules(string(data))
-
-	// Save to storage dir
-	if err := os.MkdirAll(u.cfg.StorageDir, 0o750); err != nil {
-		return nil, fmt.Errorf("mkdir %s: %w", u.cfg.StorageDir, err)
+	if cfg.MaxSizeMultiplier <= 1 {
+		cfg.MaxSizeMultiplier = 2
 	}
-	filePath := filepath.Join(u.cfg.StorageDir, fmt.Sprintf("easylist_%d.txt", time.Now().Unix()))
-	if err := os.WriteFile(filePath, data, 0o600); err != nil {
-		return nil, fmt.Errorf("write %s: %w", filePath, err)
+	if cfg.MaxListBytes <= 0 {
+		cfg.MaxListBytes = 16 << 20
 	}
-
-	// Prune old versions (spec: max 3 versions).
-	if err := u.pruneOldVersions(); err != nil {
-		return nil, err
+	if cfg.HTTPTimeout <= 0 {
+		cfg.HTTPTimeout = 60 * time.Second
 	}
-
-	return &EasyListVersion{
-		URL:          url,
-		SHA256:       checksum,
-		Size:         len(data),
-		DownloadedAt: time.Now(),
-		Rules:        rules,
-		FilePath:     filePath,
-	}, nil
+	return &EasyListUpdater{cfg: cfg, blocker: blocker, client: pinnedHTTPClient(cfg), now: time.Now}, nil
 }
 
-// parseABPRules parses ABP filter syntax rules from a blocklist file.
-// Lines starting with "!" are comments and are skipped.
-func parseABPRules(content string) []string {
-	lines := strings.Split(content, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "!") {
-			continue
-		}
-		out = append(out, line)
+func pinnedHTTPClient(cfg EasyListUpdateConfig) *http.Client {
+	pins := make(map[string]bool, len(cfg.Pins))
+	for _, pin := range cfg.Pins {
+		pins[pin] = true
 	}
-	return out
-}
-
-// pruneOldVersions removes old blocklist files, keeping only the
-// most recent MaxVersions (spec L4206: max 3 versions).
-func (u *EasyListUpdater) pruneOldVersions() error {
-	entries, err := os.ReadDir(u.cfg.StorageDir)
-	if err != nil {
-		return fmt.Errorf("prune easylist versions: read directory: %w", err)
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    cfg.RootCAs,
+			VerifyConnection: func(state tls.ConnectionState) error {
+				for _, chain := range state.VerifiedChains {
+					for _, cert := range chain {
+						sum := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+						if pins[base64.StdEncoding.EncodeToString(sum[:])] {
+							return nil
+						}
+					}
+				}
+				return ErrEasyListPin
+			},
+		},
+		ForceAttemptHTTP2: true,
 	}
-	// Sort by modification time (oldest first) and remove excess
-	type fileInfo struct {
-		name    string
-		modTime time.Time
-	}
-	files := make([]fileInfo, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, fileInfo{name: e.Name(), modTime: info.ModTime()})
-	}
-	// Sort oldest first (we remove from the front)
-	for i := 0; i < len(files)-1; i++ {
-		for j := i + 1; j < len(files); j++ {
-			if files[j].modTime.Before(files[i].modTime) {
-				files[i], files[j] = files[j], files[i]
+	return &http.Client{
+		Timeout:   cfg.HTTPTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" || len(via) >= 3 {
+				return errors.New("easylist: redirects must stay on HTTPS (max 3)")
 			}
-		}
+			return nil
+		},
 	}
-	// Remove oldest files beyond MaxVersions
-	excess := len(files) - u.cfg.MaxVersions
-	for i := 0; i < excess; i++ {
-		path := filepath.Join(u.cfg.StorageDir, files[i].name)
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("prune easylist versions: remove %s: %w", path, err)
-		}
-	}
-	return nil
 }
 
-// RecordBreakage records a breakage event for rollback detection
-// (spec L4206: rollback if >5 breakages/1h).
-func (u *EasyListUpdater) RecordBreakage() {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	now := time.Now()
-	u.breakages = append(u.breakages, now)
-	// Prune breakages older than 1 hour
-	cutoff := now.Add(-1 * time.Hour)
-	kept := u.breakages[:0]
-	for _, t := range u.breakages {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	u.breakages = kept
-}
-
-// ShouldRollback reports whether the breakage count in the last hour
-// exceeds the threshold (spec L4206: >5 breakages/1h).
-func (u *EasyListUpdater) ShouldRollback() bool {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	return len(u.breakages) > u.cfg.MaxBreakagesPerHour
-}
-
-// CurrentVersion returns the current blocklist version, or nil if
-// none has been downloaded yet.
-func (u *EasyListUpdater) CurrentVersion() *EasyListVersion {
+// Current returns the manifest of the newest installed version.
+func (u *EasyListUpdater) Current() *AdBlockListManifest {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.current
 }
 
-// SetCurrent sets the current blocklist version.
-func (u *EasyListUpdater) SetCurrent(v *EasyListVersion) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.current = v
-}
-
-// Rollback reverts to the cached/previous version
-// (spec L4206: fallback to cached + rollback).
-func (u *EasyListUpdater) Rollback() (*EasyListVersion, error) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	// Find the most recent file that is NOT the current version
-	entries, err := os.ReadDir(u.cfg.StorageDir)
+// LoadCached installs the newest stored version whose files still match
+// their recorded checksums. A version still inside its rollout delay
+// resumes as candidate on top of the newest older valid version, so a
+// restart never promotes an unproven list.
+func (u *EasyListUpdater) LoadCached() error {
+	store, err := u.readStore()
 	if err != nil {
-		return nil, fmt.Errorf("rollback: read dir: %w", err)
+		return err
 	}
-	var bestFile os.DirEntry
-	var bestTime time.Time
-	for _, e := range entries {
-		if e.IsDir() {
+	var errs []error
+	var loaded []*AdBlockList
+	for index := len(store.Versions) - 1; index >= 0 && len(loaded) < 2; index-- {
+		manifest := store.Versions[index]
+		if u.blocker.IsRejected(manifest.SHA256) {
 			continue
 		}
-		if u.current != nil && e.Name() == filepath.Base(u.current.FilePath) {
-			continue
-		}
-		info, infoErr := e.Info()
-		if infoErr != nil {
-			continue
-		}
-		if bestFile == nil || info.ModTime().After(bestTime) {
-			bestFile = e
-			bestTime = info.ModTime()
-		}
-	}
-	if bestFile == nil {
-		return nil, fmt.Errorf("rollback: no cached version available")
-	}
-	filePath := filepath.Clean(filepath.Join(u.cfg.StorageDir, bestFile.Name()))
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("rollback: read %s: %w", filePath, err)
-	}
-	hash := sha256.Sum256(data)
-	checksum := hex.EncodeToString(hash[:])
-	rules := parseABPRules(string(data))
-	v := &EasyListVersion{
-		URL:          "cached",
-		SHA256:       checksum,
-		Size:         len(data),
-		DownloadedAt: bestTime,
-		Rules:        rules,
-		FilePath:     filePath,
-	}
-	u.current = v
-	return v, nil
-}
-
-// UpdateIfNeeded checks if an update is needed and downloads a new
-// version if the update interval has elapsed (spec L4206: every 24h).
-func (u *EasyListUpdater) UpdateIfNeeded() (*EasyListVersion, error) {
-	return u.UpdateIfNeededContext(context.Background())
-}
-
-// UpdateIfNeededContext checks for an update and uses ctx for source
-// downloads.
-func (u *EasyListUpdater) UpdateIfNeededContext(ctx context.Context) (*EasyListVersion, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("easylist update: context required")
-	}
-	u.mu.Lock()
-	current := u.current
-	u.mu.Unlock()
-
-	if current != nil && time.Since(current.DownloadedAt) < u.cfg.UpdateInterval {
-		return current, nil
-	}
-
-	oldSize := 0
-	if current != nil {
-		oldSize = current.Size
-	}
-
-	// Try each source until one succeeds (spec L4206: multiple sources)
-	var lastErr error
-	for _, src := range u.cfg.Sources {
-		v, err := u.DownloadAndVerifyContext(ctx, src, oldSize)
+		list, err := u.loadStoredVersion(manifest)
 		if err != nil {
-			lastErr = err
+			errs = append(errs, err)
 			continue
 		}
-		u.SetCurrent(v)
-		return v, nil
+		loaded = append(loaded, list)
+		if u.now().Sub(manifest.DownloadedAt) >= u.cfg.GradualRolloutDelay {
+			break
+		}
 	}
+	if len(loaded) == 0 {
+		return errors.Join(errs...)
+	}
+	newest := loaded[0]
+	newest.activated = newest.Manifest.DownloadedAt
+	if len(loaded) == 2 {
+		if err := u.blocker.Install(loaded[1]); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
+	}
+	if err := u.blocker.Install(newest); err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	u.setCurrent(newest.Manifest)
+	return nil
+}
 
-	// All sources failed: fallback to cached (spec L4206: fallback)
-	if current != nil {
+func (u *EasyListUpdater) loadStoredVersion(manifest AdBlockListManifest) (*AdBlockList, error) {
+	list := &AdBlockList{Manifest: manifest}
+	for _, feed := range manifest.Feeds {
+		path := filepath.Join(u.cfg.StorageDir, manifest.ID, filepath.Base(feed.File))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("easylist cache %s: %w", manifest.ID, err)
+		}
+		rules, sha := filterLines(data)
+		if sha != feed.RulesSHA256 {
+			return nil, fmt.Errorf("easylist cache %s/%s: checksum mismatch", manifest.ID, feed.Name)
+		}
+		set, err := ParseAdBlockRules(strings.NewReader(rules))
+		if err != nil {
+			return nil, fmt.Errorf("easylist cache %s/%s: %w", manifest.ID, feed.Name, err)
+		}
+		list.sets = append(list.sets, categorizedRules{category: feed.Category, rules: set})
+	}
+	return list, nil
+}
+
+// UpdateIfDue updates when no version is installed or the interval passed.
+func (u *EasyListUpdater) UpdateIfDue(ctx context.Context) (*AdBlockListManifest, error) {
+	u.mu.Lock()
+	current, next := u.current, u.nextCheck
+	if next.IsZero() && current != nil {
+		next = current.DownloadedAt.Add(u.cfg.UpdateInterval)
+	}
+	u.mu.Unlock()
+	if u.now().Before(next) {
 		return current, nil
 	}
-	return nil, fmt.Errorf("update failed from all sources: %w", lastErr)
+	manifest, err := u.Update(ctx)
+	delay := u.cfg.UpdateInterval
+	if err != nil {
+		delay = easyListRetryInterval
+	}
+	u.mu.Lock()
+	u.nextCheck = u.now().Add(delay)
+	u.mu.Unlock()
+	return manifest, err
 }
 
-// GradualRolloutReady reports whether the gradual rollout has reached
-// 100% (spec L4206: 50% immediate, 100% after 1h if no errors).
-func (u *EasyListUpdater) GradualRolloutReady(version *EasyListVersion) bool {
-	if version == nil {
-		return false
+// Update downloads and verifies every feed, stores the version and installs
+// it into the blocker. On any failure the installed version stays active.
+func (u *EasyListUpdater) Update(ctx context.Context) (*AdBlockListManifest, error) {
+	if ctx == nil {
+		return nil, errors.New("easylist update: context required")
 	}
-	// After the rollout delay, if no excessive breakages, full rollout
-	if time.Since(version.DownloadedAt) >= u.cfg.GradualRolloutDelay {
-		return !u.ShouldRollback()
+	previous := map[string]int{}
+	if current := u.Current(); current != nil {
+		for _, feed := range current.Feeds {
+			previous[feed.Name] = feed.Bytes
+		}
 	}
-	return false
+	now := u.now().UTC()
+	manifest := AdBlockListManifest{ID: now.Format("20060102T150405Z"), DownloadedAt: now}
+	list := &AdBlockList{}
+	texts := make(map[string]string, len(u.cfg.Feeds))
+	combined := sha256.New()
+	for _, feed := range u.cfg.Feeds {
+		record, rules, err := u.fetchFeed(ctx, feed, previous[feed.Name])
+		if err != nil {
+			return nil, err
+		}
+		set, err := ParseAdBlockRules(strings.NewReader(rules))
+		if err != nil {
+			return nil, fmt.Errorf("easylist %s: %w", feed.Name, err)
+		}
+		record.Stats = set.Stats()
+		manifest.Rules += record.Stats.Blocking + record.Stats.Exceptions
+		manifest.Bytes += record.Bytes
+		manifest.Feeds = append(manifest.Feeds, record)
+		list.sets = append(list.sets, categorizedRules{category: feed.Category, rules: set})
+		texts[feed.Name] = rules
+		combined.Write([]byte(feed.Name + ":" + record.RulesSHA256 + "\n"))
+	}
+	manifest.SHA256 = hex.EncodeToString(combined.Sum(nil))
+	if u.blocker.IsRejected(manifest.SHA256) {
+		return nil, fmt.Errorf("easylist: version %s was rolled back for breakage", manifest.SHA256)
+	}
+	if current := u.Current(); current != nil && current.SHA256 == manifest.SHA256 {
+		return current, nil
+	}
+	if err := u.persist(&manifest, texts); err != nil {
+		return nil, err
+	}
+	list.Manifest = manifest
+	if err := u.blocker.Install(list); err != nil {
+		return nil, err
+	}
+	u.setCurrent(manifest)
+	return &manifest, nil
 }
 
-// ShouldApplyNow reports whether a new version should be applied now
-// based on the gradual rollout policy (spec L4206: 50% immediate,
-// 100% after 1h if no errors).
-func (u *EasyListUpdater) ShouldApplyNow(version *EasyListVersion, rollPercent int) bool {
-	if version == nil {
-		return false
+func (u *EasyListUpdater) fetchFeed(ctx context.Context, feed EasyListFeed, previousBytes int) (AdBlockFeedManifest, string, error) {
+	primary, err := u.download(ctx, feed.Primary)
+	if err != nil {
+		return AdBlockFeedManifest{}, "", fmt.Errorf("easylist %s primary: %w", feed.Name, err)
 	}
-	// Immediate phase: apply to GradualRolloutPercent of requests
-	if time.Since(version.DownloadedAt) < u.cfg.GradualRolloutDelay {
-		return rollPercent < u.cfg.GradualRolloutPercent
+	mirror, err := u.download(ctx, feed.Mirror)
+	if err != nil {
+		return AdBlockFeedManifest{}, "", fmt.Errorf("easylist %s mirror: %w", feed.Name, err)
 	}
-	// Full rollout phase: apply to all (unless rollback triggered)
-	return !u.ShouldRollback()
+	rules, sha := filterLines(primary)
+	if _, mirrorSHA := filterLines(mirror); mirrorSHA != sha {
+		return AdBlockFeedManifest{}, "", fmt.Errorf("easylist %s: primary and mirror filter checksums differ", feed.Name)
+	}
+	if previousBytes > 0 && float64(len(rules)) > float64(previousBytes)*u.cfg.MaxSizeMultiplier {
+		return AdBlockFeedManifest{}, "", fmt.Errorf("easylist %s: size %d exceeds %.1fx previous %d", feed.Name, len(rules), u.cfg.MaxSizeMultiplier, previousBytes)
+	}
+	compressed, err := gzipSize(rules)
+	if err != nil {
+		return AdBlockFeedManifest{}, "", fmt.Errorf("easylist %s: %w", feed.Name, err)
+	}
+	return AdBlockFeedManifest{
+		Name: feed.Name, Category: feed.Category, Primary: feed.Primary, Mirror: feed.Mirror,
+		RulesSHA256: sha, Bytes: len(rules), CompressedBytes: compressed, File: feed.Name + ".txt",
+	}, rules, nil
+}
+
+func (u *EasyListUpdater) download(ctx context.Context, source string) (body []byte, returnErr error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := u.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil && returnErr == nil {
+			body, returnErr = nil, closeErr
+		}
+	}()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+	}
+	body, err = io.ReadAll(io.LimitReader(response.Body, u.cfg.MaxListBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > u.cfg.MaxListBytes {
+		return nil, fmt.Errorf("list exceeds %d bytes", u.cfg.MaxListBytes)
+	}
+	return body, nil
+}
+
+// filterLines keeps the filter lines (no comments, headers or blanks) and
+// returns them with their SHA-256; mirrors differ only in comment headers.
+func filterLines(data []byte) (string, string) {
+	var rules strings.Builder
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line[0] == '!' || line[0] == '[' {
+			continue
+		}
+		rules.WriteString(line)
+		rules.WriteByte('\n')
+	}
+	sum := sha256.Sum256([]byte(rules.String()))
+	return rules.String(), hex.EncodeToString(sum[:])
+}
+
+func gzipSize(text string) (int, error) {
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write([]byte(text)); err != nil {
+		return 0, err
+	}
+	if err := writer.Close(); err != nil {
+		return 0, err
+	}
+	return buffer.Len(), nil
+}
+
+func (u *EasyListUpdater) setCurrent(manifest AdBlockListManifest) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.current = &manifest
+}
+
+func (u *EasyListUpdater) persist(manifest *AdBlockListManifest, texts map[string]string) error {
+	dir := filepath.Join(u.cfg.StorageDir, manifest.ID)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("easylist store: %w", err)
+	}
+	for _, feed := range manifest.Feeds {
+		if err := writeFileAtomic(filepath.Join(dir, feed.File), []byte(texts[feed.Name])); err != nil {
+			return fmt.Errorf("easylist store: %w", err)
+		}
+	}
+	store, err := u.readStore()
+	if err != nil {
+		return err
+	}
+	store.Versions = append(store.Versions, *manifest)
+	sort.SliceStable(store.Versions, func(i, j int) bool { return store.Versions[i].DownloadedAt.Before(store.Versions[j].DownloadedAt) })
+	for len(store.Versions) > u.cfg.MaxVersions {
+		oldest := store.Versions[0]
+		if err := os.RemoveAll(filepath.Join(u.cfg.StorageDir, filepath.Base(oldest.ID))); err != nil {
+			return fmt.Errorf("easylist store: prune %s: %w", oldest.ID, err)
+		}
+		store.Versions = store.Versions[1:]
+	}
+	encoded, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("easylist store: %w", err)
+	}
+	return writeFileAtomic(filepath.Join(u.cfg.StorageDir, "manifest.json"), encoded)
+}
+
+func (u *EasyListUpdater) readStore() (easyListStore, error) {
+	var store easyListStore
+	data, err := os.ReadFile(filepath.Join(u.cfg.StorageDir, "manifest.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return store, nil
+	}
+	if err != nil {
+		return store, fmt.Errorf("easylist store: %w", err)
+	}
+	if err := json.Unmarshal(data, &store); err != nil {
+		return store, fmt.Errorf("easylist store: manifest: %w", err)
+	}
+	return store, nil
+}
+
+// Run loads the cached version, then updates when due and advances the
+// rollout every minute until ctx ends. Update failures keep the cached
+// version and are logged; they never stop the loop.
+func (u *EasyListUpdater) Run(ctx context.Context, logger *slog.Logger) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if err := u.LoadCached(); err != nil {
+		logger.Warn("easylist cache unusable", slog.String("error", err.Error()))
+	}
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if _, err := u.UpdateIfDue(ctx); err != nil && ctx.Err() == nil {
+			logger.Warn("easylist update failed; keeping cached list", slog.String("error", err.Error()))
+		}
+		u.blocker.Advance()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := temp.Name()
+	_, writeErr := temp.Write(data)
+	closeErr := temp.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return errors.Join(err, os.Remove(name))
+	}
+	if err := os.Chmod(name, 0o600); err != nil {
+		return errors.Join(err, os.Remove(name))
+	}
+	return os.Rename(name, path)
 }

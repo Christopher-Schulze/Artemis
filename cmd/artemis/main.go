@@ -5,7 +5,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -22,9 +21,19 @@ func main() {
 		}
 		os.Exit(2)
 	}
+	if len(os.Args) > 2 {
+		switch os.Args[1] {
+		case "version", "-v", "--version", "help", "-h", "--help", "capabilities":
+			errf("%s accepts no arguments", os.Args[1])
+			os.Exit(2)
+		}
+	}
 	switch os.Args[1] {
 	case "version", "-v", "--version":
-		fmt.Println(Version)
+		if err := printText(os.Stdout, Version); err != nil {
+			errf("version output: %v", err)
+			os.Exit(1)
+		}
 	case "help", "-h", "--help":
 		if err := printUsage(os.Stdout); err != nil {
 			errf("usage: %v", err)
@@ -39,12 +48,20 @@ func main() {
 		os.Exit(cmdFetch(os.Args[2:]))
 	case "download":
 		os.Exit(cmdDownload(os.Args[2:]))
+	case "sitemap":
+		os.Exit(cmdSitemap(os.Args[2:]))
 	case "run":
 		os.Exit(cmdRun(os.Args[2:]))
 	case "serve":
 		os.Exit(cmdServe(os.Args[2:]))
+	case "mcp":
+		os.Exit(cmdMCP(os.Args[2:]))
+	case "control":
+		os.Exit(cmdControl(os.Args[2:]))
 	case "observe":
 		os.Exit(cmdObserve(os.Args[2:]))
+	case "query":
+		os.Exit(cmdQuery(os.Args[2:]))
 	case "act":
 		os.Exit(cmdAct(os.Args[2:]))
 	case "session":
@@ -77,11 +94,15 @@ Usage:
 Commands:
   fetch      fetch a URL and dump html / markdown / text / title / links / structured / semantic
   download   fetch into the session-owned, policy-checked download store
+  sitemap    discover same-host page URLs from robots.txt and recursive sitemaps
   run        load a JavaScript file and execute it in the page context (--script FILE <url>)
   serve      run the JSON-over-WebSocket steering server
+  mcp        serve the Model Context Protocol on stdin/stdout
+  control    send an authenticated command and retain its reconnect identity
   observe    capture a bounded Chromium DOM/accessibility snapshot as JSON
+  query      inspect an owned page with scoped full, unchanged or delta output
   act        execute one typed Chromium action and emit evidence as JSON
-  session    manage durable profile sessions
+  session    open, list and close sessions held by the steering server
   profile    manage browser profiles
   doctor     diagnose the environment and runtime readiness
   trace      fetch a URL and emit a trace of lifecycle events
@@ -110,9 +131,7 @@ func printCapabilities(w io.Writer) error {
 	if err := artemis.ValidateCapabilityRegistry(); err != nil {
 		return err
 	}
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(struct {
+	return printJSON(w, struct {
 		Version      string               `json:"version"`
 		Capabilities []artemis.Capability `json:"capabilities"`
 	}{Version: Version, Capabilities: artemis.Capabilities()})

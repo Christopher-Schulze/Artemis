@@ -76,7 +76,7 @@ func TestSealSupplyChainArtifactsExist(t *testing.T) {
 		{"CONTRIBUTING.md", []string{"Local Gates", "Code Style"}},
 		{"CHANGELOG.md", []string{"Unreleased"}},
 		{"LICENSE", []string{"MIT License"}},
-		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"rogchap.com/v8go", "v0.9.0"}},
+		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"github.com/tommie/v8go", "v0.39.0"}},
 		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"SnapshotCreator"}},
 		{filepath.Join(".github", "workflows", "ci.yml"), []string{"test-macos-arm64", "test-linux"}},
 		{filepath.Join("docs", "release-procedures.md"), []string{"Signing", "Rollback", "Revocation"}},
@@ -157,8 +157,12 @@ func TestSealBenchmarkHarnessIsFailClosed(t *testing.T) {
 	// to false when a competitor is unavailable/skipped. We verify the
 	// Scorecard type from the benchmark package has this field.
 	sc := benchmark.NewScorecard()
+	if sc.Honest || sc.HonestReason != "no executed observations" {
+		t.Fatalf("NewScorecard should fail closed before observations: honest=%v reason=%q", sc.Honest, sc.HonestReason)
+	}
+	sc.Honest = true
 	if !sc.Honest {
-		t.Fatal("NewScorecard should default Honest to true")
+		t.Fatal("Scorecard.Honest should be settable to true")
 	}
 	sc.Honest = false
 	if sc.Honest {

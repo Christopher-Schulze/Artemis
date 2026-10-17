@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/parser"
 )
 
 func closeRenderlessTestResource(t *testing.T, label string, close func() error) {
@@ -240,24 +242,6 @@ func TestTASK2255_ContextPoolClose(t *testing.T) {
 
 // ==================== pool.go tests ====================
 
-// TestTASK2255_BuilderPool verifies builder pool
-// (spec L4022: context pool management).
-func TestTASK2255_BuilderPool(t *testing.T) {
-	p := NewBuilderPool()
-	b := p.Get()
-	if _, err := b.WriteString("hello"); err != nil {
-		t.Fatalf("write builder: %v", err)
-	}
-	if b.String() != "hello" {
-		t.Error("string mismatch")
-	}
-	p.Put(b)
-	b2 := p.Get()
-	if b2.Len() != 0 {
-		t.Error("returned builder should be reset")
-	}
-}
-
 // TestTASK2255_IsolatePool verifies isolate pool
 // (spec L4022: context pool management).
 func TestTASK2255_IsolatePool(t *testing.T) {
@@ -304,9 +288,9 @@ func TestTASK2255_WebAPIRegistry(t *testing.T) {
 // TestTASK2255_WebAPIRegistryRegister verifies registration.
 func TestTASK2255_WebAPIRegistryRegister(t *testing.T) {
 	r := NewWebAPIRegistry()
-	r.Register(WebAPIGlobal{Name: "customAPI", Type: "function", Implemented: true})
-	if !r.IsImplemented("customAPI") {
-		t.Error("customAPI should be implemented")
+	r.Register(WebAPIGlobal{Name: "fetch", Type: "function", Implemented: true})
+	if !r.IsImplemented("fetch") {
+		t.Error("actual fetch binding should be implemented")
 	}
 }
 
@@ -527,11 +511,14 @@ func TestTASK2255_IsValidInterceptAction(t *testing.T) {
 // (spec L4022: CSS parse/cascade/computed style).
 func TestTASK2255_CSSParser(t *testing.T) {
 	p := NewCSSParser()
-	rules := p.Parse("div { color: red; } .class { font-size: 14px; }")
+	rules, err := p.Parse("div { color: red; } .class { font-size: 14px; }")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rules) != 2 {
 		t.Errorf("rules: got %d, want 2", len(rules))
 	}
-	if rules[0].Selector != "div" {
+	if rules[0].SelectorRaw != "div" {
 		t.Error("first selector should be div")
 	}
 }
@@ -539,7 +526,10 @@ func TestTASK2255_CSSParser(t *testing.T) {
 // TestTASK2255_CSSParserEmpty verifies empty CSS.
 func TestTASK2255_CSSParserEmpty(t *testing.T) {
 	p := NewCSSParser()
-	rules := p.Parse("")
+	rules, err := p.Parse("")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rules) != 0 {
 		t.Error("empty CSS should produce 0 rules")
 	}
@@ -548,14 +538,22 @@ func TestTASK2255_CSSParserEmpty(t *testing.T) {
 // TestTASK2255_ComputedStyle verifies computed style
 // (spec L4022: CSS parse/cascade/computed style).
 func TestTASK2255_ComputedStyle(t *testing.T) {
-	rules := []CSSRule{
-		{Selector: "div", Properties: map[string]string{"color": "red"}, Specificity: 1},
-		{Selector: ".class", Properties: map[string]string{"color": "blue"}, Specificity: 10},
+	rules, err := NewCSSParser().Parse(`div{color:red}.class{color:blue}.class-other{color:green}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parser.ParseHTML(strings.NewReader(`<div class="class" id="target"></div>`), "https://example.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := doc.QuerySelector("#target")
+	if err != nil || node == nil {
+		t.Fatalf("actual DOM node: %v", err)
 	}
 	cs := NewComputedStyle(rules)
-	style := cs.Compute("div.class")
-	if style["color"] != "blue" {
-		t.Error("higher specificity should win")
+	value, err := cs.Compute(node.Raw(), "", "color")
+	if err != nil || value != "rgb(0, 0, 255)" {
+		t.Fatalf("actual DOM specificity must win without substring matches: %q %v", value, err)
 	}
 }
 
@@ -635,12 +633,10 @@ func TestTASK2255_FullSpecParity(t *testing.T) {
 	pool.Warm(2)
 
 	// 4. pool.go
-	bp := NewBuilderPool()
-	b := bp.Get()
-	if _, err := b.WriteString("test"); err != nil {
-		t.Fatalf("write builder: %v", err)
+	isolates := NewIsolatePool(1)
+	if _, err := isolates.Acquire(); err != nil {
+		t.Fatalf("acquire isolate slot: %v", err)
 	}
-	bp.Put(b)
 
 	// 5. webapi.go
 	registry := NewWebAPIRegistry()
@@ -658,7 +654,9 @@ func TestTASK2255_FullSpecParity(t *testing.T) {
 
 	// 9. css.go
 	cssParser := NewCSSParser()
-	cssParser.Parse("div { color: red; }")
+	if _, err := cssParser.Parse("div { color: red; }"); err != nil {
+		t.Fatal(err)
+	}
 
 	// 10. capabilities.go
 	profile := GenerateCapabilityProfile(e.Config(), registry)

@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
@@ -281,6 +284,7 @@ func TestCmdRunScriptFileNotReadable(t *testing.T) {
 }
 
 func TestCmdRunValidScript(t *testing.T) {
+	t.Setenv("AGENT_BROWSER_ACTION_POLICY", writeCLIActionPolicy(t, `{"default":"allow"}`))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeTestBody(t, w, `<!doctype html><html><head><title>RunTest</title></head><body></body></html>`)
 	}))
@@ -299,6 +303,7 @@ func TestCmdRunValidScript(t *testing.T) {
 }
 
 func TestCmdRunWithHeaders(t *testing.T) {
+	t.Setenv("AGENT_BROWSER_ACTION_POLICY", writeCLIActionPolicy(t, `{"default":"allow"}`))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Custom") != "test" {
 			t.Errorf("missing custom header")
@@ -320,10 +325,127 @@ func TestCmdRunWithHeaders(t *testing.T) {
 }
 
 func TestPrintResultText(t *testing.T) {
-	// Test with a nil value (simulated).
-	printResultText(nil) // should print empty line, not panic
+	verifyRunPrinterOutput(t, func() error { return printResultText(nil, false, "https://example.test/") }, "\n")
 }
 
 func TestPrintResultJSON(t *testing.T) {
-	printResultJSON(nil) // should print "null", not panic
+	verifyRunPrinterOutput(t, func() error { return printResultJSON(nil, "https://example.test/") },
+		`{"trust":{"origin":"https://example.test","source":"run","trust":"untrusted","threat":"untrusted_content"},"value":null}`+"\n")
+}
+
+func verifyRunPrinterOutput(t *testing.T, print func() error, want string) {
+	t.Helper()
+	output, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = output
+	defer func() {
+		os.Stdout = original
+		if err := output.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Error(err)
+		}
+	}()
+	if err := print(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := output.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(output)
+	if err != nil || string(raw) != want {
+		t.Fatalf("printer output = %q, want %q: %v", raw, want, err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := print(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("closed stdout did not fail: %v", err)
+	}
+}
+
+func TestRunScriptFileBoundsAndType(t *testing.T) {
+	root := t.TempDir()
+	for _, size := range []int64{maxRunScriptBytes, maxRunScriptBytes + 1} {
+		file, err := os.CreateTemp(root, "bounded-script-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Truncate(size); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := readRunScript(file.Name())
+		if size == maxRunScriptBytes && (err != nil || int64(len(data)) != size) {
+			t.Fatalf("exact script bound rejected: length=%d err=%v", len(data), err)
+		}
+		if size > maxRunScriptBytes && (err == nil || data != nil) {
+			t.Fatal("oversized script was read or accepted")
+		}
+	}
+	if data, err := readRunScript(root); err == nil || data != nil {
+		t.Fatal("directory admitted as a script")
+	}
+}
+
+func TestCmdRunInputAndOutputFailuresAtRealHTTPBoundary(t *testing.T) {
+	t.Setenv("AGENT_BROWSER_ACTION_POLICY", writeCLIActionPolicy(t, `{"default":"allow"}`))
+	var hits atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		writeTestBody(t, w, "<!doctype html><title>Output proof</title>")
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	oversized, err := os.Create(filepath.Join(root, "oversized.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oversized.Truncate(maxRunScriptBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := oversized.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdRun([]string{"--script", oversized.Name(), "--allow-private-networks", "--allow-port", srvPort(server), server.URL}); code != 1 || hits.Load() != 0 {
+		t.Fatalf("oversized input reached network or succeeded: code=%d hits=%d", code, hits.Load())
+	}
+	closed, err := os.Create(filepath.Join(root, "closed-stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = closed
+	defer func() { os.Stdout = original }()
+	for _, test := range []struct {
+		name   string
+		script string
+		json   bool
+	}{
+		{"text", `document.title`, false},
+		{"undefined", `undefined`, false},
+		{"json_object", `JSON.stringify({answer:42})`, true},
+		{"json_string", `document.title`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(root, test.name+".js")
+			if err := os.WriteFile(path, []byte(test.script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--script", path, "--allow-private-networks", "--allow-port", srvPort(server)}
+			if test.json {
+				args = append(args, "--json")
+			}
+			before := hits.Load()
+			if code := cmdRun(append(args, server.URL)); code != 1 || hits.Load() != before+1 {
+				t.Fatalf("real script output failure hidden: code=%d before=%d hits=%d", code, before, hits.Load())
+			}
+		})
+	}
 }

@@ -30,10 +30,12 @@ func testChromiumAgent(t *testing.T) *artemis.Agent {
 	return agent
 }
 
-func TestChromiumActDispatchesCanonicalRequest(t *testing.T) {
+func TestChromiumActRejectsUnscopedGlobalExecutor(t *testing.T) {
 	agent := testChromiumAgent(t)
 	defer stopTestAgent(t, agent)
+	called := false
 	agent.SetChromiumActions(actionExecutorFunc(func(_ context.Context, request actions.Request) actions.Outcome {
+		called = true
 		return actions.Outcome{Success: request.Kind == actions.KindScreenshot, Evidence: actions.Evidence{Action: request.Kind}}
 	}))
 
@@ -49,16 +51,8 @@ func TestChromiumActDispatchesCanonicalRequest(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), client, &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
-	if !response.OK {
-		t.Fatalf("response=%#v", response)
-	}
-	raw, err := json.Marshal(response.Value)
-	if err != nil {
-		t.Fatalf("marshal response: %v", err)
-	}
-	var result ChromiumActResult
-	if err := json.Unmarshal(raw, &result); err != nil || !result.Outcome.Success {
-		t.Fatalf("result=%#v err=%v", result, err)
+	if response.OK || response.Error == nil || response.Error.Code != string(ErrBadParams) || called {
+		t.Fatalf("unscoped action dispatched: response=%#v called=%v", response, called)
 	}
 }
 
@@ -77,7 +71,7 @@ func TestChromiumActFailsClosedWithoutRuntime(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 	response := server.dispatch(context.Background(), context.Background(), (*websocket.Conn)(nil), client, &Request{ID: "1", Cmd: string(CmdChromiumAct), Params: params}, nil)
-	if response.OK || response.Error == nil || response.Error.Code != "capability_unavailable" {
+	if response.OK || response.Error == nil || response.Error.Code != string(ErrBadParams) {
 		t.Fatalf("response=%#v", response)
 	}
 }

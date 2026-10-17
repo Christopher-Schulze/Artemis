@@ -5,7 +5,7 @@
 package v8go
 
 // #include <stdlib.h>
-// #include "v8go.h"
+// #include "context.h"
 import "C"
 import (
 	"runtime"
@@ -22,11 +22,9 @@ type ctxRef struct {
 }
 
 // ctxRegistry maps a context ref to its *ctxRef and is read on every JS->Go
-// callback via getContext. It is a sync.Map so those reads are lock-free and
-// do not contend across isolates/engines running on parallel goroutines. The
-// global RWMutex it replaced was a process-wide reader-count cache line every
-// callback touched. ctxRegMu guards only the rare lifecycle transitions (ref
-// allocation + refCount register/deregister), never the getContext read path.
+// callback via getContext. Artemis: it is a sync.Map so those reads are
+// lock-free and do not contend across isolates running on parallel
+// goroutines; ctxRegMu guards only ref allocation and refCount changes.
 var ctxRegMu sync.Mutex
 var ctxRegistry sync.Map // map[int]*ctxRef
 var ctxSeq = 0
@@ -133,6 +131,10 @@ func (c *Context) Close() {
 	c.ptr = nil
 }
 
+// IsClosed reports physical native disposal. The caller must serialize this
+// observation with context operations and close, as with the other native APIs.
+func (c *Context) IsClosed() bool { return c == nil || c.ptr == nil }
+
 func (c *Context) register() {
 	ctxRegMu.Lock()
 	if v, ok := ctxRegistry.Load(c.ref); ok {
@@ -157,10 +159,9 @@ func (c *Context) deregister() {
 	}
 }
 
-// getContext runs on every JS->Go callback (goFunctionCallback, goContext). It
-// is intentionally lock-free: ctxRef.ctx is write-once before the sync.Map
-// Store that publishes it, so a concurrent Load never observes a partial value
-// and refCount (mutated only under ctxRegMu) is never read here.
+// getContext runs on every JS->Go callback. It is lock-free: ctxRef.ctx is
+// written once before the sync.Map Store that publishes it, and refCount
+// (mutated only under ctxRegMu) is never read here.
 func getContext(ref int) *Context {
 	v, ok := ctxRegistry.Load(ref)
 	if !ok {
@@ -169,9 +170,15 @@ func getContext(ref int) *Context {
 	return v.(*ctxRef).ctx
 }
 
+// goContext returns the context with the given ref, or nil if it is
+// closed.
+//
 //export goContext
 func goContext(ref int) C.ContextPtr {
 	ctx := getContext(ref)
+	if ctx == nil {
+		return nil
+	}
 	return ctx.ptr
 }
 

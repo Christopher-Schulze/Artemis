@@ -1,8 +1,10 @@
 package observe
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,15 +16,14 @@ import (
 
 // workflow_capture.go (spec L4561: Workflow Capture Recorder).
 //
-// The WorkflowCaptureRecorder is the artemis-side browser-action recorder
-// that captures AX snapshots, stable selectors, tool-call traces, and
-// fallback screenshots during a guided workflow capture session (RPA-light,
-// spec ss3.5a.1 L1024). The recording it produces is consumed by the
-// the host workflow-capture pipeline to draft a workflow skill.
+// WorkflowCaptureRecorder stores owner-supplied AX snapshots, selectors,
+// action traces and actual optional pixels for guided workflow capture
+// (spec ss3.5a.1 L1024). Its artifact is a workflow-draft input; validation
+// of supplied data does not establish browser provenance or execute actions.
 //
 // The recorder is intentionally decoupled from the CDP layer: it accepts
-// pre-built ActionCapture records so it can be unit-tested without a live
-// browser. The bridge layer wires real CDP calls into these records.
+// action evidence supplied by its owner. RecordContext can obtain actual
+// fallback pixels through that owner's cancellable browser callback.
 //
 // Reference: research/agents/openclaw-main/extensions/browser/src/browser/pw-tools-core.activity.ts
 
@@ -30,8 +31,7 @@ import (
 type WorkflowCaptureConfig struct {
 	// Enabled gates recording. When false, Record returns an error.
 	Enabled bool
-	// ScreenshotFallback triggers a screenshot capture when selector
-	// confidence falls below SelectorConfidenceThreshold.
+	// ScreenshotFallback requests real pixels below the confidence threshold.
 	ScreenshotFallback bool
 	// SelectorConfidenceThreshold is the confidence below which a screenshot
 	// fallback is taken (default 0.7).
@@ -39,8 +39,14 @@ type WorkflowCaptureConfig struct {
 	// ScreenshotDir is where fallback screenshots are written. Empty means
 	// screenshots are kept in-memory only (path stays empty).
 	ScreenshotDir string
-	// MaxActions caps the recording length; 0 = unlimited.
+	// MaxActions caps the recording length; zero selects 128.
 	MaxActions int
+	// MaxBytes bounds charged recording content, including fallback pixels.
+	// Zero selects 8 MiB; metadata reserves 4096 bytes within this bound.
+	MaxBytes int
+	// CaptureScreenshot is supplied by the owning browser. Nil reports missing
+	// fallback evidence instead of manufacturing screenshot metadata.
+	CaptureScreenshot func(context.Context, string) (*CapturedScreenshot, error)
 }
 
 // DefaultWorkflowCaptureConfig returns the canonical recorder config.
@@ -74,8 +80,8 @@ type CapturedSelector struct {
 type CapturedAXSnapshot struct {
 	Timestamp time.Time `json:"timestamp"`
 	NodeCount int       `json:"node_count"`
-	// Nodes is a truncated snapshot (first N interactive nodes) to keep
-	// recordings compact. Full snapshots are written to disk separately.
+	// Nodes holds the source's observed bounded projection; NodeCount retains
+	// its observed total rather than claiming that omissions were captured.
 	Nodes []AXNode `json:"nodes,omitempty"`
 }
 
@@ -99,14 +105,15 @@ type CapturedToolCall struct {
 
 // ActionCapture is a single recorded browser action (spec L4561).
 type ActionCapture struct {
-	Index         int                 `json:"index"`
-	ToolCall      CapturedToolCall    `json:"tool_call"`
-	AXBefore      *CapturedAXSnapshot `json:"ax_before,omitempty"`
-	AXAfter       *CapturedAXSnapshot `json:"ax_after,omitempty"`
-	Selectors     []CapturedSelector  `json:"selectors"`
-	Screenshot    *CapturedScreenshot `json:"screenshot,omitempty"`
-	Timestamp     time.Time           `json:"timestamp"`
-	IsDestructive bool                `json:"is_destructive"`
+	Index            int                 `json:"index"`
+	ToolCall         CapturedToolCall    `json:"tool_call"`
+	AXBefore         *CapturedAXSnapshot `json:"ax_before,omitempty"`
+	AXAfter          *CapturedAXSnapshot `json:"ax_after,omitempty"`
+	Selectors        []CapturedSelector  `json:"selectors"`
+	Screenshot       *CapturedScreenshot `json:"screenshot,omitempty"`
+	ScreenshotNeeded bool                `json:"screenshot_needed,omitempty"`
+	Timestamp        time.Time           `json:"timestamp"`
+	IsDestructive    bool                `json:"is_destructive"`
 }
 
 // WorkflowRecording is a complete recorded workflow session (spec L4561).
@@ -133,11 +140,15 @@ type WorkflowCaptureStats struct {
 // WorkflowCaptureRecorder records browser actions into a WorkflowRecording
 // (spec L4561). It is safe for concurrent use.
 type WorkflowCaptureRecorder struct {
-	mu        sync.Mutex
-	cfg       WorkflowCaptureConfig
-	recording *WorkflowRecording
-	stats     WorkflowCaptureStats
-	now       func() time.Time
+	mu            sync.Mutex
+	cfg           WorkflowCaptureConfig
+	recording     *WorkflowRecording
+	stats         WorkflowCaptureStats
+	now           func() time.Time
+	stopped       bool
+	bytes         int
+	captureLease  chan struct{}
+	captureCancel context.CancelFunc
 }
 
 // NewWorkflowCaptureRecorder creates a recorder for the given operator and
@@ -146,8 +157,16 @@ func NewWorkflowCaptureRecorder(cfg WorkflowCaptureConfig, operatorID, name stri
 	if cfg.SelectorConfidenceThreshold <= 0 {
 		cfg.SelectorConfidenceThreshold = 0.7
 	}
+	if cfg.MaxActions == 0 {
+		cfg.MaxActions = 128
+	}
+	if cfg.MaxBytes == 0 {
+		cfg.MaxBytes = 8 * 1024 * 1024
+	}
 	return &WorkflowCaptureRecorder{
-		cfg: cfg,
+		cfg:          cfg,
+		bytes:        4096,
+		captureLease: make(chan struct{}, 1),
 		recording: &WorkflowRecording{
 			ID:         fmt.Sprintf("wf-%d", time.Now().UnixNano()),
 			OperatorID: operatorID,
@@ -172,17 +191,49 @@ func (r *WorkflowCaptureRecorder) SetNow(fn func() time.Time) {
 // error if the recorder is disabled or the action cap is reached. The
 // action's Index is assigned automatically.
 func (r *WorkflowCaptureRecorder) Record(action ActionCapture) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return r.RecordContext(context.Background(), action)
+}
 
+// RecordContext admits an immutable action and optional actual fallback pixels.
+func (r *WorkflowCaptureRecorder) RecordContext(ctx context.Context, action ActionCapture) error {
+	if r == nil || r.captureLease == nil || ctx == nil {
+		return fmt.Errorf("workflow capture: recorder and context required")
+	}
 	r.stats.Total.Add(1)
+	select {
+	case r.captureLease <- struct{}{}:
+		defer func() { <-r.captureLease }()
+	case <-ctx.Done():
+		r.stats.Errors.Add(1)
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+		r.mu.Lock()
+		r.captureCancel = nil
+		r.mu.Unlock()
+	}()
+	r.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		r.mu.Unlock()
+		r.stats.Errors.Add(1)
+		return err
+	}
+	if r.stopped || r.cfg.MaxActions < 1 || r.cfg.MaxBytes < 4096 || math.IsNaN(r.cfg.SelectorConfidenceThreshold) || math.IsInf(r.cfg.SelectorConfidenceThreshold, 0) || r.cfg.SelectorConfidenceThreshold > 1 || len(r.recording.Name) > 256 || len(r.recording.OperatorID) > 128 {
+		r.mu.Unlock()
+		r.stats.Errors.Add(1)
+		return fmt.Errorf("workflow capture: stopped or invalid recording bounds")
+	}
 
 	if !r.cfg.Enabled {
+		r.mu.Unlock()
 		r.stats.Errors.Add(1)
 		return fmt.Errorf("workflow capture: disabled")
 	}
 
 	if r.cfg.MaxActions > 0 && len(r.recording.Actions) >= r.cfg.MaxActions {
+		r.mu.Unlock()
 		r.stats.Errors.Add(1)
 		return fmt.Errorf("workflow capture: max actions (%d) reached", r.cfg.MaxActions)
 	}
@@ -192,16 +243,68 @@ func (r *WorkflowCaptureRecorder) Record(action ActionCapture) error {
 		action.Timestamp = r.now()
 	}
 
-	// Screenshot fallback: if confidence is below threshold, flag for screenshot.
+	if err := validateCaptureShape(action); err != nil {
+		r.mu.Unlock()
+		r.stats.Errors.Add(1)
+		return err
+	}
+	r.captureCancel = cancel
+	r.mu.Unlock()
+	action = cloneActionCapture(action)
+	// Missing pixels are explicit; only the browser owner can supply them.
 	if r.cfg.ScreenshotFallback && action.Screenshot == nil {
 		if minConfidence(action.Selectors) < r.cfg.SelectorConfidenceThreshold {
-			action.Screenshot = &CapturedScreenshot{
-				Timestamp: r.now(),
-				Reason:    fmt.Sprintf("selector confidence below %.2f", r.cfg.SelectorConfidenceThreshold),
+			action.ScreenshotNeeded = true
+			if r.cfg.CaptureScreenshot != nil {
+				var err error
+				action.Screenshot, err = r.cfg.CaptureScreenshot(ctx, "low_selector_confidence")
+				if err != nil {
+					r.stats.Errors.Add(1)
+					return fmt.Errorf("workflow capture: fallback pixels: %w", err)
+				}
+				if action.Screenshot == nil {
+					r.stats.Errors.Add(1)
+					return fmt.Errorf("workflow capture: browser owner returned no fallback pixels")
+				}
+				copied := *action.Screenshot
+				action.Screenshot = &copied
 			}
-			r.stats.Screenshots.Add(1)
 		}
-	} else if action.Screenshot != nil {
+	}
+	if err := ctx.Err(); err != nil {
+		r.stats.Errors.Add(1)
+		return err
+	}
+	charge, err := validateCapturePayload(action)
+	if r.cfg.ScreenshotDir != "" && action.Screenshot != nil && action.Screenshot.DataB64 != "" {
+		// Reserve escaped path metadata before any new image file is created.
+		charge += 6 * (len(r.cfg.ScreenshotDir) + 128)
+	}
+	if err != nil || charge > r.cfg.MaxBytes-r.bytes {
+		r.stats.Errors.Add(1)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("workflow capture: recording byte budget exceeded")
+	}
+	if err := ctx.Err(); err != nil {
+		r.stats.Errors.Add(1)
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopped {
+		r.stats.Errors.Add(1)
+		return fmt.Errorf("workflow capture: stopped before publication")
+	}
+	if action.Screenshot != nil {
+		if r.cfg.ScreenshotDir != "" && action.Screenshot.DataB64 != "" {
+			if err := persistCapturedPixels(action.Screenshot, r.cfg.ScreenshotDir, r.recording.ID, action.Index); err != nil {
+				r.stats.Errors.Add(1)
+				return err
+			}
+		}
+		action.ScreenshotNeeded = false
 		r.stats.Screenshots.Add(1)
 	}
 
@@ -209,7 +312,8 @@ func (r *WorkflowCaptureRecorder) Record(action ActionCapture) error {
 		r.stats.Destructive.Add(1)
 	}
 
-	r.recording.Actions = append(r.recording.Actions, action)
+	r.recording.Actions = append(r.recording.Actions, cloneActionCapture(action))
+	r.bytes += charge
 	r.stats.Recorded.Add(1)
 	return nil
 }
@@ -218,16 +322,22 @@ func (r *WorkflowCaptureRecorder) Record(action ActionCapture) error {
 func (r *WorkflowCaptureRecorder) Stop() *WorkflowRecording {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.recording.EndTime = r.now()
-	r.recording.TotalDurationMs = r.recording.EndTime.Sub(r.recording.StartTime).Milliseconds()
-	return r.recording
+	if !r.stopped {
+		r.stopped = true
+		if r.captureCancel != nil {
+			r.captureCancel()
+		}
+		r.recording.EndTime = r.now()
+		r.recording.TotalDurationMs = max(0, r.recording.EndTime.Sub(r.recording.StartTime).Milliseconds())
+	}
+	return cloneWorkflowRecording(r.recording)
 }
 
 // Recording returns the current in-progress recording without finalizing.
 func (r *WorkflowCaptureRecorder) Recording() *WorkflowRecording {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.recording
+	return cloneWorkflowRecording(r.recording)
 }
 
 // Stats returns a snapshot of the recorder counters.
@@ -244,11 +354,17 @@ func (r *WorkflowCaptureRecorder) Stats() (total, recorded, screenshots, destruc
 // recording must be stopped first (or Stop is called implicitly). Parent
 // directories are created with 0700 permissions; the file is written 0600.
 func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
+	if r == nil || len(r.recording.Name) > 256 || len(r.recording.OperatorID) > 128 || r.cfg.MaxBytes < 4096 {
+		return fmt.Errorf("workflow capture: valid bounded recorder required for saving")
+	}
 	path = filepath.Clean(path)
 	rec := r.Stop()
-	data, err := json.MarshalIndent(rec, "", "  ")
+	data, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("workflow capture: marshal: %w", err)
+	}
+	if len(data) > r.cfg.MaxBytes {
+		return fmt.Errorf("workflow capture: serialized recording exceeds byte budget")
 	}
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
@@ -256,7 +372,7 @@ func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
 			return fmt.Errorf("workflow capture: mkdir: %w", err)
 		}
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeNewCaptureFile(path, data); err != nil {
 		return fmt.Errorf("workflow capture: write: %w", err)
 	}
 	r.stats.SavedToFile.Add(1)

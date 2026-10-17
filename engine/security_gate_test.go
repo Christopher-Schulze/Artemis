@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T) {
@@ -24,9 +26,14 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		if _, _, err := controller.BeginRequest(context.Background()); !IsBudgetExceeded(err) {
 			t.Fatalf("request exhaustion error=%v", err)
 		}
-		usage := controller.usage()
+		usage := controller.sessionUsage("request-gate")
 		if usage.Requests != 1 || usage.Concurrent != 0 || !usage.Cancelled {
 			t.Fatalf("request exhaustion usage=%+v", usage)
+		}
+		if _, finishOther, err := controller.BeginRequest(network.WithSessionID(context.Background(), "other")); err != nil {
+			t.Fatalf("another session was cancelled by this session's breach: %v", err)
+		} else if err := finishOther(0); err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -42,7 +49,7 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		if err := finish(5); !IsBudgetExceeded(err) {
 			t.Fatalf("response exhaustion error=%v", err)
 		}
-		usage := controller.usage()
+		usage := controller.sessionUsage("response-gate")
 		if usage.ResponseBytes != 0 || usage.Concurrent != 0 || !usage.Cancelled {
 			t.Fatalf("response exhaustion usage=%+v", usage)
 		}
@@ -60,19 +67,22 @@ func TestSecurityGateSessionRequestResponseAndConcurrencyExhaustion(t *testing.T
 		if _, _, err := controller.BeginRequest(context.Background()); !IsBudgetExceeded(err) {
 			t.Fatalf("concurrency exhaustion error=%v", err)
 		}
+		// Concurrency is admission control: the in-flight request continues.
 		select {
 		case <-requestCtx.Done():
-			if !IsBudgetExceeded(context.Cause(requestCtx)) {
-				t.Fatalf("in-flight cancellation cause=%v", context.Cause(requestCtx))
-			}
-		case <-time.After(time.Second):
-			t.Fatal("in-flight request survived concurrency exhaustion")
+			t.Fatalf("in-flight request was cancelled by a refused admission: %v", context.Cause(requestCtx))
+		case <-time.After(100 * time.Millisecond):
 		}
-		if err := finish(0); !IsBudgetExceeded(err) {
-			t.Fatalf("finish after concurrency exhaustion error=%v", err)
+		if err := finish(0); err != nil {
+			t.Fatalf("finish after refused concurrent admission error=%v", err)
 		}
-		if usage := controller.usage(); usage.Concurrent != 0 {
-			t.Fatalf("concurrency lease leaked: %+v", usage)
+		if usage := controller.usage(); usage.Concurrent != 0 || usage.Cancelled {
+			t.Fatalf("concurrency lease leaked or engine cancelled: %+v", usage)
+		}
+		if _, again, err := controller.BeginRequest(context.Background()); err != nil {
+			t.Fatalf("freed concurrency slot not reusable: %v", err)
+		} else if err := again(0); err != nil {
+			t.Fatal(err)
 		}
 	})
 }

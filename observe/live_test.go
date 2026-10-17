@@ -55,7 +55,11 @@ func (liveCaller) Call(_ context.Context, method string, _ any, result any) erro
 	case "DOM.getDocument":
 		value = map[string]any{"root": map[string]any{"backendNodeId": 1}}
 	case "DOM.getNodeForLocation":
-		value = map[string]any{"backendNodeId": 4}
+		value = map[string]any{"backendNodeId": 4, "frameId": "main"}
+	case "DOM.getContentQuads":
+		value = map[string]any{"quads": [][]float64{{10, 10, 110, 10, 110, 40, 10, 40}}}
+	case "Page.getLayoutMetrics":
+		value = map[string]any{"cssLayoutViewport": map[string]int{"pageX": 0, "pageY": 0, "clientWidth": 800, "clientHeight": 600}}
 	case "Performance.getMetrics":
 		value = map[string]any{"metrics": []any{
 			map[string]any{"name": "ResourceCount", "value": 4},
@@ -106,6 +110,9 @@ func TestLiveCollectorOwnsCompleteBoundedEvidence(t *testing.T) {
 	if len(evidence.Snapshot.Nodes) == 0 || len(evidence.Network) < 2 || len(evidence.Console) != 2 {
 		t.Fatalf("evidence snapshot=%d network=%d console=%d", len(evidence.Snapshot.Nodes), len(evidence.Network), len(evidence.Console))
 	}
+	if len(evidence.Snapshot.Warnings) != 0 || !evidence.Snapshot.Nodes[len(evidence.Snapshot.Nodes)-1].Interactable {
+		t.Fatalf("live evidence fixture lacks real protocol hit evidence: %+v", evidence.Snapshot)
+	}
 	if evidence.Metrics.RequestCount != 4 || evidence.Metrics.FirstContentfulPaint != 200*time.Millisecond {
 		t.Fatalf("metrics=%+v", evidence.Metrics)
 	}
@@ -126,4 +133,31 @@ func TestLiveCollectorOwnsCompleteBoundedEvidence(t *testing.T) {
 func bridgeEvent(method string, params any) bridge.CDPEvent {
 	raw, _ := json.Marshal(params)
 	return bridge.CDPEvent{Method: method, Params: raw}
+}
+
+func TestLiveCollectorCloseDrainsOwnedBuffersAndSubscribers(t *testing.T) {
+	collector, err := NewLiveCollector(liveCaller{}, nil, DefaultLiveConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector.RecordNetwork(NetworkEvent{RequestID: "retained", URL: "https://fixture.test"})
+	collector.RecordConsole(ConsoleEntry{Level: ConsoleLevelInfo, Args: []string{"retained"}})
+	collector.recordEvent(bridgeEvent("Network.requestWillBeSent", map[string]any{
+		"requestId": "pending", "request": map[string]any{"url": "https://fixture.test/pending", "method": "GET"},
+	}))
+	var delivered bool
+	collector.network.Subscribe(func(NetworkEvent) { delivered = true })
+	if collector.network.Len() != 1 || len(collector.pending) != 1 {
+		t.Fatal("cleanup fixture did not exercise retained data")
+	}
+	if err := collector.Close(); err != nil {
+		t.Fatal(err)
+	}
+	collector.RecordNetwork(NetworkEvent{RequestID: "late"})
+	if collector.network.Len() != 0 || collector.network.SubscriberCount() != 0 || collector.console.Len() != 0 || len(collector.pending) != 0 || delivered {
+		t.Fatal("closed collector retained buffers, callbacks or late events")
+	}
+	if _, err := collector.CaptureEvidence(t.Context()); err == nil {
+		t.Fatal("retired collector still captured evidence")
+	}
 }

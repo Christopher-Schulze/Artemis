@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,9 +14,31 @@ import (
 )
 
 func TestDoctorJSONExitCode(t *testing.T) {
-	code := cmdDoctor([]string{"--format", "json"})
-	if code != 0 {
-		t.Fatalf("doctor exit code = %d, want 0", code)
+	code, raw := captureCLIOutput(t, func() int { return cmdDoctor([]string{"--format", "json"}) })
+	var result DoctorResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("doctor must report real diagnostics even on failed readiness: %v: %s", err, raw)
+	}
+	if result.Version != Version || result.Go != runtime.Version() || result.OS != runtime.GOOS || result.Arch != runtime.GOARCH || len(result.Checks) != 4 {
+		t.Fatalf("wrong diagnostic platform/schema: %+v", result)
+	}
+	allPassed := true
+	for index, name := range []string{"chromium_binary", "chromium", "agent_start", "capabilities"} {
+		check := result.Checks[index]
+		if check.Name != name || check.Message == "" {
+			t.Fatalf("missing measured diagnostic check: %+v", check)
+		}
+		allPassed = allPassed && check.OK
+		if name == "chromium" && check.OK && (!strings.Contains(check.Message, "CDP ") || !strings.Contains(check.Message, "shutdown verified")) {
+			t.Fatalf("readiness claimed without runtime/shutdown identity: %+v", check)
+		}
+	}
+	wantCode := 1
+	if allPassed {
+		wantCode = 0
+	}
+	if result.OK != allPassed || code != wantCode {
+		t.Fatalf("measured checks contradict overall/exit status: code=%d result=%+v", code, result)
 	}
 }
 

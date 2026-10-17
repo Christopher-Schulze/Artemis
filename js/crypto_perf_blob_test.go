@@ -11,7 +11,7 @@ func TestCryptoSubtleDigestSHA256(t *testing.T) {
 		var captured = '';
 		(async () => {
 			const data = new TextEncoder().encode('abc');
-			const buf = await crypto.subtle.digest('SHA-256', data);
+			const buf = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
 			let hex = '';
 			for (let i = 0; i < buf.length; i++) {
 				hex += (buf[i] < 16 ? '0' : '') + buf[i].toString(16);

@@ -1,9 +1,10 @@
 package platform
 
 import (
-	"os"
 	"runtime"
-	"strings"
+	"time"
+
+	"github.com/Christopher-Schulze/Artemis/internal/jpegcodec"
 )
 
 // PlatformCapabilities reports runtime feature availability (spec ss28.15.11 P8.5).
@@ -15,31 +16,43 @@ type PlatformCapabilities struct {
 	NumCPU          int
 	TotalMemoryMB   uint64
 	IsContainerized bool
+	Evidence        CapabilityEvidence
 }
 
-// Detect builds capabilities from GOOS/GOARCH.
+// Detect freezes current host observations and the linked JPEG implementation.
+// Physical memory is not a session budget or a container memory limit.
 func Detect() PlatformCapabilities {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-	caps := PlatformCapabilities{
-		NumCPU:          runtime.NumCPU(),
-		IsContainerized: isContainerized(),
+	evidence := CapabilityEvidence{
+		ObservedAt:  time.Now().UTC(),
+		TCPFastOpen: probeTCPFastOpen(), CPUAffinity: probeCPUAffinity(),
+		Mmap: probeMmap(), Memory: probeMemory(), Container: probeContainer(),
+		CPU:          ProbeResult{State: StateAvailable, Source: "runtime.NumCPU", Reason: "runtime-reported logical processor count", Value: uint64(runtime.NumCPU())},
+		HardwareJPEG: probeJPEG(),
 	}
-	switch osName {
-	case "linux":
-		caps.HasTCPFastOpen = true
-		caps.HasCPUAffinity = true
-		caps.HasMmap = true
-		if arch == "amd64" || arch == "arm64" {
-			caps.HasHWJPEGDecode = true
-		}
-	case "darwin":
-		caps.HasMmap = true
-		if arch == "arm64" {
-			caps.HasHWJPEGDecode = true
-		}
+	return PlatformCapabilities{
+		HasTCPFastOpen:  evidence.TCPFastOpen.State == StateAvailable,
+		HasCPUAffinity:  evidence.CPUAffinity.State == StateAvailable,
+		HasMmap:         evidence.Mmap.State == StateAvailable,
+		HasHWJPEGDecode: evidence.HardwareJPEG.State == StateAvailable,
+		NumCPU:          int(evidence.CPU.Value), TotalMemoryMB: evidence.Memory.Value / (1024 * 1024),
+		IsContainerized: evidence.Container.State == StateAvailable && evidence.Container.Value == 1,
+		Evidence:        evidence,
 	}
-	return caps
+}
+
+func probeJPEG() ProbeResult {
+	backend := jpegcodec.Probe()
+	result := ProbeResult{State: StateUnavailable, Source: "linked JPEG codec admission", Reason: backend.Reason}
+	if backend.Path != "" {
+		result.Source = backend.Path
+	}
+	if backend.ObservationFailed {
+		result.State = StateUnknown
+	}
+	if backend.Available {
+		result.State, result.Value = StateAvailable, 1
+	}
+	return result
 }
 
 // isContainerized detects whether the process is running inside a
@@ -48,31 +61,6 @@ func Detect() PlatformCapabilities {
 // mentions docker, containerd, kubepods, or lxc in /proc/1/cgroup
 // (Linux only). On non-Linux platforms it returns false.
 func isContainerized() bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-	// Docker creates /.dockerenv in every container.
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	// Legacy Docker.
-	if _, err := os.Stat("/.dockerinit"); err == nil {
-		return true
-	}
-	// Check /proc/1/cgroup for container runtime markers.
-	data, err := os.ReadFile("/proc/1/cgroup")
-	if err == nil {
-		lower := strings.ToLower(string(data))
-		for _, marker := range []string{"docker", "containerd", "kubepods", "lxc", "kubernetes"} {
-			if strings.Contains(lower, marker) {
-				return true
-			}
-		}
-	}
-	// Check /proc/self/mountinfo for overlay filesystem (common in containers).
-	data, err = os.ReadFile("/proc/self/mountinfo")
-	if err == nil {
-		return strings.Contains(string(data), "overlay")
-	}
-	return false
+	result := probeContainer()
+	return result.State == StateAvailable && result.Value == 1
 }

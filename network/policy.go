@@ -5,13 +5,18 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/netip"
 	"net/url"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/platform"
 
 	"golang.org/x/net/idna"
 )
@@ -44,13 +49,14 @@ var (
 )
 
 type Decision struct {
-	Action    DecisionAction `json:"action"`
-	Kind      TargetKind     `json:"kind"`
-	Scheme    string         `json:"scheme"`
-	Host      string         `json:"host"`
-	Port      int            `json:"port"`
-	Reason    string         `json:"reason"`
-	SessionID string         `json:"session_id,omitempty"`
+	Action      DecisionAction        `json:"action"`
+	Kind        TargetKind            `json:"kind"`
+	Scheme      string                `json:"scheme"`
+	Host        string                `json:"host"`
+	Port        int                   `json:"port"`
+	Reason      string                `json:"reason"`
+	SessionID   string                `json:"session_id,omitempty"`
+	TCPFastOpen *platform.ProbeResult `json:"tcp_fast_open,omitempty"`
 }
 
 type DecisionSink func(Decision) error
@@ -94,15 +100,32 @@ type Policy struct {
 	resolver Resolver
 	dialer   net.Dialer
 	sink     DecisionSink
+	filter   atomic.Pointer[requestFilterHolder]
 }
 
 func NewPolicy(config PolicyConfig, resolver Resolver, sink DecisionSink) (*Policy, error) {
+	if err := validateRawPolicyConfig(config); err != nil {
+		return nil, err
+	}
+	domains, err := normalizePolicyDomains(config.AllowedDomains)
+	if err != nil {
+		return nil, err
+	}
+	config.AllowedDomains = domains
 	config = normalizePolicyConfig(config)
 	if err := validatePolicyConfig(config); err != nil {
 		return nil, err
 	}
 	if resolver == nil {
 		resolver = net.DefaultResolver
+	} else {
+		value := reflect.ValueOf(resolver)
+		switch value.Kind() {
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+			if value.IsNil() {
+				return nil, errors.New("network policy: nil resolver")
+			}
+		}
 	}
 	return &Policy{config: config, resolver: resolver, dialer: net.Dialer{Timeout: config.DialTimeout}, sink: sink}, nil
 }
@@ -223,8 +246,48 @@ func (p *Policy) ValidateDownloadSize(size int64, sessionID string) error {
 }
 
 func (p *Policy) ValidateRequest(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
-	if p == nil {
-		return fmt.Errorf("%w: policy required", ErrPolicyDenied)
+	if err := p.validateRequestShape(ctx, method, contentType, contentLength, kind, sessionID); err != nil {
+		return err
+	}
+	if err := p.filterRequest(ctx, rawURL, kind, sessionID); err != nil {
+		return err
+	}
+	_, err := p.ResolveURL(ctx, rawURL, kind, sessionID)
+	return err
+}
+
+// ValidateProxiedRequest admits a request that an upstream proxy resolves and
+// connects. Spec L4148: with a proxy, DNS must come from the proxy, so hostname
+// targets are never resolved locally. Methods, bodies, schemes, ports, domains,
+// blocked names and literal addresses are still enforced fail-closed.
+func (p *Policy) ValidateProxiedRequest(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
+	if err := p.validateRequestShape(ctx, method, contentType, contentLength, kind, sessionID); err != nil {
+		return err
+	}
+	if err := p.filterRequest(ctx, rawURL, kind, sessionID); err != nil {
+		return err
+	}
+	parsed, host, port, err := p.admitTarget(ctx, rawURL, kind, sessionID)
+	if err != nil {
+		return err
+	}
+	if address, parseErr := netip.ParseAddr(host); parseErr == nil {
+		if err := p.admitAddresses(kind, parsed, sessionID, []netip.Addr{address}); err != nil {
+			return err
+		}
+	}
+	if err := p.emit(Decision{Action: DecisionAllow, Kind: kind, Scheme: parsed.Scheme, Host: host, Port: port, Reason: "policy_match_proxied", SessionID: sessionID}); err != nil {
+		return fmt.Errorf("%w: %w", ErrPolicyDenied, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrPolicyDenied, err)
+	}
+	return nil
+}
+
+func (p *Policy) validateRequestShape(ctx context.Context, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
+	if err := p.validateContext(ctx); err != nil {
+		return err
 	}
 	if !containsString(p.config.AllowedMethods, strings.ToUpper(strings.TrimSpace(method))) {
 		return p.deny(kind, nil, sessionID, "method_not_allowed")
@@ -235,44 +298,73 @@ func (p *Policy) ValidateRequest(ctx context.Context, rawURL, method, contentTyp
 	if contentLength > p.config.MaxRequestBodyBytes {
 		return p.deny(kind, nil, sessionID, "request_body_too_large")
 	}
-	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
-	if contentLength > 0 && mediaType != "" && !containsString(p.config.AllowedContentTypes, mediaType) {
-		return p.deny(kind, nil, sessionID, "content_type_not_allowed")
+	if contentLength > 0 {
+		mediaType, _, err := mime.ParseMediaType(contentType)
+		if err != nil || !containsString(p.config.AllowedContentTypes, mediaType) {
+			return p.deny(kind, nil, sessionID, "content_type_not_allowed")
+		}
 	}
-	_, err := p.ResolveURL(ctx, rawURL, kind, sessionID)
-	return err
+	return nil
 }
 
-func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind, sessionID string) ([]netip.Addr, error) {
+// admitTarget applies every URL rule that needs no DNS resolution.
+func (p *Policy) admitTarget(ctx context.Context, rawURL string, kind TargetKind, sessionID string) (*url.URL, string, int, error) {
+	if err := p.validateContext(ctx); err != nil {
+		return nil, "", 0, err
+	}
+	if !validTargetKind(kind) {
+		return nil, "", 0, p.deny(kind, nil, sessionID, "invalid_target_kind")
+	}
 	parsed, err := parsePolicyURL(rawURL)
 	if err != nil {
-		return nil, p.deny(kind, parsed, sessionID, "invalid_url")
+		return nil, "", 0, p.deny(kind, parsed, sessionID, "invalid_url")
 	}
 	if !containsString(p.config.AllowedSchemes, parsed.Scheme) {
-		return nil, p.deny(kind, parsed, sessionID, "scheme_not_allowed")
+		return nil, "", 0, p.deny(kind, parsed, sessionID, "scheme_not_allowed")
 	}
 	port, err := policyPort(parsed)
 	if err != nil || !containsInt(p.config.AllowedPorts, port) {
-		return nil, p.deny(kind, parsed, sessionID, "port_not_allowed")
+		return nil, "", 0, p.deny(kind, parsed, sessionID, "port_not_allowed")
 	}
 	host, err := normalizePolicyHost(parsed.Hostname())
 	if err != nil || blockedHostname(host) || !domainAllowed(host, p.config.AllowedDomains) {
-		return nil, p.deny(kind, parsed, sessionID, "host_not_allowed")
+		return nil, "", 0, p.deny(kind, parsed, sessionID, "host_not_allowed")
+	}
+	return parsed, host, port, nil
+}
+
+func (p *Policy) admitAddresses(kind TargetKind, parsed *url.URL, sessionID string, addresses []netip.Addr) error {
+	for _, address := range addresses {
+		if alwaysBlockedAddress(address) {
+			return p.deny(kind, parsed, sessionID, "non_destination_address")
+		}
+		if !p.config.AllowPrivateNetworks && blockedAddress(address) {
+			return p.deny(kind, parsed, sessionID, "non_public_address")
+		}
+	}
+	return nil
+}
+
+func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind, sessionID string) ([]netip.Addr, error) {
+	parsed, host, port, err := p.admitTarget(ctx, rawURL, kind, sessionID)
+	if err != nil {
+		return nil, err
 	}
 	addresses, err := p.resolveHost(ctx, host)
 	if err != nil {
-		return nil, p.deny(kind, parsed, sessionID, "dns_failed")
+		return nil, errors.Join(err, p.deny(kind, parsed, sessionID, "dns_failed"))
 	}
-	for _, address := range addresses {
-		if alwaysBlockedAddress(address) {
-			return nil, p.deny(kind, parsed, sessionID, "non_destination_address")
-		}
-		if !p.config.AllowPrivateNetworks && blockedAddress(address) {
-			return nil, p.deny(kind, parsed, sessionID, "non_public_address")
-		}
+	if err := p.admitAddresses(kind, parsed, sessionID, addresses); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(ErrPolicyDenied, err)
 	}
 	if err := p.emit(Decision{Action: DecisionAllow, Kind: kind, Scheme: parsed.Scheme, Host: host, Port: port, Reason: "policy_match", SessionID: sessionID}); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicyDenied, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(ErrPolicyDenied, err)
 	}
 	return addresses, nil
 }
@@ -289,6 +381,21 @@ func (p *Policy) DialContextFor(sessionID string) func(context.Context, string, 
 }
 
 func (p *Policy) dialContext(ctx context.Context, networkName, address, sessionID string) (net.Conn, error) {
+	if p == nil {
+		return nil, fmt.Errorf("%w: policy required", ErrPolicyDenied)
+	}
+	return p.dialContextWithDialer(ctx, networkName, address, sessionID, &p.dialer)
+}
+
+func (p *Policy) dialContextWithDialer(ctx context.Context, networkName, address, sessionID string, dialer *net.Dialer) (net.Conn, error) {
+	if err := p.validateContext(ctx); err != nil {
+		return nil, err
+	}
+	if networkName != "tcp" && networkName != "tcp4" && networkName != "tcp6" {
+		return nil, p.dialDeny(networkName, "", 0, sessionID, "invalid_socket_network")
+	}
+	ctx, cancel := context.WithTimeout(ctx, p.config.DialTimeout)
+	defer cancel()
 	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, p.dialDeny(networkName, "", 0, sessionID, "invalid_dial_address")
@@ -303,9 +410,9 @@ func (p *Policy) dialContext(ctx context.Context, networkName, address, sessionI
 	}
 	addresses, err := p.resolveHost(ctx, host)
 	if err != nil {
-		return nil, errors.Join(ErrDNSFailure, p.dialDeny(networkName, host, port, sessionID, "dns_failed"))
+		return nil, errors.Join(err, p.dialDeny(networkName, host, port, sessionID, "dns_failed"))
 	}
-	var dialErrors []string
+	var dialErrors []error
 	for _, candidate := range addresses {
 		if alwaysBlockedAddress(candidate) {
 			return nil, p.dialDeny(networkName, host, port, sessionID, "non_destination_address")
@@ -318,25 +425,33 @@ func (p *Policy) dialContext(ctx context.Context, networkName, address, sessionI
 		return nil, fmt.Errorf("%w: %w", ErrPolicyDenied, err)
 	}
 	for _, candidate := range addresses {
-		connection, dialErr := p.dialer.DialContext(ctx, networkName, net.JoinHostPort(candidate.String(), portText))
+		connection, dialErr := dialer.DialContext(ctx, networkName, net.JoinHostPort(candidate.String(), portText))
 		if dialErr == nil {
 			return connection, nil
 		}
-		dialErrors = append(dialErrors, dialErr.Error())
+		dialErrors = append(dialErrors, dialErr)
 	}
-	return nil, fmt.Errorf("network policy dial failed: %s", strings.Join(dialErrors, "; "))
+	return nil, fmt.Errorf("network policy dial failed: %w", errors.Join(dialErrors...))
 }
 
 func (p *Policy) resolveHost(ctx context.Context, host string) ([]netip.Addr, error) {
 	if address, ok := parsePolicyAddress(host); ok {
 		return []netip.Addr{address}, nil
 	}
-	addresses, err := p.resolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(addresses) == 0 {
-		return nil, ErrDNSFailure
+	lookupCtx, cancel := context.WithTimeout(ctx, p.config.DialTimeout)
+	defer cancel()
+	addresses, err := p.resolver.LookupNetIP(lookupCtx, "ip", host)
+	if lookupCtx.Err() != nil {
+		return nil, errors.Join(ErrDNSFailure, lookupCtx.Err())
+	}
+	if err != nil || len(addresses) == 0 || len(addresses) > 64 {
+		return nil, errors.Join(ErrDNSFailure, err)
 	}
 	set := make(map[netip.Addr]struct{}, len(addresses))
 	for _, address := range addresses {
+		if !address.IsValid() || address.Zone() != "" {
+			return nil, ErrDNSFailure
+		}
 		set[address.Unmap()] = struct{}{}
 	}
 	result := make([]netip.Addr, 0, len(set))
@@ -348,8 +463,11 @@ func (p *Policy) resolveHost(ctx context.Context, host string) ([]netip.Addr, er
 }
 
 func parsePolicyURL(rawURL string) (*url.URL, error) {
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
+	if rawURL == "" || len(rawURL) > 8192 || rawURL != strings.TrimSpace(rawURL) {
+		return nil, errors.New("invalid network URL")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Opaque != "" || strings.HasSuffix(parsed.Host, ":") {
 		return parsed, errors.New("invalid network URL")
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
@@ -361,11 +479,11 @@ func normalizePolicyHost(host string) (string, error) {
 	if host == "" || strings.Contains(host, "%") {
 		return "", errors.New("invalid host")
 	}
-	if _, ok := parsePolicyAddress(host); ok {
-		return host, nil
+	if address, ok := parsePolicyAddress(host); ok {
+		return address.String(), nil
 	}
 	ascii, err := idna.Lookup.ToASCII(host)
-	if err != nil || ascii == "" {
+	if err != nil || !validDNSName(ascii) {
 		return "", errors.New("invalid IDNA host")
 	}
 	return strings.ToLower(ascii), nil
@@ -391,6 +509,9 @@ func parseLegacyIPv4(host string) (uint32, bool) {
 	}
 	values := make([]uint64, len(parts))
 	for i, part := range parts {
+		if part == "" {
+			return 0, false
+		}
 		base := 10
 		if strings.HasPrefix(part, "0x") || strings.HasPrefix(part, "0X") {
 			base, part = 16, part[2:]

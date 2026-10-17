@@ -54,6 +54,7 @@ type Scenario struct {
 	WaitForIdle bool
 	BodyBytes   int
 	ScriptCount int
+	inertReplay bool
 }
 
 // Expect is the semantic outcome a consumer should observe after fetching

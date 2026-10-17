@@ -22,6 +22,14 @@ func TestRuntimeIsolateNonNil(t *testing.T) {
 	}
 }
 
+func TestRuntimeDoesNotExposeIsolateAfterClose(t *testing.T) {
+	rt := NewRuntime()
+	rt.Close()
+	if got := rt.Isolate(); got != nil {
+		t.Fatal("closed runtime exposed its disposed V8 isolate")
+	}
+}
+
 func TestRuntimeReportsActiveSnapshot(t *testing.T) {
 	rt := NewRuntime()
 	defer rt.Close()

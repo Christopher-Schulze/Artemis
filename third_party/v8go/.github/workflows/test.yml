@@ -1,47 +1,100 @@
-name: CI
+name: Test
 
 on:
   push:
     branches:
-      - master
+    - master
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to check out at. Defaults to the parent workflow's github.sha."
+        required: false
+        type: string
 
 jobs:
   test:
-    name: Tests on ${{ matrix.go-version }} ${{ matrix.platform }}
+    name: Tests on ${{ matrix.os }} ${{ matrix.arch }} with Go ${{ matrix.go-version }}
     strategy:
       matrix:
-        go-version: [1.18.10, 1.19.5]
-        platform: [ubuntu-latest, macos-latest]
+        os: [darwin, linux, windows]
+        arch: [amd64, arm64]
+        go-version:
+        # Check the earliest and two trailing versions, to keep
+        # maintainance of this file reasonable.
+        - 1.19
+        - oldstable
+        - stable
+        exclude:
+        # Go supports MSVC-target clang with LLD since 1.27.
+        - os: windows
+          go-version: 1.19
+        - os: windows
+          go-version: oldstable
+        # TODO: test windows/arm64 on windows-11-arm.
+        - os: windows
+          arch: arm64
+        include:
+        - os: linux
+          platform: ubuntu-latest
+        - os: darwin
+          platform: macos-latest
+        - os: windows
+          platform: windows-latest
     runs-on: ${{ matrix.platform }}
-
+    defaults:
+      run:
+        # Also on Windows, which defaults to PowerShell.
+        shell: bash
     steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.sha }}
+
+    - name: Set Up Clang
+      uses: ./.github/actions/setup-clang
+
     - name: Install Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ matrix.go-version }}
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Go Test
-      env:
-        CGO_CXXFLAGS: "-Werror"
-      run: go test -v -coverprofile c.out ./...
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
-      env:
-        OS: ${{ matrix.platform }}
-        GO: ${{ matrix.go-version }}
-      with:
-        files: ./c.out
-        env_vars: OS,GO
+
     - name: Add GOPATH to GITHUB_ENV
       run: echo "GOPATH=$(go env GOPATH)" >>"$GITHUB_ENV"
-    - name: Scan and upload FOSSA data (Linux/Mac)
+
+    - name: Set Up Workspace
+      # Submodules shouldn't cause a download.
+      run: |
+        set -o pipefail
+        go work init . $(ls ./deps/*_*/cgo.go | xargs -r dirname)
+
+    - name: Run Tests With Coverage
+      run: go test -v -coverprofile coverage.out ./...
+      env:
+        CGO_CXXFLAGS: "-nostdinc++ -Werror"
+
+    - name: Upload Coverage To Codecov
+      uses: codecov/codecov-action@v7
+      if: env._HAS_CODECOV_TOKEN == 'true'
+      env:
+        _HAS_CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN != '' }}
+        OS: ${{ matrix.os }}
+        ARCH: ${{ matrix.arch }}
+        PLATFORM: ${{ matrix.platform }}
+        GO: ${{ matrix.go-version }}
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.out
+        flags: unittests
+        fail_ci_if_error: true
+        env_vars: OS,ARCH,PLATFORM,GO
+
+    - name: Scan and Upload FOSSA Data
       if: env.FOSSA_API_KEY != '' && github.ref == 'refs/heads/master'
       run: |
-        curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install.sh | sudo bash
+        curl https://raw.githubusercontent.com/fossas/fossa-cli/master/install.sh | sudo bash
         fossa analyze
       env:
         FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
-        

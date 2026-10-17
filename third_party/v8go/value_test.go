@@ -12,8 +12,9 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestValueNewBaseCases(t *testing.T) {
@@ -427,7 +428,10 @@ func TestValueBigInt(t *testing.T) {
 	iso := v8.NewIsolate()
 	defer iso.Dispose()
 
-	x, _ := new(big.Int).SetString("36893488147419099136", 10) // larger than a single word size (64bit)
+	x, _ := new(
+		big.Int,
+	).SetString("36893488147419099136", 10)
+	// larger than a single word size (64bit)
 
 	tests := [...]struct {
 		source   string
@@ -481,6 +485,32 @@ func TestValueObject(t *testing.T) {
 	}
 }
 
+func TestValueAsSymbol(t *testing.T) {
+	t.Parallel()
+
+	ctx := v8.NewContext()
+	defer ctx.Isolate().Dispose()
+	defer ctx.Close()
+
+	t.Run("valid", func(t *testing.T) {
+		val, _ := ctx.RunScript("Symbol.iterator", "")
+		got, err := val.AsSymbol()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := "Symbol.iterator"; got.Description() != want {
+			t.Errorf("Description: expected %q, but got %q", want, got.Description())
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		val, _ := ctx.RunScript("1", "")
+		if _, err := val.AsSymbol(); err == nil {
+			t.Error("Expected error but got <nil>")
+		}
+	})
+}
+
 func TestValuePromise(t *testing.T) {
 	t.Parallel()
 
@@ -494,6 +524,27 @@ func TestValuePromise(t *testing.T) {
 	}
 	if _, err := ctx.RunScript("new Promise(()=>{})", ""); err != nil {
 		t.Errorf("Unexpected error: %v", err)
+	}
+
+}
+
+func TestValueAsException(t *testing.T) {
+	t.Parallel()
+
+	ctx := v8.NewContext()
+	defer ctx.Isolate().Dispose()
+	defer ctx.Close()
+
+	val, _ := ctx.RunScript("1", "")
+	if _, err := val.AsException(); err == nil {
+		t.Error("Expected error but got <nil>")
+	}
+	val, err := ctx.RunScript("new Error('foo')", "")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if _, err := val.AsException(); err != nil {
+		t.Errorf("Expected success but got: %v", err)
 	}
 
 }
@@ -532,10 +583,10 @@ func TestValueSameValue(t *testing.T) {
 	obj2, err := objTempl.NewInstance(ctx)
 	fatalIf(t, err)
 
-	if obj1.SameValue(obj2.Value) != false {
+	if obj1.Value.SameValue(obj2.Value) != false {
 		t.Errorf("SameValue on two different values didn't return false")
 	}
-	if obj1.SameValue(obj1.Value) != true {
+	if obj1.Value.SameValue(obj1.Value) != true {
 		t.Errorf("SameValue on two of the same value didn't return true")
 	}
 }
@@ -650,7 +701,10 @@ func TestValueIsXXX(t *testing.T) {
 				t.Fatalf("failed to run script: %v", err)
 			}
 			if !tt.assert(val) {
-				t.Errorf("value is false for %s", runtime.FuncForPC(reflect.ValueOf(tt.assert).Pointer()).Name())
+				t.Errorf(
+					"value is false for %s",
+					runtime.FuncForPC(reflect.ValueOf(tt.assert).Pointer()).Name(),
+				)
 			}
 		})
 	}
@@ -710,4 +764,251 @@ func TestValueMarshalJSON(t *testing.T) {
 
 		})
 	}
+}
+
+func TestValueArrayBufferContents(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	val, err := ctx.RunScript(`
+	  (()=>{
+			let buf = new SharedArrayBuffer(1024);
+			let arr = new Int8Array(buf);
+			arr[0] = 42;
+			arr[1] = 52;
+			return buf;
+		})();
+	`, "test.js")
+
+	if err != nil {
+		t.Fatalf("failed to run script: %v", err)
+	}
+
+	if !val.IsSharedArrayBuffer() {
+		t.Fatalf("expected SharedArrayBuffer value")
+	}
+
+	buf, cleanup, err := val.SharedArrayBufferGetContents()
+	if err != nil {
+		t.Fatalf("error getting array buffer contents: %#v", err)
+	}
+	defer cleanup()
+
+	if len(buf) != 1024 {
+		t.Fatalf("expected len(buf) to be 1024")
+	}
+
+	if buf[0] != 42 {
+		t.Fatalf("expected buf[0] to be 42")
+	}
+
+	if buf[1] != 52 {
+		t.Fatalf("expected buf[1] to be 52")
+	}
+
+	if buf[3] != 0 {
+		t.Fatalf("expected buf[1] to be 0")
+	}
+
+	// ensure there's an error if we call the method on something that isn't a SharedArrayBuffer
+	val, err = ctx.RunScript("7", "test2.js")
+	if err != nil {
+		t.Fatalf("error running trivial script")
+	}
+	_, _, err = val.SharedArrayBufferGetContents()
+	if err == nil {
+		t.Fatalf(
+			"Expected an error trying call SharedArrayBufferGetContents on value of incorrect type",
+		)
+	}
+}
+
+func TestValueStrictEquals(t *testing.T) {
+	ctx := v8.NewContext()
+	defer ctx.Close()
+
+	numberOne, err1 := ctx.RunScript("1", "")
+	numberOneB, err2 := ctx.RunScript("1", "")
+	numberTwo, err3 := ctx.RunScript("2", "")
+	stringOne, err4 := ctx.RunScript("'1'", "")
+	function, err5 := ctx.RunScript("const fn = () => {}; fn", "")
+	sameFunction, err6 := ctx.RunScript("fn", "")
+	anotherFunction, err7 := ctx.RunScript("const fn2 = () => {}; fn2", "")
+
+	if err := errorsJoin(err1, err2, err3, err4, err5, err6, err7); err != nil {
+		t.Fatal("Error getting test values", err)
+	}
+
+	if !numberOne.StrictEquals(numberOneB) {
+		t.Errorf("Number 1 and Number 1 should be strict equal")
+	}
+	if numberOne.StrictEquals(stringOne) {
+		t.Errorf("Number 1 and string '1' should not be strict equal")
+	}
+
+	if numberOne.StrictEquals(numberTwo) {
+		t.Errorf("Number 1 and number 2 should not be strict equal")
+	}
+
+	if !function.StrictEquals(sameFunction) {
+		t.Errorf("Getting the same function variable twice should be strict equal")
+	}
+
+	if function.StrictEquals(anotherFunction) {
+		t.Errorf("Comparing two different functions should not be strict equal")
+	}
+}
+
+func TestValueTypeOf(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	str1, _ := v8.NewValue(iso, "String")
+	if got := str1.TypeOf(); got != "string" {
+		t.Errorf(`NewValue("String"): expected string, got %s`, got)
+	}
+
+	str2, _ := ctx.RunScript("'string'", "")
+	if got := str2.TypeOf(); got != "string" {
+		t.Errorf("TypeOf('string'): expected string, got %s", got)
+	}
+
+	num1, _ := v8.NewValue(iso, 0.01)
+	if got := num1.TypeOf(); got != "number" {
+		t.Errorf(`NewValue(0.01): expected number, got %s`, got)
+	}
+
+	num2, _ := ctx.RunScript("0.01", "")
+	if got := num2.TypeOf(); got != "number" {
+		t.Errorf("TypeOf(0.01): expected number, got %s", got)
+	}
+}
+
+func TestValueExternal(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+
+	type wrapped struct{ n int }
+	for _, want := range []any{&wrapped{42}, new(int)} {
+		val, err := v8.NewValue(iso, want)
+		if err != nil {
+			t.Fatalf("NewValue(%T): %v", want, err)
+		}
+		if !val.IsExternal() {
+			t.Errorf("IsExternal(%T): got false, want true", want)
+		}
+		got, ok := val.External()
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("External(%T): got %v, %v, want %v, true", want, got, ok, want)
+		}
+	}
+
+	// Types NewValue doesn't convert were probably meant to be converted, and
+	// a struct would be copied, so only pointers are wrapped.
+	type myString string
+	for _, v := range []any{42, float32(1), myString("a"), wrapped{42}, [1]int{1}, []int{1}, map[string]int{}, func() {}, make(chan int), nil, v8.Undefined(iso)} {
+		if _, err := v8.NewValue(iso, v); err == nil {
+			t.Errorf("NewValue(%T): expected error", v)
+		}
+	}
+
+	val, err := v8.NewValue(iso, int32(42))
+	fatalIf(t, err)
+	if got, ok := val.External(); ok {
+		t.Errorf("External on a number: got %v, want false", got)
+	}
+}
+
+func TestValueExternalInternalField(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	tmpl := v8.NewObjectTemplate(iso)
+	tmpl.SetInternalFieldCount(1)
+	obj, err := tmpl.NewInstance(ctx)
+	fatalIf(t, err)
+
+	want := &struct{ n int }{42}
+	ext, err := v8.NewValue(iso, want)
+	fatalIf(t, err)
+	fatalIf(t, obj.SetInternalField(0, ext))
+	ext.Release()
+
+	if got, ok := obj.GetInternalField(0).External(); !ok || got != want {
+		t.Errorf("External: got %v, %v, want %v, true", got, ok, want)
+	}
+}
+
+// finalizable is wrapped by tests that wait for its finalizer. The pointer
+// field keeps it out of the tiny allocator, which packs small pointer-free
+// objects into shared blocks. A finalizer only runs once the whole block is
+// unreachable, so it could depend on unrelated objects.
+type finalizable struct{ p *int }
+
+// waitFinalized runs the Go GC until done is closed, or fails the test.
+func waitFinalized(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		runtime.GC()
+		select {
+		case <-done:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Fatal("the Go value was not finalized")
+}
+
+func TestValueExternalGC(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+
+	done := make(chan struct{})
+	wrapped := &finalizable{}
+	runtime.SetFinalizer(wrapped, func(any) { close(done) })
+	ext, err := v8.NewValue(iso, wrapped)
+	fatalIf(t, err)
+	wrapped = nil
+	ext.Release()
+
+	// V8 deletes the handle when it collects the External, so the Go GC can
+	// collect the value.
+	iso.LowMemoryNotification()
+	waitFinalized(t, done)
+}
+
+func TestValueExternalDispose(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate()
+
+	done := make(chan struct{})
+	wrapped := &finalizable{}
+	runtime.SetFinalizer(wrapped, func(any) { close(done) })
+	ext, err := v8.NewValue(iso, wrapped)
+	fatalIf(t, err)
+	wrapped = nil
+
+	// The Value keeps the External alive, until the Isolate is disposed.
+	iso.LowMemoryNotification()
+	if got, ok := ext.External(); !ok || got == nil {
+		t.Fatalf("External before Dispose: got %v, %v, want a value", got, ok)
+	}
+	iso.Dispose()
+	waitFinalized(t, done)
 }

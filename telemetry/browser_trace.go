@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"sort"
 	"strings"
@@ -54,6 +55,8 @@ type TracePageError struct {
 // TraceNetworkEntry is a target-bound request lifecycle projection.
 type TraceNetworkEntry struct {
 	RequestID    string    `json:"request_id"`
+	FrameID      string    `json:"frame_id,omitempty"`
+	LoaderID     string    `json:"loader_id,omitempty"`
 	Method       string    `json:"method"`
 	URL          string    `json:"url"`
 	ResourceType string    `json:"resource_type,omitempty"`
@@ -132,7 +135,6 @@ type BrowserTraceRecorder struct {
 	config       TraceRecordConfig
 	recorder     *TraceRecorder
 	subscription *bridge.CDPSubscription
-	cancel       context.CancelFunc
 	collector    *traceEventCollector
 	workers      sync.WaitGroup
 	active       bool
@@ -180,18 +182,17 @@ func (r *BrowserTraceRecorder) Start(ctx context.Context) error {
 		subscription.Close()
 		return err
 	}
-	eventCtx, cancel := context.WithCancel(context.Background())
 	r.subscription = subscription
-	r.cancel = cancel
 	r.collector = newTraceEventCollector(r.identity)
 	r.active = true
 	r.workers.Add(1)
-	go r.consumeEvents(eventCtx, subscription, r.collector)
+	go r.consumeEvents(subscription, r.collector)
 	return nil
 }
 
 // Stop captures real page artifacts, drains debug events and atomically writes
 // the archive. It returns the archive path even when one optional capture fails.
+// DiscardArchive retains the same drain/join/error contract without persistence.
 func (r *BrowserTraceRecorder) Stop(ctx context.Context) (string, error) {
 	if ctx == nil {
 		return "", fmt.Errorf("browser trace stop: context is required")
@@ -201,14 +202,6 @@ func (r *BrowserTraceRecorder) Stop(ctx context.Context) (string, error) {
 	if !r.active {
 		return "", fmt.Errorf("no active trace; start a trace before stopping")
 	}
-	if r.cancel != nil {
-		r.cancel()
-	}
-	if r.subscription != nil {
-		r.subscription.Close()
-	}
-	r.workers.Wait()
-
 	var captureErr error
 	if r.config.Screenshots {
 		data, err := captureTraceScreenshot(ctx, r.page)
@@ -238,6 +231,10 @@ func (r *BrowserTraceRecorder) Stop(ctx context.Context) (string, error) {
 			r.collector.setSourcesTruncated(truncated)
 		}
 	}
+	if r.subscription != nil {
+		r.subscription.Close()
+	}
+	r.workers.Wait()
 
 	evidence := TraceDebugEvidence{Target: r.identity}
 	if r.collector != nil {
@@ -250,7 +247,6 @@ func (r *BrowserTraceRecorder) Stop(ctx context.Context) (string, error) {
 	path, stopErr := r.recorder.Stop()
 	r.active = false
 	r.subscription = nil
-	r.cancel = nil
 	r.collector = nil
 	return path, errors.Join(captureErr, stopErr)
 }
@@ -262,14 +258,55 @@ func (r *BrowserTraceRecorder) IsActive() bool {
 	return r.active
 }
 
-func (r *BrowserTraceRecorder) consumeEvents(ctx context.Context, sub *bridge.CDPSubscription, collector *traceEventCollector) {
+// DocumentResponse returns only an observed HTTP response belonging to the
+// exact navigation frame/loader in this recorder's owned target session.
+// A pending or omitted response returns found=false, never a guessed status.
+func (r *BrowserTraceRecorder) DocumentResponse(frameID, loaderID string) (entry TraceNetworkEntry, found bool, err error) {
+	if r == nil || frameID == "" || loaderID == "" {
+		return entry, false, fmt.Errorf("trace response requires recorder, frame and loader identity")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.active || r.collector == nil {
+		return entry, false, fmt.Errorf("trace response requires an active recorder")
+	}
+	c := r.collector
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.errValue != nil {
+		return entry, false, c.errValue
+	}
+	for index := len(c.network) - 1; index >= 0; index-- {
+		observed := c.network[index]
+		if current, ok := c.networkByID[observed.RequestID]; !ok || current != index {
+			continue
+		}
+		if observed.FrameID != frameID || observed.LoaderID != loaderID || observed.ResourceType != "Document" {
+			continue
+		}
+		if observed.FailureText != "" {
+			return entry, false, fmt.Errorf("trace document request failed: %s", observed.FailureText)
+		}
+		if observed.Status >= 100 && observed.Status <= 599 {
+			if observed.URL == "" {
+				return entry, false, fmt.Errorf("trace document response has no retained URL evidence")
+			}
+			return observed, true, nil
+		}
+		return entry, false, nil
+	}
+	if c.truncated {
+		return entry, false, fmt.Errorf("trace document response unavailable: event evidence limit reached")
+	}
+	return entry, false, nil
+}
+
+func (r *BrowserTraceRecorder) consumeEvents(sub *bridge.CDPSubscription, collector *traceEventCollector) {
 	defer r.workers.Done()
 	events := sub.Events
 	errorsChannel := sub.Errors
 	for events != nil || errorsChannel != nil {
 		select {
-		case <-ctx.Done():
-			return
 		case event, ok := <-events:
 			if !ok {
 				events = nil
@@ -300,6 +337,20 @@ type traceEventCollector struct {
 	truncated        bool
 	errValue         error
 	sourcesTruncated bool
+	debugBytes       int
+}
+
+func (c *traceEventCollector) reserveDebugStringsLocked(values ...string) bool {
+	bytes := 0
+	for _, value := range values {
+		if len(value) > traceTextLimit || len(value) > traceDebugBytesLimit-c.debugBytes-bytes {
+			c.truncated = true
+			return false
+		}
+		bytes += len(value)
+	}
+	c.debugBytes += bytes
+	return true
 }
 
 func newTraceEventCollector(identity TargetIdentity) *traceEventCollector {
@@ -346,14 +397,24 @@ func (c *traceEventCollector) recordConsole(raw json.RawMessage) {
 			parts = append(parts, value)
 		}
 	}
-	entry := TraceConsoleEntry{Type: payload.Type, Text: truncateTraceText(strings.Join(parts, " ")), Timestamp: traceTimestamp(payload.Timestamp)}
+	text := strings.Join(parts, " ")
+	entry := TraceConsoleEntry{Type: payload.Type, Text: truncateTraceText(text), Timestamp: traceTimestamp(payload.Timestamp)}
 	if len(payload.StackTrace.CallFrames) > 0 {
 		entry.URL = sanitizeTraceURL(payload.StackTrace.CallFrames[0].URL)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if len(strings.TrimSpace(text)) > traceTextLimit {
+		c.truncated = true
+	}
+	if len(payload.StackTrace.CallFrames) > 0 && payload.StackTrace.CallFrames[0].URL != "" && entry.URL == "" {
+		c.truncated = true
+	}
 	if len(c.console) >= traceDebugEntryLimit {
 		c.truncated = true
+		return
+	}
+	if !c.reserveDebugStringsLocked(entry.Type, entry.Text, entry.URL) {
 		return
 	}
 	c.console = append(c.console, entry)
@@ -389,8 +450,17 @@ func (c *traceEventCollector) recordPageError(raw json.RawMessage) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if len(strings.TrimSpace(message)) > traceTextLimit || len(strings.TrimSpace(payload.ExceptionDetails.Exception.Name)) > traceTextLimit || len(strings.TrimSpace(payload.ExceptionDetails.Exception.Description)) > traceTextLimit {
+		c.truncated = true
+	}
+	if payload.ExceptionDetails.URL != "" && entry.URL == "" {
+		c.truncated = true
+	}
 	if len(c.pageErrors) >= traceDebugEntryLimit {
 		c.truncated = true
+		return
+	}
+	if !c.reserveDebugStringsLocked(entry.Message, entry.Name, entry.Stack, entry.URL) {
 		return
 	}
 	c.pageErrors = append(c.pageErrors, entry)
@@ -399,6 +469,8 @@ func (c *traceEventCollector) recordPageError(raw json.RawMessage) {
 func (c *traceEventCollector) recordRequest(raw json.RawMessage) {
 	var payload struct {
 		RequestID string  `json:"requestId"`
+		FrameID   string  `json:"frameId"`
+		LoaderID  string  `json:"loaderId"`
 		Timestamp float64 `json:"timestamp"`
 		Type      string  `json:"type"`
 		Request   struct {
@@ -409,10 +481,15 @@ func (c *traceEventCollector) recordRequest(raw json.RawMessage) {
 	if json.Unmarshal(raw, &payload) != nil || payload.RequestID == "" {
 		return
 	}
-	entry := TraceNetworkEntry{RequestID: payload.RequestID, Method: payload.Request.Method, URL: sanitizeTraceURL(payload.Request.URL), ResourceType: payload.Type, Timestamp: time.Now().UTC()}
+	entry := TraceNetworkEntry{RequestID: payload.RequestID, FrameID: payload.FrameID, LoaderID: payload.LoaderID, Method: payload.Request.Method, URL: sanitizeTraceURL(payload.Request.URL), ResourceType: payload.Type, Timestamp: time.Now().UTC()}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	delete(c.networkByID, payload.RequestID)
 	if len(c.network) >= traceDebugEntryLimit {
+		c.truncated = true
+		return
+	}
+	if (entry.URL == "" && payload.Request.URL != "") || !c.reserveDebugStringsLocked(entry.RequestID, entry.FrameID, entry.LoaderID, entry.Method, entry.URL, entry.ResourceType) {
 		c.truncated = true
 		return
 	}
@@ -423,6 +500,9 @@ func (c *traceEventCollector) recordRequest(raw json.RawMessage) {
 func (c *traceEventCollector) recordResponse(raw json.RawMessage) {
 	var payload struct {
 		RequestID string  `json:"requestId"`
+		FrameID   string  `json:"frameId"`
+		LoaderID  string  `json:"loaderId"`
+		Type      string  `json:"type"`
 		Timestamp float64 `json:"timestamp"`
 		Response  struct {
 			URL    string `json:"url"`
@@ -438,10 +518,24 @@ func (c *traceEventCollector) recordResponse(raw json.RawMessage) {
 	if !ok || index >= len(c.network) {
 		return
 	}
+	entry := &c.network[index]
+	if (payload.FrameID != "" && entry.FrameID != "" && payload.FrameID != entry.FrameID) || (payload.LoaderID != "" && entry.LoaderID != "" && payload.LoaderID != entry.LoaderID) || (payload.Type != "" && entry.ResourceType != "" && payload.Type != entry.ResourceType) {
+		if c.errValue == nil {
+			c.errValue = fmt.Errorf("trace response navigation identity changed")
+		}
+		return
+	}
 	c.network[index].Status = payload.Response.Status
 	c.network[index].OK = payload.Response.Status >= 200 && payload.Response.Status < 400
-	if c.network[index].URL == "" {
-		c.network[index].URL = sanitizeTraceURL(payload.Response.URL)
+	url := sanitizeTraceURL(payload.Response.URL)
+	c.debugBytes -= len(entry.URL)
+	entry.URL = ""
+	if !c.reserveDebugStringsLocked(url) {
+		return
+	}
+	entry.URL = url
+	if payload.Response.URL != "" && url == "" {
+		c.truncated = true
 	}
 }
 
@@ -471,8 +565,21 @@ func (c *traceEventCollector) recordFailed(raw json.RawMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if index, ok := c.networkByID[payload.RequestID]; ok && index < len(c.network) {
+		failure := truncateTraceText(payload.ErrorText)
+		if failure == "" {
+			failure = "network loading failed"
+		}
+		if len(strings.TrimSpace(payload.ErrorText)) > traceTextLimit {
+			c.truncated = true
+		}
+		if !c.reserveDebugStringsLocked(failure) {
+			if c.errValue == nil {
+				c.errValue = fmt.Errorf("trace failed-request evidence exceeds byte limit")
+			}
+			return
+		}
 		c.network[index].OK = false
-		c.network[index].FailureText = truncateTraceText(payload.ErrorText)
+		c.network[index].FailureText = failure
 		if c.network[index].Timestamp.IsZero() {
 			c.network[index].Timestamp = time.Now().UTC()
 		}
@@ -526,9 +633,9 @@ func traceRawText(raw json.RawMessage, description string) string {
 func truncateTraceText(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) > traceTextLimit {
-		return value[:traceTextLimit]
+		value = value[:traceTextLimit]
 	}
-	return value
+	return strings.Clone(value)
 }
 
 func traceTimestamp(milliseconds float64) time.Time {
@@ -549,7 +656,14 @@ func sanitizeTraceURL(raw string) string {
 	parsed.User = nil
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
-	return parsed.String()
+	if len(parsed.Scheme)+len(parsed.Host)+len(parsed.Path)+len(parsed.RawPath)+len(parsed.Opaque) > traceTextLimit {
+		return ""
+	}
+	sanitized := parsed.String()
+	if len(sanitized) > traceTextLimit {
+		return ""
+	}
+	return sanitized
 }
 
 type screenshotParams struct {
@@ -563,12 +677,15 @@ func captureTraceScreenshot(ctx context.Context, page TracePage) ([]byte, error)
 	if err := page.Call(ctx, "Page.captureScreenshot", screenshotParams{Format: "png"}, &response); err != nil {
 		return nil, fmt.Errorf("capture trace screenshot: %w", err)
 	}
+	if len(response.Data) > base64.StdEncoding.EncodedLen(TraceEntryBytesLimit) {
+		return nil, fmt.Errorf("trace screenshot exceeds byte limit")
+	}
 	data, err := base64.StdEncoding.DecodeString(response.Data)
 	if err != nil {
 		return nil, fmt.Errorf("decode trace screenshot: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("capture trace screenshot: empty data")
+	if len(data) == 0 || len(data) > TraceEntryBytesLimit {
+		return nil, fmt.Errorf("capture trace screenshot: empty data or byte limit exceeded")
 	}
 	return data, nil
 }
@@ -597,6 +714,9 @@ func captureTraceSnapshot(ctx context.Context, page TracePage) ([]byte, error) {
 	}
 	if html == "" {
 		return nil, fmt.Errorf("capture trace snapshot: empty document")
+	}
+	if len(html) > TraceEntryBytesLimit {
+		return nil, fmt.Errorf("trace snapshot exceeds byte limit")
 	}
 	return []byte(html), nil
 }
@@ -628,11 +748,11 @@ func captureTraceSources(ctx context.Context, page TracePage) ([]TraceSource, bo
 	if err := page.Call(ctx, "Page.getResourceTree", nil, &tree); err != nil {
 		return nil, false, fmt.Errorf("capture trace resource tree: %w", err)
 	}
-	frames := flattenTraceResourceFrames(tree.FrameTree)
+	frames, truncated := flattenTraceResourceFrames(tree.FrameTree)
 	sources := make([]TraceSource, 0, len(frames))
 	seen := make(map[string]struct{})
-	truncated := false
 	var captureErr error
+collect:
 	for _, frame := range frames {
 		for _, resource := range frame.Resources {
 			if resource.URL == "" {
@@ -641,11 +761,16 @@ func captureTraceSources(ctx context.Context, page TracePage) ([]TraceSource, bo
 			if _, ok := seen[resource.URL]; ok {
 				continue
 			}
-			seen[resource.URL] = struct{}{}
-			if len(sources) >= traceSourceLimit {
+			if len(seen) >= traceSourceLimit {
 				truncated = true
-				continue
+				break collect
 			}
+			if len(resource.URL) > traceTextLimit {
+				truncated = true
+				captureErr = errors.Join(captureErr, fmt.Errorf("trace source URL exceeds byte limit"))
+				break collect
+			}
+			seen[resource.URL] = struct{}{}
 			var content struct {
 				Content       string `json:"content"`
 				Base64Encoded bool   `json:"base64Encoded"`
@@ -654,19 +779,12 @@ func captureTraceSources(ctx context.Context, page TracePage) ([]TraceSource, bo
 				captureErr = errors.Join(captureErr, fmt.Errorf("capture trace source %s: %w", resource.URL, err))
 				continue
 			}
-			data := []byte(content.Content)
-			if content.Base64Encoded {
-				decoded, err := base64.StdEncoding.DecodeString(content.Content)
-				if err != nil {
-					captureErr = errors.Join(captureErr, fmt.Errorf("decode trace source %s: %w", resource.URL, err))
-					continue
-				}
-				data = decoded
+			data, sourceTruncated, err := decodeTraceSource(content.Content, content.Base64Encoded)
+			if err != nil {
+				captureErr = errors.Join(captureErr, fmt.Errorf("decode trace source %s: %w", resource.URL, err))
+				continue
 			}
-			if len(data) > traceSourceBytesLimit {
-				data = data[:traceSourceBytesLimit]
-				truncated = true
-			}
+			truncated = truncated || sourceTruncated
 			sources = append(sources, TraceSource{URL: resource.URL, Data: data})
 		}
 	}
@@ -674,10 +792,46 @@ func captureTraceSources(ctx context.Context, page TracePage) ([]TraceSource, bo
 	return sources, truncated, captureErr
 }
 
-func flattenTraceResourceFrames(root traceResourceFrame) []traceResourceFrame {
-	frames := []traceResourceFrame{root}
-	for _, child := range root.ChildFrames {
-		frames = append(frames, flattenTraceResourceFrames(child)...)
+func decodeTraceSource(content string, encoded bool) ([]byte, bool, error) {
+	if !encoded {
+		truncated := len(content) > traceSourceBytesLimit
+		if truncated {
+			content = content[:traceSourceBytesLimit]
+		}
+		return []byte(content), truncated, nil
 	}
-	return frames
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(content))
+	data, err := io.ReadAll(io.LimitReader(decoder, traceSourceBytesLimit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := io.Copy(io.Discard, decoder); err != nil {
+		return nil, false, err
+	}
+	truncated := len(data) > traceSourceBytesLimit
+	if truncated {
+		data = data[:traceSourceBytesLimit]
+	}
+	return data, truncated, nil
+}
+
+func flattenTraceResourceFrames(root traceResourceFrame) ([]traceResourceFrame, bool) {
+	var frames []traceResourceFrame
+	pending := []traceResourceFrame{root}
+	truncated := false
+	for len(pending) > 0 {
+		frame := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		frames = append(frames, frame)
+		children := frame.ChildFrames
+		remaining := traceDebugEntryLimit - len(frames) - len(pending)
+		if len(children) > remaining {
+			children = children[:remaining]
+			truncated = true
+		}
+		for index := len(children) - 1; index >= 0; index-- {
+			pending = append(pending, children[index])
+		}
+	}
+	return frames, truncated
 }

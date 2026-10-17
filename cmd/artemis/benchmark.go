@@ -2,46 +2,25 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"flag"
 	"os"
-	"time"
 
 	"github.com/Christopher-Schulze/Artemis/benchmark"
 )
 
 func cmdBenchmark(args []string) int {
-	fs := newFlagSet("benchmark")
-	skipCompetitor := fs.Bool("skip-competitor", true, "skip competitor side (Artemis-only)")
-	downloadURL := fs.String("download-url", "", "competitor binary download URL")
-	iterations := fs.Int("iterations", 5, "iterations per scenario")
-	outputDir := fs.String("output", "benchmark/results", "output directory for scorecard")
-	format := fs.String("format", "json", "output format: json|summary")
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: artemis benchmark [flags]
-
-Flags:
-`)
-		fs.PrintDefaults()
+	options, err := benchmark.ParseOptions(args, os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
 	}
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if *format != "json" && *format != "summary" {
-		errf("benchmark format %q invalid", *format)
+	if err != nil {
+		errf("benchmark: %v", err)
 		return 2
 	}
 
-	cfg := benchmark.HarnessConfig{
-		OutputDir:      *outputDir,
-		Iterations:     *iterations,
-		SkipCompetitor: *skipCompetitor,
-		Competitor: benchmark.CompetitorConfig{
-			DownloadURL: *downloadURL,
-		},
-	}
-
-	h := benchmark.NewHarness(cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	h := benchmark.NewHarness(options.Config)
+	ctx, cancel := context.WithTimeout(context.Background(), options.Config.Timeout)
 	defer cancel()
 
 	sc, err := h.Run(ctx)
@@ -50,7 +29,7 @@ Flags:
 		return 1
 	}
 
-	if *format == "summary" {
+	if options.Format == "summary" {
 		if err := benchmark.PrintSummary(sc); err != nil {
 			errf("benchmark: %v", err)
 			return 1

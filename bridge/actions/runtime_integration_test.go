@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,7 +32,7 @@ type actionFixture struct {
 	close    func()
 }
 
-func newActionFixture(t *testing.T) *actionFixture {
+func newActionFixture(t *testing.T, launchArgs ...string) *actionFixture {
 	t.Helper()
 	binary, err := browserprocess.DiscoverBinary("")
 	if err != nil {
@@ -92,6 +93,7 @@ func newActionFixture(t *testing.T) *actionFixture {
 	t.Cleanup(cleanup)
 	browser, err = bridge.LaunchChromium(ctx, browserprocess.LaunchConfig{
 		BinaryPath: binary.Path, Headless: true, AllowPrivateNetworks: true,
+		ExtraArgs:    launchArgs,
 		AllowedPorts: []int{actionTestURLPort(t, server.URL)},
 	})
 	if err != nil {
@@ -121,7 +123,9 @@ func newActionFixture(t *testing.T) *actionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{Downloads: downloads, DefaultTimeout: 60 * time.Second})
+	runtime, err = NewRuntimeWithConfig(page, observer, nil, RuntimeConfig{
+		Downloads: downloads, DefaultTimeout: 60 * time.Second, UserID: "action-fixture-owner",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,14 +256,26 @@ func TestRuntimeRealChromiumInteractionMatrix(t *testing.T) {
 	}
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindTabSwitch, TargetID: tab.TargetID}))
 	active, ok := f.runtime.tabs.GetTab(tab.TargetID)
-	if !ok || active.State != artemistabs.TabStateActive || active.CDPID != tab.TargetID {
+	if !ok || active.State != artemistabs.TabStateActive || active.CDPID != tab.TargetID || active.LastActive.IsZero() {
 		t.Fatalf("active tab projection=%#v", active)
+	}
+	sibling, err := f.page.NewSibling(ctx, f.server.URL+"/second")
+	if err != nil {
+		t.Fatalf("create same-context sibling page: %v", err)
 	}
 	listed := f.runtime.Execute(ctx, Request{Kind: KindTabList})
 	requireAction(t, listed)
 	ids, ok := listed.Value.([]string)
-	if !ok || len(ids) != 2 {
+	if !ok || len(ids) != 3 {
 		t.Fatalf("tab list=%#v", listed.Value)
+	}
+	root, ok := f.runtime.tabs.GetTab(f.page.TargetID())
+	if !ok || root.UserID != "action-fixture-owner" || root.LastActive.IsZero() {
+		t.Fatalf("successful page actions were not projected as activity: %#v", root)
+	}
+	ownedSibling, ok := f.runtime.tabs.GetTab(sibling.TargetID())
+	if !ok || ownedSibling.UserID != "action-fixture-owner" {
+		t.Fatalf("same-context sibling owner=%#v, want action-fixture-owner", ownedSibling)
 	}
 }
 
@@ -305,6 +321,7 @@ func TestRuntimeNavigationHistoryReloadDialogAndDenials(t *testing.T) {
 		}
 	}
 dialogReady:
+	waitPendingDialog(t, f.page)
 	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindDialog, Accept: true, PromptText: "accepted"}))
 	if dialogErr := <-dialogDone; dialogErr != nil {
 		t.Fatal(dialogErr)
@@ -341,9 +358,14 @@ func TestRuntimeBoundedRetryAndTabClose(t *testing.T) {
 	f := newActionFixture(t)
 	defer f.close()
 	ctx := context.Background()
-	requireAction(t, f.runtime.Execute(ctx, Request{Kind: KindTabClose}))
+	closed := f.runtime.Execute(ctx, Request{Kind: KindTabClose})
+	if closed.Success || closed.Failure != FailureEvidence || closed.Evidence.Effect != EffectDispatched || closed.Evidence.Attempts != 1 || f.page.State() != bridge.TargetStateClosed {
+		t.Fatalf("closed target invented live after-evidence: %+v state=%s", closed, f.page.State())
+	}
 	out := f.runtime.Execute(ctx, Request{Kind: KindScreenshot, Idempotent: true, RetryMax: 2, Timeout: time.Second})
-	if out.Success || out.Evidence.Attempts != 3 || out.Failure != FailureProtocol {
+	// Canonical lifecycle admission rejects a retired target before retries or
+	// observation calls can consume resources against a known-closed page.
+	if out.Success || out.Evidence.CaptureAttempts != 0 || out.Evidence.Attempts != 0 || out.Evidence.Effect != EffectNotAttempted || out.Failure != FailureTarget {
 		t.Fatalf("retry outcome=%#v", out)
 	}
 }
@@ -370,7 +392,7 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		t.Fatalf("IPv6 loopback required for OOPIF fixture: %v", err)
 	}
 	child := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, writeErr := w.Write([]byte(`<!doctype html><button aria-label="OOPIF action" onclick="this.dataset.hit='yes'">OOPIF action</button>`)); writeErr != nil {
+		if _, writeErr := w.Write([]byte(`<!doctype html><style>body{height:1800px}iframe{display:block;width:300px;height:100px}</style><button aria-label="OOPIF action" onclick="this.dataset.count=String(Number(this.dataset.count||0)+1)">OOPIF action</button><div id="host"></div><iframe srcdoc="<button aria-label='Nested action' onclick='this.dataset.count=1'>Nested action</button>"></iframe><script>host.attachShadow({mode:'open'}).innerHTML='<button aria-label="OOPIF shadow" onclick="this.dataset.count=1">OOPIF shadow</button>'</script>`)); writeErr != nil {
 			t.Errorf("write OOPIF fixture response: %v", writeErr)
 		}
 	}))
@@ -378,7 +400,7 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	child.Start()
 	defer child.Close()
 	main := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, writeErr := fmt.Fprintf(w, `<!doctype html><iframe src="%s"></iframe>`, child.URL); writeErr != nil {
+		if _, writeErr := fmt.Fprintf(w, `<!doctype html><style>body{height:2000px}iframe{display:block;margin:80px 0 0 40px;border:5px solid;width:600px;height:400px}</style><iframe src="%s"></iframe>`, child.URL); writeErr != nil {
 			t.Errorf("write OOPIF main fixture response: %v", writeErr)
 		}
 	}))
@@ -426,6 +448,12 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 	var ref, frameID string
 	for _, node := range snapshot.Nodes {
 		if node.Name == "OOPIF action" && node.Role == "button" {
+			if !node.Interactable || node.Hit != bridgeobserve.HitClear {
+				var mainTree, childTree json.RawMessage
+				mainErr := page.Call(ctx, "Page.getFrameTree", nil, &mainTree)
+				childErr := page.CallFrame(ctx, node.FrameID, "Page.getFrameTree", nil, &childTree)
+				t.Fatalf("OOPIF action has no verified hit: node=%+v warnings=%v sessions=%v mainTree=%+v mainErr=%v childTree=%+v childErr=%v", node, snapshot.Warnings, page.FrameSessions(), mainTree, mainErr, childTree, childErr)
+			}
 			ref = node.Ref
 			frameID = node.FrameID
 			break
@@ -439,19 +467,12 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeActionTestResource(t, "runtime", runtime.Close)
-	// OOPIF input dispatch crosses a process boundary — the first click can
-	// land before the frame's input pipeline is ready. Re-issue the click
-	// and poll the observed effect (bounded) instead of one-shot asserts.
+	requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
 	hitDeadline := time.Now().Add(10 * time.Second)
-	nextClick := time.Now()
 	for {
-		if !time.Now().Before(nextClick) {
-			requireAction(t, runtime.Execute(ctx, Request{Kind: KindClick, Ref: ref}))
-			nextClick = time.Now().Add(500 * time.Millisecond)
-		}
-		out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button') && document.querySelector('button').dataset.hit"})
+		out := runtime.Execute(ctx, Request{Kind: KindFrameEvaluate, FrameID: frameID, Expression: "document.querySelector('button').dataset.count"})
 		requireAction(t, out)
-		if out.Value == "yes" {
+		if out.Value == "1" {
 			break
 		}
 		if time.Now().After(hitDeadline) {
@@ -463,6 +484,9 @@ func TestRuntimeCrossOriginOOPIFObservationAndAction(t *testing.T) {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+	verifyOOPIFPolicyContext(t, ctx, page, observer, ref, frameID, main.URL, child.URL)
+	verifyOOPIFObservationFailures(t, ctx, page, frameID)
+	verifyOOPIFPointerBoundaries(t, ctx, page, observer, runtime, frameID)
 }
 
 func actionTestURLPort(t *testing.T, rawURL string) int {
@@ -482,6 +506,9 @@ func requireAction(t *testing.T, out Outcome) {
 	t.Helper()
 	if !out.Success {
 		t.Fatalf("action %s failed class=%s error=%s evidence=%#v", out.Evidence.Action, out.Failure, out.Error, out.Evidence)
+	}
+	if len(out.Evidence.ActionID) != 32 || out.Evidence.AfterHash == "" || !out.Evidence.Postcondition.Passed || out.Evidence.Attempts < 1 {
+		t.Fatalf("success lacks verified action evidence: %#v", out.Evidence)
 	}
 }
 

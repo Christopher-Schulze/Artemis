@@ -34,12 +34,15 @@ type Config struct {
 	MaxTextBytes        int
 	MaxSnapshotBytes    int
 	MaxHitTests         int
+	MaxReferences       int
+	MaxReferenceBytes   int
+	RetainedEpochs      int
 	SensitiveAttributes []string
 	ReResolveThreshold  float64
 }
 
 func DefaultConfig() Config {
-	return Config{MaxNodes: 2_000, MaxDepth: 64, MaxTextBytes: 4_096, MaxSnapshotBytes: 1_000_000, MaxHitTests: 256, SensitiveAttributes: []string{"authorization", "password", "secret", "token", "api-key", "apikey"}, ReResolveThreshold: 0.82}
+	return Config{MaxNodes: 2_000, MaxDepth: 64, MaxTextBytes: 4_096, MaxSnapshotBytes: 1_000_000, MaxHitTests: 256, MaxReferences: 4_096, MaxReferenceBytes: 4 * 1024 * 1024, RetainedEpochs: 2, SensitiveAttributes: []string{"authorization", "password", "secret", "token", "api-key", "apikey"}, ReResolveThreshold: 0.82}
 }
 
 type Rect struct {
@@ -147,12 +150,13 @@ type Snapshot struct {
 type ResolutionStatus string
 
 const (
-	ResolutionExact      ResolutionStatus = "exact"
-	ResolutionReResolved ResolutionStatus = "re_resolved"
-	ResolutionStale      ResolutionStatus = "stale"
-	ResolutionDetached   ResolutionStatus = "detached"
-	ResolutionAmbiguous  ResolutionStatus = "ambiguous"
-	ResolutionCrossFrame ResolutionStatus = "cross_frame"
+	ResolutionExact       ResolutionStatus = "exact"
+	ResolutionReResolved  ResolutionStatus = "re_resolved"
+	ResolutionStale       ResolutionStatus = "stale"
+	ResolutionDetached    ResolutionStatus = "detached"
+	ResolutionAmbiguous   ResolutionStatus = "ambiguous"
+	ResolutionCrossFrame  ResolutionStatus = "cross_frame"
+	ResolutionUnavailable ResolutionStatus = "unavailable"
 )
 
 type Resolution struct {

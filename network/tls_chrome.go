@@ -146,29 +146,72 @@ func (t *chromeTransport) dialTarget(ctx context.Context, addr string) (net.Conn
 	if t.proxyURL == nil {
 		return t.dialContext(ctx, "tcp", addr)
 	}
-	proxyAddr := t.proxyURL.Host
-	if !strings.Contains(proxyAddr, ":") {
-		proxyAddr += ":443"
-	}
-	conn, err := t.dialContext(ctx, "tcp", proxyAddr)
+	conn, err := t.dialContext(ctx, "tcp", proxyDialAddress(t.proxyURL))
 	if err != nil {
 		return nil, err
 	}
+	// The CONNECT exchange is plain blocking socket IO: bind it to the caller's
+	// deadline and cancellation so a stalled proxy cannot hold the dial forever.
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(proxyConnectTimeout)
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("proxy CONNECT deadline: %w", errors.Join(err, conn.Close()))
+	}
+	stop := context.AfterFunc(ctx, func() {
+		if err := conn.SetDeadline(time.Unix(1, 0)); err != nil {
+			conn.Close()
+		}
+	})
+	tunnel, err := t.connectTunnel(conn, addr)
+	if !stop() || err != nil {
+		return nil, errors.Join(err, ctx.Err(), conn.Close())
+	}
+	if err := tunnel.SetDeadline(time.Time{}); err != nil {
+		return nil, fmt.Errorf("proxy CONNECT deadline reset: %w", errors.Join(err, conn.Close()))
+	}
+	return tunnel, nil
+}
+
+// proxyConnectTimeout bounds a CONNECT exchange whose caller has no deadline.
+const proxyConnectTimeout = 30 * time.Second
+
+// proxyDialAddress applies the proxy scheme's default port when none is set.
+func proxyDialAddress(proxyURL *url.URL) string {
+	if proxyURL.Port() != "" {
+		return proxyURL.Host
+	}
+	port := "80"
+	if proxyURL.Scheme == "https" {
+		port = "443"
+	}
+	return net.JoinHostPort(proxyURL.Hostname(), port)
+}
+
+func (t *chromeTransport) connectTunnel(conn net.Conn, addr string) (net.Conn, error) {
 	var b strings.Builder
 	b.WriteString("CONNECT " + addr + " HTTP/1.1\r\nHost: " + addr + "\r\n")
-	if t.proxyURL.User != nil {
-		b.WriteString("Proxy-Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(t.proxyURL.User.String())) + "\r\n")
+	if user := t.proxyURL.User; user != nil {
+		// Basic credentials use the decoded user and password, not the URL form.
+		password, _ := user.Password()
+		b.WriteString("Proxy-Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(user.Username()+":"+password)) + "\r\n")
 	}
 	b.WriteString("\r\n")
 	if _, err := conn.Write([]byte(b.String())); err != nil {
-		return nil, fmt.Errorf("proxy CONNECT write: %w", errors.Join(err, conn.Close()))
+		return nil, fmt.Errorf("proxy CONNECT write: %w", err)
 	}
-	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodConnect})
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
 	if err != nil {
-		return nil, fmt.Errorf("proxy CONNECT read: %w", errors.Join(err, conn.Close()))
+		return nil, fmt.Errorf("proxy CONNECT read: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Join(fmt.Errorf("proxy CONNECT: %s", resp.Status), conn.Close())
+		return nil, fmt.Errorf("proxy CONNECT: %s", resp.Status)
+	}
+	if reader.Buffered() > 0 {
+		// Bytes after the CONNECT response would be lost from the TLS stream.
+		return nil, errors.New("proxy CONNECT: unexpected data after tunnel response")
 	}
 	return conn, nil
 }

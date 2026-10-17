@@ -21,6 +21,8 @@ type TraceRecordConfig struct {
 	Snapshots   bool
 	Sources     bool
 	TraceDir    string
+	// DiscardArchive joins capture normally but creates no filesystem output.
+	DiscardArchive bool
 }
 
 // TargetIdentity identifies the concrete browser target that produced a
@@ -38,6 +40,9 @@ func (i TargetIdentity) Validate() error {
 	}
 	if i.SessionID == "" {
 		return fmt.Errorf("trace target: session ID is required")
+	}
+	if len(i.TargetID) > traceTextLimit || len(i.SessionID) > traceTextLimit || len(i.BrowserContextID) > traceTextLimit {
+		return fmt.Errorf("trace target identity exceeds byte limit")
 	}
 	return nil
 }
@@ -62,17 +67,20 @@ func DefaultTraceRecordConfig(traceDir string) TraceRecordConfig {
 // TraceRecorder manages Playwright-style trace recording sessions with
 // atomic .zip output. It is thread-safe.
 type TraceRecorder struct {
-	mu          sync.Mutex
-	config      TraceRecordConfig
-	target      *TargetIdentity
-	active      bool
-	startedAt   time.Time
-	stoppedAt   time.Time
-	tracePath   string
-	screenshots [][]byte
-	snapshots   [][]byte
-	sources     []TraceSource
-	debug       TraceDebugEvidence
+	mu            sync.Mutex
+	config        TraceRecordConfig
+	target        *TargetIdentity
+	active        bool
+	startedAt     time.Time
+	stoppedAt     time.Time
+	tracePath     string
+	screenshots   [][]byte
+	snapshots     [][]byte
+	sources       []TraceSource
+	debug         TraceDebugEvidence
+	retainedBytes int64
+	debugBytes    int64
+	artifactCount int
 }
 
 // NewTraceRecorder builds a TraceRecorder with the supplied config.
@@ -100,7 +108,19 @@ func (r *TraceRecorder) SetDebugEvidence(evidence TraceDebugEvidence) error {
 	if !r.active {
 		return fmt.Errorf("no active trace session")
 	}
+	if r.target != nil && evidence.Target != *r.target {
+		return fmt.Errorf("trace debug evidence belongs to another target")
+	}
+	bytes, err := measureTraceDebug(evidence)
+	if err != nil {
+		return err
+	}
+	if bytes > TraceTotalBytesLimit-(r.retainedBytes-r.debugBytes) {
+		return fmt.Errorf("trace debug evidence exceeds aggregate byte limit")
+	}
 	r.debug = cloneTraceDebugEvidence(evidence)
+	r.retainedBytes += bytes - r.debugBytes
+	r.debugBytes = bytes
 	return nil
 }
 
@@ -120,13 +140,15 @@ func (r *TraceRecorder) Start() error {
 	r.snapshots = nil
 	r.sources = nil
 	r.debug = TraceDebugEvidence{}
+	r.retainedBytes, r.debugBytes, r.artifactCount = 0, 0, 0
 	return nil
 }
 
 // Stop ends the active trace recording session and writes an atomic .zip
 // archive to the configured trace directory. The .zip contains
 // screenshots/, snapshots/, and sources/ subdirectories (when enabled).
-// Returns the path to the written .zip file.
+// Returns the path to the written .zip file. DiscardArchive instead releases
+// retained capture data and returns an empty path without filesystem output.
 func (r *TraceRecorder) Stop() (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -135,6 +157,12 @@ func (r *TraceRecorder) Stop() (string, error) {
 	}
 	r.active = false
 	r.stoppedAt = time.Now()
+	if r.config.DiscardArchive {
+		r.screenshots, r.snapshots, r.sources = nil, nil, nil
+		r.debug = TraceDebugEvidence{}
+		r.retainedBytes, r.debugBytes, r.artifactCount = 0, 0, 0
+		return "", nil
+	}
 
 	traceDir, err := ensureTraceRoot(r.config.TraceDir)
 	if err != nil {
@@ -144,19 +172,18 @@ func (r *TraceRecorder) Stop() (string, error) {
 	filename := fmt.Sprintf("browser-trace-%d-%03d.zip", r.startedAt.UnixMilli(), r.startedAt.Nanosecond()%1000000)
 	finalPath := filepath.Join(traceDir, filename)
 
-	// Atomic write: write to a sibling temp file then rename.
+	// Publish a completed sibling file exclusively without replacing an archive.
 	tempPath := buildSiblingTempPath(finalPath)
 	if err := r.writeZip(tempPath); err != nil {
-		cleanupErr := os.Remove(tempPath)
-		return "", errors.Join(fmt.Errorf("write trace zip: %w", err), cleanupErr)
+		return "", fmt.Errorf("write trace zip: %w", err)
 	}
-	if err := os.Rename(tempPath, finalPath); err != nil {
+	if err := os.Link(tempPath, finalPath); err != nil {
 		cleanupErr := os.Remove(tempPath)
-		return "", errors.Join(fmt.Errorf("rename trace zip: %w", err), cleanupErr)
+		return "", errors.Join(fmt.Errorf("publish trace zip: %w", err), cleanupErr)
 	}
 
 	r.tracePath = finalPath
-	return finalPath, nil
+	return finalPath, os.Remove(tempPath)
 }
 
 // AddScreenshot appends a screenshot capture to the active trace session.
@@ -168,6 +195,9 @@ func (r *TraceRecorder) AddScreenshot(data []byte) error {
 	}
 	if !r.config.Screenshots {
 		return nil
+	}
+	if err := r.reserveArtifact(len(data)); err != nil {
+		return err
 	}
 	r.screenshots = append(r.screenshots, bytes.Clone(data))
 	return nil
@@ -183,6 +213,9 @@ func (r *TraceRecorder) AddSnapshot(data []byte) error {
 	if !r.config.Snapshots {
 		return nil
 	}
+	if err := r.reserveArtifact(len(data)); err != nil {
+		return err
+	}
 	r.snapshots = append(r.snapshots, bytes.Clone(data))
 	return nil
 }
@@ -196,6 +229,9 @@ func (r *TraceRecorder) AddSource(data []byte) error {
 	}
 	if !r.config.Sources {
 		return nil
+	}
+	if err := r.reserveArtifact(len(data)); err != nil {
+		return err
 	}
 	r.sources = append(r.sources, TraceSource{Data: bytes.Clone(data)})
 	return nil
@@ -211,8 +247,11 @@ func (r *TraceRecorder) AddNamedSource(source TraceSource) error {
 	if !r.config.Sources {
 		return nil
 	}
-	if source.URL == "" {
+	if source.URL == "" || len(source.URL) > traceTextLimit {
 		return fmt.Errorf("trace source URL is required")
+	}
+	if err := r.reserveArtifact(len(source.Data)); err != nil {
+		return err
 	}
 	r.sources = append(r.sources, TraceSource{URL: source.URL, Data: bytes.Clone(source.Data)})
 	return nil
@@ -276,28 +315,38 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 		return err
 	}
 	defer func() {
-		if closeFileErr := f.Close(); writeErr == nil && closeFileErr != nil {
-			writeErr = closeFileErr
+		writeErr = errors.Join(writeErr, f.Sync(), f.Close())
+		if writeErr != nil {
+			writeErr = errors.Join(writeErr, os.Remove(path))
 		}
 	}()
 
-	zw := zip.NewWriter(f)
+	zw := zip.NewWriter(&traceArchiveWriter{writer: f, remaining: TraceTotalBytesLimit})
 	defer func() {
-		if closeZipErr := zw.Close(); writeErr == nil && closeZipErr != nil {
-			writeErr = closeZipErr
-		}
+		writeErr = errors.Join(writeErr, zw.Close())
 	}()
+	remaining := TraceTotalBytesLimit
+	writeEntry := func(name string, data []byte) error {
+		if len(data) > remaining {
+			return fmt.Errorf("trace ZIP decoded aggregate exceeds byte limit")
+		}
+		if err := writeZipEntry(zw, name, data); err != nil {
+			return err
+		}
+		remaining -= len(data)
+		return nil
+	}
 
 	for i, data := range r.screenshots {
 		entry := fmt.Sprintf("screenshots/screenshot-%04d.png", i+1)
-		if entryErr := writeZipEntry(zw, entry, data); entryErr != nil {
+		if entryErr := writeEntry(entry, data); entryErr != nil {
 			return entryErr
 		}
 	}
 
 	for i, data := range r.snapshots {
 		entry := fmt.Sprintf("snapshots/snapshot-%04d.html", i+1)
-		if entryErr := writeZipEntry(zw, entry, data); entryErr != nil {
+		if entryErr := writeEntry(entry, data); entryErr != nil {
 			return entryErr
 		}
 	}
@@ -307,7 +356,7 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 		if source.URL != "" {
 			entry = fmt.Sprintf("sources/source-%04d-%s.txt", i+1, safeTraceName(source.URL))
 		}
-		if entryErr := writeZipEntry(zw, entry, source.Data); entryErr != nil {
+		if entryErr := writeEntry(entry, source.Data); entryErr != nil {
 			return entryErr
 		}
 	}
@@ -327,7 +376,7 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 	if err != nil {
 		return fmt.Errorf("marshal trace metadata: %w", err)
 	}
-	if err := writeZipEntry(zw, "trace.meta.json", metaData); err != nil {
+	if err := writeEntry("trace.meta.json", metaData); err != nil {
 		return err
 	}
 	debugEntries := []struct {
@@ -343,7 +392,7 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 		if err != nil {
 			return fmt.Errorf("marshal trace debug %s: %w", entry.name, err)
 		}
-		if err := writeZipEntry(zw, entry.name, data); err != nil {
+		if err := writeEntry(entry.name, data); err != nil {
 			return err
 		}
 	}
@@ -352,16 +401,22 @@ func (r *TraceRecorder) writeZip(path string) (writeErr error) {
 
 // writeZipEntry writes a single entry to a zip.Writer.
 func writeZipEntry(zw *zip.Writer, name string, data []byte) error {
+	if len(data) > TraceEntryBytesLimit {
+		return fmt.Errorf("trace ZIP entry %s exceeds byte limit", name)
+	}
 	w, err := zw.Create(name)
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(data)
+	n, err := w.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
 // buildSiblingTempPath builds a temp file path in the same directory as the
-// target, ensuring atomic rename on the same filesystem.
+// target, allowing exclusive atomic publication on the same filesystem.
 func buildSiblingTempPath(targetPath string) string {
 	dir := filepath.Dir(targetPath)
 	base := filepath.Base(targetPath)
@@ -397,31 +452,61 @@ func ensureTraceRoot(raw string) (string, error) {
 // ReadTraceZip opens a trace .zip archive and returns the list of entry
 // names and their contents.
 func ReadTraceZip(path string) (entries map[string][]byte, returnErr error) {
-	r, err := zip.OpenReader(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat trace zip: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > TraceTotalBytesLimit {
+		return nil, fmt.Errorf("trace ZIP must be a regular file within %d bytes", TraceTotalBytesLimit)
+	}
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open trace zip: %w", err)
 	}
 	defer func() {
-		if closeErr := r.Close(); closeErr != nil {
+		if closeErr := file.Close(); closeErr != nil {
 			entries = nil
 			returnErr = errors.Join(returnErr, fmt.Errorf("close trace zip: %w", closeErr))
 		}
 	}()
+	info, err = file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat opened trace zip: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > TraceTotalBytesLimit {
+		return nil, fmt.Errorf("trace ZIP must be a regular file within %d bytes", TraceTotalBytesLimit)
+	}
+	r, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return nil, fmt.Errorf("decode trace zip: %w", err)
+	}
+	if len(r.File) > TraceArtifactLimit+traceFixedEntries {
+		return nil, fmt.Errorf("trace ZIP entry count exceeds limit")
+	}
 
 	entries = make(map[string][]byte)
+	total := 0
 	for _, f := range r.File {
+		limit := min(TraceEntryBytesLimit, TraceTotalBytesLimit-total)
+		if f.UncompressedSize64 > uint64(limit) {
+			return nil, fmt.Errorf("trace ZIP entry %s exceeds byte limit", f.Name)
+		}
+		if _, exists := entries[f.Name]; exists {
+			return nil, fmt.Errorf("duplicate trace ZIP entry %s", f.Name)
+		}
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("open zip entry %s: %w", f.Name, err)
 		}
-		data, readErr := io.ReadAll(rc)
+		data, readErr := io.ReadAll(io.LimitReader(rc, int64(limit)+1))
 		closeErr := rc.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read zip entry %s: %w", f.Name, readErr)
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return nil, fmt.Errorf("read/close zip entry %s: %w", f.Name, err)
 		}
-		if closeErr != nil {
-			return nil, fmt.Errorf("close zip entry %s: %w", f.Name, closeErr)
+		if len(data) > limit {
+			return nil, fmt.Errorf("trace ZIP entry %s expands beyond byte limit", f.Name)
 		}
+		total += len(data)
 		entries[f.Name] = data
 	}
 	return entries, nil

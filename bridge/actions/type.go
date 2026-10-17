@@ -70,7 +70,7 @@ func (a TypeAction) ExecuteWith(ctx context.Context, runtime *Runtime) TypeResul
 	if a.ClearFirst {
 		kind = KindFill
 	}
-	out := runtime.Execute(ctx, Request{Kind: kind, Ref: a.Ref, Text: a.Text})
+	out := runtime.Execute(ctx, Request{Kind: kind, Ref: a.Ref, Text: a.Text, Human: &HumanProfile{KeyDelay: a.Delay, KeyVariance: a.Variance}})
 	chars := 0
 	if out.Success {
 		chars = len(a.Text)

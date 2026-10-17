@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"time"
@@ -38,20 +37,25 @@ func CurrentEnvironment(benchmarkTag string) Environment {
 // one scenario. Times are wall-clock; memory is peak RSS delta if
 // available, otherwise total bytes allocated.
 type ScenarioResult struct {
-	ScenarioID string     `json:"scenarioId"`
-	Workload   string     `json:"workload,omitempty"`
-	Engine     EngineName `json:"engine"`
-	EngineMode string     `json:"engineMode"`
-	WallMs     float64    `json:"wallMs"`
-	CPUMs      float64    `json:"cpuMs"`
-	AllocBytes int64      `json:"allocBytes"`
-	AllocCount int64      `json:"allocCount"`
-	RSSBytes   int64      `json:"rssBytes"`
-	Throughput float64    `json:"throughput"`
-	OK         bool       `json:"ok"`
-	Validated  bool       `json:"validated"`
-	Error      string     `json:"error,omitempty"`
-	Timestamp  time.Time  `json:"timestamp"`
+	ScenarioID    string             `json:"scenarioId"`
+	Workload      string             `json:"workload,omitempty"`
+	Engine        EngineName         `json:"engine"`
+	EngineMode    string             `json:"engineMode"`
+	WallMs        float64            `json:"wallMs"`
+	CPUMs         float64            `json:"cpuMs"`
+	AllocBytes    int64              `json:"allocBytes"`
+	AllocCount    int64              `json:"allocCount"`
+	RSSBytes      int64              `json:"rssBytes"`
+	Throughput    float64            `json:"throughput"`
+	OK            bool               `json:"ok"`
+	Validated     bool               `json:"validated"`
+	Validation    ValidationEvidence `json:"validation"`
+	Error         string             `json:"error,omitempty"`
+	Timestamp     time.Time          `json:"timestamp"`
+	Execution     Workload           `json:"execution"`
+	Sample        int                `json:"sample"`
+	SampleCount   int                `json:"sampleCount"`
+	FailedSamples int                `json:"failedSamples"`
 }
 
 // ScorecardMode reports whether the scorecard can be compared fairly.
@@ -76,33 +80,41 @@ type Environment struct {
 
 // Scorecard is the full head-to-head result set across all scenarios.
 type Scorecard struct {
-	Version           string            `json:"version"`
-	MatrixVersion     string            `json:"matrixVersion"`
-	Date              time.Time         `json:"date"`
-	Host              string            `json:"host"`
-	Environment       Environment       `json:"environment"`
-	Mode              ScorecardMode     `json:"mode"`
-	Honest            bool              `json:"honest"`
-	HonestReason      string            `json:"honestReason,omitempty"`
-	ArtemisVersion    string            `json:"artemisVersion,omitempty"`
-	CompetitorVersion string            `json:"competitorVersion,omitempty"`
-	Results           []ScenarioResult  `json:"results"`
-	Aggregates        []MetricAggregate `json:"aggregates,omitempty"`
-	BudgetChecks      []BudgetCheck     `json:"budgetChecks,omitempty"`
+	Version           string             `json:"version"`
+	MatrixVersion     string             `json:"matrixVersion"`
+	Date              time.Time          `json:"date"`
+	Host              string             `json:"host"`
+	Environment       Environment        `json:"environment"`
+	Mode              ScorecardMode      `json:"mode"`
+	Honest            bool               `json:"honest"`
+	HonestReason      string             `json:"honestReason,omitempty"`
+	ArtemisVersion    string             `json:"artemisVersion,omitempty"`
+	CompetitorVersion string             `json:"competitorVersion,omitempty"`
+	Results           []ScenarioResult   `json:"results"`
+	Aggregates        []MetricAggregate  `json:"aggregates,omitempty"`
+	BudgetChecks      []BudgetCheck      `json:"budgetChecks,omitempty"`
+	Options           ExecutionOptions   `json:"options"`
+	Workloads         []Workload         `json:"workloads"`
+	Samples           []ScenarioResult   `json:"samples"`
+	Priming           []ScenarioResult   `json:"priming"`
+	CompetitorSHA256  string             `json:"competitorSHA256,omitempty"`
+	Provenance        RunProvenance      `json:"provenance"`
+	Scenarios         []ScenarioEvidence `json:"scenarios"`
+	Claim             ClaimEvidence      `json:"claim"`
 }
 
 // NewScorecard creates an empty scorecard with the current timestamp.
 func NewScorecard() *Scorecard {
 	host, _ := os.Hostname()
 	return &Scorecard{
-		Version:       "1.0.0",
+		Version:       "2.0.0",
 		MatrixVersion: ScenarioMatrixVersion,
 		Date:          time.Now().UTC(),
 		Host:          host,
 		Environment:   CurrentEnvironment(""),
 		Mode:          ModeArtemisOnly,
-		Honest:        true,
-		HonestReason:  "default: no competitor run requested",
+		Honest:        false,
+		HonestReason:  "no executed observations",
 		Results:       []ScenarioResult{},
 	}
 }
@@ -121,7 +133,7 @@ func (r ScenarioResult) ToMetricSet() MetricSet {
 		AllocCount: r.AllocCount,
 		RSSBytes:   r.RSSBytes,
 		Throughput: r.Throughput,
-		ErrorRate:  MetricErrorRateFromBool(!r.OK),
+		ErrorRate:  MetricErrorRateFromBool(r.OK && r.Validated),
 	}
 }
 
@@ -145,6 +157,7 @@ type MetricAggregate struct {
 
 // BudgetCheck records a regression budget evaluation.
 type BudgetCheck struct {
+	Workload string     `json:"workload,omitempty"`
 	Kind     MetricKind `json:"kind"`
 	Engine   EngineName `json:"engine"`
 	Baseline float64    `json:"baseline"`
@@ -158,7 +171,6 @@ type BudgetCheck struct {
 // and honest; otherwise all wins/losses are zero.
 func (s *Scorecard) Summarize() []EngineSummary {
 	byEngine := map[EngineName]*EngineSummary{}
-	byScenario := map[string]map[EngineName]ScenarioResult{}
 
 	for _, r := range s.Results {
 		if _, ok := byEngine[r.Engine]; !ok {
@@ -166,37 +178,25 @@ func (s *Scorecard) Summarize() []EngineSummary {
 		}
 		su := byEngine[r.Engine]
 		su.Scenarios++
-		if !r.OK {
+		if !r.OK || !r.Validated {
 			su.Errors++
 			continue
 		}
 		su.TotalMs += r.WallMs
-		if _, ok := byScenario[r.ScenarioID]; !ok {
-			byScenario[r.ScenarioID] = map[EngineName]ScenarioResult{}
-		}
-		byScenario[r.ScenarioID][r.Engine] = r
 	}
 
-	if s.Mode == ModeHeadToHead && s.Honest {
-		for _, engines := range byScenario {
-			if len(engines) < 2 {
+	pairs, pairErr := s.comparisonPairs()
+	if s.Honest && pairErr == nil {
+		for _, pair := range pairs {
+			if pair.artemis.WallMs == pair.competitor.WallMs {
 				continue
 			}
-			var best EngineName
-			var bestMs float64 = -1
-			for name, r := range engines {
-				if bestMs < 0 || r.WallMs < bestMs {
-					best = name
-					bestMs = r.WallMs
-				}
+			winner, loser := EngineArtemis, EngineCompetitor
+			if pair.competitor.WallMs < pair.artemis.WallMs {
+				winner, loser = loser, winner
 			}
-			for name := range engines {
-				if name == best {
-					byEngine[name].Wins++
-				} else {
-					byEngine[name].Losses++
-				}
-			}
+			byEngine[winner].Wins++
+			byEngine[loser].Losses++
 		}
 	}
 
@@ -218,14 +218,17 @@ func (s *Scorecard) Summarize() []EngineSummary {
 // ComputeAggregates computes per-engine, per-metric statistics from the results.
 func (s *Scorecard) ComputeAggregates() []MetricAggregate {
 	byEngineMetric := map[EngineName]map[MetricKind][]float64{}
-	for _, r := range s.Results {
-		if !r.OK {
-			continue
-		}
+	for _, r := range s.Samples {
 		if _, ok := byEngineMetric[r.Engine]; !ok {
 			byEngineMetric[r.Engine] = map[MetricKind][]float64{}
 		}
 		for _, sample := range r.ToMetricSet().ToSamples() {
+			if sample.Kind != MetricErrorRate && (!r.OK || !r.Validated) {
+				continue
+			}
+			if !r.metricAvailable(sample.Kind) {
+				continue
+			}
 			byEngineMetric[r.Engine][sample.Kind] = append(byEngineMetric[r.Engine][sample.Kind], sample.Value)
 		}
 	}
@@ -254,38 +257,27 @@ func (s *Scorecard) ComputeAggregates() []MetricAggregate {
 // For head-to-head scorecards, the competitor engine is the baseline for Artemis.
 func (s *Scorecard) CheckBudgets(budgets []RegressionBudget) []BudgetCheck {
 	checks := []BudgetCheck{}
-	if s.Mode != ModeHeadToHead || !s.Honest {
+	if len(budgets) == 0 {
 		return checks
 	}
-	byScenarioEngine := map[string]map[EngineName]ScenarioResult{}
-	for _, r := range s.Results {
-		if _, ok := byScenarioEngine[r.ScenarioID]; !ok {
-			byScenarioEngine[r.ScenarioID] = map[EngineName]ScenarioResult{}
+	pairs, err := s.comparisonPairs()
+	if err != nil || !s.Honest {
+		for _, budget := range budgets {
+			checks = append(checks, BudgetCheck{Kind: budget.MetricKind, Engine: EngineArtemis, Reason: "eligible paired baseline required"})
 		}
-		byScenarioEngine[r.ScenarioID][r.Engine] = r
+		return checks
 	}
-
-	for _, b := range budgets {
-		for _, engines := range byScenarioEngine {
-			baseline, ok := engines[EngineCompetitor]
-			current, ok2 := engines[EngineArtemis]
-			if !ok || !ok2 {
-				continue
+	for _, budget := range budgets {
+		for _, pair := range pairs {
+			check := BudgetCheck{Kind: budget.MetricKind, Engine: EngineArtemis, Workload: pair.workload.Identity()}
+			if !pair.artemis.metricAvailable(budget.MetricKind) || !pair.competitor.metricAvailable(budget.MetricKind) {
+				check.Reason = "metric unavailable for equivalent engine measurements"
+			} else {
+				check.Baseline = pair.competitor.ToMetricSet().sampleValue(budget.MetricKind)
+				check.Current = pair.artemis.ToMetricSet().sampleValue(budget.MetricKind)
+				check.OK, check.Reason = budget.Check(check.Baseline, check.Current)
 			}
-			if !baseline.OK || !current.OK {
-				continue
-			}
-			baseVal := baseline.ToMetricSet().sampleValue(b.MetricKind)
-			curVal := current.ToMetricSet().sampleValue(b.MetricKind)
-			ok, reason := b.Check(baseVal, curVal)
-			checks = append(checks, BudgetCheck{
-				Kind:     b.MetricKind,
-				Engine:   EngineArtemis,
-				Baseline: baseVal,
-				Current:  curVal,
-				OK:       ok,
-				Reason:   reason,
-			})
+			checks = append(checks, check)
 		}
 	}
 	return checks
@@ -294,27 +286,40 @@ func (s *Scorecard) CheckBudgets(budgets []RegressionBudget) []BudgetCheck {
 // Finalize computes aggregates and evaluates regression budgets. Call before
 // writing a scorecard to ensure all derived fields are populated.
 func (s *Scorecard) Finalize(budgets []RegressionBudget) {
+	s.Options.RegressionBudgets = append([]RegressionBudget(nil), budgets...)
+	if s.Mode == ModeHeadToHead {
+		_, err := s.comparisonPairs()
+		s.Honest = err == nil
+		s.HonestReason = "all workloads have matching semantic evidence and complete paired samples"
+		if err != nil {
+			s.HonestReason = err.Error()
+		}
+	} else {
+		err := s.validateArtemisObservations()
+		s.Honest = err == nil
+		s.HonestReason = "Artemis-only observations; no comparative claim"
+		if err != nil {
+			s.HonestReason = err.Error()
+		}
+	}
 	s.Aggregates = s.ComputeAggregates()
 	s.BudgetChecks = s.CheckBudgets(budgets)
+	s.Claim = s.claimEvidence()
 }
 
 // WriteJSON writes the scorecard as JSON to the given path.
 func (s *Scorecard) WriteJSON(path string) error {
+	s.Finalize(s.Options.RegressionBudgets)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("scorecard json: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("scorecard json mkdir: %w", err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("scorecard json write: %w", err)
-	}
-	return nil
+	return writeArtifact(path, data)
 }
 
 // WriteMarkdown writes the scorecard as a human-readable markdown report.
 func (s *Scorecard) WriteMarkdown(path string) error {
+	s.Finalize(s.Options.RegressionBudgets)
 	var b []byte
 	b = append(b, "# Artemis Benchmark Scorecard\n\n"...)
 	b = fmt.Appendf(b, "- **Date:** %s\n", s.Date.Format(time.RFC3339))
@@ -323,6 +328,7 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 	b = fmt.Appendf(b, "- **Scorecard Version:** %s\n", s.Version)
 	b = fmt.Appendf(b, "- **Mode:** %s\n", s.Mode)
 	b = fmt.Appendf(b, "- **Honest:** %v\n", s.Honest)
+	b = fmt.Appendf(b, "- **Claim status:** %s; evidence expiry: %s\n", s.Claim.Status, s.Claim.ExpiresAt.Format(time.RFC3339))
 	if s.HonestReason != "" {
 		b = fmt.Appendf(b, "- **Honest Reason:** %s\n", s.HonestReason)
 	}
@@ -349,8 +355,8 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 	sorted := make([]ScenarioResult, len(s.Results))
 	copy(sorted, s.Results)
 	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].ScenarioID != sorted[j].ScenarioID {
-			return sorted[i].ScenarioID < sorted[j].ScenarioID
+		if sorted[i].Workload != sorted[j].Workload {
+			return sorted[i].Workload < sorted[j].Workload
 		}
 		return sorted[i].Engine < sorted[j].Engine
 	})
@@ -365,41 +371,20 @@ func (s *Scorecard) WriteMarkdown(path string) error {
 	}
 	b = append(b, '\n')
 
-	// Win/loss detail only for honest head-to-head
-	if s.Mode == ModeHeadToHead && s.Honest {
+	// Comparative detail always rechecks the raw proof, including ties.
+	pairs, pairErr := s.comparisonPairs()
+	if s.Honest && pairErr == nil {
 		b = append(b, "## Win/Loss Detail\n\n"...)
-		byScenario := map[string]map[EngineName]ScenarioResult{}
-		for _, r := range s.Results {
-			if _, ok := byScenario[r.ScenarioID]; !ok {
-				byScenario[r.ScenarioID] = map[EngineName]ScenarioResult{}
+		for _, pair := range pairs {
+			winner := "tie"
+			if pair.artemis.WallMs < pair.competitor.WallMs {
+				winner = string(EngineArtemis)
 			}
-			byScenario[r.ScenarioID][r.Engine] = r
-		}
-		scenarioIDs := make([]string, 0, len(byScenario))
-		for id := range byScenario {
-			scenarioIDs = append(scenarioIDs, id)
-		}
-		sort.Strings(scenarioIDs)
-
-		for _, id := range scenarioIDs {
-			engines := byScenario[id]
-			if len(engines) < 2 {
-				continue
+			if pair.competitor.WallMs < pair.artemis.WallMs {
+				winner = string(EngineCompetitor)
 			}
-			var winner EngineName
-			var winnerMs float64 = -1
-			for name, r := range engines {
-				if r.OK && (winnerMs < 0 || r.WallMs < winnerMs) {
-					winner = name
-					winnerMs = r.WallMs
-				}
-			}
-			b = fmt.Appendf(b, "- **%s**: winner = %s (%.3f ms)\n", id, winner, winnerMs)
+			b = fmt.Appendf(b, "- **%s**: winner = %s\n", pair.workload.Identity(), winner)
 		}
 	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("scorecard md mkdir: %w", err)
-	}
-	return os.WriteFile(path, b, 0o600)
+	return writeArtifact(path, b)
 }

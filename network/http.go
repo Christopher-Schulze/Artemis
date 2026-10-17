@@ -1,7 +1,5 @@
-// Package network implements the HTTP client and related network
-// primitives used by the engine. Phase 1 covers a stdlib-backed client
-// with proxy, timeout, and body-limit controls. Cookies, IpFilter,
-// robots.txt, and network interception land in their respective TASKs.
+// Package network owns policy-bound HTTP, target validation, cookies,
+// robots, response decoding and browser network primitives.
 package network
 
 import (
@@ -10,22 +8,32 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
+	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network/cookiejar"
+	"github.com/Christopher-Schulze/Artemis/platform"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // HTTPClientConfig configures an HTTPClient.
 type HTTPClientConfig struct {
 	// UserAgent sets the User-Agent header on every outgoing request.
 	UserAgent string
-	// ChromeLike fills in a coherent desktop-Chrome header set
+	// WebBotAuth signs every outgoing request (including each redirect hop)
+	// with the operator's Web Bot Auth identity. Nil or disabled sends
+	// unsigned requests.
+	WebBotAuth *WebBotAuth
+	// ChromeLike supplies generated desktop-Chrome-style header defaults
 	// (Accept, Accept-Language, Sec-CH-UA*, Sec-Fetch-*, Upgrade-Insecure-Requests)
-	// for any header the caller did not set. The generated set matches
-	// the User-Agent's Chrome version and ChromeOS — without it a
-	// renderless fetch is trivially distinguishable from a browser.
+	// for headers omitted by the caller, plus the vendored TLS preset.
+	// Caller overrides may change identity; complete browser wire parity
+	// is not established by these generated defaults.
 	ChromeLike bool
 	// ChromeOS selects the header-identity OS ("windows"|"macos"|"linux");
 	// empty resolves to the host OS.
@@ -34,23 +42,28 @@ type HTTPClientConfig struct {
 	// Chrome-fingerprinted TLS path. Test/private-fixture only — never set
 	// this for real traffic; it removes MITM protection.
 	TLSInsecureSkipVerify bool
-	// ProxyURL routes outbound requests through the given proxy. When
-	// empty the client honors HTTP_PROXY / HTTPS_PROXY environment
-	// variables.
+	// ProxyURL explicitly routes outbound requests through an HTTP(S) proxy.
+	// Empty uses direct policy-bound connections; environment proxies are ignored.
+	// ChromeLike currently supports HTTP upstream proxies only.
 	ProxyURL string
 	// Timeout is the per-request timeout (including dial, TLS, and body
 	// read). A zero value disables the deadline.
 	Timeout time.Duration
-	// MaxBodyBytes caps the response body. Zero means unlimited.
+	// MaxBodyBytes caps the response body within the mandatory policy limit.
 	MaxBodyBytes int64
 	// Policy is the mandatory outbound network security boundary. Nil uses
 	// the deny-private default policy.
 	Policy *Policy
-	// SessionID correlates redacted policy decisions without exposing URLs.
+	// SessionID owns the default cookie partition and redacted policy identity.
 	SessionID string
 	// RequestLifecycle optionally enforces session-wide request admission,
 	// cancellation, concurrency, and response-byte accounting.
 	RequestLifecycle RequestLifecycle
+	// DisableTCPFastOpen keeps normal connect semantics even when Linux admits
+	// the optimization. Proxies and body-bearing/non-GET/HEAD requests always
+	// retain normal connect semantics.
+	DisableTCPFastOpen bool
+	MemoryAdmission    MemoryAdmission
 }
 
 // HTTPClient performs HTTP requests on behalf of the engine.
@@ -60,10 +73,27 @@ type HTTPClient struct {
 	jar           http.CookieJar
 	robots        *robotsCache
 	chromeHeaders http.Header
+	sessionMu     sync.Mutex
+	sessionJars   map[string]http.CookieJar
+	closed        bool
+	caps          platform.PlatformCapabilities
+	proxyURL      *url.URL
 }
 
 // NewHTTPClient builds an HTTPClient.
 func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
+	if cfg.Timeout < 0 || cfg.MaxBodyBytes < 0 {
+		return nil, errors.New("network: invalid HTTP client limit")
+	}
+	if cfg.MemoryAdmission != nil {
+		value := reflect.ValueOf(cfg.MemoryAdmission)
+		switch value.Kind() {
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+			if value.IsNil() {
+				return nil, errors.New("network: nil memory admission owner")
+			}
+		}
+	}
 	policy := cfg.Policy
 	if policy == nil {
 		var err error
@@ -83,9 +113,11 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	}
 	// Pool tuned for crawler-style workloads: lots of subresources from
 	// a small set of hosts, parallel fetches via the async-runtime.
+	caps := platform.Detect()
+	dialContext := policy.httpDialContextFor(cfg.SessionID, caps, !cfg.DisableTCPFastOpen && cfg.ProxyURL == "")
 	transport := &http.Transport{
 		Proxy:                 nil,
-		DialContext:           policy.DialContextFor(cfg.SessionID),
+		DialContext:           dialContext,
 		MaxIdleConns:          512,
 		MaxIdleConnsPerHost:   64,
 		MaxConnsPerHost:       0, // unlimited (HTTP/2 multiplex needs only one)
@@ -98,10 +130,14 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 		WriteBufferSize:       64 * 1024,
 		ReadBufferSize:        64 * 1024,
 	}
+	var proxyURL *url.URL
 	if cfg.ProxyURL != "" {
-		u, err := url.Parse(cfg.ProxyURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse proxy url %q: %w", cfg.ProxyURL, err)
+		u, err := parsePolicyURL(cfg.ProxyURL)
+		if err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Path != "" && u.Path != "/" || u.RawQuery != "" || u.Fragment != "" {
+			return nil, errors.New("network: invalid HTTP(S) proxy URL")
+		}
+		if cfg.ChromeLike && u.Scheme == "https" {
+			return nil, errors.New("network: HTTPS upstream proxy unsupported by Chrome-like transport")
 		}
 		validationCtx, cancel := context.WithTimeout(context.Background(), policy.Config().DialTimeout)
 		_, validationErr := policy.ResolveURL(validationCtx, u.String(), TargetProxy, cfg.SessionID)
@@ -110,43 +146,78 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 			return nil, fmt.Errorf("validate proxy url: %w", validationErr)
 		}
 		transport.Proxy = http.ProxyURL(u)
+		proxyURL = u
 	}
-	jar, err := cookiejar.New(nil)
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
 		return nil, fmt.Errorf("cookie jar: %w", err)
 	}
+	// Spec L4148: with an upstream proxy, target DNS comes from the proxy.
+	validateTarget := policy.ValidateRequest
+	if proxyURL != nil {
+		validateTarget = policy.ValidateProxiedRequest
+	}
 	var roundTripper http.RoundTripper = transport
 	if cfg.ChromeLike {
-		var proxyURL *url.URL
-		if cfg.ProxyURL != "" {
-			proxyURL, _ = url.Parse(cfg.ProxyURL)
-		}
-		chromeRT := newChromeTransport(policy.DialContextFor(cfg.SessionID), proxyURL, cfg.TLSInsecureSkipVerify)
+		chromeRT := newChromeTransport(dialContext, proxyURL, cfg.TLSInsecureSkipVerify)
 		roundTripper = &schemeRouter{https: chromeRT, fallback: transport}
 	}
-	return &HTTPClient{
+	roundTripper = NewWebBotAuthTransport(roundTripper, cfg.WebBotAuth)
+	httpClient := &HTTPClient{
 		cfg:           cfg,
+		caps:          caps,
 		chromeHeaders: chromeHeaders,
-		client: &http.Client{
-			Transport: roundTripper,
-			Jar:       jar,
-			Timeout:   cfg.Timeout,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= policy.Config().MaxRedirects {
-					return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
-				}
-				if len(via) > 0 && requestCanCarrySecretBody(req) && !sameOrigin(via[0].URL, req.URL) {
-					return fmt.Errorf("%w: cross_origin_body_redirect", ErrPolicyDenied)
-				}
-				return policy.ValidateRequest(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), TargetRedirect, SessionID(req.Context(), cfg.SessionID))
-			},
+		jar:           jar, robots: newRobotsCache(), proxyURL: proxyURL,
+	}
+	httpClient.client = &http.Client{
+		Transport: roundTripper,
+		Jar:       jar,
+		Timeout:   cfg.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= policy.Config().MaxRedirects {
+				return fmt.Errorf("%w: redirect_limit", ErrPolicyDenied)
+			}
+			if len(via) > 0 && requestCanCarrySecretBody(req) && !sameOrigin(via[0].URL, req.URL) {
+				return fmt.Errorf("%w: cross_origin_body_redirect", ErrPolicyDenied)
+			}
+			if err := validateTarget(req.Context(), req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), TargetRedirect, SessionID(req.Context(), cfg.SessionID)); err != nil {
+				return err
+			}
+			// Robots-governed crawls admit every hop, not only the first URL.
+			if agent, governed := robotsAgent(req.Context()); governed {
+				return httpClient.CheckRobots(req.Context(), req.URL, agent)
+			}
+			return nil
 		},
-		jar: jar, robots: newRobotsCache(),
-	}, nil
+	}
+	return httpClient, nil
+}
+
+// validateTarget admits a target; with an upstream proxy DNS stays with the
+// proxy (spec L4148), otherwise the policy resolves and checks every address.
+func (c *HTTPClient) validateTarget(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
+	if c.proxyURL != nil {
+		return c.cfg.Policy.ValidateProxiedRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)
+	}
+	return c.cfg.Policy.ValidateRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)
+}
+
+// ProxyURL returns a copy of the validated upstream proxy, or nil. Every other
+// session transport (for example renderless WebSockets) must route through it.
+func (c *HTTPClient) ProxyURL() *url.URL {
+	if c == nil || c.proxyURL == nil {
+		return nil
+	}
+	proxy := *c.proxyURL
+	if c.proxyURL.User != nil {
+		user := *c.proxyURL.User
+		proxy.User = &user
+	}
+	return &proxy
 }
 
 func requestCanCarrySecretBody(req *http.Request) bool {
-	return req != nil && req.Method != http.MethodGet && req.Method != http.MethodHead
+	return req != nil && (req.Body != nil && req.Body != http.NoBody || req.ContentLength != 0)
 }
 
 func sameOrigin(first, next *url.URL) bool {
@@ -161,6 +232,13 @@ func (c *HTTPClient) Close() error {
 	if c == nil || c.client == nil {
 		return nil
 	}
+	c.sessionMu.Lock()
+	c.closed = true
+	clear(c.sessionJars)
+	c.sessionMu.Unlock()
+	if c.robots != nil {
+		c.robots.close()
+	}
 	if t, ok := c.client.Transport.(interface{ CloseIdleConnections() }); ok {
 		t.CloseIdleConnections()
 	}
@@ -170,6 +248,11 @@ func (c *HTTPClient) Close() error {
 // CookieJar returns the underlying cookie jar.
 func (c *HTTPClient) CookieJar() http.CookieJar {
 	if c == nil {
+		return nil
+	}
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if c.closed {
 		return nil
 	}
 	return c.jar
@@ -186,10 +269,13 @@ type Request struct {
 
 // Response is the result of executing a Request.
 type Response struct {
-	StatusCode int
-	Headers    http.Header
-	Body       []byte
-	FinalURL   string
+	StatusCode   int
+	Headers      http.Header
+	Body         []byte
+	FinalURL     string
+	InputMemory  platform.ProbeResult
+	release      func() error
+	operationCtx context.Context
 }
 
 // ErrBodyTooLarge is returned when the response body exceeds
@@ -204,24 +290,42 @@ func (c *HTTPClient) Do(ctx context.Context, r Request) (*Response, error) {
 
 // DoTarget executes a request under the policy identity of kind.
 func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (result *Response, resultErr error) {
+	return c.doTarget(ctx, r, kind, false)
+}
+
+func (c *HTTPClient) doTarget(ctx context.Context, r Request, kind TargetKind, scoped bool) (result *Response, resultErr error) {
 	if c == nil || c.client == nil || c.cfg.Policy == nil {
 		return nil, errors.New("network: initialized HTTP client required")
+	}
+	if r.MaxBodyBytes < 0 {
+		return nil, errors.New("network: invalid request response limit")
 	}
 	requestCtx, finish, err := c.beginRequest(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var responseBytes int64
+	var releaseInput func() error
 	defer func() {
 		if finishErr := finish(responseBytes); finishErr != nil {
 			result = nil
 			resultErr = errors.Join(resultErr, finishErr)
 		}
+		if scoped && resultErr == nil && result != nil {
+			result.release = releaseInput
+			return
+		}
+		if releaseInput != nil {
+			resultErr = errors.Join(resultErr, releaseInput())
+		}
+		if resultErr != nil {
+			result = nil
+		}
 	}()
 	if r.URL == "" {
 		return nil, errors.New("request URL is empty")
 	}
-	method := r.Method
+	method := strings.ToUpper(strings.TrimSpace(r.Method))
 	if method == "" {
 		method = http.MethodGet
 	}
@@ -229,27 +333,27 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if c.cfg.UserAgent != "" && req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", c.cfg.UserAgent)
+	if err := c.applyRequestHeaders(req, r.Headers); err != nil {
+		return nil, err
 	}
-	for k, vs := range c.chromeHeaders {
-		if _, callerSet := r.Headers[k]; callerSet {
-			continue
-		}
-		for _, v := range vs {
-			req.Header.Set(k, v)
-		}
+	// Preserve net/http's default gzip negotiation, but make the scoped
+	// decoder explicit so its workspace cannot bypass the supplied owner.
+	if scoped && c.cfg.MemoryAdmission != nil && req.Header.Get("Accept-Encoding") == "" && req.Header.Get("Range") == "" && method != http.MethodHead {
+		req.Header.Set("Accept-Encoding", "gzip")
 	}
-	for k, vs := range r.Headers {
-		for _, v := range vs {
-			req.Header.Add(k, v)
-		}
-	}
-	if validateErr := c.cfg.Policy.ValidateRequest(requestCtx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), kind, SessionID(requestCtx, c.cfg.SessionID)); validateErr != nil {
+	if validateErr := c.validateTarget(requestCtx, req.URL.String(), req.Method, req.Header.Get("Content-Type"), policyRequestContentLength(req), kind, SessionID(requestCtx, c.cfg.SessionID)); validateErr != nil {
 		return nil, fmt.Errorf("validate request: %w", validateErr)
 	}
 
-	resp, err := c.client.Do(req)
+	jar, err := c.CookieJarForSession(SessionID(requestCtx, c.cfg.SessionID))
+	if err != nil {
+		return nil, err
+	}
+	client := *c.client
+	client.Jar = jar
+	eligible := (method == http.MethodGet || method == http.MethodHead) && (req.Body == nil || req.Body == http.NoBody)
+	req = req.WithContext(context.WithValue(req.Context(), fastOpenRequestKey{}, eligible))
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request %s %s: %w", method, r.URL, err)
 	}
@@ -272,14 +376,24 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 		limit = policyLimit
 	}
 	countedBody := &countingReader{reader: resp.Body}
-	body, err := readLimited(countedBody, limit)
+	inputSize := resp.ContentLength
+	if resp.Body == http.NoBody {
+		inputSize = 0
+	}
+	body, releaseInput, inputMemory, err := c.readScopedBody(requestCtx, countedBody, inputSize, limit, scoped)
 	responseBytes = countedBody.bytes
 	if err != nil {
 		return nil, err
 	}
 	headers := resp.Header.Clone()
-	if encoding := headers.Get("Content-Encoding"); encoding != "" {
-		body, err = decodeResponseBody(body, encoding, limit)
+	if encoding := headers.Get("Content-Encoding"); encoding != "" && resp.Body != http.NoBody {
+		if scoped {
+			var releaseDecoded func() error
+			body, releaseDecoded, err = c.decodeScopedResponse(requestCtx, body, encoding, limit)
+			releaseInput = releaseResponseInputs(releaseDecoded, releaseInput)
+		} else {
+			body, err = decodeResponseBody(body, encoding, limit)
+		}
 		if int64(len(body)) > responseBytes {
 			responseBytes = int64(len(body))
 		}
@@ -296,10 +410,12 @@ func (c *HTTPClient) DoTarget(ctx context.Context, r Request, kind TargetKind) (
 	}
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    headers,
-		Body:       body,
-		FinalURL:   finalURL,
+		StatusCode:   resp.StatusCode,
+		Headers:      headers,
+		Body:         body,
+		FinalURL:     finalURL,
+		InputMemory:  inputMemory,
+		operationCtx: ctx,
 	}, nil
 }
 

@@ -3,7 +3,7 @@ package js
 import (
 	"sync"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // scriptCache holds compiled bootstrap scripts so the Runtime parses each

@@ -1,11 +1,10 @@
 package js
 
-import v8 "rogchap.com/v8go"
+import v8 "github.com/tommie/v8go"
 
-// installWebAPIV3 installs the long-tail surfaces: Canvas 2D stubs,
-// Web Animations, BroadcastChannel, ReadableStream/WritableStream
-// skeletons, ShadowRoot stubs, Form validity API, Range/Selection,
-// HTMLElement subclass markers.
+// installWebAPIV3 installs canvas/animation compatibility surfaces,
+// in-memory streams, BroadcastChannel, shadow-root compatibility,
+// form validity, Range/Selection and HTMLElement markers.
 func installWebAPIV3(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	c.registerBootstrap("artemis-webapi-v3", webapiV3Bootstrap)
 	return nil
@@ -73,7 +72,7 @@ const webapiV3Bootstrap = `
       return null;
     };
     __ELEM_PROTO.toDataURL = function() { return 'data:,'; };
-    __ELEM_PROTO.toBlob = function(cb) { try { cb(new Blob([])); } catch (e) {} };
+    __ELEM_PROTO.toBlob = function(cb) { try { cb(new Blob([])); } catch (e) { __artemisDispatchDocumentEvent(5, e); } };
     // width/height for canvas
     Object.defineProperty(__ELEM_PROTO, 'width', {
       get() { return parseInt(this.getAttribute('width') || '300', 10); },
@@ -145,7 +144,7 @@ const webapiV3Bootstrap = `
         if (peer === this || peer._closed) continue;
         const ev = new MessageEvent('message', {data});
         if (typeof peer.onmessage === 'function') {
-          queueMicrotask(() => { try { peer.onmessage(ev); } catch (e) {} });
+          queueMicrotask(() => { try { peer.onmessage(ev); } catch (e) { __artemisDispatchDocumentEvent(5, e); } });
         }
       }
     }
@@ -161,17 +160,20 @@ const webapiV3Bootstrap = `
   globalThis.BroadcastChannel = BroadcastChannel;
 
   // ---------------- ReadableStream / WritableStream / TransformStream ----------------
-  // Functional in-memory implementation. No backpressure (every desiredSize
-  // is 1, every ready resolves immediately) but honours the actual data
-  // flow through getReader / pipeTo / pipeThrough / tee. Sufficient for
-  // any site that uses Streams as a chunk-handoff abstraction.
+  // In-memory chunk handoff with owned callback and cleanup results.
+  // The capability case records the tested read/pipe/transform/tee subset.
+  // General writable queuing, backpressure and byte streams are outside it.
   class ReadableStream {
     constructor(source) {
       this._source = source || {};
       this._chunks = [];
       this._done = false;
       this._error = undefined;
+      this._errored = false;
       this._readers = []; // pending {resolve,reject} from read()
+      this._started = false;
+      this._pulling = false;
+      this._pullAgain = false;
       this.locked = false;
       const self = this;
       this._controller = {
@@ -182,6 +184,7 @@ const webapiV3Bootstrap = `
           } else {
             self._chunks.push(c);
           }
+          if (self._readers.length > 0) self._pull();
         },
         close() {
           self._done = true;
@@ -190,21 +193,35 @@ const webapiV3Bootstrap = `
           }
         },
         error(e) {
-          self._error = e; self._done = true;
+          if (self._errored || (self._done && self._chunks.length === 0)) return;
+          self._error = e; self._errored = true; self._done = true;
+          self._chunks.length = 0;
           while (self._readers.length > 0) {
             self._readers.shift().reject(e);
           }
         },
         get desiredSize() { return self._done ? null : 1; },
       };
-      if (typeof this._source.start === 'function') {
-        try { this._source.start(this._controller); } catch (e) { this._error = e; this._done = true; }
-      }
+      let started;
+      try {
+        if (typeof this._source.start === 'function') started = this._source.start(this._controller);
+      } catch (e) { this._controller.error(e); }
+      this._startPromise = Promise.resolve(started).then(() => {
+        this._started = true;
+        if (this._readers.length > 0) this._pull();
+      }, error => { this._controller.error(error); });
     }
     _pull() {
-      if (typeof this._source.pull === 'function' && !this._done) {
-        try { this._source.pull(this._controller); } catch (e) { this._controller.error(e); }
-      }
+      if (!this._started || this._done || typeof this._source.pull !== 'function') return;
+      if (this._pulling) { this._pullAgain = true; return; }
+      this._pulling = true; this._pullAgain = false;
+      let pulled;
+      try { pulled = this._source.pull(this._controller); }
+      catch (e) { this._pulling = false; this._controller.error(e); return; }
+      Promise.resolve(pulled).then(() => {
+        this._pulling = false;
+        if (this._pullAgain && this._readers.length > 0) this._pull();
+      }, error => { this._pulling = false; this._controller.error(error); });
     }
     getReader() {
       if (this.locked) throw new TypeError('ReadableStream already locked');
@@ -212,12 +229,13 @@ const webapiV3Bootstrap = `
       self.locked = true;
       return {
         read() {
-          if (self._error) return Promise.reject(self._error);
+          if (self._errored) return Promise.reject(self._error);
           if (self._chunks.length > 0) {
             return Promise.resolve({value: self._chunks.shift(), done: false});
           }
           if (self._done) return Promise.resolve({value: undefined, done: true});
           self._pull();
+          if (self._errored) return Promise.reject(self._error);
           if (self._chunks.length > 0) {
             return Promise.resolve({value: self._chunks.shift(), done: false});
           }
@@ -230,10 +248,13 @@ const webapiV3Bootstrap = `
       };
     }
     cancel(reason) {
-      this._done = true;
+      if (this._errored) return Promise.reject(this._error);
+      if (this._done && this._chunks.length === 0) return Promise.resolve();
       this._chunks.length = 0;
+      this._controller.close();
       if (typeof this._source.cancel === 'function') {
-        try { this._source.cancel(reason); } catch (e) {}
+        try { return Promise.resolve(this._source.cancel(reason)).then(() => undefined); }
+        catch (e) { return Promise.reject(e); }
       }
       return Promise.resolve();
     }
@@ -294,10 +315,20 @@ const webapiV3Bootstrap = `
     constructor(sink) {
       this._sink = sink || {};
       this._closed = false;
+      this._errored = false;
+      this._closing = false;
+      this._abortPromise = null;
       this.locked = false;
-      if (typeof this._sink.start === 'function') {
-        try { this._sink.start({error: (e) => { this._error = e; }}); } catch (e) { this._error = e; }
-      }
+      this._controller = {error: error => { this._fail(error); }};
+      let started;
+      try {
+        if (typeof this._sink.start === 'function') started = this._sink.start(this._controller);
+      } catch (e) { this._fail(e); }
+      this._startPromise = Promise.resolve(started).then(() => undefined, error => { this._fail(error); });
+    }
+    _fail(error) {
+      if (this._errored) return;
+      this._error = error; this._errored = true;
     }
     getWriter() {
       if (this.locked) throw new TypeError('WritableStream already locked');
@@ -305,23 +336,20 @@ const webapiV3Bootstrap = `
       self.locked = true;
       return {
         write(chunk) {
-          if (self._error) return Promise.reject(self._error);
-          if (self._closed) return Promise.reject(new TypeError('writer closed'));
-          if (self._sink.write) {
-            try { return Promise.resolve(self._sink.write(chunk, this)); }
-            catch (e) { return Promise.reject(e); }
-          }
-          return Promise.resolve();
+          if (self._errored) return Promise.reject(self._error);
+          if (self._closed || self._closing) return Promise.reject(new TypeError('writer closed'));
+          return self._startPromise.then(() => {
+            if (self._errored) throw self._error;
+            if (typeof self._sink.write === 'function') return self._sink.write(chunk, self._controller);
+          }).then(() => {
+            if (self._errored) throw self._error;
+          }, error => { self._fail(error); throw self._error; });
         },
         close() {
-          self._closed = true;
-          if (self._sink.close) try { return Promise.resolve(self._sink.close()); } catch (e) { return Promise.reject(e); }
-          return Promise.resolve();
+          return self._close();
         },
         abort(e) {
-          self._error = e; self._closed = true;
-          if (self._sink.abort) try { self._sink.abort(e); } catch (_) {}
-          return Promise.resolve();
+          return self.abort(e);
         },
         releaseLock() { self.locked = false; },
         closed: Promise.resolve(),
@@ -329,35 +357,70 @@ const webapiV3Bootstrap = `
         desiredSize: 1,
       };
     }
-    abort(e) { this._error = e; this._closed = true; return Promise.resolve(); }
-    close() { this._closed = true; return Promise.resolve(); }
+    abort(e) {
+      if (this._abortPromise) return this._abortPromise;
+      if (this._closed || this._errored) return Promise.resolve();
+      this._error = e; this._errored = true; this._closed = true;
+      this._abortPromise = this._startPromise.then(() => {
+        if (typeof this._sink.abort === 'function') return this._sink.abort(e);
+      }).then(() => { this._abortPromise = null; }, error => {
+        this._abortPromise = null; throw error;
+      });
+      return this._abortPromise;
+    }
+    _close() {
+      if (this._errored) return Promise.reject(this._error);
+      if (this._closed || this._closing) return Promise.reject(new TypeError('writer closed'));
+      this._closing = true;
+      return this._startPromise.then(() => {
+        if (this._errored) throw this._error;
+        if (typeof this._sink.close === 'function') return this._sink.close();
+      }).then(() => {
+        this._closing = false;
+        if (this._errored) throw this._error;
+        this._closed = true;
+      }, error => { this._closing = false; this._fail(error); throw this._error; });
+    }
+    close() {
+      if (this.locked) return Promise.reject(new TypeError('WritableStream is locked'));
+      return this._close();
+    }
   }
   class TransformStream {
     constructor(transformer) {
       transformer = transformer || {};
       let readableController = null;
       this.readable = new ReadableStream({
-        start(c) { readableController = c; },
+        start(c) {
+          readableController = c;
+          if (typeof transformer.start === 'function') return transformer.start(c);
+        },
       });
+      const readable = this.readable;
       this.writable = new WritableStream({
+        async start(controller) {
+          await readable._startPromise;
+          if (readable._errored) controller.error(readable._error);
+        },
         async write(chunk) {
-          if (typeof transformer.transform === 'function') {
-            await transformer.transform(chunk, readableController);
-          } else {
-            readableController.enqueue(chunk);
-          }
+          try {
+            if (typeof transformer.transform === 'function') {
+              await transformer.transform(chunk, readableController);
+            } else {
+              readableController.enqueue(chunk);
+            }
+          } catch (error) { readableController.error(error); throw error; }
         },
         async close() {
-          if (typeof transformer.flush === 'function') {
-            await transformer.flush(readableController);
-          }
-          readableController.close();
+          try {
+            if (typeof transformer.flush === 'function') {
+              await transformer.flush(readableController);
+            }
+            readableController.close();
+          } catch (error) { readableController.error(error); throw error; }
         },
         abort(e) { readableController.error(e); },
       });
-      if (typeof transformer.start === 'function') {
-        try { transformer.start(readableController); } catch (e) { readableController.error(e); }
-      }
     }
   }
   globalThis.ReadableStream = ReadableStream;

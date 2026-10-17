@@ -29,8 +29,10 @@ group=$$
   while kill -0 "$owner" 2>/dev/null; do sleep 0.2; done
   kill -TERM "-$group" 2>/dev/null || true
   sleep 1
-  rm -f -- "$profile/DevToolsActivePort" "$profile/.artemis-profile.lock"
-  if [ "$remove_profile" = "1" ]; then rm -rf -- "$profile"; fi
+  if [ -n "$profile" ]; then
+    rm -f -- "$profile/DevToolsActivePort" "$profile/.artemis-profile.lock"
+    if [ "$remove_profile" = "1" ]; then rm -rf -- "$profile"; fi
+  fi
   self=$$
   ps -axo pid=,pgid= | while read -r pid pgid; do
     if [ "$pgid" = "$group" ] && [ "$pid" != "$self" ]; then

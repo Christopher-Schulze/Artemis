@@ -1,6 +1,11 @@
 package wpt
 
-import "fmt"
+import (
+	"fmt"
+	"io/fs"
+	"strings"
+	"unicode/utf8"
+)
 
 // Outcome is the expected result for a WPT test.
 type Outcome string
@@ -43,6 +48,12 @@ func (tc TestCase) Validate() error {
 	if tc.CapabilityID == "" {
 		return fmt.Errorf("wpt TestCase %q: CapabilityID is empty", tc.Name)
 	}
+	if !fs.ValidPath(tc.Path) || strings.ContainsAny(tc.Path, "\\?#\x00") || !strings.HasSuffix(tc.Path, ".html") || len(tc.Path) > 1024 {
+		return fmt.Errorf("wpt TestCase: Path must identify a canonical local HTML asset")
+	}
+	if !utf8.ValidString(tc.Name) || !utf8.ValidString(tc.CapabilityID) || len(tc.Name) > 4096 || len(tc.CapabilityID) > 256 {
+		return fmt.Errorf("wpt TestCase: identity is oversized or invalid UTF-8")
+	}
 	return nil
 }
 
@@ -64,10 +75,21 @@ func (s Subset) Validate() error {
 	if len(s.Tests) == 0 {
 		return fmt.Errorf("wpt Subset: Tests is empty")
 	}
+	if len(s.Tests) > 1024 || len(s.Revision) > 256 || len(s.OriginURL) > 4096 {
+		return fmt.Errorf("wpt Subset: metadata or test count exceeds limit")
+	}
+	identities := make(map[string]map[string]bool)
 	for i, tc := range s.Tests {
 		if err := tc.Validate(); err != nil {
 			return fmt.Errorf("wpt Subset test %d: %w", i, err)
 		}
+		if identities[tc.Path] == nil {
+			identities[tc.Path] = make(map[string]bool)
+		}
+		if identities[tc.Path][tc.Name] {
+			return fmt.Errorf("wpt Subset: duplicate test %q/%q", tc.Path, tc.Name)
+		}
+		identities[tc.Path][tc.Name] = true
 	}
 	return nil
 }

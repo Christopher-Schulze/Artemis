@@ -1,7 +1,12 @@
 package observe
 
 import (
+	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +102,9 @@ func TestWorkflowCaptureMaxActions(t *testing.T) {
 
 func TestWorkflowCaptureScreenshotFallback(t *testing.T) {
 	cfg := DefaultWorkflowCaptureConfig()
+	cfg.CaptureScreenshot = func(context.Context, string) (*CapturedScreenshot, error) {
+		return workflowTestScreenshot(t), nil
+	}
 	r := NewWorkflowCaptureRecorder(cfg, "op1", "test-flow")
 	// Low-confidence selector should trigger screenshot fallback.
 	err := r.Record(ActionCapture{
@@ -138,7 +146,7 @@ func TestWorkflowCaptureExplicitScreenshot(t *testing.T) {
 	err := r.Record(ActionCapture{
 		ToolCall:   CapturedToolCall{Tool: "browser_click", ArgsJSON: "{}"},
 		Selectors:  []CapturedSelector{{Kind: SelectorAX, Value: "e5", Confidence: 0.95}},
-		Screenshot: &CapturedScreenshot{Reason: "manual"},
+		Screenshot: workflowTestScreenshot(t),
 	})
 	if err != nil {
 		t.Fatalf("Record: %v", err)
@@ -449,5 +457,160 @@ func TestWorkflowCaptureConcurrentRecord(t *testing.T) {
 		if !seen[i] {
 			t.Errorf("missing Index %d", i)
 		}
+	}
+}
+
+func workflowTestScreenshot(t *testing.T) *CapturedScreenshot {
+	t.Helper()
+	var pixels bytes.Buffer
+	if err := png.Encode(&pixels, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	return &CapturedScreenshot{Timestamp: time.Now(), Reason: "actual_test_pixels", DataB64: base64.StdEncoding.EncodeToString(pixels.Bytes())}
+}
+
+func TestWorkflowCaptureCannotInventPixelsOrAppendAfterStop(t *testing.T) {
+	r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "owner", "flow")
+	action := ActionCapture{ToolCall: CapturedToolCall{Tool: "click", ArgsJSON: "{}"}, Selectors: []CapturedSelector{{Kind: SelectorCSS, Value: "button", Confidence: .3}}}
+	if err := r.Record(action); err != nil {
+		t.Fatal(err)
+	}
+	first := r.Stop()
+	if first.Actions[0].Screenshot != nil || !first.Actions[0].ScreenshotNeeded {
+		t.Fatalf("missing real pixels became fabricated metadata: %+v", first.Actions[0])
+	}
+	_, _, screenshots, _, _, _ := r.Stats()
+	if screenshots != 0 {
+		t.Fatalf("nonexistent screenshots counted: %d", screenshots)
+	}
+	r.SetNow(func() time.Time { return first.EndTime.Add(time.Hour) })
+	if second := r.Stop(); !second.EndTime.Equal(first.EndTime) {
+		t.Fatal("repeated Stop rewrote the actual endpoint")
+	}
+	if err := r.Record(action); err == nil || len(r.Recording().Actions) != 1 {
+		t.Fatalf("stopped recording admitted another step: %v", err)
+	}
+	for _, screenshot := range []*CapturedScreenshot{{Reason: "metadata_only"}, {DataB64: base64.StdEncoding.EncodeToString([]byte("not pixels"))}} {
+		fresh := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "owner", "flow")
+		action.Screenshot = screenshot
+		if err := fresh.Record(action); err == nil || len(fresh.Recording().Actions) != 0 {
+			t.Fatalf("invalid screenshot admitted: %+v err=%v", screenshot, err)
+		}
+	}
+}
+
+func TestWorkflowCaptureSnapshotsAreImmutableAndSavePreservesExistingFiles(t *testing.T) {
+	cfg := DefaultWorkflowCaptureConfig()
+	cfg.ScreenshotDir = filepath.Join(t.TempDir(), "pixels")
+	r := NewWorkflowCaptureRecorder(cfg, "owner", "flow")
+	action := ActionCapture{ToolCall: CapturedToolCall{Tool: "click", ArgsJSON: "{}"}, AXBefore: &CapturedAXSnapshot{NodeCount: 1, Nodes: []AXNode{{ID: "e1", Name: "Save", ChildIDs: []string{"e2"}}}}, Selectors: []CapturedSelector{{Kind: SelectorAX, Value: "e1", Confidence: .9}}, Screenshot: workflowTestScreenshot(t)}
+	if err := r.Record(action); err != nil {
+		t.Fatal(err)
+	}
+	action.AXBefore.Nodes[0].Name, action.AXBefore.Nodes[0].ChildIDs[0] = "external", "foreign"
+	action.Selectors[0].Value = "foreign"
+	returned := r.Recording()
+	returned.Actions[0].AXBefore.Nodes[0].Name = "returned mutation"
+	actual := r.Recording().Actions[0]
+	if actual.AXBefore.Nodes[0].Name != "Save" || actual.AXBefore.Nodes[0].ChildIDs[0] != "e2" || actual.Selectors[0].Value != "e1" || actual.Screenshot.Path == "" || actual.Screenshot.DataB64 != "" {
+		t.Fatalf("recording leaked mutable aliases or failed pixel persistence: %+v", actual)
+	}
+	if _, err := validateCapturedPixels(actual.Screenshot); err != nil {
+		t.Fatalf("persisted pixels are not a real image: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "recording.json")
+	if err := r.SaveToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SaveToFile(path); err == nil {
+		t.Fatal("existing recording was overwritten")
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(original, retained) {
+		t.Fatalf("existing recording bytes changed: %v", err)
+	}
+}
+
+func TestWorkflowCaptureCancellationAndPayloadBudgets(t *testing.T) {
+	cfg := DefaultWorkflowCaptureConfig()
+	cfg.MaxBytes = 4096
+	r := NewWorkflowCaptureRecorder(cfg, "owner", "flow")
+	action := ActionCapture{ToolCall: CapturedToolCall{Tool: "click", ArgsJSON: "{}"}}
+	if err := r.Record(action); err == nil || !strings.Contains(err.Error(), "byte budget exceeded") || len(r.Recording().Actions) != 0 {
+		t.Fatalf("reserved metadata exceeded declared payload budget: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	fresh := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "owner", "flow")
+	if err := fresh.RecordContext(ctx, action); err != context.Canceled || len(fresh.Recording().Actions) != 0 {
+		t.Fatalf("cancelled capture appended evidence: %v", err)
+	}
+}
+
+func TestWorkflowCaptureStopCancelsPixelsAndWaiterCanExpire(t *testing.T) {
+	started := make(chan struct{})
+	cfg := DefaultWorkflowCaptureConfig()
+	cfg.CaptureScreenshot = func(ctx context.Context, _ string) (*CapturedScreenshot, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	r := NewWorkflowCaptureRecorder(cfg, "owner", "flow")
+	defer r.Stop()
+	action := ActionCapture{ToolCall: CapturedToolCall{Tool: "click", ArgsJSON: "{}"}, Selectors: []CapturedSelector{{Kind: SelectorCSS, Value: "button", Confidence: .3}}}
+	joined := make(chan error, 1)
+	go func() { joined <- r.RecordContext(t.Context(), action) }()
+	<-started
+	waitCtx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if err := r.RecordContext(waitCtx, action); err != context.DeadlineExceeded {
+		t.Fatalf("queued record did not respect its own deadline: %v", err)
+	}
+	if snapshot := r.Stop(); len(snapshot.Actions) != 0 {
+		t.Fatal("unfinished capture was published at Stop")
+	}
+	if err := <-joined; err == nil {
+		t.Fatal("Stop did not cancel the owning pixel capture")
+	}
+}
+
+func TestWorkflowCaptureRejectsImageHeaderWithoutPixels(t *testing.T) {
+	screenshot := workflowTestScreenshot(t)
+	raw, err := base64.StdEncoding.DecodeString(screenshot.DataB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 33 {
+		t.Fatal("fixture does not contain a complete PNG image header")
+	}
+	header := raw[:33]
+	if _, err := png.DecodeConfig(bytes.NewReader(header)); err != nil {
+		t.Fatalf("negative fixture must have valid dimensions before missing pixels: %v", err)
+	}
+	screenshot.DataB64 = base64.StdEncoding.EncodeToString(header)
+	if _, err := validateCapturedPixels(screenshot); err == nil {
+		t.Fatal("valid geometry alone manufactured actual pixel evidence")
+	}
+}
+
+func TestWorkflowCaptureRejectsInvalidToolAndSelectorEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		action ActionCapture
+	}{
+		{"invalid JSON", ActionCapture{ToolCall: CapturedToolCall{Tool: "click", ArgsJSON: "broken"}}},
+		{"unknown selector", ActionCapture{ToolCall: CapturedToolCall{Tool: "click"}, Selectors: []CapturedSelector{{Kind: "unknown", Value: "e1", Confidence: .9}}}},
+		{"missing selector", ActionCapture{ToolCall: CapturedToolCall{Tool: "click"}, Selectors: []CapturedSelector{{Kind: SelectorAX, Confidence: .9}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := NewWorkflowCaptureRecorder(DefaultWorkflowCaptureConfig(), "owner", "flow")
+			if err := r.Record(test.action); err == nil || len(r.Recording().Actions) != 0 {
+				t.Fatalf("invalid evidence appended: %+v err=%v", test.action, err)
+			}
+		})
 	}
 }

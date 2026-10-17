@@ -85,6 +85,14 @@ func (m *NetworkMonitor) Len() int {
 	return m.buffer.Len()
 }
 
+// Clear drains retained events and subscriber closures after their owner stops.
+func (m *NetworkMonitor) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.buffer.Clear()
+	m.subscribers = nil
+}
+
 // SubscriberCount returns the number of active subscribers
 // (spec L4024: subscriber pattern).
 func (m *NetworkMonitor) SubscriberCount() int {

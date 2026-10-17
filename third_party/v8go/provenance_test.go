@@ -16,12 +16,13 @@ func TestProvenanceDocument(t *testing.T) {
 	content := string(data)
 
 	required := []string{
-		"rogchap.com/v8go",
-		"v0.9.0",
+		"github.com/tommie/v8go",
+		"v0.39.0",
+		"https://github.com/tommie/v8go",
 		"https://github.com/rogchap/v8go",
 		"ARTEMIS_PATCHES.md",
-		"deps/darwin_arm64/libv8.a",
-		"deps/linux_x86_64/libv8.a",
+		"lib/darwin_arm64/libv8go_artemis.a",
+		"lib/BINDING.sha256",
 		"LICENSE",
 	}
 	for _, s := range required {

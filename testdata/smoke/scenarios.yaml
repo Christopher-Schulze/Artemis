@@ -238,7 +238,7 @@ scenarios:
 
   - id: login-httpbin-basic
     site: https://httpbin.org/basic-auth/user/passwd
-    description: Hit HTTP Basic Auth endpoint with env-provided throwaway creds. Skipped if ARTEMIS_SMOKE_BASIC_USER/PASS unset.
+    description: Verify the unauthenticated HTTP Basic Auth endpoint returns 401. Environment-gated; no credentials are submitted.
     requires:
       - ARTEMIS_SMOKE_BASIC_USER
       - ARTEMIS_SMOKE_BASIC_PASS

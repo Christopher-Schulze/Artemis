@@ -19,7 +19,7 @@ type TabExecutor struct {
 	registry      *TabRegistry
 	maxConcurrent int
 	sem           chan struct{}
-	wg            sync.WaitGroup
+	locks         *TabLock
 }
 
 // TabTask is a task to execute on a specific tab
@@ -49,6 +49,7 @@ func NewTabExecutor(registry *TabRegistry, maxConcurrent int) *TabExecutor {
 		registry:      registry,
 		maxConcurrent: maxConcurrent,
 		sem:           make(chan struct{}, maxConcurrent),
+		locks:         NewTabLock(),
 	}
 }
 
@@ -62,7 +63,21 @@ func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResu
 	if e.registry == nil {
 		return TabTaskResult{TabID: task.TabID, Success: false, Error: "executor: tab registry required"}
 	}
-	if err := e.registry.Sync(ctx); err != nil {
+	if task.Action == nil {
+		return TabTaskResult{TabID: task.TabID, Error: "executor: action required"}
+	}
+	timeout := task.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	taskCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	release, err := e.Acquire(taskCtx, task.TabID)
+	if err != nil {
+		return TabTaskResult{TabID: task.TabID, Error: err.Error(), Duration: time.Since(start)}
+	}
+	defer release()
+	if err := e.registry.Sync(taskCtx); err != nil {
 		return TabTaskResult{TabID: task.TabID, Success: false, Error: err.Error()}
 	}
 	tab, ok := e.registry.GetTab(task.TabID)
@@ -73,13 +88,10 @@ func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResu
 			Error:   fmt.Sprintf("executor: tab %s not found", task.TabID),
 		}
 	}
-	timeout := task.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
+	err = task.Action(taskCtx, tab)
+	if err == nil {
+		err = taskCtx.Err()
 	}
-	taskCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	err := task.Action(taskCtx, tab)
 	result := TabTaskResult{
 		TabID:    task.TabID,
 		Duration: time.Since(start),
@@ -97,17 +109,47 @@ func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResu
 // (spec L4021: concurrent tab execution).
 func (e *TabExecutor) ExecuteConcurrent(ctx context.Context, tasks []TabTask) []TabTaskResult {
 	results := make([]TabTaskResult, len(tasks))
-	for i, task := range tasks {
-		e.wg.Add(1)
-		e.sem <- struct{}{}
-		go func(idx int, t TabTask) {
-			defer e.wg.Done()
-			defer func() { <-e.sem }()
-			results[idx] = e.ExecuteTask(ctx, t)
-		}(i, task)
+	var workers sync.WaitGroup
+	jobs := make(chan int)
+	for range min(len(tasks), e.maxConcurrent) {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for idx := range jobs {
+				results[idx] = e.ExecuteTask(ctx, tasks[idx])
+			}
+		}()
 	}
-	e.wg.Wait()
+	for idx := range tasks {
+		jobs <- idx
+	}
+	close(jobs)
+	workers.Wait()
 	return results
+}
+
+// Acquire shares per-tab serialization and bounded cross-tab admission with
+// production page owners. Waiting on a busy tab never consumes global capacity.
+func (e *TabExecutor) Acquire(ctx context.Context, tabID string) (func(), error) {
+	if ctx == nil || tabID == "" {
+		return nil, fmt.Errorf("executor: context and tab ID required")
+	}
+	if err := e.locks.LockContext(ctx, tabID, "executor"); err != nil {
+		return nil, err
+	}
+	select {
+	case e.sem <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-e.sem
+			e.locks.Unlock(tabID)
+			return nil, err
+		}
+		var once sync.Once
+		return func() { once.Do(func() { <-e.sem; e.locks.Unlock(tabID) }) }, nil
+	case <-ctx.Done():
+		e.locks.Unlock(tabID)
+		return nil, ctx.Err()
+	}
 }
 
 // ExecuteSequential executes tasks one at a time
@@ -118,6 +160,18 @@ func (e *TabExecutor) ExecuteSequential(ctx context.Context, tasks []TabTask) []
 		results[i] = e.ExecuteTask(ctx, task)
 	}
 	return results
+}
+
+// WaitTabIdle joins this tab's execution without reserving cross-tab capacity.
+func (e *TabExecutor) WaitTabIdle(ctx context.Context, tabID string) error {
+	if ctx == nil || tabID == "" {
+		return fmt.Errorf("executor: context and tab ID required")
+	}
+	if err := e.locks.LockContext(ctx, tabID, "cleanup"); err != nil {
+		return err
+	}
+	e.locks.Unlock(tabID)
+	return nil
 }
 
 // MaxConcurrent returns the max concurrent limit

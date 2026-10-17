@@ -33,6 +33,8 @@ coverage.*
 # Cgo intermediates
 *.o
 *.a
+# Prebuilt v8go binding archives are vendored (third_party/v8go/PROVENANCE.md).
+!third_party/v8go/lib/*/libv8go_artemis.a
 
 # Benchmark competitor binary (never committed; downloaded at benchmark time)
 benchmark/bin/

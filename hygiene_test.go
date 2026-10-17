@@ -23,8 +23,8 @@ func TestProjectHygieneFiles(t *testing.T) {
 		{"CONTRIBUTING.md", []string{"Quick Start", "Local Gates", "Code Style", "Tests", "V8 / v8go Fork", "Security Issues", "License"}},
 		{"CHANGELOG.md", []string{"Unreleased", "Added", "Changed", "Removed"}},
 		{"README.md", []string{"Artemis"}},
-		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"rogchap.com/v8go", "v0.9.0", "ARTEMIS_PATCHES.md", "LICENSE"}},
-		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"rogchap.com/v8go", "SnapshotCreator", "LICENSE"}},
+		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"github.com/tommie/v8go", "v0.39.0", "ARTEMIS_PATCHES.md", "LICENSE"}},
+		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"github.com/tommie/v8go", "SetProcessSnapshot", "LICENSE"}},
 		{".github/workflows/ci.yml", []string{"test-linux", "test-macos-arm64", "runs-on: macos-14", "runs-on: ubuntu-latest"}},
 		{"docs/release-procedures.md", []string{"Signing", "Rollback", "Revocation", "Vulnerability Response", "Operator Gate"}},
 	}

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/webapi"
@@ -18,33 +20,51 @@ import (
 // Context binds a JS execution context to a webapi.Document. Each Context
 // must be Closed when no longer needed.
 type Context struct {
-	rt                *Runtime
-	v8ctx             *v8.Context
-	doc               *webapi.Document
-	console           Console
-	fetcher           FetchFunc
-	getCookie         func() string
-	setCookie         func(string)
-	async             *asyncChan
-	asyncFetch        bool
-	nodes             *nodeTable
-	localStorage      *memStorage
-	sessionStorage    *memStorage
-	timers            *timerQueue
-	observers         *observerRegistry
-	ws                *wsRegistry
-	policy            *network.Policy
-	sessionID         string
-	wsClientOnce      sync.Once
-	wsClient          *http.Client
-	styleMgr          *styleManager
-	iframes           *iframeRegistry
-	bootstraps        []bootstrapEntry
-	bootstrapsSkipped bool
-	storageHandleIDs  []uint32 // handles into Runtime.storageHandles to free on Close
-	fetchBodyIDs      []uint32 // handles into Runtime.fetchBodies to free on Close
-	evalCtx           context.Context
-	closed            atomic.Bool
+	rt                    *Runtime
+	v8ctx                 *v8.Context
+	doc                   *webapi.Document
+	console               Console
+	fetcher               FetchFunc
+	getCookie             func() string
+	setCookie             func(string)
+	async                 *asyncChan
+	asyncFetch            bool
+	nodes                 *nodeTable
+	localStorage          *memStorage
+	sessionStorage        *memStorage
+	timers                *timerQueue
+	observers             *observerRegistry
+	ws                    *wsRegistry
+	policy                *network.Policy
+	proxy                 *url.URL
+	sessionID             string
+	wsClientOnce          sync.Once
+	wsClient              *http.Client
+	styleMgr              *styleManager
+	iframes               *iframeRegistry
+	bootstraps            []bootstrapEntry
+	bootstrapsSkipped     bool
+	storageHandleIDs      []uint32 // handles into Runtime.storageHandles to free on Close
+	fetchBodyIDs          []uint32 // handles into Runtime.fetchBodies to free on Close
+	fetchBodyBytes        int64
+	responseFactory       *v8.Function
+	domExceptionClass     *v8.Function
+	performanceOrigin     time.Time
+	requestHeaderEncoder  *v8.Function
+	fetchSignalFactory    *v8.Function
+	responseTrue          *v8.Value
+	responseFalse         *v8.Value
+	callbackValues        []*v8.Value
+	ownedValues           map[*Value]struct{}
+	evalCtx               context.Context
+	closed                atomic.Bool
+	pageExposed           atomic.Bool
+	closeOnce             sync.Once
+	documentEventDispatch *v8.Function
+	documentLoadingStep   int
+	documentLoadingError  error
+	pageStorage           *pageStorage
+	ownsPageStorage       bool
 }
 
 // registerBootstrap queues a JS bootstrap source. Sources are flushed as
@@ -136,8 +156,17 @@ type ContextOpts struct {
 	// value is a single cookie attribute set per Set-Cookie semantics.
 	// Nil makes the setter a no-op.
 	SetCookie func(string)
+	// CookieJar binds document.cookie to the owning HTTP session. Frame contexts
+	// resolve their own document URL rather than inheriting the parent's cookies.
+	// The jar must also implement DocumentCookies and SetDocumentCookies; opaque
+	// HTTP-only jars cannot prove script authority and fail construction closed.
+	CookieJar http.CookieJar
+	// RequestContext is borrowed only during construction for stylesheet loads.
+	// Subsequent network work uses the active Eval and context lifetime.
+	RequestContext context.Context
+	pageStorage    *pageStorage
 	// LoadStylesheet fetches an external stylesheet by URL (resolved by
-	// the caller). Nil disables external stylesheet loading.
+	// the caller). Nil rejects documents with active external stylesheets.
 	LoadStylesheet StylesheetLoader
 	// LoadIFrame fetches the HTML for an `<iframe src=...>` element.
 	// Nil disables iframe content access.
@@ -145,25 +174,39 @@ type ContextOpts struct {
 	// Policy is the mandatory outbound network boundary for WebSocket
 	// handshakes. Nil fails WebSocket creation closed.
 	Policy *network.Policy
-	// SessionID correlates redacted network-policy decisions.
+	// Proxy routes WebSocket handshakes through the session's validated
+	// upstream proxy. Nil connects directly under Policy.
+	Proxy *url.URL
+	// SessionID owns retained localStorage origins and redacted network identity.
 	SessionID string
 }
 
 // NewContext creates a context bound to doc. When the Runtime was built
-// via NewRuntimeWithPool, NewContext borrows a v8.Context from the pool
-// if one is available and runs `__artemis_reset()` instead of the full
-// install* + bootstrap pipeline; this skips ~30% of the per-Context
-// CPU cost. State that persists across pages (custom-element
-// definitions, mutations to built-in prototypes) is the caller's
-// responsibility.
+// via NewRuntimeWithPool, NewContext may borrow a pristine v8.Context and
+// rebind current page options. A realm exposed to page execution or native
+// integrations is retired on Close; property deletion cannot reset its
+// lexical environment or prove absence of prototype pollution.
 // NewContext serialises isolate access via r.ctxMu against any other NewContext,
 // Close, or Eval on the same Runtime. A Runtime's Contexts all share r.iso, and
 // v8::Isolate is single-threaded: concurrent V8 work on one isolate (creation,
 // GlobalHandles bookkeeping, or script execution) from two goroutines crashes the
 // process. The lock is the single point that serialises all of it.
-func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (*Context, error) {
-	r.ctxMu.Lock()
-	defer r.ctxMu.Unlock()
+func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (created *Context, returnErr error) {
+	ctx, cancel := borrowContext(opts.RequestContext, r.lifetime)
+	defer cancel()
+	if err := r.ctxMu.lockContext(ctx, r.lifetime); err != nil {
+		return nil, err
+	}
+	span := beginExecution(r, ctx, r.lifetime)
+	defer func() {
+		returnErr = errors.Join(returnErr, span.finish())
+		r.ctxMu.Unlock()
+		if returnErr != nil && created != nil {
+			created.Close()
+			created = nil
+		}
+	}()
+	opts.RequestContext = ctx
 	return r.newContextLocked(doc, opts)
 }
 
@@ -172,8 +215,24 @@ func (r *Runtime) NewContext(doc *webapi.Document, opts ContextOpts) (*Context, 
 // builder invoked from a __iframe_load callback during Eval (which already holds
 // the lock), so it must NOT re-acquire ctxMu.
 func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Context, error) {
+	if r.closed.Load() {
+		return nil, context.Canceled
+	}
 	if doc == nil {
 		return nil, errors.New("nil document")
+	}
+	ownsPageStorage := opts.pageStorage == nil
+	requestCtx := opts.RequestContext
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+	styleMgr, err := newStyleManager(requestCtx, doc, opts.LoadStylesheet)
+	if err != nil {
+		return nil, fmt.Errorf("document CSS: %w", err)
+	}
+	localStorage, sessionStorage, err := r.contextStorage(doc.URL(), &opts)
+	if err != nil {
+		return nil, err
 	}
 	console := opts.Console
 	if console == nil {
@@ -181,15 +240,17 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 	}
 	var v8ctx *v8.Context
 	pooled := false
-	if r.poolEnabled {
+	if r.poolEnabled && !r.isolateExposed.Load() {
 		select {
 		case v8ctx = <-r.ctxPool:
 			pooled = true
 		default:
-			v8ctx = v8.NewContext(r.iso)
 		}
-	} else {
-		v8ctx = v8.NewContext(r.iso)
+	}
+	if v8ctx == nil {
+		if v8ctx, err = r.newV8Context(); err != nil {
+			return nil, err
+		}
 	}
 	cacheKey := "all"
 	if r.hasSnapshot {
@@ -207,34 +268,62 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		getCookie:         opts.GetCookie,
 		setCookie:         opts.SetCookie,
 		nodes:             newNodeTable(),
-		localStorage:      newMemStorage(),
-		sessionStorage:    newMemStorage(),
+		localStorage:      localStorage,
+		sessionStorage:    sessionStorage,
 		timers:            newTimerQueue(),
 		observers:         newObserverRegistry(),
 		asyncFetch:        opts.AsyncFetch,
-		async:             newAsyncChan(),
+		async:             newAsyncChan(r.lifetime),
 		ws:                newWSRegistry(),
 		policy:            opts.Policy,
+		proxy:             opts.Proxy,
 		sessionID:         opts.SessionID,
-		styleMgr:          newStyleManager(doc, opts.LoadStylesheet),
+		styleMgr:          styleMgr,
 		bootstrapsSkipped: bootstrapsCached,
+		pageStorage:       opts.pageStorage,
+		ownsPageStorage:   ownsPageStorage,
+		evalCtx:           requestCtx,
+		performanceOrigin: time.Now(),
 	}
+	complete := false
+	defer func() {
+		c.evalCtx = nil
+		if !complete {
+			r.contextRegistry.Delete(v8ctx)
+			c.closed.Store(true)
+			c.async.cancelInflight()
+			c.releaseOwnedStorage()
+		}
+	}()
+	if err := v8ctx.EnablePromiseRejectionTracking(); err != nil {
+		v8ctx.Close()
+		return nil, err
+	}
+	if opts.CookieJar != nil {
+		var err error
+		c.getCookie, c.setCookie, err = documentCookies(opts.CookieJar, doc.URL())
+		if err != nil {
+			v8ctx.Close()
+			return nil, fmt.Errorf("document cookies: %w", err)
+		}
+	}
+	opts.RequestContext = nil
 	r.contextRegistry.Store(v8ctx, c)
+	if r.execution != nil {
+		r.execution.observePromiseContext(c)
+	}
 	// Sub-Context builder for iframes: build a fresh Context against the
 	// iframe's document, sharing parent's runtime + opts (minus LoadIFrame
 	// to avoid recursion of nested iframes for now).
 	iframeBuilder := func(d *webapi.Document) (*Context, error) {
 		subOpts := opts
 		subOpts.LoadIFrame = nil
+		subOpts.RequestContext = c.evalCtx
 		// Runs from a __iframe_load callback during the parent's Eval, which
 		// already holds r.ctxMu; use the locked variant to avoid re-acquiring it.
 		return r.newContextLocked(d, subOpts)
 	}
-	var ifLoader func(string) ([]byte, error)
-	if opts.LoadIFrame != nil {
-		ifLoader = func(s string) ([]byte, error) { return opts.LoadIFrame(s) }
-	}
-	c.iframes = newIFrameRegistry(ifLoader, doc.URL(), iframeBuilder)
+	c.iframes = newIFrameRegistry(opts.LoadIFrame, doc.URL(), iframeBuilder)
 
 	// Pooled-reuse fast path: skip install* and flushBootstraps. All
 	// template bindings on globalThis are still in place from the
@@ -244,11 +333,27 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 	// entries) gets cleared by __artemis_reset; storage objects are
 	// re-bound to the fresh per-Context memStorage.
 	if pooled {
-		if err := resetPooledContext(c, doc.URL()); err != nil {
+		if err := resetPooledContext(c, doc.URL(), opts.Navigator); err != nil {
 			r.contextRegistry.Delete(v8ctx)
 			v8ctx.Close()
 			return nil, fmt.Errorf("pool reset: %w", err)
 		}
+		if err := c.bindDocumentEventDispatcher(); err != nil {
+			r.contextRegistry.Delete(v8ctx)
+			v8ctx.Close()
+			return nil, err
+		}
+		if err := c.bindResponseFactory(); err != nil {
+			c.releaseBoundFunctions()
+			v8ctx.Close()
+			return nil, err
+		}
+		if err := c.bindDOMExceptionConstructor(); err != nil {
+			c.releaseBoundFunctions()
+			v8ctx.Close()
+			return nil, err
+		}
+		complete = true
 		return c, nil
 	}
 
@@ -280,7 +385,7 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		v8ctx.Close()
 		return nil, fmt.Errorf("install crypto.subtle: %w", err)
 	}
-	if err := installPerformance(r.iso, v8ctx); err != nil {
+	if err := installPerformance(c); err != nil {
 		v8ctx.Close()
 		return nil, fmt.Errorf("install performance: %w", err)
 	}
@@ -304,26 +409,6 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		v8ctx.Close()
 		return nil, fmt.Errorf("install navigator extras: %w", err)
 	}
-	if err := installCryptoAES(r.iso, v8ctx, c); err != nil {
-		v8ctx.Close()
-		return nil, fmt.Errorf("install crypto aes: %w", err)
-	}
-	if err := installCryptoAsymmetric(r.iso, v8ctx, c); err != nil {
-		v8ctx.Close()
-		return nil, fmt.Errorf("install crypto asym: %w", err)
-	}
-	if err := installCryptoComplete(r.iso, v8ctx, c); err != nil {
-		v8ctx.Close()
-		return nil, fmt.Errorf("install crypto complete: %w", err)
-	}
-	if err := installCryptoExtra(r.iso, v8ctx, c); err != nil {
-		v8ctx.Close()
-		return nil, fmt.Errorf("install crypto extra: %w", err)
-	}
-	if err := installCryptoPKCS8(r.iso, v8ctx, c); err != nil {
-		v8ctx.Close()
-		return nil, fmt.Errorf("install crypto pkcs8: %w", err)
-	}
 	if err := installInputProps(r.iso, v8ctx, c); err != nil {
 		v8ctx.Close()
 		return nil, fmt.Errorf("install input props: %w", err)
@@ -340,6 +425,7 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		v8ctx.Close()
 		return nil, fmt.Errorf("install parity gaps: %w", err)
 	}
+	c.registerBootstrap("artemis-fetch-response", fetchResponseBootstrap)
 	// Pool-reset bootstrap registers `__artemis_reset(url)` JS function +
 	// captures the pristine globalThis surface. Always installed (cheap)
 	// so reuse is opt-in at Runtime construction without per-Context
@@ -355,27 +441,54 @@ func (r *Runtime) newContextLocked(doc *webapi.Document, opts ContextOpts) (*Con
 		v8ctx.Close()
 		return nil, fmt.Errorf("flush bootstraps: %w", err)
 	}
+	if err := c.bindDocumentEventDispatcher(); err != nil {
+		r.contextRegistry.Delete(v8ctx)
+		v8ctx.Close()
+		return nil, err
+	}
+	if err := c.bindResponseFactory(); err != nil {
+		c.releaseBoundFunctions()
+		v8ctx.Close()
+		return nil, err
+	}
+	if err := c.bindDOMExceptionConstructor(); err != nil {
+		c.releaseBoundFunctions()
+		v8ctx.Close()
+		return nil, err
+	}
 	// Seed the pristine global key set for __artemis_reset. After this
 	// the Context is fully built and ready for first-time use OR for
 	// pooled reuse later.
 	if r.poolEnabled {
 		if err := seedPoolReset(c); err != nil {
+			c.releaseBoundFunctions()
+			r.contextRegistry.Delete(v8ctx)
 			v8ctx.Close()
 			return nil, fmt.Errorf("seed pool reset: %w", err)
 		}
 	}
+	complete = true
 	return c, nil
 }
 
 // Close releases the context. Safe to call multiple times. When the
 // Runtime has a non-empty Context pool, the underlying v8.Context is
-// returned to the pool instead of disposed; the next NewContext call
-// will reuse it after running __artemis_reset(). Per-Context Go-side
+// returned to the pool only if no page execution or native exposure occurred.
+// The next NewContext rebinds that pristine realm. Per-Context Go-side
 // resources (timers, observers, ws, fetch bodies, storage handles) are
 // always freed eagerly here — only the v8 Context object is recycled.
 func (c *Context) Close() {
-	if c == nil || !c.closed.CompareAndSwap(false, true) {
+	if c == nil {
 		return
+	}
+	c.closeOnce.Do(c.closeOwned)
+}
+
+func (c *Context) closeOwned() {
+	c.closed.Store(true)
+	// Wake this owner's pending-fetch pump before descendants need ctxMu.
+	if c.async != nil {
+		c.async.cancelInflight()
 	}
 	// Iframe sub-Contexts close themselves (each acquires ctxMu); do
 	// this BEFORE we acquire ctxMu so we don't deadlock with the
@@ -393,33 +506,27 @@ func (c *Context) Close() {
 		c.ws.closeAll()
 	}
 	c.closeWebSocketTransport()
-	// Drain async fetch in-flight: cancel pending resolutions and
-	// release reference to the resolver so the goroutine can exit
-	// cleanly without writing into a closed channel.
-	if c.async != nil {
-		c.async.cancelInflight()
-	}
 	if c.rt != nil {
 		c.rt.ctxMu.Lock()
 		defer c.rt.ctxMu.Unlock()
 	}
-	if c.rt != nil && c.rt.storageHandles != nil {
-		for _, id := range c.storageHandleIDs {
-			c.rt.storageHandles.remove(id)
-		}
+	if c.async != nil {
+		c.async.closeLocked()
 	}
-	c.storageHandleIDs = nil
-	if c.rt != nil && c.rt.fetchBodies != nil {
-		for _, id := range c.fetchBodyIDs {
-			c.rt.fetchBodies.remove(id)
-		}
+	if c.timers != nil {
+		c.timers.close()
 	}
-	c.fetchBodyIDs = nil
+	if c.observers != nil {
+		c.observers.close()
+	}
+	c.releaseCallbackValues()
+	c.releaseBoundFunctions()
+	c.releaseOwnedStorage()
+	c.invalidateEvalValuesLocked()
 	if c.rt != nil {
 		c.rt.contextRegistry.Delete(c.v8ctx)
-		// Try to return the v8.Context to the pool. Non-blocking: if the
-		// pool is full or disabled, fall through to v8ctx.Close().
-		if c.rt.poolEnabled && c.rt.ctxPool != nil {
+		// Only an open runtime may retain an admitted context in its pool.
+		if !c.rt.closed.Load() && !c.pageExposed.Load() && !c.rt.isolateExposed.Load() && c.rt.poolEnabled && c.rt.ctxPool != nil {
 			select {
 			case c.rt.ctxPool <- c.v8ctx:
 				return
@@ -430,6 +537,90 @@ func (c *Context) Close() {
 	c.v8ctx.Close()
 }
 
+func (c *Context) ownEvalValueLocked(value *Value) {
+	if c.ownedValues == nil {
+		c.ownedValues = make(map[*Value]struct{})
+	}
+	value.owner.Store(c)
+	c.ownedValues[value] = struct{}{}
+}
+
+func (c *Context) releaseEvalValueLocked(value *Value) {
+	delete(c.ownedValues, value)
+	raw := value.raw.Swap(nil)
+	value.owner.Store(nil)
+	if raw != nil {
+		raw.Release()
+	}
+}
+
+func (c *Context) invalidateEvalValuesLocked() {
+	for value := range c.ownedValues {
+		value.raw.Store(nil)
+		value.owner.Store(nil)
+	}
+	clear(c.ownedValues)
+	c.ownedValues = nil
+}
+
+func (c *Context) releaseBoundFunctions() {
+	if c.domExceptionClass != nil {
+		c.domExceptionClass.Release()
+		c.domExceptionClass = nil
+	}
+	if c.documentEventDispatch != nil {
+		c.documentEventDispatch.Release()
+		c.documentEventDispatch = nil
+	}
+	if c.responseFactory != nil {
+		c.responseFactory.Release()
+		c.responseFactory = nil
+	}
+	if c.requestHeaderEncoder != nil {
+		c.requestHeaderEncoder.Release()
+		c.requestHeaderEncoder = nil
+	}
+	if c.fetchSignalFactory != nil {
+		c.fetchSignalFactory.Release()
+		c.fetchSignalFactory = nil
+	}
+	if c.responseTrue != nil {
+		c.responseTrue.Release()
+		c.responseTrue = nil
+	}
+	if c.responseFalse != nil {
+		c.responseFalse.Release()
+		c.responseFalse = nil
+	}
+}
+
+func (c *Context) releaseOwnedStorage() {
+	if c.rt != nil && c.rt.storageHandles != nil {
+		for _, id := range c.storageHandleIDs {
+			c.rt.storageHandles.remove(id)
+		}
+	}
+	c.storageHandleIDs = nil
+	if c.ownsPageStorage {
+		for _, store := range c.pageStorage.local {
+			store.clear()
+		}
+		for _, store := range c.pageStorage.session {
+			store.clear()
+		}
+	}
+	if storageOrigin(c.doc.URL()) == "" {
+		c.localStorage.clear()
+		c.sessionStorage.clear()
+	}
+	if c.rt != nil && c.rt.fetchBodies != nil {
+		for _, id := range c.fetchBodyIDs {
+			c.rt.fetchBodies.remove(id)
+		}
+	}
+	c.fetchBodyIDs = nil
+}
+
 // Eval evaluates expr and returns the result. V8's default microtask
 // policy (kAuto) drains promise continuations at script end. After that
 // the timer queue is drained so setTimeout-scheduled callbacks fire too.
@@ -438,23 +629,45 @@ func (c *Context) Close() {
 // evaluating on different Contexts of the same Runtime race inside V8 and crash
 // (SIGSEGV in cgo, e.g. mid-callback in Value.String).
 func (c *Context) Eval(ctx context.Context, expr string) (*Value, error) {
-	if c == nil || c.closed.Load() {
-		return nil, errors.New("eval on closed context")
-	}
-	if ctx == nil {
-		return nil, errors.New("eval: context required")
-	}
-	if err := ctx.Err(); err != nil {
+	return c.execute(ctx, func() (*Value, error) { return c.evalLocked(expr) })
+}
+
+// EvalDiscard runs a script for its effects and retires the result while still
+// owning the isolate. No live native value crosses this operation boundary.
+func (c *Context) EvalDiscard(ctx context.Context, expr string) error {
+	_, err := c.execute(ctx, func() (*Value, error) {
+		value, err := c.evalLocked(expr)
+		if value != nil {
+			value.Release()
+		}
 		return nil, err
+	})
+	return err
+}
+
+// EvalString evaluates a string-producing script and copies its actual value
+// while owning the isolate. The retained V8 value never leaves this boundary.
+func (c *Context) EvalString(ctx context.Context, expr string) (string, error) {
+	var result string
+	_, err := c.execute(ctx, func() (*Value, error) {
+		value, err := c.evalLocked(expr)
+		if err != nil {
+			return nil, err
+		}
+		if value == nil {
+			return nil, errors.New("eval: string result required")
+		}
+		defer value.Release()
+		if !value.IsString() {
+			return nil, errors.New("eval: string result required")
+		}
+		result = value.String()
+		return nil, nil
+	})
+	if err != nil {
+		return "", err
 	}
-	c.rt.ctxMu.Lock()
-	defer c.rt.ctxMu.Unlock()
-	if c.closed.Load() {
-		return nil, errors.New("eval on closed context")
-	}
-	c.evalCtx = ctx
-	defer func() { c.evalCtx = nil }()
-	return c.evalLocked(expr)
+	return result, nil
 }
 
 // evalLocked runs the script plus its post-script drains/timer/mutation firing,
@@ -465,17 +678,31 @@ func (c *Context) Eval(ctx context.Context, expr string) (*Value, error) {
 // also without re-locking.
 func (c *Context) evalLocked(expr string) (*Value, error) {
 	val, err := c.v8ctx.RunScript(expr, "<eval>")
+	if cancellation := errors.Join(c.evalCtx.Err(), c.async.ctx.Err()); cancellation != nil {
+		if val != nil {
+			val.Release()
+		}
+		return nil, errors.Join(cancellation, formatJSError(err), c.styleMgr.takeFailure())
+	}
 	if c.async != nil {
 		c.async.drain(c)
 	}
 	if c.ws != nil {
 		c.ws.drain(c)
 	}
-	c.fireMutationObservers()
-	c.fireTimers()
-	c.fireMutationObservers()
-	if err != nil {
-		return nil, formatJSError(err)
+	observerErr := c.fireMutationObservers()
+	var timerErr error
+	if observerErr == nil {
+		timerErr = c.fireTimers()
+		if timerErr == nil {
+			observerErr = c.fireMutationObservers()
+		}
+	}
+	if failure := errors.Join(formatJSError(err), observerErr, timerErr, c.takeDocumentEventErrors(), c.styleMgr.takeFailure()); failure != nil {
+		if val != nil {
+			val.Release()
+		}
+		return nil, failure
 	}
 	return newValue(val), nil
 }
@@ -483,9 +710,21 @@ func (c *Context) evalLocked(expr string) (*Value, error) {
 // Document returns the bound document.
 func (c *Context) Document() *webapi.Document { return c.doc }
 
-// V8Context exposes the underlying v8go context. Intended for advanced
-// integrations.
-func (c *Context) V8Context() *v8.Context { return c.v8ctx }
+// V8Context exposes the underlying v8go context for advanced integrations.
+// It returns nil after the Context or Runtime closes. Call it outside an
+// active V8 callback, and serialize use of the returned handle against Close.
+func (c *Context) V8Context() *v8.Context {
+	if c == nil || c.rt == nil {
+		return nil
+	}
+	c.rt.ctxMu.Lock()
+	defer c.rt.ctxMu.Unlock()
+	if c.closed.Load() || c.rt.closed.Load() {
+		return nil
+	}
+	c.pageExposed.Store(true)
+	return c.v8ctx
+}
 
 // HandleFor returns the JS handle for n, registering it if new. The
 // handle is stable for the lifetime of the Context.

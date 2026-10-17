@@ -1,7 +1,10 @@
 package security
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -48,18 +51,12 @@ type IDPIConfig struct {
 }
 
 // DefaultIDPIConfig returns a config with safe defaults (spec L4202:
-// default-on, taint+fence not block, content wrapping enabled).
+// default-on, taint+fence not block, content wrapping enabled). Domain block
+// and allow lists are operator configuration and start empty: no origin is
+// trusted by default.
 func DefaultIDPIConfig() IDPIConfig {
 	return IDPIConfig{
 		Enabled: true,
-		BlocklistDomains: []string{
-			"evil.example.com",
-			"malicious.test",
-		},
-		AllowlistDomains: []string{
-			"trusted.internal",
-			"lan.local",
-		},
 		InjectionPhrases: []string{
 			"ignore previous instructions",
 			"disregard the above",
@@ -163,6 +160,17 @@ func (c *IDPIChecker) ResetMetrics() {
 // Layer 2: content scanning for injection phrases
 // Layer 3: content wrapping with <untrusted_web_content> delimiter
 func (c *IDPIChecker) Check(domain, content string) CheckResult {
+	return c.CheckSource(domain, "web", content)
+}
+
+// CheckSource is Check with the producing source identity (for example
+// "fetch", "observe", "extract") recorded in the fence.
+func (c *IDPIChecker) CheckSource(domain, source, content string) CheckResult {
+	return c.check(domain, source, content, true)
+}
+
+// check runs the IDPI layers; wrap=false skips building the fenced copy.
+func (c *IDPIChecker) check(domain, source, content string, wrap bool) CheckResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -223,8 +231,8 @@ func (c *IDPIChecker) Check(domain, content string) CheckResult {
 	}
 
 	// Layer 3: content wrapping with <untrusted_web_content> delimiter.
-	if c.config.WrapContent {
-		result.WrappedContent = wrapUntrusted(content)
+	if c.config.WrapContent && wrap {
+		result.WrappedContent = wrapUntrusted(domain, source, content)
 		if result.Threat == IDPIThreatNone {
 			result.Threat = IDPIThreatUntrustedContent
 		}
@@ -256,8 +264,25 @@ func scanForInjection(content string, phrases []string) []string {
 	return refs
 }
 
-// wrapUntrusted wraps content with <untrusted_web_content> delimiter
-// (spec L4202: Layer 3 content wrapping for LLM).
-func wrapUntrusted(content string) string {
-	return "<untrusted_web_content>\n" + content + "\n</untrusted_web_content>"
+// fenceTagPattern finds fence tags a page may embed to fake a boundary.
+var fenceTagPattern = regexp.MustCompile(`(?i)<\s*(/?)\s*untrusted_web_content`)
+
+// wrapUntrusted fences content for a model (spec L4202 Layer 3). Every fence
+// carries a fresh 128-bit boundary id plus the content origin and source, so
+// a page cannot close it: an embedded closing tag (ASCII or a Unicode
+// look-alike) lacks the id. ASCII fence tags inside the content are also
+// neutralized.
+func wrapUntrusted(origin, source, content string) string {
+	var raw [16]byte
+	boundary := "unavailable"
+	if _, err := rand.Read(raw[:]); err == nil {
+		boundary = hex.EncodeToString(raw[:])
+	}
+	neutral := fenceTagPattern.ReplaceAllString(content, "&lt;${1}untrusted_web_content")
+	attributes := fmt.Sprintf(`id="%s" origin="%s" source="%s" trust="untrusted"`, boundary, fenceAttribute(origin), fenceAttribute(source))
+	return "<untrusted_web_content " + attributes + ">\n" + neutral + "\n</untrusted_web_content id=\"" + boundary + "\">"
+}
+
+func fenceAttribute(value string) string {
+	return strings.NewReplacer(`"`, "&quot;", "<", "&lt;", ">", "&gt;", "\n", " ", "\r", " ").Replace(value)
 }

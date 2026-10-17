@@ -60,10 +60,19 @@ func (e *BrowserLoginExecutor) FillAndSubmit(ctx context.Context, record *Stored
 	if record == nil || consume == nil {
 		return false, errors.New("browser login executor: credential and consumer required")
 	}
+	usernameSelector := firstOr(e.selectors.UsernameField, `input[autocomplete="username"],input[type="email"],input[name*="user" i]`)
+	passwordSelector := firstOr(e.selectors.PasswordField, `input[type="password"]`)
+	// The secret is unlocked only for a page and form that belong to the
+	// credential's domain, and the check repeats right before the fill so a
+	// navigation in between cannot redirect it.
+	if err := e.verifyCredentialTarget(ctx, record.Domain, passwordSelector); err != nil {
+		return false, err
+	}
 	var submitted bool
 	err := consume(func(password string) error {
-		usernameSelector := firstOr(e.selectors.UsernameField, `input[autocomplete="username"],input[type="email"],input[name*="user" i]`)
-		passwordSelector := firstOr(e.selectors.PasswordField, `input[type="password"]`)
+		if err := e.verifyCredentialTarget(ctx, record.Domain, passwordSelector); err != nil {
+			return err
+		}
 		intent := formactions.FormIntent{
 			SessionID: e.page.SessionID(), PageID: e.page.TargetID(), FormRoot: loginFormRoot(passwordSelector),
 			Fields: []formactions.FormField{
@@ -91,6 +100,77 @@ func (e *BrowserLoginExecutor) FillAndSubmit(ctx context.Context, record *Stored
 		return nil
 	})
 	return submitted && err == nil, err
+}
+
+// credentialTarget is the live destination a credential fill would reach.
+type credentialTarget struct {
+	Top          bool     `json:"top"`
+	Protocol     string   `json:"protocol"`
+	Host         string   `json:"host"`
+	Hostname     string   `json:"hostname"`
+	FormFound    bool     `json:"form_found"`
+	ActionTarget []string `json:"action_targets"`
+}
+
+// ErrCredentialTargetMismatch rejects filling a secret into a page or form
+// whose real origin is not the credential's domain.
+var ErrCredentialTargetMismatch = errors.New("browser login executor: credential target does not match its domain")
+
+func (e *BrowserLoginExecutor) verifyCredentialTarget(ctx context.Context, domain, passwordSelector string) error {
+	return VerifyCredentialTarget(ctx, e.evaluate, domain, passwordSelector)
+}
+
+// VerifyCredentialTarget checks, in the live page, that the field matched by
+// fieldSelector sits in a top-level document and form whose host, scheme and
+// every submission target belong to the credential domain. evaluate runs a
+// by-value expression in the page. Workflow credential inputs and the login
+// executor share this rule.
+func VerifyCredentialTarget(ctx context.Context, evaluate func(context.Context, string, any) error, domain, fieldSelector string) error {
+	var target credentialTarget
+	expression := fmt.Sprintf(`(() => {
+  const pass = document.querySelector(%s);
+  const form = pass && pass.form;
+  const targets = [];
+  if (form) {
+    for (const value of [form.getAttribute("action") || location.href, ...Array.from(form.querySelectorAll("[formaction]"), (el) => el.getAttribute("formaction"))]) {
+      const url = new URL(value, location.href);
+      targets.push(url.protocol + "//" + url.host);
+    }
+  }
+  return {top: window.top === window, protocol: location.protocol, host: location.host, hostname: location.hostname, form_found: !!form, action_targets: targets};
+})()`, jsString(fieldSelector))
+	if err := evaluate(ctx, expression, &target); err != nil {
+		return err
+	}
+	return credentialTargetAllowed(domain, target)
+}
+
+// credentialTargetAllowed requires the top-level document and every form
+// submission target to share the credential host and a secure scheme (plain
+// http only on loopback), so a secret never leaves for another origin.
+func credentialTargetAllowed(domain string, target credentialTarget) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	pageHost := strings.ToLower(target.Hostname)
+	if strings.Contains(domain, ":") {
+		pageHost = strings.ToLower(target.Host)
+	}
+	if domain == "" || !target.Top || !target.FormFound || len(target.ActionTarget) == 0 || pageHost != domain || !secureCredentialScheme(target.Protocol, target.Hostname) {
+		return ErrCredentialTargetMismatch
+	}
+	pageOrigin := strings.ToLower(target.Protocol + "//" + target.Host)
+	for _, action := range target.ActionTarget {
+		if strings.ToLower(action) != pageOrigin {
+			return ErrCredentialTargetMismatch
+		}
+	}
+	return nil
+}
+
+func secureCredentialScheme(protocol, hostname string) bool {
+	if protocol == "https:" {
+		return true
+	}
+	return protocol == "http:" && (hostname == "localhost" || hostname == "127.0.0.1" || hostname == "[::1]" || hostname == "::1")
 }
 
 func (e *BrowserLoginExecutor) Close() error {

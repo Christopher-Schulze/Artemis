@@ -51,9 +51,13 @@ func (r *contractRuntime) Healthy() bool { return !r.closed.Load() }
 type contractFactory struct {
 	runtime RenderlessRuntime
 	err     error
+	cancel  context.CancelFunc
 }
 
 func (f contractFactory) Start(context.Context, AgentConfig) (RenderlessRuntime, error) {
+	if f.cancel != nil {
+		f.cancel()
+	}
 	return f.runtime, f.err
 }
 
@@ -152,6 +156,9 @@ func (unknownAction) artemisAction()   {}
 
 func newContractAgent(t *testing.T, config AgentConfig, runtime RenderlessRuntime, dispatcher Dispatcher) (*Agent, *contractTelemetry) {
 	t.Helper()
+	if config.PolicyEngine == nil && config.ActionPolicyPath == "" {
+		config.PolicyEngine = fixtureActionPolicy(t)
+	}
 	telemetry := &contractTelemetry{}
 	agent, err := NewAgentWithDependencies(config, Dependencies{
 		RuntimeFactory: contractFactory{runtime: runtime}, Dispatcher: dispatcher,
@@ -225,7 +232,7 @@ func TestAgentCapabilitySnapshotCombinesClaimsAndLiveHealth(t *testing.T) {
 		t.Fatalf("after = %+v", after)
 	}
 	capability, ok := CapabilityByID("agent.high_level")
-	if !ok || capability.State != SupportSupported || capability.Mode != ModeRenderless {
+	if !ok || capability.State != SupportSupported || capability.Mode != ModeHybrid {
 		t.Fatalf("agent capability = %+v, %v", capability, ok)
 	}
 	if err := agent.Stop(); err != nil {
@@ -350,7 +357,8 @@ func TestAgentStartRollsBackWhenFactoryIgnoresCancellation(t *testing.T) {
 	runtime := &contractRuntime{}
 	agent, _ := newContractAgent(t, AgentConfig{}, runtime, errorDispatcher{err: errors.New("unused")})
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
+	agent.factory = contractFactory{runtime: runtime, cancel: cancel}
 	err := agent.Start(ctx)
 	if taskErrorCode(err) != TaskErrorCancelled || !runtime.closed.Load() || agent.State() != AgentStateError {
 		t.Fatalf("err=%v closed=%v state=%s", err, runtime.closed.Load(), agent.State())

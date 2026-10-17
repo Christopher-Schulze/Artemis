@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ func TestRobotsCacheHitAndExpiry(t *testing.T) {
 	rc := newRobotsCache()
 	p := &RobotsPolicy{}
 	rc.put("a.test", p)
-	if got, ok := rc.get("a.test"); !ok || got != p {
+	if got, ok := rc.get("a.test"); !ok || got == nil || got == p || !got.Allowed("test", "/public") {
 		t.Fatal("fresh entry should hit")
 	}
 	if _, ok := rc.get("missing.test"); ok {
@@ -91,8 +92,8 @@ func TestFetchRobotsCachesPerHost(t *testing.T) {
 	if hits.Load() != 1 {
 		t.Fatalf("expected 1 robots fetch, got %d", hits.Load())
 	}
-	if p1 == nil || p2 == nil || p1 != p2 {
-		t.Fatal("cached policy should be returned")
+	if p1 == nil || p2 == nil || p1 == p2 || p1.Allowed("test", "/private/page") || p2.Allowed("test", "/private/page") {
+		t.Fatal("detached cached policy should retain the actual rules")
 	}
 }
 
@@ -111,9 +112,8 @@ func TestFetchRobots404AllowsAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p != nil {
-		// nil = allow-all is the documented contract for missing robots.
-		t.Log("policy object:", p)
+	if p == nil || !p.Allowed("test", "/private") || len(p.Groups) != 0 {
+		t.Fatalf("missing robots did not admit an explicit empty policy: %+v", p)
 	}
 }
 
@@ -126,7 +126,69 @@ func TestFetchRobotsRejectsBadInput(t *testing.T) {
 	if _, err := c.FetchRobots(context.Background(), &url.URL{Path: "/x"}); err == nil {
 		t.Fatal("relative URL must fail")
 	}
+	//lint:ignore SA1012 Deliberately test rejection of a nil context.
 	if _, err := c.FetchRobots(nil, &url.URL{Scheme: "http", Host: "h"}); err == nil {
 		t.Fatal("nil ctx must fail")
+	}
+}
+
+func TestRobotsCachePayloadBudgetEvictsWithoutKeepingOversizePolicy(t *testing.T) {
+	cache := newRobotsCache()
+	policy := &RobotsPolicy{Groups: map[string][]RobotsRule{"*": {{Path: "/" + strings.Repeat("x", 3<<20)}}}}
+	cache.put("oldest", policy)
+	cache.mu.Lock()
+	entry := cache.by["oldest"]
+	entry.fetchedAt = time.Now().Add(-time.Hour)
+	cache.by["oldest"] = entry
+	cache.mu.Unlock()
+	cache.put("second", policy)
+	cache.put("third", policy)
+	if _, exists := cache.get("oldest"); exists || len(cache.by) != 2 || cache.payloadBytes > robotsCacheMaxBytes {
+		t.Fatalf("payload budget failed: entries=%d bytes=%d oldest=%t", len(cache.by), cache.payloadBytes, exists)
+	}
+	oversize := &RobotsPolicy{Sitemaps: []string{strings.Repeat("x", robotsCacheMaxBytes+1)}}
+	cache.put("oversize", oversize)
+	if _, exists := cache.get("oversize"); exists {
+		t.Fatal("oversize policy remained cached")
+	}
+	cache.releaseSession("unrelated")
+	cache.close()
+	if len(cache.by) != 0 || cache.payloadBytes != 0 {
+		t.Fatalf("close retained policy payload: %+v", cache)
+	}
+}
+
+func TestRobotsFlightAndOwnerAdmissionBounds(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		limit  int
+		owners bool
+	}{{"in-flight origins", 128, false}, {"session owners", MaxCookieSessions + 1, true}} {
+		t.Run(test.name, func(t *testing.T) {
+			cache := newRobotsCache()
+			defer cache.close()
+			for index := range test.limit {
+				owner := "shared"
+				if test.owners {
+					owner = strconv.Itoa(index)
+				}
+				_, flight, leader, err := cache.begin(owner, robotsCacheIdentity(owner, strconv.Itoa(index)))
+				if err != nil || !leader || flight == nil {
+					t.Fatalf("valid admission %d: flight=%v leader=%t error=%v", index, flight, leader, err)
+				}
+				if test.owners {
+					if _, err := cache.complete(flight, &RobotsPolicy{}, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			owner := "shared"
+			if test.owners {
+				owner = "overflow"
+			}
+			if policy, flight, _, err := cache.begin(owner, robotsCacheIdentity(owner, "overflow")); err == nil || policy != nil || flight != nil {
+				t.Fatalf("overflow admitted: policy=%v flight=%v error=%v", policy, flight, err)
+			}
+		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -36,8 +37,25 @@ func envTargetScripts(ctx context.Context, browser *bridge.ChromiumBrowser, bc *
 
 type stringSliceFlag []string
 
+const (
+	maxCLIFlagValues   = 128
+	maxCLIFlagBytes    = 32 << 10
+	maxCLIOutputBytes  = 16 << 20
+	maxCLIRequestBytes = 1 << 20
+)
+
 func (s *stringSliceFlag) String() string { return strings.Join(*s, ",") }
 func (s *stringSliceFlag) Set(v string) error {
+	if len(*s) >= maxCLIFlagValues || len(v) > maxCLIFlagBytes {
+		return fmt.Errorf("repeatable flag exceeds %d values or %d bytes", maxCLIFlagValues, maxCLIFlagBytes)
+	}
+	bytes := len(v)
+	for _, value := range *s {
+		bytes += len(value)
+	}
+	if bytes > maxCLIFlagBytes {
+		return fmt.Errorf("repeatable flag exceeds %d total bytes", maxCLIFlagBytes)
+	}
 	*s = append(*s, v)
 	return nil
 }
@@ -46,18 +64,24 @@ func parseHeaderFlags(values []string) (http.Header, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
-	h := make(http.Header)
-	for _, raw := range values {
-		k, v, ok := strings.Cut(raw, "=")
-		if !ok {
-			k, v, ok = strings.Cut(raw, ":")
-		}
-		if !ok || strings.TrimSpace(k) == "" {
-			return nil, fmt.Errorf("invalid --header %q (expected k=v or k:v)", raw)
-		}
-		h.Add(strings.TrimSpace(k), strings.TrimSpace(v))
+	if len(values) > maxCLIFlagValues {
+		return nil, fmt.Errorf("header flags exceed %d entries", maxCLIFlagValues)
 	}
-	return h, nil
+	h := make(http.Header)
+	bytes := 0
+	for _, raw := range values {
+		if len(raw) > maxCLIFlagBytes-bytes {
+			return nil, fmt.Errorf("header flags exceed %d bytes", maxCLIFlagBytes)
+		}
+		bytes += len(raw)
+		separator := strings.IndexAny(raw, "=:")
+		if separator < 1 {
+			return nil, fmt.Errorf("invalid --header (expected k=v or k:v)")
+		}
+		k, v := raw[:separator], raw[separator+1:]
+		h.Add(strings.Trim(k, " \t"), strings.Trim(v, " \t"))
+	}
+	return network.ValidatedHeaders(h)
 }
 
 func parseDuration(s string, def time.Duration) (time.Duration, error) {
@@ -96,9 +120,36 @@ func newFlagSet(name string) *flag.FlagSet {
 }
 
 func printJSON(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if len(raw) >= maxCLIOutputBytes {
+		return fmt.Errorf("JSON output exceeds %d bytes including newline", maxCLIOutputBytes)
+	}
+	return writeCLIOutput(w, append(raw, '\n'))
+}
+
+func writeCLIOutput(w io.Writer, data []byte) error {
+	if len(data) > maxCLIOutputBytes {
+		return fmt.Errorf("output exceeds %d bytes", maxCLIOutputBytes)
+	}
+	n, err := w.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+func printText(w io.Writer, text string) error {
+	if len(text) >= maxCLIOutputBytes {
+		return fmt.Errorf("text output exceeds %d bytes including newline", maxCLIOutputBytes)
+	}
+	n, err := fmt.Fprintln(w, text)
+	if err == nil && n != len(text)+1 {
+		return io.ErrShortWrite
+	}
+	return err
 }
 
 func parseSandboxPolicy(raw string) (browserprocess.SandboxPolicy, error) {
@@ -107,6 +158,13 @@ func parseSandboxPolicy(raw string) (browserprocess.SandboxPolicy, error) {
 		return "", fmt.Errorf("invalid sandbox policy %q (expected required or disabled)", raw)
 	}
 	return policy, nil
+}
+
+func validateCLIResourceBudget(budget browserprocess.ResourceBudget) error {
+	if math.IsNaN(budget.MaxCPUPercent) || math.IsInf(budget.MaxCPUPercent, 0) || budget.MaxCPUPercent <= 0 || budget.MaxMemoryBytes <= 0 || budget.MaxProfileDiskBytes <= 0 || budget.SessionTimeout < time.Millisecond {
+		return fmt.Errorf("Chromium CPU/memory/profile limits must be finite and positive; session-timeout must be at least 1ms")
+	}
+	return nil
 }
 
 func emitProcessWarnings(browser *bridge.ChromiumBrowser) {
@@ -138,12 +196,12 @@ func newProcessDiagnostics(scope, sessionID string) (*diagnostics.Store, network
 		return store.AppendPolicy(diagnostics.PolicyDecision{
 			Operation: string(decision.Kind), Transport: decision.Scheme, Host: decision.Host,
 			Port: decision.Port, Result: string(decision.Action), ReasonCode: decision.Reason,
-			SessionRef: diagnostics.HashSession(sessionID),
+			SessionRef: store.SessionRef(sessionID),
 		})
 	}
 	resourceSink := func(usage browserprocess.ResourceUsage) error {
 		return store.AppendResource(diagnostics.ResourceUsage{
-			Scope: scope, SessionRef: diagnostics.HashSession(sessionID), CPUPercent: usage.CPUPercent,
+			Scope: scope, SessionRef: store.SessionRef(sessionID), CPUPercent: usage.CPUPercent,
 			MemoryBytes: usage.MemoryBytes, DiskBytes: usage.ProfileDiskBytes,
 		})
 	}

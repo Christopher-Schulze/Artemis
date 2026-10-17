@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
+	"github.com/Christopher-Schulze/Artemis/bridge"
 	"github.com/Christopher-Schulze/Artemis/bridge/actions"
 	"github.com/Christopher-Schulze/Artemis/engine"
 	"github.com/Christopher-Schulze/Artemis/js"
 	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/profile"
+	"github.com/Christopher-Schulze/Artemis/security"
 )
 
 // ActionKind identifies a closed high-level Agent operation.
@@ -36,10 +38,18 @@ type Action interface {
 	artemisAction()
 }
 
-// FetchAction fetches one page through the owned renderless runtime.
+// FetchAction fetches one page through the Agent's owned router.
 type FetchAction struct {
 	URL        string `json:"url"`
 	RunScripts bool   `json:"runScripts"`
+	// AsyncFetch opts into concurrent renderless fetches and settled output.
+	AsyncFetch bool `json:"asyncFetch,omitempty"`
+	// EvaluateExpression runs once on the retained page before its final snapshot.
+	// It requires explicit evaluate permission; the default policy denies it.
+	EvaluateExpression string   `json:"evaluateExpression,omitempty"`
+	RequiredWebAPIs    []string `json:"requiredWebApis,omitempty"`
+	NeedsRealSemantics bool     `json:"needsRealSemantics,omitempty"`
+	Mode               string   `json:"mode,omitempty"`
 }
 
 func (FetchAction) Kind() ActionKind { return ActionFetch }
@@ -53,9 +63,14 @@ type taskWire struct {
 }
 
 type actionWire struct {
-	Type       ActionKind `json:"type"`
-	URL        string     `json:"url,omitempty"`
-	RunScripts bool       `json:"runScripts,omitempty"`
+	Type               ActionKind `json:"type"`
+	URL                string     `json:"url,omitempty"`
+	RunScripts         bool       `json:"runScripts,omitempty"`
+	AsyncFetch         bool       `json:"asyncFetch,omitempty"`
+	EvaluateExpression string     `json:"evaluateExpression,omitempty"`
+	RequiredWebAPIs    []string   `json:"requiredWebApis,omitempty"`
+	NeedsRealSemantics bool       `json:"needsRealSemantics,omitempty"`
+	Mode               string     `json:"mode,omitempty"`
 }
 
 // MarshalJSON preserves the closed action discriminator on the wire.
@@ -66,12 +81,12 @@ func (t Task) MarshalJSON() ([]byte, error) {
 	var action actionWire
 	switch value := t.Action.(type) {
 	case FetchAction:
-		action = actionWire{Type: ActionFetch, URL: value.URL, RunScripts: value.RunScripts}
+		action = actionWire{Type: ActionFetch, URL: value.URL, RunScripts: value.RunScripts, AsyncFetch: value.AsyncFetch, EvaluateExpression: value.EvaluateExpression, RequiredWebAPIs: value.RequiredWebAPIs, NeedsRealSemantics: value.NeedsRealSemantics, Mode: value.Mode}
 	case *FetchAction:
 		if value == nil {
 			return nil, newTaskError(TaskErrorInvalidInput, "marshal_task", fmt.Errorf("nil fetch action"))
 		}
-		action = actionWire{Type: ActionFetch, URL: value.URL, RunScripts: value.RunScripts}
+		action = actionWire{Type: ActionFetch, URL: value.URL, RunScripts: value.RunScripts, AsyncFetch: value.AsyncFetch, EvaluateExpression: value.EvaluateExpression, RequiredWebAPIs: value.RequiredWebAPIs, NeedsRealSemantics: value.NeedsRealSemantics, Mode: value.Mode}
 	default:
 		return nil, newTaskError(TaskErrorCapabilityUnavailable, "marshal_task", fmt.Errorf("action %q", t.Action.Kind()))
 	}
@@ -94,7 +109,7 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 	}
 	switch action.Type {
 	case ActionFetch:
-		t.Action = FetchAction{URL: action.URL, RunScripts: action.RunScripts}
+		t.Action = FetchAction{URL: action.URL, RunScripts: action.RunScripts, AsyncFetch: action.AsyncFetch, EvaluateExpression: action.EvaluateExpression, RequiredWebAPIs: action.RequiredWebAPIs, NeedsRealSemantics: action.NeedsRealSemantics, Mode: action.Mode}
 	case "":
 		return newTaskError(TaskErrorInvalidInput, "unmarshal_task", fmt.Errorf("action type is required"))
 	default:
@@ -115,6 +130,8 @@ type PageResult struct {
 	Text       string       `json:"text"`
 	Markdown   string       `json:"markdown"`
 	Links      []agent.Link `json:"links"`
+	// Evaluation is an owned string copy, including an explicitly empty result.
+	Evaluation *string `json:"evaluation,omitempty"`
 }
 
 // AssertResult is the structured outcome of a page assertion.
@@ -127,6 +144,12 @@ type AssertResult struct {
 // request/outcome contract used by bridge/actions.Runtime.
 type ChromiumActions interface {
 	Execute(context.Context, actions.Request) actions.Outcome
+}
+
+// ChromiumPolicyContext supplies verified native realms for an injected executor.
+// An executor without this boundary cannot be used by managed ChromiumAct.
+type ChromiumPolicyContext interface {
+	PolicyRequest(context.Context, actions.Request) (bridge.PolicyRequest, error)
 }
 
 // TaskError is a stable typed failure returned by the Agent lifecycle.
@@ -155,6 +178,8 @@ func classifyTaskError(op string, err error) *TaskError {
 		return taskErr
 	}
 	switch {
+	case errors.Is(err, engine.ErrScriptContainmentRequired):
+		return newTaskError(TaskErrorCapabilityUnavailable, op, err)
 	case errors.Is(err, context.DeadlineExceeded):
 		return newTaskError(TaskErrorTimeout, op, err)
 	case errors.Is(err, context.Canceled):
@@ -198,11 +223,18 @@ func (engineRuntimeFactory) Start(ctx context.Context, config AgentConfig) (Rend
 		return nil, err
 	}
 	runtime, err := engine.New(engine.Config{
-		UserAgent:    config.UserAgent,
-		Timeout:      config.FetchTimeout,
-		ObeyRobots:   config.ObeyRobots,
-		PolicyConfig: config.PolicyConfig,
-		Diagnostics:  config.Diagnostics,
+		UserAgent:       config.UserAgent,
+		Timeout:         config.FetchTimeout,
+		ObeyRobots:      config.ObeyRobots,
+		WebBotAuth:      config.WebBotAuth,
+		PolicyConfig:    config.PolicyConfig,
+		Diagnostics:     config.Diagnostics,
+		SessionBudget:   config.SessionBudget,
+		MemoryAdmission: config.MemoryAdmission,
+		AdBlock:         config.AdBlock,
+		DisableAdBlock:  config.DisableAdBlock,
+
+		RequireScriptContainment: config.RequireScriptContainment,
 	})
 	if err != nil {
 		return nil, err
@@ -215,10 +247,11 @@ type ownedEngineRuntime struct {
 	closed atomic.Bool
 }
 
-func (r *ownedEngineRuntime) ReleaseSession(sessionID string) {
+func (r *ownedEngineRuntime) ReleaseSession(sessionID string) error {
 	if r != nil && r.Engine != nil {
-		r.Engine.ReleaseSession(sessionID)
+		return r.Engine.ReleaseSession(sessionID)
 	}
+	return nil
 }
 
 func (r *ownedEngineRuntime) Healthy() bool { return r != nil && r.Engine != nil && !r.closed.Load() }
@@ -252,21 +285,26 @@ func (renderlessDispatcher) Execute(ctx context.Context, runtime RenderlessRunti
 }
 
 func executeFetch(ctx context.Context, runtime RenderlessRuntime, action FetchAction) (*PageResult, error) {
+	if action.EvaluateExpression != "" {
+		return nil, newTaskError(TaskErrorCapabilityUnavailable, "evaluate", fmt.Errorf("evaluation requires the owned route resource"))
+	}
 	parsed, err := url.ParseRequestURI(action.URL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, newTaskError(TaskErrorInvalidInput, "fetch", fmt.Errorf("invalid HTTP URL %q", action.URL))
 	}
-	page, err := runtime.Fetch(ctx, action.URL, engine.FetchOpts{RunScripts: action.RunScripts})
+	page, err := runtime.Fetch(ctx, action.URL, engine.FetchOpts{RunScripts: action.RunScripts, AsyncFetch: action.AsyncFetch})
 	if err != nil {
 		return nil, classifyTaskError("fetch", err)
 	}
 	if page == nil {
 		return nil, newTaskError(TaskErrorExecutionFailed, "fetch", fmt.Errorf("runtime returned no page"))
 	}
-	pageResult := &PageResult{
-		URL: page.URL(), StatusCode: page.StatusCode(), Title: page.Title(), HTML: page.HTML(),
-		Text: page.Text(), Markdown: page.Markdown(), Links: page.Links(),
+	if action.AsyncFetch {
+		if err := page.WaitIdle(ctx); err != nil {
+			return nil, classifyTaskError("fetch idle", errors.Join(err, page.Close()))
+		}
 	}
+	pageResult := taskEngineProjection(page)
 	if closeErr := page.Close(); closeErr != nil {
 		return nil, newTaskError(TaskErrorExecutionFailed, "fetch close", fmt.Errorf("release fetched page: %w", closeErr))
 	}
@@ -376,6 +414,21 @@ func NewAgentWithDependencies(config AgentConfig, dependencies Dependencies) (*A
 		return nil, newTaskError(TaskErrorInvalidInput, "new_agent", fmt.Errorf("user agent contains a line break"))
 	}
 	config.ApplyDefaults()
+	config.ConfirmActions = append([]string(nil), config.ConfirmActions...)
+	if config.DisableAdBlock {
+		config.AdBlock = nil
+	} else if config.AdBlock == nil {
+		config.AdBlock = security.NewAdBlocker()
+	}
+	if config.PolicyEngine != nil && dependencyMissing(config.PolicyEngine) {
+		return nil, newTaskError(TaskErrorInvalidInput, "new_agent", fmt.Errorf("typed nil policy engine"))
+	}
+	if config.Chromium != nil {
+		launch := *config.Chromium
+		launch.ExtraArgs = append([]string(nil), launch.ExtraArgs...)
+		launch.AllowedPorts = append([]int(nil), launch.AllowedPorts...)
+		config.Chromium = &launch
+	}
 	if dependencyMissing(dependencies.RuntimeFactory) || dependencyMissing(dependencies.Dispatcher) || dependencyMissing(dependencies.SessionStore) || dependencyMissing(dependencies.Telemetry) {
 		return nil, newTaskError(TaskErrorInvalidInput, "new_agent", fmt.Errorf("all dependencies are required"))
 	}
@@ -422,8 +475,8 @@ func (a *Agent) CloseSession(id string) error {
 		runtime := a.runtime
 		profileManager := a.profileRuntime
 		a.mu.RUnlock()
-		if releaser, ok := runtime.(interface{ ReleaseSession(string) }); ok {
-			releaser.ReleaseSession(id)
+		if releaser, ok := runtime.(interface{ ReleaseSession(string) error }); ok {
+			closeErr = errors.Join(closeErr, releaser.ReleaseSession(id))
 		}
 		a.telemetry.Record(AgentEvent{Type: AgentEventSessionClosed, SessionID: id, At: time.Now()})
 		if session.managed && profileManager != nil {
@@ -670,6 +723,7 @@ func (s *Session) deactivate() (bool, error) {
 	s.mu.Lock()
 	closeErr := s.closeAllPagesLocked()
 	s.mu.Unlock()
+	closeErr = errors.Join(closeErr, s.closeChromiumPages())
 	return true, closeErr
 }
 
@@ -685,10 +739,29 @@ func (s *Session) closeAllPagesLocked() error {
 	return closeErr
 }
 
-// OpenPage fetches a URL into a new page within the session.
-func (s *Session) OpenPage(ctx context.Context, url string, runScripts bool) (string, *engine.Page, *TaskError) {
+// PageOpenOptions controls optional script execution behavior for an owned page.
+type PageOpenOptions struct {
+	AsyncFetch bool
+}
+
+// OpenPage fetches a URL into a new page within the session. AsyncFetch enables
+// concurrent script fetches; WaitIdle observes their completion explicitly.
+func (s *Session) OpenPage(ctx context.Context, url string, runScripts bool, options ...PageOpenOptions) (string, *engine.Page, *TaskError) {
 	if s.owner == nil {
 		return "", nil, newTaskError(TaskErrorExecutionFailed, "open_page", fmt.Errorf("session has no owner"))
+	}
+	if ctx == nil || url == "" {
+		return "", nil, newTaskError(TaskErrorInvalidInput, "open_page", fmt.Errorf("context and URL required"))
+	}
+	if len(options) > 1 {
+		return "", nil, newTaskError(TaskErrorInvalidInput, "open_page", fmt.Errorf("at most one page option set is allowed"))
+	}
+	var asyncFetch bool
+	if len(options) == 1 {
+		asyncFetch = options[0].AsyncFetch
+	}
+	if err := s.owner.authorizeBrowserRequest(ctx, bridge.PolicyRequest{Action: "navigate", URL: url, Method: "GET"}); err != nil {
+		return "", nil, classifyTaskError("open_page", err)
 	}
 	if err := s.AddTab(); err != nil {
 		return "", nil, err
@@ -712,7 +785,7 @@ func (s *Session) OpenPage(ctx context.Context, url string, runScripts bool) (st
 		cancel()
 		stopSession()
 	}()
-	page, fetchErr := runtime.Fetch(execCtx, url, engine.FetchOpts{RunScripts: runScripts})
+	page, fetchErr := runtime.Fetch(execCtx, url, engine.FetchOpts{RunScripts: runScripts, AsyncFetch: asyncFetch})
 	if fetchErr != nil {
 		if page != nil {
 			if closeErr := page.Close(); closeErr != nil {
@@ -748,6 +821,9 @@ func (s *Session) Page(id string) *engine.Page {
 
 // ClosePage closes a single page and removes it from the session.
 func (s *Session) ClosePage(id string) *TaskError {
+	if _, err := s.authorizeRenderlessPage(s.ctx, id, "tab_close"); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -770,9 +846,9 @@ func (s *Session) ClosePage(id string) *TaskError {
 
 // Eval evaluates a JavaScript expression in the page's JS context.
 func (s *Session) Eval(ctx context.Context, pageID, expr string) (*js.Value, *TaskError) {
-	page := s.Page(pageID)
-	if page == nil {
-		return nil, newTaskError(TaskErrorPageNotFound, "eval", fmt.Errorf("page %q not found", pageID))
+	page, policyErr := s.authorizeRenderlessPage(ctx, pageID, "evaluate")
+	if policyErr != nil {
+		return nil, policyErr
 	}
 	execCtx, cancel := context.WithTimeout(ctx, s.owner.Config().ScriptTimeout)
 	defer cancel()
@@ -785,9 +861,9 @@ func (s *Session) Eval(ctx context.Context, pageID, expr string) (*js.Value, *Ta
 
 // Dump returns the page content in the requested format.
 func (s *Session) Dump(pageID, format string) (any, *TaskError) {
-	page := s.Page(pageID)
-	if page == nil {
-		return nil, newTaskError(TaskErrorPageNotFound, "dump", fmt.Errorf("page %q not found", pageID))
+	page, policyErr := s.authorizeRenderlessPage(s.ctx, pageID, "extract")
+	if policyErr != nil {
+		return nil, policyErr
 	}
 	switch format {
 	case "html":
@@ -811,9 +887,9 @@ func (s *Session) Dump(pageID, format string) (any, *TaskError) {
 
 // ClickByText clicks the first button/anchor/input matching the text.
 func (s *Session) ClickByText(ctx context.Context, pageID, text string) *TaskError {
-	page := s.Page(pageID)
-	if page == nil {
-		return newTaskError(TaskErrorPageNotFound, "click_by_text", fmt.Errorf("page %q not found", pageID))
+	page, policyErr := s.authorizeRenderlessPage(ctx, pageID, "click")
+	if policyErr != nil {
+		return policyErr
 	}
 	n, ok := agent.ClickByText(page.Document(), text)
 	if !ok {
@@ -829,9 +905,9 @@ func (s *Session) ClickByText(ctx context.Context, pageID, text string) *TaskErr
 
 // Type types text into the input/textarea matching the selector.
 func (s *Session) Type(pageID, selector, text string) *TaskError {
-	page := s.Page(pageID)
-	if page == nil {
-		return newTaskError(TaskErrorPageNotFound, "type", fmt.Errorf("page %q not found", pageID))
+	page, policyErr := s.authorizeRenderlessPage(s.ctx, pageID, "type")
+	if policyErr != nil {
+		return policyErr
 	}
 	if err := agent.Type(page.Document(), selector, text); err != nil {
 		return newTaskError(TaskErrorExecutionFailed, "type", err)
@@ -841,9 +917,9 @@ func (s *Session) Type(pageID, selector, text string) *TaskError {
 
 // WaitIdle blocks until in-flight async fetches have settled.
 func (s *Session) WaitIdle(ctx context.Context, pageID string) *TaskError {
-	page := s.Page(pageID)
-	if page == nil {
-		return newTaskError(TaskErrorPageNotFound, "wait_idle", fmt.Errorf("page %q not found", pageID))
+	page, policyErr := s.authorizeRenderlessPage(ctx, pageID, "wait")
+	if policyErr != nil {
+		return policyErr
 	}
 	execCtx, cancel := context.WithTimeout(ctx, s.owner.Config().ScriptTimeout)
 	defer cancel()
@@ -855,9 +931,37 @@ func (s *Session) WaitIdle(ctx context.Context, pageID string) *TaskError {
 
 // Assert evaluates an assertion against the current page state.
 func (s *Session) Assert(ctx context.Context, pageID, mode, selector, substring, expr string, status int, want *bool) (AssertResult, *TaskError) {
-	page := s.Page(pageID)
-	if page == nil {
-		return AssertResult{}, newTaskError(TaskErrorPageNotFound, "assert", fmt.Errorf("page %q not found", pageID))
+	if ctx == nil {
+		return AssertResult{}, newTaskError(TaskErrorInvalidInput, "assert", fmt.Errorf("context required"))
+	}
+	action := "assert"
+	switch mode {
+	case "selector_exists", "title_contains", "text_contains", "url_contains", "status_eq":
+		if expr != "" {
+			return AssertResult{}, newTaskError(TaskErrorInvalidInput, "assert", fmt.Errorf("built-in assertions cannot accept an expression"))
+		}
+		action = "query"
+	case "eval_truthy":
+		if expr == "" {
+			return AssertResult{}, newTaskError(TaskErrorInvalidInput, "assert", fmt.Errorf("eval_truthy requires expr"))
+		}
+	default:
+		return AssertResult{}, newTaskError(TaskErrorInvalidInput, "assert", fmt.Errorf("unknown assert mode %q", mode))
+	}
+	sessionCtx, ok := s.beginOperation()
+	if !ok {
+		return AssertResult{}, newTaskError(TaskErrorStaleReference, "assert", fmt.Errorf("session %q is closed", s.id))
+	}
+	defer s.operations.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	stopSession := context.AfterFunc(sessionCtx, cancel)
+	defer func() {
+		cancel()
+		stopSession()
+	}()
+	page, policyErr := s.authorizeRenderlessPage(ctx, pageID, action)
+	if policyErr != nil {
+		return AssertResult{}, policyErr
 	}
 	target := true
 	if want != nil {
@@ -887,8 +991,8 @@ func (s *Session) Assert(ctx context.Context, pageID, mode, selector, substring,
 		got := page.StatusCode()
 		return AssertResult{Pass: got == status, Got: strconv.Itoa(got)}, nil
 	case "eval_truthy":
-		if expr == "" {
-			return AssertResult{}, newTaskError(TaskErrorInvalidInput, "assert", fmt.Errorf("eval_truthy requires expr"))
+		if err := s.owner.authorizeBrowserRequest(ctx, bridge.PolicyRequest{Action: "evaluate", URL: page.URL()}); err != nil {
+			return AssertResult{}, classifyTaskError("assert", err)
 		}
 		execCtx, cancel := context.WithTimeout(ctx, s.owner.Config().ScriptTimeout)
 		defer cancel()
@@ -896,6 +1000,7 @@ func (s *Session) Assert(ctx context.Context, pageID, mode, selector, substring,
 		if err != nil {
 			return AssertResult{}, newTaskError(TaskErrorExecutionFailed, "assert", fmt.Errorf("eval: %w", err))
 		}
+		defer v.Release()
 		got := v != nil && v.Bool()
 		return AssertResult{Pass: got == target, Got: v.String()}, nil
 	default:
@@ -927,6 +1032,23 @@ func (s *Session) ChromiumAct(ctx context.Context, request actions.Request) (act
 	if ca == nil {
 		return actions.Outcome{}, newTaskError(TaskErrorCapabilityUnavailable, "chromium_act", fmt.Errorf("chromium action runtime is not configured"))
 	}
+	if err := actions.ValidateRequest(request); err != nil {
+		return actions.Outcome{}, newTaskError(TaskErrorInvalidInput, "chromium_act", err)
+	}
+	provider, ok := ca.(ChromiumPolicyContext)
+	if !ok || dependencyMissing(provider) {
+		return actions.Outcome{}, newTaskError(TaskErrorPolicyDenied, "chromium_act", fmt.Errorf("verified native policy context required"))
+	}
+	policyRequest, err := provider.PolicyRequest(execCtx, request)
+	if err != nil {
+		return actions.Outcome{}, classifyTaskError("chromium_policy_context", err)
+	}
+	if policyRequest.Action != string(request.Kind) {
+		return actions.Outcome{}, newTaskError(TaskErrorPolicyDenied, "chromium_act", fmt.Errorf("executor policy action mismatch"))
+	}
+	if err := s.owner.authorizeBrowserRequest(execCtx, policyRequest); err != nil {
+		return actions.Outcome{}, classifyTaskError("chromium_act", err)
+	}
 	return ca.Execute(execCtx, request), nil
 }
 
@@ -939,10 +1061,11 @@ type DependencyHealth struct {
 
 // Health is a real-time Agent lifecycle snapshot.
 type Health struct {
-	State      AgentState       `json:"state"`
-	Sessions   int              `json:"sessions"`
-	Renderless DependencyHealth `json:"renderless"`
-	Chromium   DependencyHealth `json:"chromium"`
+	State        AgentState          `json:"state"`
+	Sessions     int                 `json:"sessions"`
+	Renderless   DependencyHealth    `json:"renderless"`
+	Chromium     DependencyHealth    `json:"chromium"`
+	ActionPolicy BrowserPolicyHealth `json:"actionPolicy"`
 }
 
 // AgentCapabilitySnapshot joins static release claims with observed health.
@@ -957,11 +1080,27 @@ func (a *Agent) Health() Health {
 	a.mu.RLock()
 	state := a.state
 	runtimeReady := a.runtime != nil && a.runtime.Healthy() && state == AgentStateRunning
+	configured := a.config.Chromium != nil
+	policy := a.browserPolicy
 	a.mu.RUnlock()
+	chromiumHealth := DependencyHealth{State: SupportUnavailable, Detail: "Chromium control is not configured; enable Chromium in AgentConfig"}
+	if configured {
+		a.chromiumMu.Lock()
+		chromiumHealth = DependencyHealth{State: SupportSupported, Detail: "configured; browser starts on first CDP operation"}
+		if a.chromiumStartErr != nil {
+			chromiumHealth = DependencyHealth{State: SupportUnavailable, Detail: a.chromiumStartErr.Error()}
+		}
+		if a.chromiumBrowser != nil {
+			chromiumHealth.Healthy = a.chromiumBrowser.Healthy()
+			chromiumHealth.Detail = "owned CDP browser"
+		}
+		a.chromiumMu.Unlock()
+	}
 	return Health{
 		State: state, Sessions: a.sessions.Len(),
-		Renderless: DependencyHealth{State: SupportSupported, Healthy: runtimeReady},
-		Chromium:   DependencyHealth{State: SupportUnavailable, Healthy: false, Detail: "Chromium/CDP is not release-supported"},
+		Renderless:   DependencyHealth{State: SupportSupported, Healthy: runtimeReady},
+		Chromium:     chromiumHealth,
+		ActionPolicy: policy.Health(),
 	}
 }
 

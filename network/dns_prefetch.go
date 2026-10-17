@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,14 +23,25 @@ const (
 	DNSResolverDoH    DNSResolverMode = "doh"
 )
 
-// DNSPrefetchCache is L1 sync.Map + L2 SQLite with TTL (spec ss28.15.7 P4.1).
+// DNSPrefetchCache is the bounded L1 memory + optional L2 SQLite DNS cache
+// (spec L4512). It implements Resolver, so a Policy validates and dials the
+// same cached answer: admission and connection stay consistent.
 type DNSPrefetchCache struct {
 	mu       sync.RWMutex
 	l1       map[string]dnsEntry
 	ttl      time.Duration
 	db       *sql.DB
+	inserts  int
 	resolver func(ctx context.Context, host string) ([]net.IP, error)
 }
+
+// maxDNSCacheEntries bounds both cache levels (spec L4512: max 50K entries).
+const maxDNSCacheEntries = 50_000
+
+// dnsCachePruneInterval amortizes L2 expiry/size pruning over inserts.
+const dnsCachePruneInterval = 256
+
+var _ Resolver = (*DNSPrefetchCache)(nil)
 
 type dnsEntry struct {
 	ips       []string
@@ -49,9 +63,17 @@ func OpenDNSPrefetchCache(path string, ttl time.Duration) (*DNSPrefetchCache, er
 	if path == "" {
 		return c, nil
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("dns cache: directory: %w", err)
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("dns cache: open: %w", err)
+	}
+	// Engines sharing one runtime-home cache wait briefly instead of failing a lookup on a lock.
+	if _, err := db.ExecContext(context.Background(), `PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("dns cache: busy timeout: %w", err)
 	}
 	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
@@ -122,9 +144,73 @@ func (c *DNSPrefetchCache) Resolve(ctx context.Context, host string) ([]net.IP, 
 		}
 	}
 	c.mu.Lock()
+	if len(c.l1) >= maxDNSCacheEntries {
+		c.evictLocked(now)
+	}
 	c.l1[host] = dnsEntry{ips: strs, expiresAt: exp}
+	c.inserts++
+	prune := c.db != nil && c.inserts%dnsCachePruneInterval == 0
 	c.mu.Unlock()
+	if prune {
+		if err := c.pruneL2(ctx, now); err != nil {
+			return nil, err
+		}
+	}
 	return ips, nil
+}
+
+// evictLocked drops expired L1 entries, then the earliest-expiring one when
+// the cache is still full.
+func (c *DNSPrefetchCache) evictLocked(now time.Time) {
+	var oldestHost string
+	var oldest time.Time
+	for host, entry := range c.l1 {
+		if !now.Before(entry.expiresAt) {
+			delete(c.l1, host)
+			continue
+		}
+		if oldestHost == "" || entry.expiresAt.Before(oldest) {
+			oldestHost, oldest = host, entry.expiresAt
+		}
+	}
+	if len(c.l1) >= maxDNSCacheEntries && oldestHost != "" {
+		delete(c.l1, oldestHost)
+	}
+}
+
+// pruneL2 removes expired rows and keeps the newest maxDNSCacheEntries.
+func (c *DNSPrefetchCache) pruneL2(ctx context.Context, now time.Time) error {
+	if _, err := c.db.ExecContext(ctx, `DELETE FROM dns_cache WHERE expires_at <= ?`, now.Unix()); err != nil {
+		return fmt.Errorf("dns cache: prune expired: %w", err)
+	}
+	if _, err := c.db.ExecContext(ctx, `DELETE FROM dns_cache WHERE host NOT IN (SELECT host FROM dns_cache ORDER BY expires_at DESC LIMIT ?)`, maxDNSCacheEntries); err != nil {
+		return fmt.Errorf("dns cache: prune size: %w", err)
+	}
+	return nil
+}
+
+// LookupNetIP serves Policy admission and dialing from the cache.
+func (c *DNSPrefetchCache) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	ips, err := c.Resolve(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		address, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			continue
+		}
+		address = address.Unmap()
+		if network == "ip4" && !address.Is4() || network == "ip6" && !address.Is6() {
+			continue
+		}
+		addresses = append(addresses, address)
+	}
+	if len(addresses) == 0 {
+		return nil, &net.DNSError{Err: "no cached address for network", Name: host, IsNotFound: true}
+	}
+	return addresses, nil
 }
 
 // Prefetch resolves hosts concurrently (max workers).

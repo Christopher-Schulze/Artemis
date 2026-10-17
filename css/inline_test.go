@@ -7,10 +7,25 @@ import (
 )
 
 func TestParseInline(t *testing.T) {
-	got := ParseInline(" color: red ; font-size: 14px;background: blue;;")
+	got, err := ParseInline(" color: red ; font-size: 14px;background: blue;;")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]string{"color": "red", "font-size": "14px", "background": "blue"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestParseInlineRejectsPartialInputAndRetainsActualPriority(t *testing.T) {
+	values, err := ParseInline(`content: "a;b{}"; color: red !important; color: blue; --Mixed: value;`)
+	if err != nil || values["content"] != `"a;b{}"` || values["color"] != "red !important" || values["--Mixed"] != "value" {
+		t.Fatalf("inline declaration projection changed admitted semantics: %v %v", values, err)
+	}
+	for _, source := range []string{`color: red; broken`, `content: "unterminated`, `color: rgb(1,2,3;`} {
+		if values, err := ParseInline(source); err == nil || values != nil {
+			t.Fatalf("malformed inline CSS returned a partial map: %q %v %v", source, values, err)
+		}
 	}
 }
 
@@ -30,6 +45,7 @@ func TestCamelKebab(t *testing.T) {
 		"msTransform":     "-ms-transform",
 		"MozTransform":    "-moz-transform",
 		"OTransform":      "-o-transform",
+		"--Mixed":         "--Mixed",
 		"":                "",
 	}
 	for in, want := range cases {

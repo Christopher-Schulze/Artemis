@@ -1,7 +1,7 @@
 package js
 
 import (
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // installWebAPIMore installs the small classes that make up most of the
@@ -266,7 +266,7 @@ const webapiMoreBootstrap = `
       const cb = _idleCallbacks.get(id);
       if (!cb) return;
       _idleCallbacks.delete(id);
-      try { cb({ didTimeout: false, timeRemaining: () => 50 }); } catch (e) {}
+      try { cb({ didTimeout: false, timeRemaining: () => 50 }); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
     }, 0);
     return id;
   };
@@ -284,7 +284,7 @@ const webapiMoreBootstrap = `
       const cb = _rafCallbacks.get(id);
       if (!cb) return;
       _rafCallbacks.delete(id);
-      try { cb(performance.now()); } catch (e) {}
+      try { cb(performance.now()); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
     }, 0);
     return id;
   };

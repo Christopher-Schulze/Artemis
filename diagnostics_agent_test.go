@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Christopher-Schulze/Artemis/diagnostics"
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
@@ -65,7 +64,7 @@ func TestAgentDiagnosticsUseTriggeringSessionReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := diagnostics.HashSession(session.SessionID())
+	want := agent.DiagnosticSessionRef(session.SessionID())
 	var policySeen, resourceSeen, diskSeen bool
 	for _, record := range records {
 		if record.Policy != nil && record.Policy.SessionRef == want {

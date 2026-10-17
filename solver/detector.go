@@ -71,11 +71,17 @@ func (d *ChallengeDetector) Detect(ctx context.Context, page PageSignals) (*Chal
 		headerNames = append(headerNames, name)
 	}
 	sort.Strings(headerNames)
+	responseChallenge := false
 	for _, name := range headerNames {
 		value := page.ResponseHeaders[name]
 		marker := strings.ToLower(name + ":" + value)
-		add(SignalResponse, "challenge response", 3, strings.Contains(marker, "cf-mitigated") || strings.Contains(marker, "captcha"))
+		normalizedName := strings.ToLower(strings.TrimSpace(name))
+		explicit := (normalizedName == "cf-mitigated" && strings.EqualFold(strings.TrimSpace(value), "challenge")) ||
+			((normalizedName == "x-challenge" || normalizedName == "x-captcha") && strings.TrimSpace(value) != "")
+		add(SignalResponse, "challenge response", 3, explicit || strings.Contains(marker, "cf-mitigated") || strings.Contains(marker, "captcha"))
+		responseChallenge = responseChallenge || explicit
 	}
+	// HTTP failures alone describe access or rate limits, not a CAPTCHA.
 	add(SignalResponse, "status code", 4, page.StatusCode == 403 || page.StatusCode == 429)
 	add(SignalResponse, "empty body", 2, len(strings.TrimSpace(page.HTML)) < 100 && (page.StatusCode == 403 || page.StatusCode == 429))
 	domain := ""
@@ -112,7 +118,7 @@ func (d *ChallengeDetector) Detect(ctx context.Context, page PageSignals) (*Chal
 	}
 	if strings.Contains(html, `class="captcha"`) || strings.Contains(html, `class='captcha'`) ||
 		strings.Contains(html, `class*="challenge"`) || strings.Contains(html, "checking your browser") ||
-		strings.Contains(html, "verify you are human") || page.StatusCode == 403 || page.StatusCode == 429 {
+		strings.Contains(html, "verify you are human") || responseChallenge {
 		return &ChallengeInfo{Type: TypeGeneric, Confidence: 0.7, PageTitle: page.Title, Domain: domain, Signals: signals}, nil
 	}
 	return &ChallengeInfo{Type: TypeNone, Confidence: 1.0, PageTitle: page.Title, Domain: domain, Signals: signals}, nil

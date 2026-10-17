@@ -1,7 +1,7 @@
 package js
 
 import (
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // installParityGaps fills feature gaps that would crash sites or return
@@ -253,10 +253,10 @@ const parityGapsBootstrap = `
       if (!target) return;
       Promise.resolve().then(() => {
         if (typeof target.onmessage === 'function') {
-          try { target.onmessage(ev); } catch (e) {}
+          try { target.onmessage(ev); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
         }
         const set = target._listeners.get('message');
-        if (set) for (const fn of set) { try { fn(ev); } catch (e) {} }
+        if (set) for (const fn of set) { try { fn(ev); } catch (e) { __artemisDispatchDocumentEvent(5, e); } }
       });
     }
     addEventListener(type, fn) {
@@ -273,7 +273,7 @@ const parityGapsBootstrap = `
     close() { this._other = null; }
     dispatchEvent(ev) {
       const s = this._listeners.get(ev.type);
-      if (s) for (const fn of s) { try { fn(ev); } catch (e) {} }
+      if (s) for (const fn of s) { try { fn(ev); } catch (e) { __artemisDispatchDocumentEvent(5, e); } }
       return true;
     }
   }
@@ -350,7 +350,7 @@ const parityGapsBootstrap = `
       const cb = this._cb;
       const self = this;
       Promise.resolve().then(() => {
-        try { cb([entry], self); } catch (e) {}
+        try { cb([entry], self); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
       });
     }
     unobserve(target) { this._targets.delete(target); }
@@ -376,7 +376,7 @@ const parityGapsBootstrap = `
       const cb = this._cb;
       const self = this;
       Promise.resolve().then(() => {
-        try { cb([entry], self); } catch (e) {}
+        try { cb([entry], self); } catch (e) { __artemisDispatchDocumentEvent(5, e); }
       });
     }
     unobserve(target) { this._targets.delete(target); }
@@ -426,7 +426,7 @@ const parityGapsBootstrap = `
     // Runtime installation replaces this with the context's real origin.
     // Keeping the snapshot bootstrap constant is required for reproducible
     // V8 startup blobs and avoids serialising wall-clock state.
-    globalThis.performance.timeOrigin = 0;
+    if (typeof globalThis.performance.timeOrigin !== 'number') globalThis.performance.timeOrigin = 0;
   }
 
   class _PerformanceObserver {

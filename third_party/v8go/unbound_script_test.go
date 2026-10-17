@@ -7,7 +7,7 @@ package v8go_test
 import (
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestUnboundScriptRun_OnlyInTheSameIsolate(t *testing.T) {
@@ -41,10 +41,7 @@ func TestUnboundScriptRun_OnlyInTheSameIsolate(t *testing.T) {
 	i2c1 := v8.NewContext(i2)
 	defer i2c1.Close()
 
-	if recoverPanic(func() {
-		_, err := us.Run(i2c1)
-		fatalIf(t, err)
-	}) == nil {
+	if recoverPanic(func() { us.Run(i2c1) }) == nil {
 		t.Error("expected panic running unbound script in a context belonging to a different isolate")
 	}
 }

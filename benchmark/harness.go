@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -31,10 +32,17 @@ type HarnessConfig struct {
 	// RegressionBudgets are evaluated when the scorecard is finalized.
 	RegressionBudgets []RegressionBudget
 	// Workloads defines the workload combinations to run. If empty, the
-	// harness uses a single default workload.
+	// harness uses the default local cold/warm matrix.
 	Workloads []Workload
 	// Profile controls optional pprof output.
 	Profile ProfileConfig
+	// Timeout supplies the deadline for execution and acquisition contexts.
+	Timeout time.Duration
+	// OutputFormat records CLI output selection; empty for library-only runs.
+	OutputFormat string
+	// FixtureResolver supplies currently admitted canonical inputs. A configured
+	// authority failure never falls back to standalone fixture production.
+	FixtureResolver FixtureResolver
 }
 
 // DefaultHarnessConfig returns the default harness configuration.
@@ -43,6 +51,7 @@ func DefaultHarnessConfig() HarnessConfig {
 		Competitor: DefaultCompetitorConfig(),
 		OutputDir:  filepath.Join("benchmark", "results"),
 		Iterations: 5,
+		Timeout:    DefaultTimeout,
 	}
 }
 
@@ -51,17 +60,17 @@ func DefaultHarnessConfig() HarnessConfig {
 type Harness struct {
 	cfg        HarnessConfig
 	scenarios  []Scenario
-	artemis    *ArtemisRunner
 	competitor *CompetitorRunner
+	fixtures   map[string]EncodedFixture
 }
 
 // NewHarness creates a harness with the default scenario matrix.
 func NewHarness(cfg HarnessConfig) *Harness {
 	if cfg.OutputDir == "" {
-		cfg = DefaultHarnessConfig()
+		cfg.OutputDir = DefaultHarnessConfig().OutputDir
 	}
-	if cfg.Iterations <= 0 {
-		cfg.Iterations = 5
+	if cfg.Timeout == 0 {
+		cfg.Timeout = DefaultTimeout
 	}
 	return &Harness{
 		cfg:       cfg,
@@ -72,189 +81,117 @@ func NewHarness(cfg HarnessConfig) *Harness {
 // Run executes the full benchmark and writes the scorecard.
 // It returns the scorecard and any error that prevented completion.
 func (h *Harness) Run(ctx context.Context) (scorecard *Scorecard, runErr error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("benchmark context required")
+	}
+	if err := ValidateConfig(h.cfg, h.scenarios); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, h.cfg.Timeout)
+	defer cancel()
+	workloads := append([]Workload(nil), h.cfg.Workloads...)
+	if len(workloads) == 0 {
+		workloads = WorkloadsWithIterations(h.scenarios, h.cfg.Iterations)
+	}
+	if err := h.prepareFixtures(ctx, workloads); err != nil {
+		return nil, err
+	}
 	stopProfile, err := StartProfile(h.cfg.Profile)
 	if err != nil {
 		return nil, err
 	}
+	profileStopped := false
 	defer func() {
-		if stopErr := stopProfile(); stopErr != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("stop profile: %w", stopErr))
+		if !profileStopped {
+			runErr = errors.Join(runErr, stopProfile())
 		}
 	}()
-
 	sc := NewScorecard()
 	sc.Environment = CurrentEnvironment(h.cfg.BenchmarkTag)
 	sc.ArtemisVersion = artemisVersion()
-
-	workloads := h.cfg.Workloads
-	if len(workloads) == 0 {
-		workloads = DefaultWorkloads(h.scenarios)
+	sc.Provenance, err = currentProvenance()
+	if err != nil {
+		return sc, fmt.Errorf("artemis provenance: %w", err)
 	}
-
-	// Run Artemis side
-	for _, w := range workloads {
-		s := scenarioByID(h.scenarios, w.ScenarioID)
-		if s == nil {
-			continue
-		}
-		s.EngineMode = w.EngineMode
-
-		artemis := NewArtemisRunner(h.scenarios, w.Warmth == WarmthWarm)
-		if w.Warmth == WarmthWarm {
-			// Warm reuse: share the same runner across warm workloads
-			if h.artemis == nil {
-				h.artemis = artemis
-			} else {
-				if closeErr := artemis.Close(); closeErr != nil {
-					return sc, fmt.Errorf("close superseded Artemis runner: %w", closeErr)
-				}
-				artemis = h.artemis
-			}
-		}
-		if w.Warmth == WarmthCold {
-			if h.artemis != nil {
-				if closeErr := h.artemis.Close(); closeErr != nil {
-					h.artemis = nil
-					return sc, fmt.Errorf("close warm Artemis runner: %w", closeErr)
-				}
-				h.artemis = nil
-			}
-			h.artemis = artemis
-		}
-		if w.Locality == LocalityNetwork {
-			closeErr := artemis.Close()
-			h.artemis = nil
-			return sc, errors.Join(fmt.Errorf("network locality not supported in this harness"), closeErr)
-		}
-
-		results := make([]ScenarioResult, 0, w.Iterations)
-		for i := 0; i < w.Iterations; i++ {
-			r := artemis.RunScenario(ctx, *s)
-			r.Workload = w.Key()
-			results = append(results, r)
-		}
-		median := medianResult(results)
-		sc.AddResult(median)
-		if w.Warmth == WarmthCold {
-			if closeErr := artemis.Close(); closeErr != nil {
-				h.artemis = nil
-				return sc, fmt.Errorf("close cold Artemis runner: %w", closeErr)
-			}
-			h.artemis = nil
-		}
+	sc.Scenarios = h.fixtureEvidence()
+	sc.Workloads = workloads
+	sc.Options = ExecutionOptions{
+		Iterations: h.cfg.Iterations, Timeout: h.cfg.Timeout.String(), OutputDir: h.cfg.OutputDir,
+		SkipCompetitor: h.cfg.SkipCompetitor, RequireHeadToHead: h.cfg.RequireHeadToHead,
+		BenchmarkTag: h.cfg.BenchmarkTag, CPUProfile: h.cfg.Profile.CPUProfilePath,
+		MemProfile: h.cfg.Profile.MemProfilePath, RegressionBudgets: h.cfg.RegressionBudgets,
+		OutputFormat: h.cfg.OutputFormat,
 	}
-	defer func() {
-		if h.artemis != nil {
-			if closeErr := h.artemis.Close(); closeErr != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("close Artemis runner: %w", closeErr))
-			}
-			h.artemis = nil
-		}
-	}()
-
-	// Run competitor side (if not skipped and binary available)
+	competitorConfig := NewCompetitorRunner(h.cfg.Competitor).cfg
+	sc.Options.CompetitorDirectory, sc.Options.DownloadOrigin = competitorConfig.BinaryDir, downloadOrigin(competitorConfig.DownloadURL)
+	if competitorConfig.DownloadURL != "" {
+		sc.Options.DownloadURLSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(competitorConfig.DownloadURL)))
+	}
+	sc.Options.ExpectedSHA256, sc.Options.CompetitorPort = competitorConfig.ExpectedSHA256, competitorConfig.Port
+	sc.Options.CompetitorTimeout, sc.Options.MaxDownloadBytes = competitorConfig.Timeout.String(), competitorConfig.MaxDownloadBytes
+	sc.Options.VersionArgs = append([]string(nil), competitorConfig.VersionArgs...)
+	var competitorErr error
 	if !h.cfg.SkipCompetitor {
 		sc.Mode = ModeHeadToHead
 		h.competitor = NewCompetitorRunner(h.cfg.Competitor)
-		defer func() {
-			if closeErr := h.competitor.Close(); closeErr != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("close competitor runner: %w", closeErr))
-			}
-		}()
-
-		honestReason := ""
-		if err := h.competitor.EnsureBinary(ctx); err != nil {
-			// Report honestly: competitor unavailable
-			honestReason = fmt.Sprintf("competitor unavailable: %v", err)
-			for _, s := range h.scenarios {
-				sc.AddResult(ScenarioResult{
-					ScenarioID: s.ID,
-					Engine:     EngineCompetitor,
-					Timestamp:  time.Now().UTC(),
-					OK:         false,
-					Error:      err.Error(),
-				})
-			}
-		} else {
-			if v, err := h.competitor.Version(); err == nil {
-				sc.CompetitorVersion = v
-			}
-			if err := h.competitor.Start(ctx); err != nil {
-				honestReason = fmt.Sprintf("competitor start failed: %v", err)
-				for _, s := range h.scenarios {
-					sc.AddResult(ScenarioResult{
-						ScenarioID: s.ID,
-						Engine:     EngineCompetitor,
-						Timestamp:  time.Now().UTC(),
-						OK:         false,
-						Error:      fmt.Sprintf("competitor start: %v", err),
-					})
-				}
-			} else {
-				for _, s := range h.scenarios {
-					scenarioURL := h.artemis.BaseURL() + "/" + s.ID
-					results := make([]ScenarioResult, 0, h.cfg.Iterations)
-					for i := 0; i < h.cfg.Iterations; i++ {
-						r := h.competitor.RunScenario(ctx, s, scenarioURL)
-						results = append(results, r)
-					}
-					median := medianResult(results)
-					sc.AddResult(median)
-				}
-			}
+		defer func() { runErr = errors.Join(runErr, h.competitor.Close()) }()
+		competitorErr = h.competitor.EnsureBinary(ctx)
+		if competitorErr == nil {
+			sc.CompetitorVersion, competitorErr = h.competitor.Version(ctx)
+			sc.CompetitorSHA256 = h.competitor.VerifiedSHA256()
 		}
-
-		// Determine honesty after competitor side
-		if honestReason != "" {
-			sc.Honest = false
-			sc.HonestReason = honestReason
-		} else {
-			artemisOK := 0
-			competitorOK := 0
-			for _, r := range sc.Results {
-				if r.OK {
-					if r.Engine == EngineArtemis {
-						artemisOK++
-					} else {
-						competitorOK++
-					}
-				}
-			}
-			if artemisOK == len(h.scenarios) && competitorOK == len(h.scenarios) {
-				sc.Honest = true
-				sc.HonestReason = "both engines completed all scenarios"
-			} else {
-				sc.Honest = false
-				sc.HonestReason = fmt.Sprintf("incomplete results: artemis ok=%d, competitor ok=%d, expected=%d", artemisOK, competitorOK, len(h.scenarios))
-			}
-		}
-
 	}
-
+	for _, workload := range sc.Workloads {
+		if err := ctx.Err(); err != nil {
+			return sc, err
+		}
+		if err := h.executeWorkload(ctx, sc, workload, competitorErr); err != nil {
+			return sc, err
+		}
+	}
+	if h.competitor != nil {
+		if err := h.competitor.Close(); err != nil {
+			return sc, err
+		}
+	}
+	profileStopped = true
+	if err := stopProfile(); err != nil {
+		return sc, err
+	}
+	if err := ctx.Err(); err != nil {
+		return sc, err
+	}
+	for _, scenario := range h.scenarios {
+		if _, selected := h.fixtures[scenario.ID]; !selected {
+			continue
+		}
+		if _, err := h.fixtureForWorkload(ctx, scenario); err != nil {
+			return sc, fmt.Errorf("benchmark publication fixture admission: %w", err)
+		}
+	}
 	sc.Finalize(h.cfg.RegressionBudgets)
-
-	// Write scorecard
-	jsonPath := filepath.Join(h.cfg.OutputDir, "scorecard.json")
-	mdPath := filepath.Join(h.cfg.OutputDir, "scorecard.md")
-
-	if err := sc.WriteJSON(jsonPath); err != nil {
-		return sc, fmt.Errorf("write json scorecard: %w", err)
+	if err := sc.WriteJSON(filepath.Join(h.cfg.OutputDir, "scorecard.json")); err != nil {
+		return sc, err
 	}
-	if err := sc.WriteMarkdown(mdPath); err != nil {
-		return sc, fmt.Errorf("write md scorecard: %w", err)
+	if err := sc.WriteMarkdown(filepath.Join(h.cfg.OutputDir, "scorecard.md")); err != nil {
+		return sc, err
 	}
-
 	if err := WriteReport(h.cfg.OutputDir); err != nil {
-		return sc, fmt.Errorf("write report: %w", err)
+		return sc, err
 	}
-
+	if err := sealArtifacts(ctx, h.cfg, sc); err != nil {
+		return sc, err
+	}
 	if h.cfg.RequireHeadToHead && !sc.Honest {
-		return sc, fmt.Errorf("head-to-head required but scorecard is not honest: %s", sc.HonestReason)
+		return sc, fmt.Errorf("head-to-head required: %s", sc.HonestReason)
 	}
-
+	for _, check := range sc.BudgetChecks {
+		if !check.OK {
+			return sc, fmt.Errorf("regression budget failed: %s", check.Reason)
+		}
+	}
 	return sc, nil
 }
-
 func artemisVersion() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -263,7 +200,10 @@ func artemisVersion() string {
 	if info.Main.Version != "" && info.Main.Version != "(devel)" {
 		return info.Main.Version
 	}
-	return info.Main.Sum
+	if info.Main.Sum != "" {
+		return info.Main.Sum
+	}
+	return "development"
 }
 
 // medianResult returns the result with the median wall time from a
@@ -302,7 +242,7 @@ func PrintSummary(sc *Scorecard) error {
 			return fmt.Errorf("write benchmark summary: %w", err)
 		}
 	}
-	if _, err := fmt.Fprintf(os.Stdout, "\nScorecard written to benchmark/results/\n"); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "\nClaim status: %s. Scorecard written to %s\n", sc.Claim.Status, sc.Options.OutputDir); err != nil {
 		return fmt.Errorf("write benchmark summary footer: %w", err)
 	}
 	return nil

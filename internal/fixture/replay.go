@@ -1,35 +1,37 @@
 package fixture
 
 import (
-	"encoding/json"
+	"crypto/rand"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 )
 
 // Replay is a captured execution of a fixture scenario through one runner.
-// It stores the original scenario, the observed crossResult, runtime metadata,
+// It stores the source scenario descriptor, observed CrossResult, runtime metadata,
 // and whether PII/credential redaction was applied. It is used for evidence
 // capture and for converting external-smoke or local-regression observations
 // into deterministic fixtures.
 
 type Replay struct {
-	ID           string          `json:"id"`
-	ScenarioID   string          `json:"scenario_id"`
-	Runner       string          `json:"runner"`
-	Scenario     Scenario        `json:"scenario"`
-	Result       CrossResult     `json:"result"`
-	CapturedAt   time.Time       `json:"captured_at"`
-	DurationMs   int64           `json:"duration_ms"`
-	Metadata     CaptureMetadata `json:"metadata"`
-	Redacted     bool            `json:"redacted"`
-	RedactionLog []string        `json:"redaction_log,omitempty"`
+	SchemaVersion        int             `json:"schema_version"`
+	ContentHash          string          `json:"content_hash"`
+	ID                   string          `json:"id"`
+	ScenarioID           string          `json:"scenario_id"`
+	Runner               string          `json:"runner"`
+	Scenario             Scenario        `json:"scenario"`
+	Result               CrossResult     `json:"result"`
+	CapturedAt           time.Time       `json:"captured_at"`
+	DurationMs           int64           `json:"duration_ms"`
+	Metadata             CaptureMetadata `json:"metadata"`
+	Redacted             bool            `json:"redacted"`
+	RedactionProfileHash string          `json:"redaction_profile_hash"`
+	RedactionLog         []string        `json:"redaction_log,omitempty"`
+	redactionProfile     *replayRedactor
 }
 
 // CaptureMetadata records environment and browser context for a replay.
@@ -68,7 +70,10 @@ func DefaultRedactionConfig() RedactionConfig {
 // browser. The caller can fill Browser, BrowserVersion, UserAgent, and
 // Viewport from the concrete runner or page.
 func SystemMetadata() CaptureMetadata {
-	host, _ := os.Hostname()
+	host, err := os.Hostname()
+	if err != nil {
+		host = ""
+	}
 	return CaptureMetadata{
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
@@ -81,42 +86,22 @@ func SystemMetadata() CaptureMetadata {
 // sensitive literals, writes the replay to outDir, and returns the captured
 // Replay. If outDir is empty, the replay is not written to disk.
 func CaptureReplay(sc Scenario, runner string, result CrossResult, d time.Duration, meta CaptureMetadata, cfg RedactionConfig, outDir string) (*Replay, error) {
-	if err := validateRedactionConfig(cfg); err != nil {
+	profile, err := newReplayRedactor(cfg)
+	if err != nil {
 		return nil, err
 	}
-	redacted, log := redactCrossResult(result, cfg)
-	redactedScenario := redactScenario(sc, cfg)
-	if meta.OS == "" {
-		sys := SystemMetadata()
-		if meta.OS == "" {
-			meta.OS = sys.OS
-		}
-		if meta.Arch == "" {
-			meta.Arch = sys.Arch
-		}
-		if meta.GoVersion == "" {
-			meta.GoVersion = sys.GoVersion
-		}
-		if meta.Hostname == "" {
-			meta.Hostname = sys.Hostname
-		}
+	replay, err := newReplayObservation(sc, runner, result, d, meta)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.Enabled {
-		meta.Hostname = ""
+	replay.Redacted = cfg.Enabled
+	replay.RedactionProfileHash = profile.hash
+	replay.redactionProfile = profile
+	if err := profile.apply(replay); err != nil {
+		return nil, err
 	}
-
-	id := fmt.Sprintf("%s-%s-%d", sanitize(runner), sanitize(sc.ID), time.Now().UTC().UnixMilli())
-	replay := &Replay{
-		ID:           id,
-		ScenarioID:   sc.ID,
-		Runner:       runner,
-		Scenario:     redactedScenario,
-		Result:       redacted,
-		CapturedAt:   time.Now().UTC(),
-		DurationMs:   d.Milliseconds(),
-		Metadata:     meta,
-		Redacted:     cfg.Enabled,
-		RedactionLog: log,
+	if err := replay.seal(); err != nil {
+		return nil, err
 	}
 
 	if outDir != "" {
@@ -127,75 +112,116 @@ func CaptureReplay(sc Scenario, runner string, result CrossResult, d time.Durati
 	return replay, nil
 }
 
-func validateRedactionConfig(cfg RedactionConfig) error {
-	if !cfg.Enabled {
-		return nil
+func newReplayObservation(sc Scenario, runner string, result CrossResult, duration time.Duration, metadata CaptureMetadata) (*Replay, error) {
+	if duration < 0 {
+		return nil, fmt.Errorf("replay: negative capture duration")
 	}
-	for _, expr := range cfg.Patterns {
-		if _, err := regexp.Compile("(?i:" + expr + ")"); err != nil {
-			return fmt.Errorf("replay: invalid redaction pattern %q: %w", expr, err)
+	scenario, _, err := prepareScenario(sc)
+	if err != nil {
+		return nil, err
+	}
+	if result.FixtureManifest != nil {
+		result.FixtureManifest, err = bindCorpusCapture(scenario, runner, *result.FixtureManifest)
+		if err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	scenario.Handler = nil
+	if result.Links != nil {
+		result.Links = append([]string{}, result.Links...)
+	}
+	replay := &Replay{
+		SchemaVersion: replaySchemaVersion, ID: rand.Text(), ScenarioID: scenario.ID,
+		Runner: runner, Scenario: scenario, Result: result, CapturedAt: time.Now().UTC(),
+		DurationMs: duration.Milliseconds(), Metadata: completeCaptureMetadata(metadata),
+	}
+	if err := replay.validateFields(); err != nil {
+		return nil, err
+	}
+	return replay, nil
 }
 
-func redactScenario(sc Scenario, cfg RedactionConfig) Scenario {
-	if !cfg.Enabled {
-		return sc
+func completeCaptureMetadata(metadata CaptureMetadata) CaptureMetadata {
+	system := SystemMetadata()
+	if metadata.OS == "" {
+		metadata.OS = system.OS
 	}
-	out := sc
-	out.Description = Redact(sc.Description, cfg)
-	out.HTML = Redact(sc.HTML, cfg)
-	out.Expect.Title = Redact(sc.Expect.Title, cfg)
-	out.Expect.Eval = Redact(sc.Expect.Eval, cfg)
-	out.Expect.EvalContains = Redact(sc.Expect.EvalContains, cfg)
-	out.Expect.URL = Redact(sc.Expect.URL, cfg)
-	out.Expect.Contains = redactStrings(sc.Expect.Contains, cfg)
-	out.Expect.NotContains = redactStrings(sc.Expect.NotContains, cfg)
-	return out
+	if metadata.Arch == "" {
+		metadata.Arch = system.Arch
+	}
+	if metadata.GoVersion == "" {
+		metadata.GoVersion = system.GoVersion
+	}
+	if metadata.Hostname == "" {
+		metadata.Hostname = system.Hostname
+	}
+	return metadata
 }
 
-func redactStrings(values []string, cfg RedactionConfig) []string {
-	if values == nil {
-		return nil
-	}
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = Redact(value, cfg)
-	}
-	return out
-}
-
-// Save serializes the replay to JSON under dir with 0600 permissions and
-// returns the written path. Parent directories are created with 0700.
+// Save publishes a validated replay exclusively with file and directory sync.
+// A successful path never replaces an existing replay.
 func (r *Replay) Save(dir string) (string, error) {
-	data, err := json.MarshalIndent(r, "", "  ")
+	data, err := r.validatedBytes()
 	if err != nil {
 		return "", fmt.Errorf("replay: marshal: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Clean(dir), 0o700); err != nil {
-		return "", fmt.Errorf("replay: mkdir: %w", err)
-	}
-	path := filepath.Join(filepath.Clean(dir), r.filename())
-	if err := os.WriteFile(filepath.Clean(path), data, 0o600); err != nil {
-		return "", fmt.Errorf("replay: write: %w", err)
-	}
-	return path, nil
+	return publishReplay(dir, r.filename(), data)
 }
 
 func (r *Replay) filename() string {
-	return fmt.Sprintf("replay-%s-%s.json", sanitize(r.Runner), sanitize(r.ScenarioID))
+	return "replay-" + r.ID + ".json"
 }
 
-// LoadReplay reads a replay from a JSON file.
-func LoadReplay(path string) (*Replay, error) {
-	data, err := os.ReadFile(filepath.Clean(path))
+// LoadReplay requires the same verified redaction profile used for capture.
+// No supplied config selects the default profile; raw records require Enabled=false.
+func LoadReplay(path string, configurations ...RedactionConfig) (*Replay, error) {
+	profile, err := replayProfile(configurations)
+	if err != nil {
+		return nil, err
+	}
+	data, err := readReplayBytes(path)
 	if err != nil {
 		return nil, fmt.Errorf("replay: read %s: %w", path, err)
 	}
-	var r Replay
-	if err := json.Unmarshal(data, &r); err != nil {
+	r, err := decodeVerifiedReplay(data, profile)
+	if err != nil {
 		return nil, fmt.Errorf("replay: parse %s: %w", path, err)
+	}
+	if filepath.Base(path) != r.filename() {
+		return nil, fmt.Errorf("replay: filename does not match immutable identity")
+	}
+	return r, nil
+}
+
+// DecodeReplay applies the existing file loader's strict record/profile checks
+// to bounded bytes supplied by a governed content owner, without a file copy.
+func DecodeReplay(data []byte, configurations ...RedactionConfig) (*Replay, error) {
+	profile, err := replayProfile(configurations)
+	if err != nil {
+		return nil, err
+	}
+	return decodeVerifiedReplay(data, profile)
+}
+
+func replayProfile(configurations []RedactionConfig) (*replayRedactor, error) {
+	if len(configurations) > 1 {
+		return nil, fmt.Errorf("replay: at most one redaction profile is accepted")
+	}
+	cfg := DefaultRedactionConfig()
+	if len(configurations) == 1 {
+		cfg = configurations[0]
+	}
+	return newReplayRedactor(cfg)
+}
+
+func decodeVerifiedReplay(data []byte, profile *replayRedactor) (*Replay, error) {
+	var r Replay
+	if err := decodeReplay(data, &r); err != nil {
+		return nil, err
+	}
+	r.redactionProfile = profile
+	if _, err := r.validatedBytes(); err != nil {
+		return nil, err
 	}
 	return &r, nil
 }
@@ -203,8 +229,17 @@ func LoadReplay(path string) (*Replay, error) {
 // AsRegression converts a replay into a deterministic Scenario that can be
 // registered on a fixture server. The new scenario uses the captured HTML
 // and status, and an Expect derived from the redacted result so the
-// regression is self-contained and does not depend on external state.
-func (r *Replay) AsRegression() Scenario {
+// projection retains the captured document semantics. External subresources
+// are not captured here. The fixture server enforces an inert HTTP projection;
+// native browsers cannot execute its scripts or load its subresources.
+func (r *Replay) AsRegression() (Scenario, error) {
+	if _, err := r.validatedBytes(); err != nil {
+		return Scenario{}, err
+	}
+	return r.projectRegression()
+}
+
+func (r *Replay) projectRegression() (Scenario, error) {
 	body := r.Result.HTML
 	ct := "text/html; charset=utf-8"
 	kind := KindHTML
@@ -213,55 +248,50 @@ func (r *Replay) AsRegression() Scenario {
 		ct = "text/plain; charset=utf-8"
 		kind = KindUnknown
 	}
-	if !strings.Contains(body, "<") {
-		ct = "text/plain; charset=utf-8"
-		kind = KindUnknown
+	if kind == KindUnknown && r.Result.Title != "" {
+		return Scenario{}, fmt.Errorf("replay: plaintext snapshot cannot reproduce captured document title")
 	}
 
 	reg := r.Scenario
-	reg.ID = r.ScenarioID + "-regression"
-	reg.Path = "/regression/" + sanitize(r.ScenarioID)
+	reg.inertReplay = true
+	reg.Handler = nil
+	reg.RunScripts = false
+	reg.AsyncFetch = false
+	reg.WaitForIdle = false
+	reg.ScriptCount = 0
+	reg.ID = "regression-" + r.ID
+	reg.Path = "/regression/" + r.ID
 	reg.Kind = kind
 	reg.ContentType = ct
 	reg.Status = r.Result.StatusCode
 	reg.HTML = body
+	reg.BodyBytes = len(body)
 	reg.Expect = Expect{
 		Status: r.Result.StatusCode,
 		Title:  r.Result.Title,
 	}
-	if r.Result.Title != "" {
-		reg.Expect.Contains = []string{r.Result.Title}
+	if r.Result.Text != "" {
+		reg.Expect.Contains = []string{r.Result.Text}
 	}
-	if u, err := url.Parse(r.Result.URL); err == nil && u.Path != "" {
-		reg.Expect.URL = u.Path
+	reg.Expect.URL = reg.Path
+	prepared, _, err := prepareScenario(reg)
+	if err != nil {
+		return Scenario{}, fmt.Errorf("replay: snapshot is not representable as a bounded regression: %w", err)
 	}
-	return reg
+	return prepared, nil
 }
 
 // Redact applies the configured redaction patterns to a single string and
-// returns the sanitized string. If cfg.Enabled is false, s is returned
+// returns the sanitized string or an error without partial output. If cfg.Enabled is false, s is returned
 // unchanged. Built-in patterns use their own replacement labels; user-supplied
 // patterns use cfg.Mask.
-func Redact(s string, cfg RedactionConfig) string {
-	if !cfg.Enabled || s == "" {
-		return s
+func Redact(s string, cfg RedactionConfig) (string, error) {
+	profile, err := newReplayRedactor(cfg)
+	if err != nil {
+		return "", err
 	}
-	for _, p := range defaultRedactionPatterns {
-		s = p.re.ReplaceAllString(s, p.replacement)
-	}
-	mask := cfg.Mask
-	if mask == "" {
-		mask = "[REDACTED]"
-	}
-	for _, expr := range cfg.Patterns {
-		re, err := regexp.Compile("(?i:" + expr + ")")
-		if err != nil {
-			// Ignore invalid user patterns; continue with the rest.
-			continue
-		}
-		s = re.ReplaceAllString(s, mask)
-	}
-	return s
+	value, _, err := profile.text(s)
+	return value, err
 }
 
 // redactionPattern pairs a compiled regex with the literal replacement.
@@ -271,13 +301,19 @@ type redactionPattern struct {
 	name        string
 	re          *regexp.Regexp
 	replacement string
+	literal     bool
 }
 
 // defaultRedactionPatterns are compiled once and matched case-insensitively.
 // Each pattern is deliberately conservative: it targets literal values, not
 // benign HTML form attribute names like name="password".
-var defaultRedactionPatterns = func() []redactionPattern {
-	defs := []struct{ name, expr, replacement string }{
+var defaultRedactionPatterns, defaultRedactionError = compileDefaultRedactionPatterns()
+
+type replayPatternDefinition struct{ name, expr, replacement string }
+
+func compileDefaultRedactionPatterns() ([]redactionPattern, error) {
+	defs := []replayPatternDefinition{
+		{name: "url_userinfo", expr: `([a-z][a-z0-9+.-]*://)[^/@\s"'<>]+@`, replacement: "$1[REDACTED]@"},
 		{
 			name:        "email",
 			expr:        `[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}`,
@@ -319,55 +355,19 @@ var defaultRedactionPatterns = func() []redactionPattern {
 			replacement: "[REDACTED]",
 		},
 	}
+	return compileReplayPatterns(defs)
+}
+
+func compileReplayPatterns(defs []replayPatternDefinition) ([]redactionPattern, error) {
 	var out []redactionPattern
 	for _, d := range defs {
 		re, err := regexp.Compile("(?i:" + d.expr + ")")
 		if err != nil {
-			panic(fmt.Sprintf("replay: invalid built-in redaction pattern %q: %v", d.name, err))
+			return nil, fmt.Errorf("replay: invalid built-in redaction pattern %s: %w", d.name, err)
 		}
 		out = append(out, redactionPattern{name: d.name, re: re, replacement: d.replacement})
 	}
-	return out
-}()
-
-// redactCrossResult returns a copy of result with all string fields redacted.
-// It also returns a log of built-in patterns that actually matched.
-func redactCrossResult(result CrossResult, cfg RedactionConfig) (CrossResult, []string) {
-	if !cfg.Enabled {
-		return result, nil
-	}
-	log := make(map[string]struct{})
-
-	redact := func(s string) string {
-		for _, p := range defaultRedactionPatterns {
-			if p.re.MatchString(s) {
-				log[p.name] = struct{}{}
-			}
-		}
-		return Redact(s, cfg)
-	}
-
-	out := result
-	out.URL = redact(result.URL)
-	out.Title = redact(result.Title)
-	out.Text = redact(result.Text)
-	out.HTML = redact(result.HTML)
-	out.Markdown = redact(result.Markdown)
-	out.EvalResult = redact(result.EvalResult)
-	out.EvalErr = redact(result.EvalErr)
-	if len(result.Links) > 0 {
-		out.Links = make([]string, len(result.Links))
-		for i, l := range result.Links {
-			out.Links[i] = redact(l)
-		}
-	}
-
-	var names []string
-	for n := range log {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return out, names
+	return out, nil
 }
 
 // sanitize turns an identifier into a filesystem-safe string.

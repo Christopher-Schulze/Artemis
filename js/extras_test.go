@@ -26,7 +26,7 @@ func TestCryptoGetRandomValues(t *testing.T) {
 	c := newCtxFromHTML(t, `<html></html>`, nil)
 	v, err := c.Eval(context.Background(), `
 		(() => {
-			const a = new Array(8);
+			const a = new Uint8Array(8);
 			crypto.getRandomValues(a);
 			return a.every(x => typeof x === 'number' && x >= 0 && x <= 255);
 		})()

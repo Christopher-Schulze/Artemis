@@ -7,8 +7,8 @@
 > **A renderless web engine built for AI agents.** Artemis fetches HTML, executes JavaScript in V8, maintains a DOM, and extracts agent-ready content without a layout or paint engine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Go 1.27+](https://img.shields.io/badge/Go-1.27+-00ADD8.svg)](https://go.dev)
-[![Tests: race-clean](https://img.shields.io/badge/tests-race--clean-brightgreen.svg)](#quality)
+[![Go 1.27.1](https://img.shields.io/badge/Go-1.27.1-00ADD8.svg)](https://go.dev)
+[![Tests: behavior and race coverage](https://img.shields.io/badge/tests-behavior%20%2B%20race%20coverage-blue.svg)](#quality)
 
 Artemis 0.1.0 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, an owned or externally attached Chromium/CDP lifecycle, high-level Chromium actions, deterministic hybrid routing, browser screenshots, persistent profiles, and measured-profile stealth injection (env-gated, legal acknowledgement required). Challenge resolution is experimental.
 
@@ -30,6 +30,8 @@ The result is a self-contained Go binary for pages that fit the documented rende
 - **Owned Agent lifecycle:** typed fetch actions run through tracked sessions with cancellation, stable errors, health snapshots, and idempotent shutdown.
 - **Explicit capability truth:** `artemis capabilities` reports supported and unavailable release surfaces from the canonical capability registry.
 - **Security controls:** private/loopback destinations are denied by default. Explicit network policy can admit trusted local fixtures; robots.txt enforcement is configurable.
+- **Action authority:** managed sessions and CLI commands permit navigation and observation by default; interactions and caller JavaScript require an explicit action policy. File reloads retain the last valid decision.
+- **Final request checks:** intercepted Chromium URL, method, header and body overrides are checked before dispatch; each paused request admits one terminal resolution. Local fulfillment also obeys response and decompression limits.
 
 ## Architecture
 
@@ -79,11 +81,12 @@ machine-readable contract or just `artemis fetch <url>`.
 
 ### Install and first run
 
-Build the standalone repository with Go 1.27+ and a C toolchain:
+Build the standalone repository with the verified Go 1.27.1 toolchain and a C toolchain:
 
 ```sh
 git clone https://github.com/Christopher-Schulze/Artemis.git
 cd Artemis
+export GOTOOLCHAIN=go1.27.1
 make build
 ./artemis version
 ./artemis capabilities
@@ -140,7 +143,7 @@ func fetch() (returnErr error) {
 ```
 
 When embedding from a separate Go module, add both the Artemis dependency and
-`replace rogchap.com/v8go => /absolute/path/to/Artemis/third_party/v8go` to
+`replace github.com/tommie/v8go => /absolute/path/to/Artemis/third_party/v8go` to
 your module's `go.mod`. Go does not inherit a dependency's replace directives;
 Artemis requires its vendored snapshot-enabled fork. A source checkout and
 the C toolchain below are required for library embedding.
@@ -160,9 +163,56 @@ or `--token` supplies one. Numeric loopback binds are mandatory. The first
 connection returns `X-Artemis-Client-ID`; retain it for reconnecting to owned
 sessions. See [the protocol, commands and examples](docs/documentation.md#steering-server).
 
+For interaction, supply `--action-policy policy.json` when starting the server.
+For example, `{"default":"deny","allow":["navigate","observe","query","extract","click"],"domain_allowlist":["example.com"]}`
+admits those categories only on that host and its subdomains. One-shot `fetch`,
+`run`, `observe` and `act` accept the same flag. `--eval`, caller script execution and
+JavaScript assertions additionally require `evaluate`. Confirmation returns a
+non-dispatching result; configure authorization in the owner before retrying.
+See [the policy contract](docs/documentation.md#security-layer) for defaults,
+environment compatibility, reload ownership and the trusted low-level boundary.
+
+For multi-step Chromium work, keep the returned identities and use the persistent
+CLI mode. Set `ARTEMIS_SERVER=ws://127.0.0.1:9333/` and
+`ARTEMIS_SERVE_TOKEN` to the server token, then create a session:
+
+```sh
+artemis control --cmd session.new
+```
+
+Copy its `clientId` into `ARTEMIS_CLIENT_ID`. Open a page with the returned
+session ID, then reuse that exact page across commands:
+
+```sh
+artemis control --cmd chromium.open --params '{"sessionId":"SESSION_ID","url":"https://example.com"}'
+artemis observe --session SESSION_ID --page PAGE_ID
+artemis query --session SESSION_ID --page PAGE_ID --roles button,textbox --max-bytes 8192
+artemis act --session SESSION_ID --page PAGE_ID --request '{"kind":"screenshot"}'
+artemis fetch --session SESSION_ID --page PAGE_ID --dump markdown
+artemis control --cmd session.close --params '{"sessionId":"SESSION_ID"}'
+```
+
+`SESSION_ID` and `PAGE_ID` denote the actual returned IDs. Reference actions also
+require `--snapshot-epoch` from the observation; refs from another page or an old
+document cannot silently target a fresh page. One-shot commands with a URL launch
+their own browser and cannot share refs across invocations. The server lazily
+starts Chrome with isolated session contexts; `--chromium=false` disables that
+path. Missing Chrome leaves renderless operation available. Protocol 2.0 requires
+explicit page identity for Chromium actions.
+
+For bounded agent context, use `query` on that retained page. It returns compact
+JSON with a revision, epoch and `full`, `unchanged` or `delta` kind. Repeat the
+same options with `--since REVISION` using the actual returned revision.
+`--text`, `--frame` and `--mode subtree --subtree REF` narrow the observation;
+`--target REF` adds observed blocker evidence and bounded remedies. Check
+`lost`, `truncated` and `resetReason` before applying incremental output. A
+missing baseline, navigation or changed projection returns a full reset. See
+[the query contract](docs/documentation.md#task-scoped-queries) for bounds and examples.
+
 ## Build
 
-Requires **Go 1.27+** and a C toolchain (for V8 via cgo).
+Requires the verified **Go 1.27.1** toolchain and a C toolchain (for V8 via cgo).
+Set `GOTOOLCHAIN=go1.27.1` as in the first-run instructions.
 
 ```sh
 make build      # build the artemis binary

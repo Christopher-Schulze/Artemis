@@ -20,17 +20,21 @@ import (
 const policyProxyCloseTimeout = 5 * time.Second
 
 type chromiumPolicyProxy struct {
-	policy    *network.Policy
-	listener  net.Listener
-	server    *http.Server
-	transport *http.Transport
-	reverse   *httputil.ReverseProxy
-	done      chan struct{}
-	mu        sync.Mutex
-	conns     map[net.Conn]struct{}
-	serveErr  error
-	closeOnce sync.Once
-	closeErr  error
+	policy     *network.Policy
+	listener   net.Listener
+	server     *http.Server
+	transport  *http.Transport
+	reverse    *httputil.ReverseProxy
+	done       chan struct{}
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	closed     bool
+	handlers   sync.WaitGroup
+	conns      map[net.Conn]struct{}
+	serveErr   error
+	cleanupErr error
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 func newChromiumPolicyProxy(ctx context.Context, policy *network.Policy) (*chromiumPolicyProxy, error) {
@@ -47,13 +51,16 @@ func newChromiumPolicyProxy(ctx context.Context, policy *network.Policy) (*chrom
 	proxy := &chromiumPolicyProxy{
 		policy: policy, listener: listener, done: make(chan struct{}), conns: make(map[net.Conn]struct{}),
 	}
+	lifetime, cancel := context.WithCancel(context.Background())
+	proxy.cancel = cancel
 	proxy.transport = &http.Transport{
 		Proxy: nil, DialContext: policy.DialContextFor("chromium-proxy"), ForceAttemptHTTP2: true,
 		MaxIdleConns: 32, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second,
 	}
 	proxy.server = &http.Server{
 		Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second,
-		ErrorLog: log.New(io.Discard, "", 0),
+		BaseContext: func(net.Listener) context.Context { return lifetime },
+		ErrorLog:    log.New(io.Discard, "", 0),
 	}
 	proxy.reverse = proxy.newReverseProxy()
 	go proxy.serve()
@@ -65,6 +72,15 @@ func (p *chromiumPolicyProxy) URL() string {
 }
 
 func (p *chromiumPolicyProxy) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		http.Error(writer, "policy proxy closed", http.StatusServiceUnavailable)
+		return
+	}
+	p.handlers.Add(1)
+	p.mu.Unlock()
+	defer p.handlers.Done()
 	if request.Method == http.MethodConnect {
 		p.serveConnect(writer, request)
 		return
@@ -110,10 +126,13 @@ func (p *chromiumPolicyProxy) serveConnect(writer http.ResponseWriter, request *
 	}
 	client, buffered, err := hijackProxyClient(writer)
 	if err != nil {
-		_ = upstream.Close()
+		p.untrackAndClose(upstream)
 		return
 	}
-	p.track(client, upstream)
+	if !p.track(client, upstream) {
+		p.untrackAndClose(client, upstream)
+		return
+	}
 	defer p.untrackAndClose(client, upstream)
 	if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
@@ -156,41 +175,54 @@ func (p *chromiumPolicyProxy) serve() {
 	close(p.done)
 }
 
-func (p *chromiumPolicyProxy) track(connections ...net.Conn) {
+func (p *chromiumPolicyProxy) track(connections ...net.Conn) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return false
+	}
 	for _, connection := range connections {
 		p.conns[connection] = struct{}{}
 	}
+	return true
 }
 
 func (p *chromiumPolicyProxy) untrackAndClose(connections ...net.Conn) {
-	p.mu.Lock()
 	for _, connection := range connections {
-		delete(p.conns, connection)
-	}
-	p.mu.Unlock()
-	for _, connection := range connections {
-		_ = connection.Close()
+		err := connection.Close()
+		p.mu.Lock()
+		if err == nil || errors.Is(err, net.ErrClosed) {
+			delete(p.conns, connection)
+		} else {
+			p.conns[connection] = struct{}{}
+			p.cleanupErr = errors.Join(p.cleanupErr, fmt.Errorf("close policy proxy connection: %w", err))
+		}
+		p.mu.Unlock()
 	}
 }
 
 func (p *chromiumPolicyProxy) Close() error {
 	p.closeOnce.Do(func() {
+		p.mu.Lock()
+		p.closed = true
+		connections := make([]net.Conn, 0, len(p.conns))
+		for connection := range p.conns {
+			connections = append(connections, connection)
+		}
+		p.mu.Unlock()
+		p.cancel()
+		p.untrackAndClose(connections...)
 		ctx, cancel := context.WithTimeout(context.Background(), policyProxyCloseTimeout)
 		defer cancel()
 		if err := p.server.Shutdown(ctx); err != nil {
 			p.closeErr = errors.Join(p.closeErr, err, p.server.Close())
 		}
 		p.transport.CloseIdleConnections()
-		p.mu.Lock()
-		for connection := range p.conns {
-			p.closeErr = errors.Join(p.closeErr, connection.Close())
-		}
-		p.conns = make(map[net.Conn]struct{})
-		p.mu.Unlock()
 		<-p.done
-		p.closeErr = errors.Join(p.closeErr, p.serveErr)
+		p.handlers.Wait()
+		p.mu.Lock()
+		p.closeErr = errors.Join(p.closeErr, p.serveErr, p.cleanupErr)
+		p.mu.Unlock()
 	})
 	return p.closeErr
 }

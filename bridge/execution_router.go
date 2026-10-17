@@ -133,9 +133,11 @@ func (r *FullExecutionRouter) Route(s RouterSignals) RouterDecision {
 		return RouterDecision{Mode: ModeStealth, Reason: "bot_waf_captcha_detected"}
 	}
 
-	// 3. WebAuthn/MFA, auth/profile requirement -> stealth or chromium_cdp.
+	// 3. WebAuthn/MFA, auth/profile requirement -> chromium_cdp. A real
+	// browser profile satisfies it; stealth is reserved for the bot/WAF/
+	// CAPTCHA signals above and stays the upward fallback.
 	if s.HasWebAuthn || s.NeedsAuthProfile {
-		return RouterDecision{Mode: ModeStealth, Reason: "auth_profile_required"}
+		return RouterDecision{Mode: ModeChromiumCDP, Reason: "auth_profile_required"}
 	}
 
 	// 4. Layout/canvas/screenshot/shadow/layout-observers/service-worker/

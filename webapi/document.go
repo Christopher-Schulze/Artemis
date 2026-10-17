@@ -66,17 +66,36 @@ func (d *Document) Body() *Node {
 	return nil
 }
 
-// Title returns the trimmed text of the first <title> element under
-// <head>, or "" if absent.
+// HTMLTitleElement returns the first HTML title in document order. SVG titles
+// inside an HTML document do not supply its document title.
+func (d *Document) HTMLTitleElement() *Node {
+	if d == nil || d.root == nil {
+		return nil
+	}
+	var title *Node
+	WalkValue(d.Root(), func(node Node) WalkAction {
+		if node.Type() == NodeElement && node.Tag() == "title" && node.Raw().Namespace == "" {
+			title = wrap(node.Raw())
+			return WalkStop
+		}
+		return WalkContinue
+	})
+	return title
+}
+
+// Title returns the HTML title's child text with ASCII whitespace collapsed.
 func (d *Document) Title() string {
-	head := d.Head()
-	if head == nil {
+	title := d.HTMLTitleElement()
+	if title == nil {
 		return ""
 	}
-	for c := head.raw.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "title" {
-			return strings.TrimSpace((&Node{raw: c}).Text())
+	var value strings.Builder
+	for child := title.raw.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.TextNode {
+			value.WriteString(child.Data)
 		}
 	}
-	return ""
+	return strings.Join(strings.FieldsFunc(value.String(), func(character rune) bool {
+		return character == ' ' || character == '\t' || character == '\n' || character == '\r' || character == '\f'
+	}), " ")
 }

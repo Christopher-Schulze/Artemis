@@ -1,10 +1,11 @@
 package js
 
 import (
+	"errors"
 	"strings"
 
+	v8 "github.com/tommie/v8go"
 	"golang.org/x/net/html"
-	v8 "rogchap.com/v8go"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
 	"github.com/Christopher-Schulze/Artemis/webapi"
@@ -39,6 +40,7 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 	iso := r.iso
 	r.extrasV2 = &extrasV2Templates{
 		parseHTML: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			args := info.Args()
 			if c == nil || len(args) < 1 {
@@ -52,18 +54,25 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 			if root == nil {
 				return v8.Null(iso)
 			}
-			return nodeHandleValue(iso, c.nodes.Handle(root))
+			return domCallbackResult(iso, nodeHandleValue(iso, c.nodes.Handle(root)))
 		}),
 		listOnAttrs: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			if c == nil {
-				return idsToArray(info.Context(), iso, nil)
+				return domCallbackResult(iso, idsToArray(info.Context(), iso, nil))
 			}
 			root := c.doc.Root()
 			if root == nil {
-				return idsToArray(info.Context(), iso, nil)
+				return domCallbackResult(iso, idsToArray(info.Context(), iso, nil))
 			}
 			var triples []any
+			defer func() {
+				for _, triple := range triples {
+					triple.(*v8.Value).Release()
+				}
+			}()
+			var failure error
 			webapi.Walk(root, func(n *webapi.Node) webapi.WalkAction {
 				if n.Type() != webapi.NodeElement {
 					return webapi.WalkContinue
@@ -77,20 +86,31 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 					id := c.nodes.Handle(n)
 					jsID, ok := checkedUint32ToInt32(id)
 					if !ok {
-						continue
+						failure = errors.New("DOM attribute node handle exceeds JavaScript range")
+						return webapi.WalkStop
 					}
-					obj, err := v8.NewObjectTemplate(iso).NewInstance(info.Context())
+					obj, err := info.Context().NewNullPrototypeObject()
 					if err != nil {
-						continue
+						failure = err
+						return webapi.WalkStop
 					}
-					_ = obj.Set("id", jsID)
-					_ = obj.Set("event", ev)
-					_ = obj.Set("body", a.Val)
 					triples = append(triples, obj.Value)
+					for _, field := range []struct {
+						name  string
+						value any
+					}{{"id", jsID}, {"event", ev}, {"body", a.Val}} {
+						if err := obj.Set(field.name, field.value); err != nil {
+							failure = err
+							return webapi.WalkStop
+						}
+					}
 				}
 				return webapi.WalkContinue
 			})
-			return idsToArray(info.Context(), iso, triples)
+			if failure != nil {
+				return domCallbackResult(iso, domCallbackError(iso, failure))
+			}
+			return domCallbackResult(iso, idsToArray(info.Context(), iso, triples))
 		}),
 	}
 	return r.extrasV2
@@ -98,7 +118,10 @@ func (r *Runtime) ensureExtrasV2Templates() *extrasV2Templates {
 
 func installDOMParser(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	t := c.rt.ensureExtrasV2Templates()
-	return v8ctx.Global().Set("__parse_html", t.parseHTML.GetFunction(v8ctx))
+	g, callback := v8ctx.Global(), t.parseHTML.GetFunction(v8ctx)
+	defer g.Release()
+	defer callback.Release()
+	return g.Set("__parse_html", callback)
 }
 
 // installOnAttrsHelper exposes `__list_on_attrs()` returning all (handle,
@@ -107,7 +130,10 @@ func installDOMParser(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 // __addListener.
 func installOnAttrsHelper(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	t := c.rt.ensureExtrasV2Templates()
-	return v8ctx.Global().Set("__list_on_attrs", t.listOnAttrs.GetFunction(v8ctx))
+	g, callback := v8ctx.Global(), t.listOnAttrs.GetFunction(v8ctx)
+	defer g.Release()
+	defer callback.Release()
+	return g.Set("__list_on_attrs", callback)
 }
 
 // silence unused import warning when html is only used transitively.
@@ -120,70 +146,130 @@ const extrasV2Bootstrap = `
     constructor(message, name) {
       super(message || '');
       this.name = name || 'Error';
-      this.code = DOMException._codes[this.name] || 0;
+      this.code = domExceptionCodes[this.name] || 0;
     }
   }
-  DOMException._codes = {
+  const domExceptionCodes = Object.freeze(Object.assign(Object.create(null), {
     IndexSizeError: 1, HierarchyRequestError: 3, WrongDocumentError: 4,
     InvalidCharacterError: 5, NoModificationAllowedError: 7,
     NotFoundError: 8, NotSupportedError: 9, InUseAttributeError: 10,
     InvalidStateError: 11, SyntaxError: 12, InvalidModificationError: 13,
     NamespaceError: 14, InvalidAccessError: 15, SecurityError: 18,
     NetworkError: 19, AbortError: 20, URLMismatchError: 21,
-    QuotaExceededError: 22, TimeoutError: 23, InvalidNodeTypeError: 24,
+    TypeMismatchError: 17, QuotaExceededError: 22, TimeoutError: 23, InvalidNodeTypeError: 24,
     DataCloneError: 25,
-  };
+  }));
+  DOMException._codes = domExceptionCodes;
   globalThis.DOMException = DOMException;
 
   // ---------------- AbortController / AbortSignal ----------------
+  const abortStates = new WeakMap(), controllerSignals = new WeakMap(), abortToken = {};
+  const abortGet = Function.call.bind(WeakMap.prototype.get), abortSet = Function.call.bind(WeakMap.prototype.set);
+  const abortDefine = Object.defineProperty, abortDefineMany = Object.defineProperties, abortApply = Reflect.apply;
+  const abortMapSet = Function.call.bind(Map.prototype.set);
+  const abortMapValues = Function.call.bind(Map.prototype.values), abortMapClear = Function.call.bind(Map.prototype.clear);
+  const abortNext = Function.call.bind(Object.getPrototypeOf(new Map().values()).next);
+  const abortTruncate = Math.trunc, abortFinite = Number.isFinite, abortMinimum = Math.min, abortCreate = Object.create;
+  let abortSchedule = null, abortClear = null, abortEventTarget = null;
+  const abortState = signal => {
+    const state = abortGet(abortStates, signal);
+    if (!state) throw new TypeError('Invalid AbortSignal receiver');
+    return state;
+  };
+  const signalAbort = (signal, reason) => {
+    const state = abortState(signal);
+    if (state.aborted) return;
+    state.aborted = true;
+    state.reason = reason === undefined ? new DOMException('AbortError: The operation was aborted.', 'AbortError') : reason;
+    if (state.timer !== null) { abortClear(state.timer); state.timer = null; }
+    const iterator = abortMapValues(state.algorithms);
+    for (let next = abortNext(iterator); !next.done; next = abortNext(iterator)) next.value();
+    abortMapClear(state.algorithms);
+    abortEventTarget(3, signal, 'abort');
+  };
   class _AbortET {
-    constructor() { this._lst = new Map(); }
-    addEventListener(type, fn) {
-      if (typeof fn !== 'function') return;
-      let s = this._lst.get(type);
-      if (!s) { s = new Set(); this._lst.set(type, s); }
-      s.add(fn);
+    constructor() { abortDefine(this, '__id', {value: {}}); }
+    addEventListener(type, fn, options) {
+      abortState(this);
+      return abortEventTarget(0, this, type, fn, options);
     }
-    removeEventListener(type, fn) {
-      const s = this._lst.get(type);
-      if (s) s.delete(fn);
+    removeEventListener(type, fn, options) {
+      abortState(this);
+      return abortEventTarget(1, this, type, fn, options);
     }
     dispatchEvent(ev) {
-      const s = this._lst.get(ev && ev.type);
-      if (!s) return true;
-      for (const fn of s) { try { fn.call(this, ev); } catch(e){} }
-      return !ev.defaultPrevented;
+      abortState(this);
+      return abortEventTarget(2, this, ev);
     }
   }
   class AbortSignal extends _AbortET {
-    constructor() {
+    constructor(token) {
       super();
-      this.aborted = false;
-      this.reason = undefined;
+      if (token !== abortToken) throw new TypeError('Illegal AbortSignal constructor');
+      const state = {aborted: false, reason: undefined, algorithms: new Map(), timer: null, handler: null, listener: null};
+      state.listener = event => { if (state.handler) abortApply(state.handler, this, [event]); };
+      abortSet(abortStates, this, state);
+    }
+    get aborted() { return abortState(this).aborted; }
+    get reason() { return abortState(this).reason; }
+    get onabort() { return abortState(this).handler; }
+    set onabort(value) {
+      const state = abortState(this), next = typeof value === 'function' ? value : null;
+      if (next && !state.handler) abortEventTarget(0, this, 'abort', state.listener);
+      if (!next && state.handler) abortEventTarget(1, this, 'abort', state.listener);
+      state.handler = next;
     }
     throwIfAborted() {
-      if (this.aborted) throw this.reason || new DOMException('aborted', 'AbortError');
+      const state = abortState(this);
+      if (state.aborted) throw state.reason;
     }
   }
   AbortSignal.abort = function(reason) {
-    const s = new AbortSignal();
-    s.aborted = true;
-    s.reason = reason || new DOMException('aborted', 'AbortError');
-    return s;
+    const signal = new AbortSignal(abortToken), state = abortState(signal);
+    state.aborted = true;
+    state.reason = reason === undefined ? new DOMException('AbortError: The operation was aborted.', 'AbortError') : reason;
+    return signal;
   };
-  AbortSignal.timeout = function(_ms) {
-    return AbortSignal.abort(new DOMException('timeout', 'TimeoutError'));
+  AbortSignal.timeout = function(milliseconds) {
+    const delay = abortTruncate(+milliseconds);
+    if (!abortFinite(delay) || delay < 0 || delay >= 2**64) throw new TypeError('Invalid AbortSignal timeout');
+    const signal = new AbortSignal(abortToken), state = abortState(signal);
+    const schedule = remaining => {
+      const chunk = abortMinimum(remaining, 2147483647);
+      state.timer = abortSchedule(() => {
+        state.timer = null;
+        if (remaining > chunk) schedule(remaining - chunk);
+        else signalAbort(signal, new DOMException('The operation timed out.', 'TimeoutError'));
+      }, chunk);
+    };
+    schedule(delay);
+    return signal;
   };
   class AbortController {
-    constructor() { this.signal = new AbortSignal(); }
+    constructor() { abortSet(controllerSignals, this, new AbortSignal(abortToken)); }
+    get signal() {
+      const signal = abortGet(controllerSignals, this);
+      if (!signal) throw new TypeError('Invalid AbortController receiver');
+      return signal;
+    }
     abort(reason) {
-      if (this.signal.aborted) return;
-      this.signal.aborted = true;
-      this.signal.reason = reason || new DOMException('aborted', 'AbortError');
-      const ev = new Event('abort');
-      this.signal.dispatchEvent(ev);
+      const signal = abortGet(controllerSignals, this);
+      if (!signal) throw new TypeError('Invalid AbortController receiver');
+      signalAbort(signal, reason);
     }
   }
+  abortDefine(globalThis, '__artemisConfigureAbort', {value: (schedule, clear, events) => {
+    if (abortSchedule !== null) throw new TypeError('Abort owner already configured');
+    abortSchedule = schedule; abortClear = clear; abortEventTarget = events;
+  }});
+  abortDefine(globalThis, '__artemisWatchFetchSignal', {value: (signal, id, cancel) => {
+    const state = abortState(signal);
+    if (!state.aborted) abortMapSet(state.algorithms, id, () => cancel(id));
+    return abortDefineMany(abortCreate(null), {
+      aborted: {get: () => state.aborted}, reason: {get: () => state.reason},
+      algorithms: {value: state.algorithms},
+    });
+  }});
   globalThis.AbortController = AbortController;
   globalThis.AbortSignal = AbortSignal;
 
@@ -255,7 +341,10 @@ const extrasV2Bootstrap = `
     constructor(label) { this.encoding = (label || 'utf-8').toLowerCase(); }
     decode(buf) {
       if (!buf) return '';
-      const arr = buf.length != null ? buf : Array.from(buf);
+      let arr;
+      if (buf instanceof ArrayBuffer) arr = new Uint8Array(buf);
+      else if (ArrayBuffer.isView(buf)) arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      else arr = buf.length != null ? buf : Array.from(buf);
       let s = '';
       let i = 0;
       while (i < arr.length) {
@@ -358,7 +447,7 @@ const extrasV2Bootstrap = `
           if (typeof ctor.prototype.connectedCallback === 'function') {
             ctor.prototype.connectedCallback.call(el);
           }
-        } catch (e) {}
+        } catch (e) { __artemisDispatchDocumentEvent(5, e); }
       }
       const w = _whenDefined.get(name);
       if (w) { w.forEach(r => r(ctor)); _whenDefined.delete(name); }
@@ -427,8 +516,8 @@ const extrasV2Bootstrap = `
   }
   class FileReader {
     constructor() { this.readyState = 0; this.result = null; this.onload = null; this.onerror = null; }
-    readAsText(blob) { blob.text().then(t => { this.result = t; this.readyState = 2; if (this.onload) try { this.onload({}); } catch (e) {} }); }
-    readAsArrayBuffer(blob) { blob.arrayBuffer().then(b => { this.result = b; this.readyState = 2; if (this.onload) try { this.onload({}); } catch (e) {} }); }
+    readAsText(blob) { blob.text().then(t => { this.result = t; this.readyState = 2; if (this.onload) try { this.onload({}); } catch (e) { __artemisDispatchDocumentEvent(5, e); } }); }
+    readAsArrayBuffer(blob) { blob.arrayBuffer().then(b => { this.result = b; this.readyState = 2; if (this.onload) try { this.onload({}); } catch (e) { __artemisDispatchDocumentEvent(5, e); } }); }
   }
   globalThis.Blob = Blob;
   globalThis.File = File;
@@ -499,7 +588,7 @@ const extrasV2OnAttrsBootstrap = `
     try {
       const fn = new Function('event', t.body);
       __addListener(t.id, t.event, fn);
-    } catch (e) {}
+    } catch (e) { __artemisDispatchDocumentEvent(5, e); }
   }
 })();
 `

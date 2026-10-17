@@ -1,7 +1,6 @@
 package bridge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,11 +12,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-)
 
-// cdpBufferPool reuses encode buffers for outbound CDP commands; buffers are
-// returned after the synchronous write completes.
-var cdpBufferPool = sync.Pool{New: func() any { return &bytes.Buffer{} }}
+	"github.com/Christopher-Schulze/Artemis/internal/pool"
+)
 
 const (
 	defaultCDPDialTimeout = 15 * time.Second
@@ -35,6 +32,9 @@ const (
 	CDPErrorOverloaded    CDPErrorCode = "pending_limit"
 	CDPErrorProtocol      CDPErrorCode = "protocol_error"
 	CDPErrorEventOverflow CDPErrorCode = "event_overflow"
+	// CDPErrorUnresponsive marks a browser whose UI thread stopped answering
+	// bounded control commands; it fails closed until an explicit relaunch.
+	CDPErrorUnresponsive CDPErrorCode = "browser_unresponsive"
 )
 
 // CDPError is a stable typed transport failure.
@@ -134,6 +134,7 @@ type CDPTransport struct {
 	conn       *websocket.Conn
 	cancel     context.CancelFunc
 	done       chan struct{}
+	readDone   chan struct{}
 	finishOnce sync.Once
 	writeMu    sync.Mutex
 	mu         sync.Mutex
@@ -168,7 +169,7 @@ func DialCDPTransport(ctx context.Context, config CDPTransportConfig) (*CDPTrans
 	conn.SetReadLimit(normalized.MaxMessageBytes)
 	transportCtx, transportCancel := context.WithCancel(context.Background())
 	transport := &CDPTransport{
-		conn: conn, cancel: transportCancel, done: make(chan struct{}),
+		conn: conn, cancel: transportCancel, done: make(chan struct{}), readDone: make(chan struct{}),
 		pending: make(map[int64]chan cdpResponse), subs: make(map[uint64]*cdpSubscriber),
 		maxPending: normalized.MaxPendingCalls,
 	}
@@ -215,10 +216,12 @@ func (t *CDPTransport) CallSession(ctx context.Context, sessionID, method string
 		return err
 	}
 	defer t.release(id)
-	buf := cdpBufferPool.Get().(*bytes.Buffer)
-	buf.Reset()
+	// Encode buffers come from the canonical bounded pool and are wiped on
+	// return: commands may carry typed text. The write is synchronous, so
+	// the payload never outlives the buffer.
+	buf := pool.GetBuffer()
 	if err := json.NewEncoder(buf).Encode(cdpCommand{ID: id, Method: method, Params: params, SessionID: sessionID}); err != nil {
-		cdpBufferPool.Put(buf)
+		pool.PutBuffer(buf)
 		return &CDPError{Code: CDPErrorInvalidConfig, Op: "marshal command", Err: err}
 	}
 	// Encoder writes a trailing newline; CDP frames tolerate it, trim anyway
@@ -228,7 +231,7 @@ func (t *CDPTransport) CallSession(ctx context.Context, sessionID, method string
 		payload = payload[:n-1]
 	}
 	err := t.write(ctx, payload)
-	cdpBufferPool.Put(buf)
+	pool.PutBuffer(buf)
 	if err != nil {
 		return err
 	}
@@ -294,6 +297,7 @@ func (t *CDPTransport) write(ctx context.Context, payload []byte) error {
 }
 
 func (t *CDPTransport) readLoop(ctx context.Context) {
+	defer close(t.readDone)
 	for {
 		messageType, payload, err := t.conn.Read(ctx)
 		if err != nil {
@@ -444,9 +448,9 @@ func (t *CDPTransport) PendingCalls() int {
 func (t *CDPTransport) Close() error {
 	select {
 	case <-t.done:
-		return nil
 	default:
+		t.finish(&CDPError{Code: CDPErrorClosed, Op: "close", Err: nil})
 	}
-	t.finish(&CDPError{Code: CDPErrorClosed, Op: "close", Err: nil})
+	<-t.readDone
 	return nil
 }

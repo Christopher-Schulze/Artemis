@@ -8,14 +8,16 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Christopher-Schulze/Artemis/network"
 )
 
 // SitemapURL is a single URL entry in a sitemap.
 type SitemapURL struct {
-	Loc        string `xml:"loc"`
-	LastMod    string `xml:"lastmod"`
-	ChangeFreq string `xml:"changefreq"`
-	Priority   string `xml:"priority"`
+	Loc        string `xml:"loc" json:"loc"`
+	LastMod    string `xml:"lastmod" json:"lastmod,omitempty"`
+	ChangeFreq string `xml:"changefreq" json:"changefreq,omitempty"`
+	Priority   string `xml:"priority" json:"priority,omitempty"`
 }
 
 // Sitemap is a parsed sitemap.xml.
@@ -72,61 +74,42 @@ type RobotsPolicy struct {
 	Allowed    []string
 	CrawlDelay time.Duration
 	Sitemaps   []string
+	ParseError error `json:"-"`
 }
 
 // ParseRobotsTxt parses a robots.txt body for a given user-agent.
 func ParseRobotsTxt(body string, userAgent string) *RobotsPolicy {
 	policy := &RobotsPolicy{}
-	lines := strings.Split(body, "\n")
-	var inBlock bool
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(strings.ToLower(parts[0]))
-		val := strings.TrimSpace(parts[1])
-		switch key {
-		case "user-agent":
-			inBlock = val == "*" || strings.Contains(strings.ToLower(userAgent), strings.ToLower(val))
-		case "disallow":
-			if inBlock && val != "" {
-				policy.Disallowed = append(policy.Disallowed, val)
-			}
-		case "allow":
-			if inBlock && val != "" {
-				policy.Allowed = append(policy.Allowed, val)
-			}
-		case "crawl-delay":
-			if inBlock {
-				if d, err := time.ParseDuration(val + "s"); err == nil {
-					policy.CrawlDelay = d
-				}
-			}
-		case "sitemap":
-			policy.Sitemaps = append(policy.Sitemaps, val)
+	parsed, err := network.ParseRobots(strings.NewReader(body))
+	if err != nil {
+		return &RobotsPolicy{Disallowed: []string{"/"}, ParseError: err}
+	}
+	for _, rule := range parsed.RulesFor(userAgent) {
+		if rule.Allow {
+			policy.Allowed = append(policy.Allowed, rule.Path)
+		} else {
+			policy.Disallowed = append(policy.Disallowed, rule.Path)
 		}
 	}
+	policy.CrawlDelay = parsed.CrawlDelayFor(userAgent)
+	policy.Sitemaps = append([]string(nil), parsed.Sitemaps...)
 	return policy
 }
 
 // IsURLAllowed checks if a path is allowed by the policy.
 func (p *RobotsPolicy) IsURLAllowed(path string) bool {
-	for _, a := range p.Allowed {
-		if strings.HasPrefix(path, a) {
-			return true
-		}
+	if p == nil || p.ParseError != nil {
+		return false
 	}
-	for _, d := range p.Disallowed {
-		if strings.HasPrefix(path, d) {
-			return false
-		}
+	rules := make([]network.RobotsRule, 0, len(p.Allowed)+len(p.Disallowed))
+	for _, pattern := range p.Allowed {
+		rules = append(rules, network.RobotsRule{Allow: true, Path: pattern})
 	}
-	return true
+	for _, pattern := range p.Disallowed {
+		rules = append(rules, network.RobotsRule{Allow: false, Path: pattern})
+	}
+	canonical := network.RobotsPolicy{Groups: map[string][]network.RobotsRule{"*": rules}}
+	return canonical.Allowed("*", path)
 }
 
 // RobotsCacheEntry stores a cached robots policy.

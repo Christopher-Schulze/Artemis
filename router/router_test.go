@@ -201,7 +201,7 @@ func TestChromiumExecutorRequiresCommittedDOMAndPreservesState(t *testing.T) {
 				return fmt.Errorf("unexpected result type %T", result)
 			}
 			response.Result.Type = "object"
-			response.Result.Value = chromiumPageOutput{URL: "https://fixture.test/dynamic", Title: "Dynamic", HTML: "<html><body>ready</body></html>"}
+			response.Result.Value = chromiumPageOutput{URL: "https://fixture.test/dynamic", Title: "Dynamic", HTML: "<html><body>ready</body></html>", StatusCode: http.StatusOK}
 			return nil
 		},
 	}

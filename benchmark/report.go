@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +18,10 @@ type RawArtifacts struct {
 
 // ReadRawArtifacts reads the committed scorecard files from the output directory.
 func ReadRawArtifacts(outputDir string) (RawArtifacts, error) {
+	return readSealedArtifacts(outputDir)
+}
+
+func readUnsealedArtifacts(outputDir string) (RawArtifacts, error) {
 	var a RawArtifacts
 	cleanOutputDir := filepath.Clean(outputDir)
 	jsonPath := filepath.Join(cleanOutputDir, "scorecard.json")
@@ -43,92 +48,52 @@ func GenerateReport(artifacts RawArtifacts) (string, error) {
 	if err := json.Unmarshal([]byte(artifacts.ScorecardJSON), &sc); err != nil {
 		return "", fmt.Errorf("parse scorecard json: %w", err)
 	}
-
+	// Serialized flags are not authority: derive claims from the raw samples.
+	sc.Finalize(sc.Options.RegressionBudgets)
 	var b []byte
 	b = append(b, "# Artemis Benchmark Report\n\n"...)
-	b = fmt.Appendf(b, "Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339))
-
+	b = fmt.Appendf(b, "Run date: %s\n\n", sc.Date.Format(time.RFC3339Nano))
 	b = append(b, "## Reproducibility\n\n"...)
-	b = fmt.Appendf(b, "- Scorecard path: `%s`\n", artifacts.ScorecardPath)
-	b = fmt.Appendf(b, "- Scorecard version: %s\n", sc.Version)
-	b = fmt.Appendf(b, "- Matrix version: %s\n", sc.MatrixVersion)
-	b = fmt.Appendf(b, "- Go: %s, OS: %s, Arch: %s, CPUs: %d\n",
-		sc.Environment.GoVersion, sc.Environment.OS, sc.Environment.Arch, sc.Environment.NumCPU)
-	b = fmt.Appendf(b, "- Mode: %s, Honest: %v\n", sc.Mode, sc.Honest)
-	if sc.HonestReason != "" {
-		b = fmt.Appendf(b, "- Honest reason: %s\n", sc.HonestReason)
+	b = fmt.Appendf(b, "- Scorecard version: %s; matrix: %s\n", sc.Version, sc.MatrixVersion)
+	b = fmt.Appendf(b, "- Artifact SHA256: %x\n", sha256.Sum256([]byte(artifacts.ScorecardJSON)))
+	b = fmt.Appendf(b, "- Claim status: %s; evidence expiry: %s\n", sc.Claim.Status, sc.Claim.ExpiresAt.Format(time.RFC3339))
+	b = fmt.Appendf(b, "- Artemis binary SHA256: %s; source revision: %s; modified: %v\n", sc.Provenance.ArtemisSHA256, sc.Provenance.SourceRevision, sc.Provenance.SourceModified)
+	b = fmt.Appendf(b, "- Competitor version: %s; executed SHA256: %s\n", sc.CompetitorVersion, sc.CompetitorSHA256)
+	b = fmt.Appendf(b, "- Go: %s; OS/Arch: %s/%s; CPUs: %d; tag: %q\n",
+		sc.Environment.GoVersion, sc.Environment.OS, sc.Environment.Arch, sc.Environment.NumCPU, sc.Environment.BenchmarkTag)
+	_, comparisonErr := sc.comparisonPairs()
+	b = fmt.Appendf(b, "- Mode: %s; honest comparison: %v; reason: %s\n", sc.Mode, sc.Honest && comparisonErr == nil, sc.HonestReason)
+	for _, ref := range sc.Claim.ProofRefs {
+		b = fmt.Appendf(b, "- Proof: %s\n", ref)
 	}
-	b = append(b, '\n')
-
-	b = append(b, "## Command\n\n"...)
-	b = append(b, "```bash\n"...)
-	b = append(b, "go run ./cmd/benchmark"...)
-	if sc.Mode == ModeHeadToHead {
-		b = append(b, " --require-head-to-head"...)
-	} else {
-		b = append(b, " --skip-competitor"...)
+	b = append(b, "\n## Command\n\n"...)
+	b = append(b, "Both benchmark entry points use the recorded options below. Replays require a fresh output directory. Custom matrices use the harness Workloads API.\n\n"...)
+	options, err := json.MarshalIndent(sc.Options, "", "  ")
+	if err != nil {
+		return "", err
 	}
-	if sc.Environment.BenchmarkTag != "" {
-		b = fmt.Appendf(b, " --benchmark-tag=%s", sc.Environment.BenchmarkTag)
-	}
-	b = append(b, "\n"...)
-	b = append(b, "```\n\n"...)
-
+	b = append(b, "```json\n"...)
+	b = append(b, options...)
+	b = append(b, "\n```\n\n"...)
 	b = append(b, "## Per-Metric Aggregates\n\n"...)
-	byEngine := map[EngineName][]float64{}
-	byMetric := map[MetricKind][]float64{}
-	for _, r := range sc.Results {
-		if !r.OK {
-			continue
-		}
-		byEngine[r.Engine] = append(byEngine[r.Engine], r.WallMs)
-		for _, sample := range r.ToMetricSet().ToSamples() {
-			byMetric[sample.Kind] = append(byMetric[sample.Kind], sample.Value)
-		}
+	b = append(b, "| Engine | Metric | Count | Mean | StdDev | Min | Max | Median | P95 | P99 |\n"...)
+	b = append(b, "|--------|--------|-------|------|--------|-----|-----|--------|-----|-----|\n"...)
+	for _, metric := range sc.Aggregates {
+		agg := metric.Aggregate
+		b = fmt.Appendf(b, "| %s | %s | %d | %s | %s | %s | %s | %s | %s | %s |\n",
+			metric.Engine, metric.Kind, agg.Count, FormatMetric(metric.Kind, agg.Mean),
+			FormatMetric(metric.Kind, agg.StdDev), FormatMetric(metric.Kind, agg.Min),
+			FormatMetric(metric.Kind, agg.Max), FormatMetric(metric.Kind, agg.Median),
+			FormatMetric(metric.Kind, agg.P95), FormatMetric(metric.Kind, agg.P99))
 	}
-
-	b = append(b, "### Engine Wall-Time Distributions\n\n"...)
-	b = append(b, "| Engine | Count | Mean (ms) | StdDev | Min | Max | Median | P95 | P99 |\n"...)
-	b = append(b, "|--------|-------|-----------|--------|-----|-----|--------|-----|-----|\n"...)
-	for engine, vals := range byEngine {
-		agg := ComputeAggregate(vals)
-		b = fmt.Appendf(b, "| %s | %d | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f |\n",
-			engine, agg.Count, agg.Mean, agg.StdDev, agg.Min, agg.Max, agg.Median, agg.P95, agg.P99)
-	}
-
-	b = append(b, "\n### Metric Distributions\n\n"...)
-	b = append(b, "| Metric | Count | Mean | StdDev | Min | Max | Median | P95 | P99 |\n"...)
-	b = append(b, "|--------|-------|------|--------|-----|-----|--------|-----|-----|\n"...)
-	for _, kind := range []MetricKind{MetricWallMs, MetricCPUMs, MetricAllocBytes, MetricAllocCount, MetricRSSBytes, MetricThroughput, MetricErrorRate} {
-		vals := byMetric[kind]
-		if len(vals) == 0 {
-			continue
-		}
-		agg := ComputeAggregate(vals)
-		b = fmt.Appendf(b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s |\n",
-			kind, agg.Count,
-			FormatMetric(kind, agg.Mean),
-			FormatMetric(kind, agg.StdDev),
-			FormatMetric(kind, agg.Min),
-			FormatMetric(kind, agg.Max),
-			FormatMetric(kind, agg.Median),
-			FormatMetric(kind, agg.P95),
-			FormatMetric(kind, agg.P99),
-		)
-	}
-
 	b = append(b, "\n## Methodology Notes\n\n"...)
-	b = append(b, "All numbers are produced from the same source scorecard artifact. "+
-		"Wall time is the median across iterations. "+
-		"Allocations are measured from the Go runtime. "+
-		"The scorecard is marked honest only when both engines complete all scenarios with matching semantic success criteria.\n"...)
-
+	b = append(b, "Distributions use every validated measured sample, excluding declared priming runs. Workloads retain engine mode, locality, warmth and sample policy. Cold samples reset the Artemis engine and competitor process; warm workloads prime each engine once. Bootstrap and OS cache state are not measured as page latency. Competitor CPU, RSS and allocation metrics are unavailable and cannot form regression baselines. Comparisons require matching semantic extraction digests and at least five samples per engine and workload.\n"...)
 	return string(b), nil
 }
 
 // WriteReport writes a report to the output directory alongside the scorecard.
 func WriteReport(outputDir string) error {
-	artifacts, err := ReadRawArtifacts(outputDir)
+	artifacts, err := readUnsealedArtifacts(outputDir)
 	if err != nil {
 		return err
 	}
@@ -137,5 +102,5 @@ func WriteReport(outputDir string) error {
 		return err
 	}
 	path := filepath.Join(outputDir, "report.md")
-	return os.WriteFile(path, []byte(report), 0o600)
+	return writeArtifact(path, []byte(report))
 }

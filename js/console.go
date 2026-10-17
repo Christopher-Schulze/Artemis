@@ -1,11 +1,15 @@
 package js
 
 import (
+	"errors"
 	"strings"
 	"sync"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
+
+const maxConsoleArguments = 4096
+const maxConsoleMessageBytes = 1 << 20
 
 // Console is the sink for console.* calls.
 type Console interface {
@@ -79,14 +83,24 @@ func (r *Runtime) ensureConsoleTemplates() *consoleTemplates {
 	iso := r.iso
 	mk := func(level string) *v8.FunctionTemplate {
 		return v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+			defer info.Release()
 			c := r.contextFor(info.Context())
 			if c == nil || c.console == nil {
 				return nil
 			}
 			args := info.Args()
+			if len(args) > maxConsoleArguments {
+				return domCallbackResult(iso, domCallbackError(iso, errors.New("console: argument limit exceeded")))
+			}
 			parts := make([]string, len(args))
+			remaining := maxConsoleMessageBytes - max(0, len(args)-1)
 			for i, a := range args {
-				parts[i] = a.String()
+				part, err := a.StringWithLimit(remaining)
+				if err != nil {
+					return domCallbackResult(iso, domCallbackError(iso, err))
+				}
+				parts[i] = part
+				remaining -= len(part)
 			}
 			c.console.Log(level, strings.Join(parts, " "))
 			return nil
@@ -109,20 +123,19 @@ func installConsole(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	if err != nil {
 		return err
 	}
-	if err := obj.Set("log", ct.log.GetFunction(v8ctx)); err != nil {
-		return err
+	defer obj.Release()
+	for _, method := range []struct {
+		name     string
+		template *v8.FunctionTemplate
+	}{{"log", ct.log}, {"warn", ct.warn}, {"error", ct.errorFn}, {"info", ct.info}, {"debug", ct.debug}} {
+		function := method.template.GetFunction(v8ctx)
+		err := obj.Set(method.name, function)
+		function.Release()
+		if err != nil {
+			return err
+		}
 	}
-	if err := obj.Set("warn", ct.warn.GetFunction(v8ctx)); err != nil {
-		return err
-	}
-	if err := obj.Set("error", ct.errorFn.GetFunction(v8ctx)); err != nil {
-		return err
-	}
-	if err := obj.Set("info", ct.info.GetFunction(v8ctx)); err != nil {
-		return err
-	}
-	if err := obj.Set("debug", ct.debug.GetFunction(v8ctx)); err != nil {
-		return err
-	}
-	return v8ctx.Global().Set("console", obj)
+	global := v8ctx.Global()
+	defer global.Release()
+	return global.Set("console", obj)
 }

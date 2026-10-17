@@ -7,16 +7,20 @@ import (
 )
 
 // SetFetchRequestHandler installs the application-owned resolver for requests
-// that passed Artemis' network policy. The handler is invoked by the single
-// page egress worker, so callers must return quickly after registering a
-// paused request. Returning handled=true transfers ownership of the paused
-// CDP request to the supplied resolver.
+// that passed Artemis' network policy. Bounded page egress workers may invoke
+// handlers concurrently. Handlers must honor the supplied cancellation and
+// return promptly after registering a paused request. They must not close/join
+// their own executing page/context/browser synchronously from the callback.
+// Returning handled=true transfers the paused CDP request to the resolver;
+// deferred resolution remains subject to the owning page's lifetime.
 func (p *Page) SetFetchRequestHandler(handler FetchRequestHandler) error {
 	if p == nil {
 		return fmt.Errorf("set fetch request handler: page required")
 	}
-	if err := p.ensureAttached(); err != nil {
-		return err
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.removed || p.state != TargetStateAttached {
+		return &TargetError{TargetID: p.targetID, State: p.state, Message: p.stateErr}
 	}
 	p.fetchMu.Lock()
 	p.fetchHandler = handler

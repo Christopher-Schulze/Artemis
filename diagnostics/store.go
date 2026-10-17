@@ -4,6 +4,8 @@ package diagnostics
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -79,10 +81,38 @@ type Store struct {
 	bytes       int64
 	fileSize    int64
 	fileModTime time.Time
+	fileInfo    os.FileInfo
+	sessionKey  []byte
 }
 
-var tokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.:-]{0,127}$`)
 var sessionRefPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// Closed value sets: diagnostics never retain caller-chosen strings, so a
+// token-shaped secret cannot enter the ledger through a reason or scope.
+var (
+	policyOperations = closedSet("navigation", "redirect", "subframe", "worker", "subresource", "websocket", "download", "proxy", "socket", "unknown")
+	policyTransports = closedSet("http", "https", "ws", "wss", "unknown", "other")
+	policyReasons    = closedSet("policy_match", "policy_match_proxied", "content_type_not_allowed", "dns_failed", "download_content_type_not_allowed", "download_too_large", "host_not_allowed", "invalid_download_size", "invalid_response_encoding", "invalid_target_kind", "invalid_url", "method_not_allowed", "non_destination_address", "non_public_address", "port_not_allowed", "request_body_length_unknown", "request_body_too_large", "response_body_too_large", "scheme_not_allowed", "unspecified", "other")
+	resourceScopes   = closedSet("renderless", "chromium")
+)
+
+func closedSet(values ...string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		set[value] = true
+	}
+	return set
+}
+
+// closedValue maps a producer value onto its closed set: empty becomes
+// empty (caller default), unknown values become fallback.
+func closedValue(set map[string]bool, value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if set[value] {
+		return value
+	}
+	return fallback
+}
 
 func NewStore(config Config) (*Store, error) {
 	config = normalizeConfig(config)
@@ -101,10 +131,23 @@ func NewStore(config Config) (*Store, error) {
 	}
 	store := &Store{config: config}
 	if config.Path == "" {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("diagnostics session key: %w", err)
+		}
+		store.sessionKey = key
 		return store, nil
 	}
+	if err := ensurePrivateStore(config.Path); err != nil {
+		return nil, err
+	}
+	key, err := loadSessionKey(filepath.Join(filepath.Dir(config.Path), "session.key"))
+	if err != nil {
+		return nil, err
+	}
+	store.sessionKey = key
 	store.mu.Lock()
-	err := store.withFileLock(func() error {
+	err = store.withFileLock(func() error {
 		changed, loadErr := store.loadFileLocked(config.Now())
 		if loadErr != nil {
 			return loadErr
@@ -141,24 +184,33 @@ func DefaultPersistentConfig() (Config, error) {
 	return normalizeConfig(Config{Path: path}), nil
 }
 
-func HashSession(sessionID string) string {
-	if sessionID == "" {
+// SessionRef is a pseudonymous session reference keyed per installation
+// (persistent store: <dir>/session.key) or per process (memory store), so the
+// same session ID is not linkable across installations.
+func (s *Store) SessionRef(sessionID string) string {
+	if s == nil || sessionID == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte("artemis-session:" + sessionID))
-	return hex.EncodeToString(sum[:16])
+	mac := hmac.New(sha256.New, s.sessionKey)
+	mac.Write([]byte(sessionID))
+	return hex.EncodeToString(mac.Sum(nil)[:16])
+}
+
+func normalizePolicy(decision PolicyDecision) PolicyDecision {
+	decision.Operation = closedValue(policyOperations, decision.Operation, "unknown")
+	if strings.TrimSpace(decision.Transport) == "" {
+		decision.Transport = "unknown"
+	}
+	decision.Transport = closedValue(policyTransports, decision.Transport, "other")
+	if strings.TrimSpace(decision.ReasonCode) == "" {
+		decision.ReasonCode = "unspecified"
+	}
+	decision.ReasonCode = closedValue(policyReasons, decision.ReasonCode, "other")
+	return decision
 }
 
 func (s *Store) AppendPolicy(decision PolicyDecision) error {
-	if decision.Operation == "" {
-		decision.Operation = "unknown"
-	}
-	if decision.Transport == "" {
-		decision.Transport = "unknown"
-	}
-	if decision.ReasonCode == "" {
-		decision.ReasonCode = "unspecified"
-	}
+	decision = normalizePolicy(decision)
 	return s.append(Record{Timestamp: s.config.Now().UTC(), Type: RecordPolicyDecision, Policy: &decision})
 }
 
@@ -294,8 +346,8 @@ func validateRecord(record Record) error {
 }
 
 func validatePolicy(decision PolicyDecision) error {
-	if !tokenPattern.MatchString(decision.Operation) || !tokenPattern.MatchString(decision.Transport) || !tokenPattern.MatchString(decision.ReasonCode) {
-		return errors.New("diagnostics policy tokens invalid")
+	if !policyOperations[decision.Operation] || !policyTransports[decision.Transport] || !policyReasons[decision.ReasonCode] {
+		return errors.New("diagnostics policy values outside the closed sets")
 	}
 	if decision.Result != "allow" && decision.Result != "deny" {
 		return errors.New("diagnostics policy result invalid")
@@ -316,8 +368,8 @@ func validatePolicy(decision PolicyDecision) error {
 }
 
 func validateResource(usage ResourceUsage) error {
-	if !tokenPattern.MatchString(usage.Scope) {
-		return errors.New("diagnostics resource scope invalid")
+	if !resourceScopes[usage.Scope] {
+		return errors.New("diagnostics resource scope outside the closed set")
 	}
 	if math.IsNaN(usage.CPUPercent) || math.IsInf(usage.CPUPercent, 0) || usage.CPUPercent < 0 || usage.MemoryBytes < 0 || usage.Requests < 0 || usage.ResponseBytes < 0 || usage.DiskBytes < 0 || usage.ActiveTabs < 0 || usage.Concurrent < 0 {
 		return errors.New("diagnostics resource values must be finite and non-negative")
@@ -333,8 +385,9 @@ func validateSessionRef(ref string) error {
 }
 
 func (s *Store) refreshFileLocked(now time.Time) (bool, error) {
-	info, err := os.Stat(s.config.Path)
+	info, err := os.Lstat(s.config.Path)
 	if errors.Is(err, os.ErrNotExist) {
+		s.fileInfo = nil
 		if s.fileSize == 0 && len(s.records) == 0 {
 			return false, nil
 		}
@@ -347,19 +400,23 @@ func (s *Store) refreshFileLocked(now time.Time) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("diagnostics stat: %w", err)
 	}
-	if info.Size() == s.fileSize && info.ModTime().Equal(s.fileModTime) {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, errors.New("diagnostics ledger is not a regular file")
+	}
+	if s.fileInfo != nil && os.SameFile(s.fileInfo, info) && info.Size() == s.fileSize && info.ModTime().Equal(s.fileModTime) {
 		return s.pruneLocked(now), nil
 	}
 	return s.loadFileLocked(now)
 }
 
 func (s *Store) loadFileLocked(now time.Time) (changed bool, resultErr error) {
-	file, err := os.Open(s.config.Path)
+	file, err := os.OpenFile(s.config.Path, os.O_RDONLY|openNoFollow, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		s.records = nil
 		s.bytes = 0
 		s.fileSize = 0
 		s.fileModTime = time.Time{}
+		s.fileInfo = nil
 		return false, nil
 	}
 	if err != nil {
@@ -374,17 +431,30 @@ func (s *Store) loadFileLocked(now time.Time) (changed bool, resultErr error) {
 	if err != nil {
 		return false, fmt.Errorf("diagnostics stat: %w", err)
 	}
+	if !info.Mode().IsRegular() {
+		return false, errors.New("diagnostics ledger is not a regular file")
+	}
 	if info.Size() > s.config.MaxBytes+int64(s.config.MaxRecordBytes) {
 		return false, fmt.Errorf("diagnostics ledger exceeds recoverable size bound")
 	}
+	content, err := io.ReadAll(io.LimitReader(file, s.config.MaxBytes+int64(s.config.MaxRecordBytes)+1))
+	if err != nil {
+		return false, fmt.Errorf("diagnostics read: %w", err)
+	}
+	lines := bytes.Split(content, []byte{'\n'})
+	// Every acknowledged record ends with a newline; an unterminated tail is
+	// an append torn by a crash and is dropped instead of poisoning the store.
+	torn := len(lines[len(lines)-1]) > 0
+	lines = lines[:len(lines)-1]
 	var records []Record
 	var total int64
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024), s.config.MaxRecordBytes)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	for _, raw := range lines {
+		line := bytes.TrimSpace(raw)
 		if len(line) == 0 {
 			continue
+		}
+		if len(line) > s.config.MaxRecordBytes {
+			return false, errors.New("diagnostics record exceeds the record size bound")
 		}
 		var record Record
 		decoder := json.NewDecoder(bytes.NewReader(line))
@@ -396,20 +466,22 @@ func (s *Store) loadFileLocked(now time.Time) (changed bool, resultErr error) {
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			return false, errors.New("diagnostics record has trailing data")
 		}
+		if record.Policy != nil {
+			normalized := normalizePolicy(*record.Policy)
+			record.Policy = &normalized
+		}
 		if err := validateRecord(record); err != nil {
 			return false, err
 		}
 		records = append(records, record)
 		total += int64(len(line) + 1)
 	}
-	if err := scanner.Err(); err != nil {
-		return false, fmt.Errorf("diagnostics scan: %w", err)
-	}
 	s.records = records
 	s.bytes = total
 	s.fileSize = info.Size()
 	s.fileModTime = info.ModTime()
-	return s.pruneLocked(now), nil
+	s.fileInfo = info
+	return s.pruneLocked(now) || torn, nil
 }
 
 func (s *Store) pruneLocked(now time.Time) bool {
@@ -444,7 +516,8 @@ func recordSize(record Record) int64 {
 }
 
 func (s *Store) appendLineLocked(line []byte) error {
-	file, err := os.OpenFile(s.config.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	created := s.fileInfo == nil
+	file, err := os.OpenFile(s.config.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|openNoFollow, 0o600)
 	if err != nil {
 		return fmt.Errorf("diagnostics append: %w", err)
 	}
@@ -479,8 +552,14 @@ func (s *Store) appendLineLocked(line []byte) error {
 	if statErr != nil {
 		return fmt.Errorf("diagnostics stat after append: %w", statErr)
 	}
+	if created {
+		if err := syncDirectory(filepath.Dir(s.config.Path)); err != nil {
+			return err
+		}
+	}
 	s.fileSize = info.Size()
 	s.fileModTime = info.ModTime()
+	s.fileInfo = info
 	return nil
 }
 
@@ -524,13 +603,104 @@ func (s *Store) rewriteLocked() error {
 		return fmt.Errorf("diagnostics replace: %w", renameErr)
 	}
 	committed = true
-	info, err := os.Stat(s.config.Path)
+	if err := syncDirectory(dir); err != nil {
+		return err
+	}
+	info, err := os.Lstat(s.config.Path)
 	if err != nil {
 		return fmt.Errorf("diagnostics stat after replace: %w", err)
 	}
 	s.fileSize = info.Size()
 	s.fileModTime = info.ModTime()
+	s.fileInfo = info
 	return nil
+}
+
+// syncDirectory makes a file creation or rename in dir durable.
+func syncDirectory(dir string) error {
+	handle, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("diagnostics directory sync: %w", err)
+	}
+	syncErr := handle.Sync()
+	closeErr := handle.Close()
+	if err := errors.Join(syncErr, closeErr); err != nil {
+		return fmt.Errorf("diagnostics directory sync: %w", err)
+	}
+	return nil
+}
+
+// ensurePrivateStore requires the ledger directory to be a real private
+// directory and the ledger, if present, a regular non-symlink file.
+func ensurePrivateStore(path string) error {
+	dir := filepath.Dir(path)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("diagnostics directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("diagnostics directory must be a real directory, not a symlink")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return fmt.Errorf("diagnostics directory permissions: %w", err)
+		}
+	}
+	for _, candidate := range []string{path, path + ".lock", filepath.Join(dir, "session.key")} {
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("diagnostics path: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("diagnostics path %s must be a regular file, not a symlink", filepath.Base(candidate))
+		}
+	}
+	return nil
+}
+
+// loadSessionKey reads or creates the installation-scoped pseudonym key.
+func loadSessionKey(path string) ([]byte, error) {
+	key, err := readSessionKey(path)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return key, err
+	}
+	key = make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("diagnostics session key: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY|openNoFollow, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return readSessionKey(path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("diagnostics session key: %w", err)
+	}
+	_, writeErr := file.Write(key)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return nil, fmt.Errorf("diagnostics session key: %w", err)
+	}
+	return key, syncDirectory(filepath.Dir(path))
+}
+
+func readSessionKey(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|openNoFollow, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	key, err := io.ReadAll(io.LimitReader(file, 33))
+	if err != nil {
+		return nil, fmt.Errorf("diagnostics session key: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, errors.New("diagnostics session key is corrupt")
+	}
+	return key, nil
 }
 
 func (s *Store) withFileLock(action func() error) error {

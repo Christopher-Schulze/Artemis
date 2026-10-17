@@ -60,7 +60,8 @@ func (a ClickAction) ExecuteWith(ctx context.Context, runtime *Runtime) ClickRes
 	if runtime == nil {
 		return ClickResult{Ref: a.Ref, Duration: time.Since(start), Error: "click: runtime required"}
 	}
-	out := runtime.Execute(ctx, Request{Kind: KindClick, Ref: a.Ref})
+	human := &HumanProfile{MovePath: a.MovePath.Points, PreClickDelay: a.Wait}
+	out := runtime.Execute(ctx, Request{Kind: KindClick, Ref: a.Ref, Button: a.Button, Human: human})
 	return ClickResult{Success: out.Success, Ref: a.Ref, Duration: out.Evidence.Duration, Error: out.Error}
 }
 
@@ -70,13 +71,12 @@ func GenerateClickPath(start, end input.MousePoint) input.MousePath {
 	return input.MoveMouse(start, end)
 }
 
-// ClickWithMovement performs a click with human-like mouse movement
-// from start to target (spec L4020: click w/ human-like movement).
-func ClickWithMovement(ctx context.Context, ref string, start, target input.MousePoint) ClickResult {
-	path := GenerateClickPath(start, target)
+// ClickWithMovement clicks ref on runtime after moving along a generated
+// human-like path from start to target (spec L4020: click w/ human-like movement).
+func ClickWithMovement(ctx context.Context, runtime *Runtime, ref string, start, target input.MousePoint) ClickResult {
 	action := NewClickAction(ref)
-	action.MovePath = path
-	return action.Execute(ctx)
+	action.MovePath = GenerateClickPath(start, target)
+	return action.ExecuteWith(ctx, runtime)
 }
 
 // String returns a diagnostic summary.

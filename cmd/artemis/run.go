@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -38,15 +39,20 @@ import (
 // ergonomic standalone scripts against a page without the full steering
 // protocol.
 
+const maxRunScriptBytes = 8 << 20
+
 func cmdRun(args []string) (exitCode int) {
 	fs := newFlagSet("run")
+	adBlock := addAdBlockFlag(fs)
+	policyFlags := addBrowserPolicyFlags(fs)
 	scriptFile := fs.String("script", "", "path to a JavaScript file to execute in the page context (required)")
 	userAgent := fs.String("user-agent", "", "override User-Agent")
 	proxyURL := fs.String("proxy", "", "proxy URL")
 	timeoutS := fs.String("timeout", "60s", "request + script execution timeout")
 	maxBody := fs.Int64("max-body-bytes", 0, "max response body bytes (0 = engine default)")
 	runInlineScripts := fs.Bool("run-inline-scripts", true, "execute page inline <script> tags before the user script")
-	jsonOut := fs.Bool("json", false, "print the script result as JSON")
+	jsonOut := fs.Bool("json", false, "print {\"trust\":...,\"value\":result} with the page trust label")
+	fence := fs.Bool("fence", false, "wrap the text result in the spoof-proof IDPI untrusted-content fence")
 	consoleOn := fs.Bool("console", false, "forward JS console.* to stderr (slog)")
 	waitIdle := fs.Bool("wait-idle", true, "wait for in-flight async fetches to settle before printing the result")
 	allowPrivate := fs.Bool("allow-private-networks", false, "allow requests to private/loopback IP targets (default false)")
@@ -75,6 +81,10 @@ Flags:
 		fs.Usage()
 		return 2
 	}
+	if *maxBody < 0 || *allowPort < 0 || *allowPort > 65535 {
+		errf("run requires non-negative body limit and destination port within 0..65535")
+		return 2
+	}
 
 	targetURL := fs.Arg(0)
 	timeout, err := parseDuration(*timeoutS, 60*time.Second)
@@ -94,7 +104,7 @@ Flags:
 	}
 
 	// Read the script file.
-	scriptBytes, err := os.ReadFile(*scriptFile)
+	scriptBytes, err := readRunScript(*scriptFile)
 	if err != nil {
 		errf("read script %s: %v", *scriptFile, err)
 		return 1
@@ -106,12 +116,13 @@ Flags:
 	}
 
 	cfg := engine.Config{
-		UserAgent:    *userAgent,
-		ProxyURL:     *proxyURL,
-		Timeout:      timeout,
-		MaxBodyBytes: *maxBody,
-		SessionID:    fmt.Sprintf("cli-run-%d", os.Getpid()),
-		Diagnostics:  diagnosticConfig,
+		DisableAdBlock: !*adBlock,
+		UserAgent:      *userAgent,
+		ProxyURL:       *proxyURL,
+		Timeout:        timeout,
+		MaxBodyBytes:   *maxBody,
+		SessionID:      fmt.Sprintf("cli-run-%d", os.Getpid()),
+		Diagnostics:    diagnosticConfig,
 		PolicyConfig: network.PolicyConfig{
 			AllowPrivateNetworks: *allowPrivate,
 		},
@@ -119,15 +130,26 @@ Flags:
 	if *allowPort != 0 {
 		cfg.PolicyConfig.AllowedPorts = []int{*allowPort}
 	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	actionPolicy, err := policyFlags.start(ctx)
+	if err != nil {
+		errf("run policy: %v", err)
+		return 1
+	}
+	defer actionPolicy.Stop()
+	for _, action := range []string{"navigate", "evaluate"} {
+		if err := checkCLIActionPolicy(ctx, actionPolicy, action, targetURL); err != nil {
+			errf("run policy: %v", err)
+			return 1
+		}
+	}
 	eng, err := engine.New(cfg)
 	if err != nil {
 		errf("init engine: %v", err)
 		return 1
 	}
 	defer cleanupOnReturn(&exitCode, "run engine close", eng.Close)()
-
-	ctx, cancel := signalContext()
-	defer cancel()
 
 	var console js.Console
 	if *consoleOn {
@@ -158,14 +180,23 @@ Flags:
 	}
 
 	// Execute the user script.
+	if err := checkCLIActionPolicy(ctx, actionPolicy, "evaluate", page.URL()); err != nil {
+		errf("run policy: %v", err)
+		return 1
+	}
 	result, err := page.Eval(ctx, scriptSrc)
 	if err != nil {
 		errf("script execution failed: %v", err)
 		return 1
 	}
+	defer result.Release()
 
 	// Wait for async operations to settle.
 	if *waitIdle {
+		if err := checkCLIActionPolicy(ctx, actionPolicy, "wait", page.URL()); err != nil {
+			errf("run policy: %v", err)
+			return 1
+		}
 		if err := page.WaitIdle(ctx); err != nil {
 			errf("wait-idle: %v", err)
 			return 1
@@ -174,47 +205,94 @@ Flags:
 
 	// Print the result.
 	if *jsonOut {
-		printResultJSON(result)
+		err = printResultJSON(result, page.URL())
 	} else {
-		printResultText(result)
+		err = printResultText(result, *fence, page.URL())
+	}
+	if err != nil {
+		errf("run output: %v", err)
+		return 1
 	}
 	return 0
 }
 
-// printResultText prints the script result as a string.
-func printResultText(v *js.Value) {
-	if v == nil {
-		fmt.Println("")
-		return
+func readRunScript(path string) (data []byte, readErr error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
 	}
-	s := v.String()
-	if s == "" || s == "undefined" {
-		fmt.Println("")
-		return
+	if !info.Mode().IsRegular() || info.Size() > maxRunScriptBytes {
+		return nil, fmt.Errorf("script must be a regular file within %d bytes", maxRunScriptBytes)
 	}
-	fmt.Println(s)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		readErr = errors.Join(readErr, file.Close())
+		if readErr != nil {
+			data = nil
+		}
+	}()
+	info, err = file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxRunScriptBytes {
+		return nil, fmt.Errorf("script changed to an invalid file or exceeds %d bytes", maxRunScriptBytes)
+	}
+	data, err = io.ReadAll(io.LimitReader(file, maxRunScriptBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxRunScriptBytes {
+		return nil, fmt.Errorf("script exceeds %d bytes", maxRunScriptBytes)
+	}
+	return data, nil
 }
 
-// printResultJSON prints the script result as JSON.
-func printResultJSON(v *js.Value) {
-	if v == nil {
-		fmt.Println("null")
-		return
+// printResultText prints the script result as a string.
+func printResultText(v *js.Value, fence bool, pageURL string) error {
+	s := ""
+	if v != nil {
+		s = v.String()
 	}
-	s := v.String()
-	// Try to parse as JSON first; if it's already JSON, print as-is.
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(s), &raw); err == nil {
-		fmt.Println(s)
-		return
+	if s == "undefined" {
+		s = ""
 	}
-	// Otherwise, wrap as a JSON string.
-	out, marshalErr := json.Marshal(s)
-	if marshalErr != nil {
-		errf("result JSON: %v", marshalErr)
-		return
+	if fence {
+		return printFenced(os.Stdout, s, pageURL, "run")
 	}
-	fmt.Println(string(out))
+	return printText(os.Stdout, s)
+}
+
+// printResultJSON prints {"trust":...,"value":result}: a JSON result is
+// embedded as-is, any other result as a JSON string.
+func printResultJSON(v *js.Value, pageURL string) error {
+	value := json.RawMessage("null")
+	if v != nil {
+		s := v.String()
+		if json.Valid([]byte(s)) {
+			value = json.RawMessage(s)
+		} else {
+			encoded, err := json.Marshal(s)
+			if err != nil {
+				return fmt.Errorf("result JSON: %w", err)
+			}
+			value = encoded
+		}
+	}
+	envelope, err := json.Marshal(struct {
+		Value json.RawMessage `json:"value"`
+	}{Value: value})
+	if err != nil {
+		return fmt.Errorf("result JSON: %w", err)
+	}
+	labeled, err := labelJSONObject(envelope, pageURL, "run")
+	if err != nil {
+		return err
+	}
+	return printText(os.Stdout, string(labeled))
 }
 
 // runScriptInPage is the testable core of the `run` subcommand. It fetches
@@ -236,6 +314,7 @@ func runScriptInPage(ctx context.Context, eng *engine.Engine, targetURL, scriptS
 	if err != nil {
 		return "", fmt.Errorf("script execution: %w", err)
 	}
+	defer evalResult.Release()
 
 	if err := page.WaitIdle(ctx); err != nil {
 		return "", fmt.Errorf("wait-idle: %w", err)

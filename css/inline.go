@@ -9,27 +9,19 @@ import (
 
 // ParseInline parses a CSS declaration block as found in the HTML
 // `style` attribute: `color: red; font-size: 14px`. Whitespace is
-// tolerated and trailing semicolons are fine. Keys are returned in
-// kebab-case lowercase.
-func ParseInline(s string) map[string]string {
-	out := map[string]string{}
-	for _, decl := range strings.Split(s, ";") {
-		decl = strings.TrimSpace(decl)
-		if decl == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(decl, ":")
-		if !ok {
-			continue
-		}
-		k = strings.ToLower(strings.TrimSpace(k))
-		v = strings.TrimSpace(v)
-		if k == "" {
-			continue
-		}
-		out[k] = v
+// tolerated and trailing semicolons are fine. Ordinary keys use lowercase;
+// custom properties preserve their case. Malformed input returns no partial map.
+// Values retain priority suffixes so Serialize can preserve the declarations.
+func ParseInline(s string) (map[string]string, error) {
+	block := ParseDeclarations(s)
+	if err := block.Err(); err != nil {
+		return nil, err
 	}
-	return out
+	values, priorities := cssDeclarationMaps(block.Declarations)
+	for property := range priorities {
+		values[property] += " !important"
+	}
+	return values, nil
 }
 
 // Serialize rebuilds a `style` attribute string from the map. Keys are
@@ -59,8 +51,8 @@ func Serialize(m map[string]string) string {
 // font-size. webkitTransform -> -webkit-transform when leading vendor
 // prefix is detected.
 func CamelToKebab(camel string) string {
-	if camel == "" {
-		return ""
+	if camel == "" || strings.HasPrefix(camel, "--") {
+		return camel
 	}
 	vendorPrefix := ""
 	switch {
@@ -92,8 +84,8 @@ func CamelToKebab(camel string) string {
 
 // KebabToCamel is the inverse: font-size -> fontSize.
 func KebabToCamel(kebab string) string {
-	if kebab == "" {
-		return ""
+	if kebab == "" || strings.HasPrefix(kebab, "--") {
+		return kebab
 	}
 	prefix := ""
 	switch {

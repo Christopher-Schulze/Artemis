@@ -28,7 +28,6 @@ func TestActionCDPParameterShapes(t *testing.T) {
 		{name: "evaluate", value: runtimeEvaluateParams{Expression: "1+1", ContextID: 7, ReturnByValue: true, AwaitPromise: true}, want: `{"expression":"1+1","contextId":7,"returnByValue":true,"awaitPromise":true}`},
 		{name: "resolve node", value: resolveNodeParams{BackendNodeID: 42}, want: `{"backendNodeId":42}`},
 		{name: "call function", value: callFunctionOnParams{FunctionDeclaration: "function(v){return v}", ObjectID: "object", Arguments: []runtimeCallArgument{{Value: json.RawMessage(`true`)}}, ReturnByValue: true, AwaitPromise: true}, want: `{"functionDeclaration":"function(v){return v}","objectId":"object","arguments":[{"value":true}],"returnByValue":true,"awaitPromise":true}`},
-		{name: "frame owner", value: getFrameOwnerParams{FrameID: "frame"}, want: `{"frameId":"frame"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

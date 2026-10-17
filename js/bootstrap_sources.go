@@ -12,45 +12,42 @@ type BootstrapSource struct {
 	Source string
 }
 
-// inlineWindowEventsBootstrap is the window EventTarget plumbing
-// (addEventListener / removeEventListener / dispatchEvent) factored out
-// of installWindow so the snapshot tool can include it.
-const inlineWindowEventsBootstrap = `
-(() => {
-  const _winListeners = new Map();
-  window.addEventListener = function(type, fn) {
-    if (typeof fn !== 'function') return;
-    let s = _winListeners.get(type);
-    if (!s) { s = new Set(); _winListeners.set(type, s); }
-    s.add(fn);
-  };
-  window.removeEventListener = function(type, fn) {
-    const s = _winListeners.get(type);
-    if (s) s.delete(fn);
-  };
-  window.dispatchEvent = function(ev) {
-    if (!ev || !ev.type) return false;
-    const s = _winListeners.get(ev.type);
-    if (s) for (const fn of s) { try { fn(ev); } catch (e) {} }
-    return !ev.defaultPrevented;
-  };
-})();
-`
-
 // inlineGetComputedStyleBootstrap installs the JS-side wrapper for
 // getComputedStyle, factored out of installStyleManagerBridge. Backed
 // by the __cascade_style native callback (looked up lazily at call
 // time, so safe to bake into a snapshot).
 const inlineGetComputedStyleBootstrap = `
 (() => {
-  globalThis.getComputedStyle = function(el) {
-    if (!el || !el.__id) return {};
+  globalThis.getComputedStyle = function(el, pseudo = '') {
+    if (!el || !el.__id || el.nodeType !== 1) throw new TypeError('getComputedStyle requires an Element');
     const id = el.__id;
-    return new Proxy({}, {
-      get(_t, prop) {
+    if (pseudo !== null && String(pseudo) !== '') __cascade_style(id, '__unsupported_pseudo_style__');
+    const readOnly = () => { throw new DOMException('Computed style is read only', 'NoModificationAllowedError'); };
+    const target = {
+      getPropertyValue(property) {
+        if (!arguments.length) throw new TypeError('getPropertyValue requires a property');
+        if (typeof property === 'symbol') throw new TypeError('CSSOM requires a DOMString');
+        return __cascade_style(id, String(property));
+      },
+      getPropertyPriority(property) {
+        if (!arguments.length) throw new TypeError('getPropertyPriority requires a property');
+        if (typeof property === 'symbol') throw new TypeError('CSSOM requires a DOMString');
+        return '';
+      },
+      setProperty: readOnly,
+      removeProperty: readOnly,
+      get cssText() { return ''; },
+      set cssText(value) { readOnly(); },
+      get parentRule() { return null; },
+      [Symbol.toStringTag]: 'CSSStyleDeclaration',
+    };
+    return new Proxy(target, {
+      get(target, prop, receiver) {
+        if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
         if (typeof prop !== 'string') return undefined;
         return __cascade_style(id, prop);
       },
+      set: readOnly,
     });
   };
 })();
@@ -62,7 +59,7 @@ const inlineGetComputedStyleBootstrap = `
 // closures. These are safe to bake into a V8 startup snapshot because
 // any native callback they reference resolves lazily at call time.
 //
-// Tainted bootstraps -- see TaintedBootstrapSources -- chain dispatch
+// Tainted bootstraps -- see taintedBootstrapNames -- chain dispatch
 // across earlier bootstraps via closure capture (e.g. const _impPrev =
 // crypto.subtle.importKey). Capturing at snapshot time would freeze
 // undefined values, so those run per-Context at NewContext time.
@@ -78,8 +75,6 @@ func BootstrapSources() []BootstrapSource {
 		{"artemis-input-props", inputPropsBootstrap},
 		{"artemis-navigator-extras", navigatorExtrasBootstrap},
 		{"artemis-style-manager", inlineGetComputedStyleBootstrap},
-		{"artemis-websocket", websocketBootstrap},
-		{"artemis-window-events", inlineWindowEventsBootstrap},
 		{"artemis-parity-gaps", parityGapsBootstrap},
 		{"artemis-pool-reset", poolResetBootstrap},
 	}
@@ -90,10 +85,8 @@ func BootstrapSources() []BootstrapSource {
 // closures). flushBootstraps in NewContext runs these per-Context even
 // when a snapshot is loaded.
 var taintedBootstrapNames = map[string]bool{
-	"artemis-crypto-aes":        true,
-	"artemis-crypto-asym":       true,
-	"artemis-crypto-complete":   true,
-	"artemis-crypto-extra":      true,
-	"artemis-crypto-pkcs8":      true,
+	"artemis-fetch-response":    true,
+	"artemis-websocket":         true,
+	"artemis-timers":            true,
 	"artemis-extras-v2-onattrs": true,
 }

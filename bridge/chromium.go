@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/bridge/tabs"
 	"github.com/Christopher-Schulze/Artemis/network"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
+	"github.com/Christopher-Schulze/Artemis/security"
 )
 
 // TargetState describes the legal lifecycle of a CDP target.
@@ -41,6 +45,12 @@ const defaultChromiumMaxPages = 32
 // leaving the clone orphaned.
 const defaultGracefulCloseTimeout = 10 * time.Second
 
+// defaultContextAdmissionTimeout bounds Target.createBrowserContext, a
+// millisecond control command. Missing its answer means the browser UI thread
+// is wedged (observed on macOS: main thread blocked acquiring a RunningBoard
+// App Nap assertion), so admission fails closed instead of hanging callers.
+const defaultContextAdmissionTimeout = 15 * time.Second
+
 // BrowserVersion is the validated Browser.getVersion result.
 type BrowserVersion struct {
 	ProtocolVersion string `json:"protocolVersion"`
@@ -66,9 +76,16 @@ type targetParams struct {
 	TargetID string `json:"targetId"`
 }
 
+type browserTargetInfo struct {
+	TargetID         string `json:"targetId"`
+	Type             string `json:"type"`
+	BrowserContextID string `json:"browserContextId"`
+}
+
 type createTargetParams struct {
 	URL              string `json:"url"`
 	BrowserContextID string `json:"browserContextId,omitempty"`
+	NewWindow        bool   `json:"newWindow,omitempty"`
 }
 
 type attachTargetParams struct {
@@ -124,14 +141,38 @@ type targetScriptEvaluateParams struct {
 
 // TargetError reports target-specific lifecycle failure.
 type TargetError struct {
-	TargetID string
-	State    TargetState
-	Message  string
+	TargetID       string
+	State          TargetState
+	Message        string
+	Compensated    bool
+	OutcomeUnknown bool
+	Err            error
 }
 
 func (e *TargetError) Error() string {
-	return fmt.Sprintf("artemis target %s is %s: %s", e.TargetID, e.State, e.Message)
+	if e.OutcomeUnknown {
+		targetID := e.TargetID
+		if targetID == "" {
+			targetID = "unknown"
+		}
+		message := fmt.Sprintf("artemis target %s outcome is unknown: %s", targetID, e.Message)
+		if e.Err != nil {
+			return fmt.Sprintf("%s: %v", message, e.Err)
+		}
+		return message
+	}
+	targetID := e.TargetID
+	if targetID == "" {
+		targetID = "unknown"
+	}
+	message := fmt.Sprintf("artemis target %s is %s: %s", targetID, e.State, e.Message)
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", message, e.Err)
+	}
+	return message
 }
+
+func (e *TargetError) Unwrap() error { return e.Err }
 
 // ChromiumBrowser owns one CDP transport and optionally its local process.
 type ChromiumBrowser struct {
@@ -145,15 +186,22 @@ type ChromiumBrowser struct {
 	pages         map[string]*Page
 	sessionMap    map[string]*Page
 	maxPages      int
+	livePageLimit func() int
 	pageSlots     int
 	monitor       *CDPSubscription
+	monitorDone   chan struct{}
+	processDone   chan struct{}
 	policy        *network.Policy
 	policyProxy   *chromiumPolicyProxy
 	targetScripts TargetScriptConfig
 	closed        bool
+	stopped       bool
+	closeWarnings []string
 	terminal      error
 	closeOnce     sync.Once
 	closeErr      error
+	// admissionTimeout overrides defaultContextAdmissionTimeout when positive.
+	admissionTimeout time.Duration
 }
 
 // ConnectChromium validates an external browser endpoint without taking process ownership.
@@ -168,6 +216,7 @@ func ConnectChromiumWithPolicy(ctx context.Context, endpoint string, config netw
 	if err != nil {
 		return nil, fmt.Errorf("create browser network policy: %w", err)
 	}
+	policy.SetRequestFilter(security.NewAdBlocker())
 	return connectChromium(ctx, endpoint, nil, policy, nil)
 }
 
@@ -180,11 +229,22 @@ var cloneSweepOnce sync.Once
 // LaunchChromium launches and validates an owned Chromium process.
 func LaunchChromium(ctx context.Context, config browserprocess.LaunchConfig) (*ChromiumBrowser, error) {
 	cloneSweepOnce.Do(browserprocess.SweepOrphanCodeSignClones)
-	policy, err := network.NewPolicy(network.PolicyConfig{
+	policyConfig := network.PolicyConfig{
 		AllowedPorts: config.AllowedPorts, AllowPrivateNetworks: config.AllowPrivateNetworks,
-	}, nil, config.PolicyDecisionSink)
+	}
+	if config.NetworkPolicy != nil {
+		policyConfig = *config.NetworkPolicy
+	}
+	policy, err := network.NewPolicy(policyConfig, nil, config.PolicyDecisionSink)
 	if err != nil {
 		return nil, fmt.Errorf("create browser network policy: %w", err)
+	}
+	if !config.DisableAdBlock {
+		filter := config.AdBlock
+		if filter == nil {
+			filter = security.NewAdBlocker()
+		}
+		policy.SetRequestFilter(filter)
 	}
 	proxy, err := newChromiumPolicyProxy(ctx, policy)
 	if err != nil {
@@ -261,9 +321,17 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		_ = transport.Close()
 		return nil, fmt.Errorf("enable target discovery: %w", err)
 	}
-	go browser.monitorTargets(monitor)
+	browser.monitorDone = make(chan struct{})
+	go func() {
+		defer close(browser.monitorDone)
+		browser.monitorTargets(monitor)
+	}()
 	if processOwner != nil {
-		go browser.monitorProcess(processOwner)
+		browser.processDone = make(chan struct{})
+		go func() {
+			defer close(browser.processDone)
+			browser.monitorProcess(processOwner)
+		}()
 	}
 	return browser, nil
 }
@@ -296,13 +364,26 @@ func (b *ChromiumBrowser) ProfileDir() string {
 	return b.process.ProfileDir()
 }
 
-// ProcessWarnings returns owned-process security warnings. External CDP
-// attachments have no local process policy to report.
+// ProcessWarnings returns detached launch-policy and shutdown warning codes.
 func (b *ChromiumBrowser) ProcessWarnings() []string {
-	if b.process == nil {
-		return nil
+	var warnings []string
+	if b.process != nil {
+		warnings = b.process.Warnings()
 	}
-	return b.process.Warnings()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return append(warnings, b.closeWarnings...)
+}
+
+// Stopped reports verified cleanup of this runtime's owned resources.
+// An externally attached Chromium process remains outside that ownership.
+func (b *ChromiumBrowser) Stopped() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.stopped
 }
 
 // Transport exposes the typed CDP transport for advanced browser-scoped calls.
@@ -368,14 +449,35 @@ func (b *ChromiumBrowser) SetMaxPages(limit int) error {
 	return nil
 }
 
+// SetLivePageLimit installs an embedder authority consulted on every page
+// admission. A positive result tightens the static SetMaxPages bound, so a
+// pressure change refuses new pages at once while admitted pages keep
+// running; zero or negative leaves the static bound. Nil removes it.
+func (b *ChromiumBrowser) SetLivePageLimit(limit func() int) {
+	b.mu.Lock()
+	b.livePageLimit = limit
+	b.mu.Unlock()
+}
+
 func (b *ChromiumBrowser) reservePage() error {
+	b.mu.RLock()
+	live := b.livePageLimit
+	b.mu.RUnlock()
+	liveLimit := 0
+	if live != nil {
+		liveLimit = live()
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed || b.terminal != nil {
 		return &CDPError{Code: CDPErrorClosed, Op: "reserve page", Err: fmt.Errorf("browser is closed")}
 	}
-	if b.pageSlots >= b.maxPages {
-		return &CDPError{Code: CDPErrorOverloaded, Op: "reserve page", Err: fmt.Errorf("page limit %d reached", b.maxPages)}
+	limit := b.maxPages
+	if liveLimit > 0 && liveLimit < limit {
+		limit = liveLimit
+	}
+	if b.pageSlots >= limit {
+		return &CDPError{Code: CDPErrorOverloaded, Op: "reserve page", Err: fmt.Errorf("page limit %d reached", limit)}
 	}
 	b.pageSlots++
 	return nil
@@ -436,7 +538,7 @@ func (b *ChromiumBrowser) Err() error {
 func (b *ChromiumBrowser) monitorProcess(processOwner *browserprocess.Browser) {
 	<-processOwner.Done()
 	b.mu.Lock()
-	if !b.closed {
+	if !b.closed && b.terminal == nil {
 		b.terminal = processOwner.Err()
 		if b.terminal == nil {
 			b.terminal = &browserprocess.Error{Code: browserprocess.ErrorBrowserCrash, Op: "supervise running browser", Err: fmt.Errorf("process exited unexpectedly")}
@@ -452,6 +554,26 @@ func (b *ChromiumBrowser) monitorProcess(processOwner *browserprocess.Browser) {
 	}
 }
 
+// failUnresponsive records a wedged browser as terminal, fails every pending
+// and future call through the closed transport and terminates an owned process.
+// Recovery stays an explicit relaunch (ReconnectExplicitRelaunch).
+func (b *ChromiumBrowser) failUnresponsive(op string, cause error) error {
+	b.mu.Lock()
+	if b.terminal == nil && !b.closed {
+		b.terminal = &CDPError{Code: CDPErrorUnresponsive, Op: op, Err: cause}
+	}
+	terminal := b.terminal
+	b.mu.Unlock()
+	if terminal == nil {
+		terminal = cause
+	}
+	result := errors.Join(terminal, b.transport.Close())
+	if b.owned && b.process != nil {
+		result = errors.Join(result, b.process.Close())
+	}
+	return result
+}
+
 // NewContext creates one isolated CDP browser context.
 func (b *ChromiumBrowser) NewContext(ctx context.Context) (*BrowserContext, error) {
 	if ctx == nil {
@@ -463,7 +585,17 @@ func (b *ChromiumBrowser) NewContext(ctx context.Context) (*BrowserContext, erro
 	var result struct {
 		ID string `json:"browserContextId"`
 	}
-	if err := b.transport.Call(ctx, "Target.createBrowserContext", createBrowserContextParams{}, &result); err != nil {
+	timeout := b.admissionTimeout
+	if timeout <= 0 {
+		timeout = defaultContextAdmissionTimeout
+	}
+	admissionCtx, cancel := context.WithTimeout(ctx, timeout)
+	err := b.transport.Call(admissionCtx, "Target.createBrowserContext", createBrowserContextParams{}, &result)
+	cancel()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			err = b.failUnresponsive("create browser context", err)
+		}
 		return nil, fmt.Errorf("create browser context: %w", err)
 	}
 	if result.ID == "" {
@@ -507,6 +639,93 @@ func (b *ChromiumBrowser) callCleanup(method string, params any) error {
 	return b.transport.Call(ctx, method, params, nil)
 }
 
+func (b *ChromiumBrowser) closeTarget(ctx context.Context, targetID string) error {
+	if ctx == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "close target", Err: fmt.Errorf("context required")}
+	}
+	if targetID == "" {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "close target", Err: fmt.Errorf("target ID required")}
+	}
+	if b == nil || b.transport == nil {
+		return &CDPError{Code: CDPErrorClosed, Op: "close target", Err: fmt.Errorf("browser transport unavailable")}
+	}
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := b.transport.Call(ctx, "Target.closeTarget", targetParams{TargetID: targetID}, &result); err != nil {
+		return fmt.Errorf("close target %s: %w", targetID, err)
+	}
+	if !result.Success {
+		return &CDPError{Code: CDPErrorProtocol, Op: "close target", Err: fmt.Errorf("browser returned success=false for target %s", targetID)}
+	}
+	return nil
+}
+
+func (b *ChromiumBrowser) closeTargetCleanup(targetID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	closeErr := b.closeTarget(ctx, targetID)
+	cancel()
+	if closeErr == nil {
+		return nil
+	}
+	exists, reconcileErr := b.targetExistsCleanup(targetID)
+	if reconcileErr != nil {
+		return errors.Join(closeErr, fmt.Errorf("reconcile target close: %w", reconcileErr))
+	}
+	if !exists {
+		return nil
+	}
+	return closeErr
+}
+
+func (b *ChromiumBrowser) listTargetInfos(ctx context.Context) ([]browserTargetInfo, error) {
+	if ctx == nil {
+		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "list targets", Err: fmt.Errorf("context required")}
+	}
+	if b == nil || b.transport == nil {
+		return nil, &CDPError{Code: CDPErrorClosed, Op: "list targets", Err: fmt.Errorf("browser transport unavailable")}
+	}
+	var result struct {
+		TargetInfos *[]browserTargetInfo `json:"targetInfos"`
+	}
+	if err := b.transport.Call(ctx, "Target.getTargets", nil, &result); err != nil {
+		return nil, fmt.Errorf("list browser targets: %w", err)
+	}
+	if result.TargetInfos == nil {
+		return nil, &CDPError{Code: CDPErrorProtocol, Op: "list targets", Err: fmt.Errorf("targetInfos missing")}
+	}
+	targets := append([]browserTargetInfo(nil), (*result.TargetInfos)...)
+	sort.Slice(targets, func(i, j int) bool { return targets[i].TargetID < targets[j].TargetID })
+	for index, target := range targets {
+		if target.TargetID == "" {
+			return nil, &CDPError{Code: CDPErrorProtocol, Op: "list targets", Err: fmt.Errorf("targetInfos contains empty targetId")}
+		}
+		if index > 0 && targets[index-1].TargetID == target.TargetID {
+			return nil, &CDPError{Code: CDPErrorProtocol, Op: "list targets", Err: fmt.Errorf("targetInfos repeats targetId %s", target.TargetID)}
+		}
+	}
+	return targets, nil
+}
+
+func (b *ChromiumBrowser) targetExists(ctx context.Context, targetID string) (bool, error) {
+	targets, err := b.listTargetInfos(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, target := range targets {
+		if target.TargetID == targetID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (b *ChromiumBrowser) targetExistsCleanup(targetID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	defer cancel()
+	return b.targetExists(ctx, targetID)
+}
+
 func (b *ChromiumBrowser) ensureOpen() error {
 	if !b.Healthy() {
 		return &CDPError{Code: CDPErrorClosed, Op: "browser", Err: fmt.Errorf("browser is closed")}
@@ -515,17 +734,51 @@ func (b *ChromiumBrowser) ensureOpen() error {
 }
 
 func (b *ChromiumBrowser) monitorTargets(subscription *CDPSubscription) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jobs := make(chan popupCloseJob, 32)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		for job := range jobs {
+			if ctx.Err() != nil {
+				return
+			}
+			b.closePopup(ctx, job)
+			b.closeFailedPopupContexts(ctx)
+		}
+	}()
+	defer func() {
+		cancel()
+		close(jobs)
+		<-workerDone
+		cleanupCtx, finish := context.WithTimeout(context.Background(), 5*time.Second)
+		defer finish()
+		b.closeFailedPopupContexts(cleanupCtx)
+	}()
 	for {
 		select {
 		case event, ok := <-subscription.Events:
 			if !ok {
+				cancel()
+				var cause error
+				select {
+				case cause = <-subscription.Errors:
+				default:
+				}
+				b.failTargetMonitoring(cause)
 				return
+			}
+			if job, popup := b.popupCloseForEvent(event); popup {
+				select {
+				case jobs <- job:
+				default:
+					job.owner.revokePopupAdmission(fmt.Errorf("popup %s close mailbox full", job.targetID))
+				}
 			}
 			b.applyTargetEvent(event)
-		case _, ok := <-subscription.Errors:
-			if !ok {
-				return
-			}
+		case err := <-subscription.Errors:
+			cancel()
+			b.failTargetMonitoring(err)
 			return
 		}
 	}
@@ -549,12 +802,12 @@ func (b *ChromiumBrowser) applyTargetEvent(event CDPEvent) {
 	if sessionID == "" {
 		sessionID = event.SessionID
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
 	page := b.pages[payload.TargetID]
 	if page == nil && sessionID != "" {
 		page = b.sessionMap[sessionID]
 	}
+	b.mu.RUnlock()
 	if page == nil {
 		return
 	}
@@ -565,6 +818,10 @@ func (b *ChromiumBrowser) applyTargetEvent(event CDPEvent) {
 		page.setState(TargetStateDetached, "target session detached")
 	case "Target.targetDestroyed":
 		page.setState(TargetStateClosed, "target destroyed")
+	}
+	destroyed := event.Method == "Target.targetDestroyed"
+	if destroyed {
+		_ = page.close(false)
 	}
 }
 
@@ -588,53 +845,78 @@ func (b *ChromiumBrowser) close() error {
 		contexts = append(contexts, browserContext)
 	}
 	b.mu.Unlock()
-	var result error
+	var contextErr error
 	for _, browserContext := range contexts {
-		result = errors.Join(result, browserContext.close(true))
+		contextErr = errors.Join(contextErr, browserContext.close(true))
 	}
 	if b.monitor != nil {
 		b.monitor.Close()
 	}
+	if b.monitorDone != nil {
+		<-b.monitorDone
+	}
+	var requestErr error
+	var gracefulErr error
+	var warning string
 	if b.owned {
 		closeCtx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
 		err := b.transport.Call(closeCtx, "Browser.close", nil, nil)
+		gracefulErr = err
 		cancel()
-		if err != nil && !IsCDPError(err, CDPErrorClosed) {
-			result = errors.Join(result, fmt.Errorf("request browser close: %w", err))
+		if errors.Is(err, context.DeadlineExceeded) {
+			warning = "chromium_graceful_close_timed_out"
+		} else if err != nil && !IsCDPError(err, CDPErrorClosed) {
+			requestErr = fmt.Errorf("request browser close: %w", err)
 		}
 		if b.process != nil && err == nil {
 			select {
 			case <-b.process.Exited():
 			case <-time.After(defaultGracefulCloseTimeout):
-				// Chrome ignored Browser.close (first-run dialogs, hung
-				// renderers, sandboxed runners): force-kill and confirm
-				// exit instead of leaving a zombie browser behind.
-				killErr := b.process.Close()
-				select {
-				case <-b.process.Exited():
-				case <-time.After(defaultGracefulCloseTimeout):
-					result = errors.Join(result, fmt.Errorf("browser survived graceful close and force kill: %w", killErr))
-				}
+				warning = "chromium_graceful_exit_timed_out"
 			}
 		}
 	}
-	result = errors.Join(result, b.transport.Close())
+	cleanupErr := b.transport.Close()
 	if b.process != nil {
-		result = errors.Join(result, b.process.Close())
+		processErr := b.process.Close()
+		cleanupErr = errors.Join(cleanupErr, processErr)
+		if processErr == nil && b.processDone != nil {
+			<-b.processDone
+		}
 	}
 	if b.policyProxy != nil {
-		result = errors.Join(result, b.policyProxy.Close())
+		cleanupErr = errors.Join(cleanupErr, b.policyProxy.Close())
 	}
-	return result
+	stopped := cleanupErr == nil && (b.owned || contextErr == nil)
+	if !stopped && errors.Is(gracefulErr, context.DeadlineExceeded) {
+		requestErr = errors.Join(requestErr, fmt.Errorf("request browser close: %w", gracefulErr))
+	}
+	b.mu.Lock()
+	b.stopped = stopped
+	if warning != "" {
+		b.closeWarnings = append(b.closeWarnings, warning)
+	}
+	b.mu.Unlock()
+	if warning != "" {
+		slog.Warn("Chromium graceful shutdown required owned cleanup", slog.String("reason", warning), slog.Bool("stopped", stopped))
+	}
+	return errors.Join(contextErr, requestErr, cleanupErr)
 }
 
 // BrowserContext owns pages inside one isolated CDP browser context.
 type BrowserContext struct {
-	mu      sync.Mutex
-	id      string
-	browser *ChromiumBrowser
-	pages   map[string]*Page
-	closed  bool
+	mu           sync.Mutex
+	closeMu      sync.Mutex
+	id           string
+	browser      *ChromiumBrowser
+	pages        map[string]*Page
+	closed       bool
+	disposed     bool
+	executor     *tabs.TabExecutor
+	popups       *tabs.PopupBlocker
+	popupErr     error
+	tabProcesses TabProcessConfig
+	downloadSlot chan struct{}
 }
 
 // ID returns the CDP browserContextId.
@@ -689,46 +971,107 @@ func (c *BrowserContext) newPage(ctx context.Context, initialURL string, scripts
 	}
 	sessionID, err := c.attachTarget(ctx, targetID)
 	if err != nil {
-		_ = c.browser.callCleanup("Target.closeTarget", targetParams{TargetID: targetID})
-		return nil, err
+		cleanupErr := c.browser.closeTargetCleanup(targetID)
+		return nil, newTargetCreationError(targetID, TargetStateDetached, "attach failed", err, cleanupErr)
 	}
 	page, err := c.registerPage(targetID, sessionID, scripts)
 	if err != nil {
-		_ = c.browser.callCleanup("Target.closeTarget", targetParams{TargetID: targetID})
-		return nil, err
+		cleanupErr := c.browser.closeTargetCleanup(targetID)
+		return nil, newTargetCreationError(targetID, TargetStateDetached, "page registration failed", err, cleanupErr)
+	}
+	// The registered page owns the slot, including every subsequent failure.
+	keepSlot = true
+	exists, err := c.browser.targetExists(ctx, targetID)
+	if err != nil {
+		cleanupErr := page.close(true)
+		return nil, newTargetCreationError(targetID, page.State(), "target liveness could not be verified after registration", err, cleanupErr)
+	}
+	if !exists {
+		cleanupErr := page.close(false)
+		return nil, newTargetCreationError(targetID, TargetStateClosed, "target disappeared before page initialization", fmt.Errorf("target is absent from Target.getTargets"), cleanupErr)
+	}
+	if err := page.registerSupervisor(ctx); err != nil {
+		cleanupErr := page.close(true)
+		return nil, newTargetCreationError(targetID, page.State(), "tab supervision registration failed", err, cleanupErr)
 	}
 	if err := page.installPageScript(ctx); err != nil {
-		_ = page.close(true)
-		return nil, err
+		cleanupErr := page.close(true)
+		return nil, newTargetCreationError(targetID, page.State(), "page script setup failed", err, cleanupErr)
 	}
 	if err := page.applyEmulationOverrides(ctx); err != nil {
-		_ = page.close(true)
-		return nil, err
+		cleanupErr := page.close(true)
+		return nil, newTargetCreationError(targetID, page.State(), "page emulation setup failed", err, cleanupErr)
 	}
 	if err := page.enableFrameRouting(ctx); err != nil {
-		_ = page.close(true)
-		return nil, err
+		cleanupErr := page.close(true)
+		return nil, newTargetCreationError(targetID, page.State(), "page routing setup failed", err, cleanupErr)
 	}
 	if targetURL != "about:blank" {
 		if _, _, err := page.Navigate(ctx, targetURL); err != nil {
-			_ = page.close(true)
-			return nil, err
+			cleanupErr := page.close(true)
+			return nil, newTargetCreationError(targetID, page.State(), "initial navigation failed", err, cleanupErr)
 		}
 	}
-	keepSlot = true
+	if state := page.State(); state != TargetStateAttached {
+		cleanupErr := page.close(state != TargetStateClosed)
+		cause := &TargetError{TargetID: targetID, State: state, Message: "target stopped during page initialization"}
+		return nil, newTargetCreationError(targetID, state, "target stopped during page initialization", cause, cleanupErr)
+	}
 	return page, nil
 }
 
+func newTargetCreationError(targetID string, state TargetState, message string, cause, cleanupErr error) *TargetError {
+	compensated := cleanupErr == nil
+	if compensated {
+		state = TargetStateClosed
+	} else {
+		cause = errors.Join(cause, fmt.Errorf("target cleanup failed: %w", cleanupErr))
+	}
+	return &TargetError{TargetID: targetID, State: state, Message: message, Compensated: compensated, Err: cause}
+}
+
+func targetCreateOutcomeUnknown(err error) bool {
+	var cdpErr *CDPError
+	if !errors.As(err, &cdpErr) {
+		return true
+	}
+	if cdpErr.Code == CDPErrorInvalidConfig || cdpErr.Code == CDPErrorOverloaded || cdpErr.Op == "reserve" || cdpErr.Op == "marshal command" || cdpErr.Op == "remote" {
+		return false
+	}
+	return true
+}
+
 func (c *BrowserContext) createTarget(ctx context.Context, initialURL string) (string, error) {
+	if ctx == nil {
+		return "", &CDPError{Code: CDPErrorInvalidConfig, Op: "create target", Err: fmt.Errorf("context required")}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var target struct {
 		ID string `json:"targetId"`
 	}
-	params := createTargetParams{URL: initialURL, BrowserContextID: c.id}
-	if err := c.browser.transport.Call(ctx, "Target.createTarget", params, &target); err != nil {
-		return "", fmt.Errorf("create target: %w", c.browser.transportErr(err))
+	// Each page gets its own window: a page that is a background tab of a
+	// shared window produces no frames, so input dispatched to it would
+	// wait for an acknowledgement that never comes.
+	params := createTargetParams{URL: initialURL, BrowserContextID: c.id, NewWindow: true}
+	// Creation is an irreversible browser effect. Once dispatched, wait for its
+	// bounded receipt so cancellation cannot discard the only target identity.
+	commandCtx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	defer cancel()
+	if err := c.browser.transport.Call(commandCtx, "Target.createTarget", params, &target); err != nil {
+		transportErr := c.browser.transportErr(err)
+		if targetCreateOutcomeUnknown(err) {
+			return "", &TargetError{Message: "create target response was lost; browser effect may have occurred without a target ID", OutcomeUnknown: true, Err: transportErr}
+		}
+		return "", fmt.Errorf("create target: %w", transportErr)
 	}
 	if target.ID == "" {
-		return "", &CDPError{Code: CDPErrorProtocol, Op: "create target", Err: fmt.Errorf("empty targetId")}
+		return "", &TargetError{Message: "create target receipt omitted the target ID; browser effect may have occurred", OutcomeUnknown: true, Err: &CDPError{Code: CDPErrorProtocol, Op: "create target", Err: fmt.Errorf("empty targetId")}}
+	}
+	if err := ctx.Err(); err != nil {
+		cleanupErr := c.browser.closeTargetCleanup(target.ID)
+		return "", newTargetCreationError(target.ID, TargetStateAttached, "creation canceled after target creation", err, cleanupErr)
 	}
 	return target.ID, nil
 }
@@ -747,23 +1090,44 @@ func (c *BrowserContext) attachTarget(ctx context.Context, targetID string) (str
 }
 
 func (c *BrowserContext) registerPage(targetID, sessionID string, scripts TargetScriptConfig) (*Page, error) {
+	lifetime, cancel := context.WithCancel(context.Background())
 	page := &Page{
-		targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached,
+		targetID: targetID, sessionID: sessionID, owner: c, state: TargetStateAttached, createdAt: time.Now(),
 		frameSessions: make(map[string]string), childSessions: make(map[string]string), targetScripts: scripts,
+		lifetime: lifetime, cancelLifetime: cancel,
+		dialogs:     tabs.NewDialogHandler(),
+		cleanupDone: make(chan struct{}),
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
+		cancel()
 		return nil, &CDPError{Code: CDPErrorClosed, Op: "create page", Err: fmt.Errorf("browser context closed concurrently")}
 	}
+	config := c.tabProcesses
+	if config.Kind == "" {
+		config.Kind = tabs.ProcessSpecStream
+	}
+	if config.Owner == "" {
+		config.Owner = tabs.OwnerRefTurn
+	}
+	if config.PriorityLane == "" {
+		config.PriorityLane = "P3"
+	}
+	page.processInfo = TabProcessInfo{ID: "browser_tab:" + c.id + ":" + targetID, TargetID: targetID, ContextID: c.id,
+		Spec: tabs.DefaultProcessSpec(config.Kind, config.PriorityLane), Owner: config.Owner}
+	page.processSupervisor = config.Supervisor
+	page.lifecycle = tabs.NewTabLifecycle(page.processInfo.Spec, config.Owner, cancel)
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	if c.browser.closed || c.browser.terminal != nil {
+		cancel()
 		return nil, &CDPError{Code: CDPErrorClosed, Op: "create page", Err: fmt.Errorf("browser closed concurrently")}
 	}
 	c.pages[targetID] = page
 	c.browser.pages[targetID] = page
 	c.browser.sessionMap[sessionID] = page
+	context.AfterFunc(lifetime, page.retireAfterDown)
 	return page, nil
 }
 
@@ -773,24 +1137,75 @@ func (c *BrowserContext) Close() error {
 }
 
 func (c *BrowserContext) close(remote bool) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	defer cancel()
+	return c.closeWithContext(ctx, remote)
+}
+
+func (c *BrowserContext) closeWithContext(ctx context.Context, remote bool) error {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for !c.closeMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
+	defer c.closeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.closeContext(ctx, remote)
+}
+
+func (c *BrowserContext) closeContext(ctx context.Context, remote bool) error {
+	c.mu.Lock()
 	c.closed = true
 	pages := make([]*Page, 0, len(c.pages))
 	for _, page := range c.pages {
 		pages = append(pages, page)
 	}
+	disposed := c.disposed
 	c.mu.Unlock()
+	sort.Slice(pages, func(i, j int) bool { return pages[i].TargetID() < pages[j].TargetID() })
+	for _, page := range pages {
+		if page.cancelLifetime != nil {
+			page.cancelLifetime()
+		}
+	}
 	var result error
-	if remote && c.id != "" {
-		err := c.browser.callCleanup("Target.disposeBrowserContext", browserContextParams{BrowserContextID: c.id})
-		result = errors.Join(result, err)
+	if remote && c.id != "" && !disposed {
+		if err := c.browser.transport.Call(ctx, "Target.disposeBrowserContext", browserContextParams{BrowserContextID: c.id}, nil); err != nil {
+			exists, reconcileErr := c.browser.browserContextExists(ctx, c.id)
+			if reconcileErr != nil {
+				result = errors.Join(fmt.Errorf("dispose browser context %s: %w", c.id, err), fmt.Errorf("reconcile browser context disposal: %w", reconcileErr))
+			} else if exists {
+				result = fmt.Errorf("dispose browser context %s: %w", c.id, err)
+			}
+			if result != nil {
+				for _, page := range pages {
+					page.setState(TargetStateDetached, "browser context disposal unconfirmed")
+				}
+				return result
+			}
+		}
+		c.mu.Lock()
+		c.disposed = true
+		c.mu.Unlock()
 	}
 	for _, page := range pages {
-		result = errors.Join(result, page.close(false))
+		if remote && c.id == "" {
+			result = errors.Join(result, page.closeWithContext(ctx, true))
+		} else {
+			result = errors.Join(result, page.closeWithContext(ctx, false))
+		}
+	}
+	c.mu.Lock()
+	remaining := len(c.pages)
+	c.mu.Unlock()
+	if remaining > 0 {
+		return errors.Join(result, fmt.Errorf("browser context close retained %d page(s)", remaining))
 	}
 	c.browser.mu.Lock()
 	delete(c.browser.contexts, c.id)
@@ -798,26 +1213,65 @@ func (c *BrowserContext) close(remote bool) error {
 	return result
 }
 
+func (b *ChromiumBrowser) browserContextExists(ctx context.Context, contextID string) (bool, error) {
+	var result struct {
+		BrowserContextIDs *[]string `json:"browserContextIds"`
+	}
+	if err := b.transport.Call(ctx, "Target.getBrowserContexts", nil, &result); err != nil {
+		return false, fmt.Errorf("list browser contexts: %w", err)
+	}
+	if result.BrowserContextIDs == nil {
+		return false, &CDPError{Code: CDPErrorProtocol, Op: "list browser contexts", Err: fmt.Errorf("browserContextIds missing")}
+	}
+	for _, id := range *result.BrowserContextIDs {
+		if id == contextID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Page owns one target and flattened CDP session.
 type Page struct {
-	mu              sync.RWMutex
-	targetID        string
-	sessionID       string
-	owner           *BrowserContext
-	state           TargetState
-	stateErr        string
-	targetScriptErr string
-	closeOnce       sync.Once
-	closeErr        error
-	removed         bool
-	frameMu         sync.RWMutex
-	frameSessions   map[string]string
-	childSessions   map[string]string
-	frameSub        *CDPSubscription
-	fetchMu         sync.RWMutex
-	fetchHandler    FetchRequestHandler
-	targetScripts   TargetScriptConfig
-	navigated       bool
+	mu                sync.RWMutex
+	lifecycleMu       sync.Mutex
+	targetID          string
+	sessionID         string
+	owner             *BrowserContext
+	state             TargetState
+	stateErr          string
+	targetScriptErr   string
+	removed           bool
+	createdAt         time.Time
+	lastActive        time.Time
+	frameMu           sync.RWMutex
+	frameSessions     map[string]string
+	childSessions     map[string]string
+	frameSub          *CDPSubscription
+	frameCancel       context.CancelFunc
+	frameDone         chan struct{}
+	fetchMu           sync.RWMutex
+	fetchHandler      FetchRequestHandler
+	adSite            atomic.Pointer[string]
+	adBypass          atomic.Bool
+	adBlocked         atomic.Int64
+	targetScripts     TargetScriptConfig
+	navigated         bool
+	lifetime          context.Context
+	cancelLifetime    context.CancelFunc
+	dialogs           *tabs.DialogHandler
+	lifecycle         *tabs.TabLifecycle
+	transitionMu      sync.Mutex
+	cleanupMu         sync.Mutex
+	cleanupOnce       sync.Once
+	cleanups          []func() error
+	resourcesRetired  bool
+	cleanupDone       chan struct{}
+	cleanupErr        error
+	retirementErr     error
+	processInfo       TabProcessInfo
+	processSupervisor TabProcessSupervisor
+	supervised        bool
 }
 
 func (p *Page) installPageScript(ctx context.Context) error {
@@ -899,6 +1353,19 @@ func (p *Page) TargetID() string {
 	return p.targetID
 }
 
+// CurrentURL returns the URL the browser reports for this target now.
+func (p *Page) CurrentURL(ctx context.Context) (string, error) {
+	var result struct {
+		TargetInfo struct {
+			URL string `json:"url"`
+		} `json:"targetInfo"`
+	}
+	if err := p.CallBrowser(ctx, "Target.getTargetInfo", targetParams{TargetID: p.targetID}, &result); err != nil {
+		return "", fmt.Errorf("target %s url: %w", p.targetID, err)
+	}
+	return result.TargetInfo.URL, nil
+}
+
 // SessionID returns the immutable flattened CDP session ID.
 func (p *Page) SessionID() string {
 	return p.sessionID
@@ -919,11 +1386,54 @@ func (p *Page) State() TargetState {
 	return p.state
 }
 
+// LifecycleTimes reports only timestamps observed from page creation and
+// successful explicit activation. Inspection alone does not count as activity.
+func (p *Page) LifecycleTimes() (time.Time, time.Time) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.createdAt, p.lastActive
+}
+
+// RecordActivity advances lastActive after a completed browser operation.
+func (p *Page) RecordActivity(at time.Time) bool {
+	if p == nil || at.IsZero() {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.removed || p.state == TargetStateClosed {
+		return false
+	}
+	if at.After(p.lastActive) {
+		p.lastActive = at
+	}
+	return true
+}
+
 func (p *Page) setState(state TargetState, message string) {
 	p.mu.Lock()
+	if p.removed || p.state == TargetStateClosed {
+		p.mu.Unlock()
+		return
+	}
 	p.state = state
 	p.stateErr = message
 	p.mu.Unlock()
+	if state != TargetStateAttached {
+		next := tabs.TabLifecycleLost
+		if state == TargetStateClosed {
+			next = tabs.TabLifecycleClosed
+		}
+		if err := p.transitionLifecycle(next); err != nil {
+			p.mu.Lock()
+			p.retirementErr = errors.Join(p.retirementErr, err)
+			p.mu.Unlock()
+		}
+		if p.cancelLifetime != nil {
+			p.cancelLifetime()
+		}
+		p.cancelFrameRouting()
+	}
 }
 
 // TargetScriptStatus reports the immutable pre-script version and the first
@@ -992,7 +1502,7 @@ func (p *Page) NewSibling(ctx context.Context, initialURL string) (*Page, error)
 	return p.owner.NewPage(ctx, initialURL)
 }
 
-// ContextPages returns a target-ID ordered snapshot of live sibling pages.
+// ContextPages returns a target-ID ordered snapshot of locally tracked sibling pages.
 func (p *Page) ContextPages() []*Page {
 	if p.owner == nil {
 		return nil
@@ -1007,9 +1517,106 @@ func (p *Page) ContextPages() []*Page {
 	return pages
 }
 
+// ContextPagesContext reconciles locally tracked pages against one authoritative
+// browser target snapshot before returning the surviving pages.
+func (p *Page) ContextPagesContext(ctx context.Context) ([]*Page, error) {
+	if ctx == nil {
+		return nil, &CDPError{Code: CDPErrorInvalidConfig, Op: "list context pages", Err: fmt.Errorf("context required")}
+	}
+	if p == nil || p.owner == nil || p.owner.browser == nil {
+		return nil, &TargetError{Message: "page or browser-context owner unavailable"}
+	}
+	owner := p.owner
+	owner.mu.Lock()
+	pages := make([]*Page, 0, len(owner.pages))
+	for _, page := range owner.pages {
+		pages = append(pages, page)
+	}
+	owner.mu.Unlock()
+
+	targets, err := owner.browser.listTargetInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]browserTargetInfo, len(targets))
+	for _, target := range targets {
+		byID[target.TargetID] = target
+	}
+	live := make([]*Page, 0, len(pages))
+	for _, page := range pages {
+		if page.State() == TargetStateClosed {
+			continue
+		}
+		target, exists := byID[page.TargetID()]
+		if !exists {
+			if err := page.close(false); err != nil {
+				return nil, fmt.Errorf("retire absent target %s: %w", page.TargetID(), err)
+			}
+			continue
+		}
+		if target.Type != "page" || target.BrowserContextID != owner.id {
+			return nil, &TargetError{TargetID: page.TargetID(), State: page.State(), Message: "target listing does not match its owning browser context"}
+		}
+		live = append(live, page)
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].TargetID() < live[j].TargetID() })
+	return live, nil
+}
+
 // Activate brings this page target to the foreground.
 func (p *Page) Activate(ctx context.Context) error {
-	return p.CallBrowser(ctx, "Target.activateTarget", targetParams{TargetID: p.targetID}, &struct{}{})
+	if ctx == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "activate target", Err: fmt.Errorf("context required")}
+	}
+	if p == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "activate target", Err: fmt.Errorf("page required")}
+	}
+	if err := p.lockLifecycle(ctx); err != nil {
+		return fmt.Errorf("wait for page lifecycle: %w", err)
+	}
+	defer p.lifecycleMu.Unlock()
+	p.mu.RLock()
+	if p.removed || p.state == TargetStateClosed {
+		state := p.state
+		p.mu.RUnlock()
+		return &TargetError{TargetID: p.targetID, State: state, Message: "target is closed"}
+	}
+	p.mu.RUnlock()
+	if err := p.CallBrowser(ctx, "Target.activateTarget", targetParams{TargetID: p.targetID}, &struct{}{}); err != nil {
+		return err
+	}
+	p.RecordActivity(time.Now())
+	return nil
+}
+
+func (p *Page) lockLifecycle(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.lifecycleMu.TryLock() {
+		if err := ctx.Err(); err != nil {
+			p.lifecycleMu.Unlock()
+			return err
+		}
+		return nil
+	}
+	timer := time.NewTimer(time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if p.lifecycleMu.TryLock() {
+				if err := ctx.Err(); err != nil {
+					p.lifecycleMu.Unlock()
+					return err
+				}
+				return nil
+			}
+			timer.Reset(time.Millisecond)
+		}
+	}
 }
 
 func (p *Page) enableFrameRouting(ctx context.Context) error {
@@ -1017,40 +1624,53 @@ func (p *Page) enableFrameRouting(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("subscribe frame targets: %w", err)
 	}
-	p.frameMu.Lock()
-	p.frameSub = sub
-	p.frameMu.Unlock()
-	if err := p.enableSessionPolicy(ctx, p.sessionID); err != nil {
+	if err := p.startFrameMonitor(sub); err != nil {
 		sub.Close()
+		return err
+	}
+	if err := p.Call(ctx, "Page.enable", nil, nil); err != nil {
+		p.stopFrameRouting()
+		return fmt.Errorf("enable page lifecycle and dialog events: %w", err)
+	}
+	if err := p.enableSessionPolicy(ctx, p.sessionID); err != nil {
+		p.stopFrameRouting()
 		return fmt.Errorf("enable page network policy: %w", err)
 	}
 	params := map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}
 	if err := p.Call(ctx, "Target.setAutoAttach", params, &struct{}{}); err != nil {
-		sub.Close()
+		p.stopFrameRouting()
 		return fmt.Errorf("enable iframe auto-attach: %w", err)
 	}
-	go p.monitorFrameTargets(sub)
 	return nil
 }
 
-func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
+func (p *Page) monitorFrameTargets(ctx context.Context, sub *CDPSubscription) {
+	ctx, cancel := context.WithCancel(ctx)
 	jobs := make(chan fetchRequestJob, policyRequestQueue)
 	var workers sync.WaitGroup
 	for range policyRequestWorkers {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			p.runPolicyRequestWorker(jobs)
+			p.runPolicyRequestWorker(ctx, jobs)
 		}()
 	}
 	defer func() {
+		cancel()
+		sub.Close()
 		close(jobs)
 		workers.Wait()
 	}()
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case event, ok := <-sub.Events:
-			if !ok {
+			if !ok || ctx.Err() != nil {
+				return
+			}
+			if err := p.captureDialogEvent(event); err != nil {
+				p.setState(TargetStateDetached, err.Error())
 				return
 			}
 			if !p.handleFetchEvent(event, jobs) {
@@ -1082,8 +1702,9 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 					p.frameSessions[payload.TargetInfo.TargetID] = payload.SessionID
 				}
 				p.frameMu.Unlock()
-				p.initializeAttachedTarget(payload.SessionID, payload.TargetInfo.Type)
+				p.initializeAttachedTarget(ctx, payload.SessionID, payload.TargetInfo.Type)
 			case "Target.detachedFromTarget":
+				p.dialogs.ClearSession(p.targetID, payload.SessionID)
 				p.frameMu.Lock()
 				delete(p.childSessions, payload.SessionID)
 				for frameID, sessionID := range p.frameSessions {
@@ -1103,11 +1724,11 @@ func (p *Page) monitorFrameTargets(sub *CDPSubscription) {
 	}
 }
 
-func (p *Page) initializeAttachedTarget(sessionID, targetType string) {
+func (p *Page) initializeAttachedTarget(ctx context.Context, sessionID, targetType string) {
 	if sessionID == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), policyRequestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, policyRequestTimeout)
 	defer cancel()
 	workerTarget := strings.Contains(targetType, "worker")
 	if !workerTarget {
@@ -1159,18 +1780,16 @@ func (p *Page) FrameSessions() map[string]string {
 	return out
 }
 
-// CallFrame invokes method through an OOPIF session when frameID is attached.
+// CallFrame invokes method through the frame's owning renderer session.
 func (p *Page) CallFrame(ctx context.Context, frameID, method string, params, result any) error {
 	if frameID == "" {
 		return p.Call(ctx, method, params, result)
 	}
-	p.frameMu.RLock()
-	sessionID := p.frameSessions[frameID]
-	p.frameMu.RUnlock()
-	if sessionID == "" {
-		return p.Call(ctx, method, params, result)
-	}
 	if err := p.ensureAttached(); err != nil {
+		return err
+	}
+	sessionID, err := p.frameSession(ctx, frameID)
+	if err != nil {
 		return err
 	}
 	return p.owner.browser.transport.CallSession(ctx, sessionID, method, params, result)
@@ -1210,38 +1829,97 @@ func (p *Page) Navigate(ctx context.Context, targetURL string) (frameID, loaderI
 
 // Close closes the target exactly once.
 func (p *Page) Close() error {
-	p.closeOnce.Do(func() {
-		p.closeErr = p.close(true)
-	})
-	return p.closeErr
+	return p.close(true)
 }
 
 func (p *Page) close(remote bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
+	defer cancel()
+	return p.closeWithContext(ctx, remote)
+}
+
+// CloseContext closes the target using the caller's deadline and cancellation.
+func (p *Page) CloseContext(ctx context.Context) error {
+	return p.closeWithContext(ctx, true)
+}
+
+func (p *Page) closeWithContext(ctx context.Context, remote bool) (resultErr error) {
+	if ctx == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "close target", Err: fmt.Errorf("context required")}
+	}
+	if p == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "close target", Err: fmt.Errorf("page required")}
+	}
+	if err := p.lockLifecycle(ctx); err != nil {
+		return fmt.Errorf("wait for page lifecycle: %w", err)
+	}
+	defer func() {
+		p.lifecycleMu.Unlock()
+		p.mu.RLock()
+		retired := p.removed
+		p.mu.RUnlock()
+		if !retired {
+			return
+		}
+		if err := p.drainExecution(ctx); err != nil {
+			resultErr = errors.Join(resultErr, err)
+			return
+		}
+		resultErr = errors.Join(resultErr, p.retireResources())
+	}()
+	p.mu.RLock()
+	if p.removed {
+		p.mu.RUnlock()
+		return nil
+	}
+	previous := p.state
+	p.mu.RUnlock()
+	if p.owner == nil || p.owner.browser == nil {
+		return &TargetError{TargetID: p.targetID, State: previous, Message: "page has no browser owner"}
+	}
+	if remote && previous != TargetStateClosed {
+		if err := p.owner.browser.closeTarget(ctx, p.targetID); err != nil {
+			p.mu.RLock()
+			destroyed := p.state == TargetStateClosed
+			p.mu.RUnlock()
+			if !destroyed {
+				reconcileCtx, cancel := context.WithTimeout(ctx, defaultCDPDialTimeout)
+				exists, reconcileErr := p.owner.browser.targetExists(reconcileCtx, p.targetID)
+				cancel()
+				if reconcileErr != nil {
+					return errors.Join(err, fmt.Errorf("reconcile target close: %w", reconcileErr))
+				}
+				if exists {
+					return err
+				}
+			}
+		}
+	}
 	p.mu.Lock()
 	if p.removed {
 		p.mu.Unlock()
 		return nil
 	}
-	previous := p.state
 	p.removed = true
 	p.state = TargetStateClosed
 	p.stateErr = "closed by owner"
 	p.mu.Unlock()
-	p.frameMu.Lock()
-	if p.frameSub != nil {
-		p.frameSub.Close()
-		p.frameSub = nil
+	if err := p.transitionLifecycle(tabs.TabLifecycleClosed); err != nil {
+		p.mu.Lock()
+		p.retirementErr = errors.Join(p.retirementErr, err)
+		p.mu.Unlock()
 	}
+	if p.cancelLifetime != nil {
+		p.cancelLifetime()
+	}
+	p.stopFrameRouting()
+	p.frameMu.Lock()
 	p.frameSessions = make(map[string]string)
 	p.childSessions = make(map[string]string)
 	p.frameMu.Unlock()
 	p.fetchMu.Lock()
 	p.fetchHandler = nil
 	p.fetchMu.Unlock()
-	var err error
-	if remote && previous == TargetStateAttached {
-		err = p.owner.browser.callCleanup("Target.closeTarget", targetParams{TargetID: p.targetID})
-	}
 	p.owner.mu.Lock()
 	delete(p.owner.pages, p.targetID)
 	p.owner.mu.Unlock()
@@ -1250,5 +1928,38 @@ func (p *Page) close(remote bool) error {
 	delete(p.owner.browser.sessionMap, p.sessionID)
 	p.owner.browser.mu.Unlock()
 	p.owner.browser.releasePage()
-	return err
+	return nil
+}
+
+// CloseTargetInContext closes a registered page or a partially attached target
+// only after proving that the target belongs to this page's browser context.
+func (p *Page) CloseTargetInContext(ctx context.Context, targetID string) error {
+	if ctx == nil {
+		return &CDPError{Code: CDPErrorInvalidConfig, Op: "close target in context", Err: fmt.Errorf("context required")}
+	}
+	if p == nil || targetID == "" || p.owner == nil || p.owner.browser == nil || p.owner.browser.transport == nil {
+		return &TargetError{TargetID: targetID, State: TargetStateClosed, Message: "target or browser context unavailable"}
+	}
+	if targetID == p.targetID {
+		return p.CloseContext(ctx)
+	}
+	p.owner.mu.Lock()
+	page := p.owner.pages[targetID]
+	p.owner.mu.Unlock()
+	if page != nil {
+		return page.CloseContext(ctx)
+	}
+	var result struct {
+		TargetInfo struct {
+			TargetID         string `json:"targetId"`
+			BrowserContextID string `json:"browserContextId"`
+		} `json:"targetInfo"`
+	}
+	if err := p.owner.browser.transport.Call(ctx, "Target.getTargetInfo", targetParams{TargetID: targetID}, &result); err != nil {
+		return fmt.Errorf("verify target %s browser context: %w", targetID, err)
+	}
+	if result.TargetInfo.TargetID != targetID || result.TargetInfo.BrowserContextID != p.owner.id {
+		return &TargetError{TargetID: targetID, State: TargetStateDetached, Message: "target is not owned by this browser context"}
+	}
+	return p.owner.browser.closeTarget(ctx, targetID)
 }

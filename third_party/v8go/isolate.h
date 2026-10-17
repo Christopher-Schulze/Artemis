@@ -1,0 +1,88 @@
+#ifndef V8GO_ISOLATE_H
+#define V8GO_ISOLATE_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "unbound_script.h"
+
+#ifdef __cplusplus
+
+namespace v8 {
+class Isolate;
+}
+typedef v8::Isolate v8Isolate;
+
+extern "C" {
+#else
+typedef struct v8Isolate v8Isolate;
+#endif
+
+typedef v8Isolate* IsolatePtr;
+
+typedef struct m_value m_value;
+typedef m_value* ValuePtr;
+
+// ScriptCompiler::CompileOptions values
+extern const int ScriptCompilerNoCompileOptions;
+extern const int ScriptCompilerConsumeCodeCache;
+extern const int ScriptCompilerEagerCompile;
+
+typedef struct {
+  ScriptCompilerCachedData cachedData;
+  int compileOption;
+} CompileOptions;
+
+typedef struct {
+  size_t total_heap_size;
+  size_t total_heap_size_executable;
+  size_t total_physical_size;
+  size_t total_available_size;
+  size_t used_heap_size;
+  size_t heap_size_limit;
+  size_t malloced_memory;
+  size_t external_memory;
+  size_t peak_malloced_memory;
+  size_t number_of_native_contexts;
+  size_t number_of_detached_contexts;
+} IsolateHStatistics;
+
+typedef struct {
+  size_t initial_heap_size_in_bytes;
+  size_t maximum_heap_size_in_bytes;
+} IsolateConstraints;
+typedef IsolateConstraints* IsolateConstraintsPtr;
+
+extern IsolatePtr NewIsolate(IsolateConstraintsPtr constraints);
+extern void SetProcessSnapshot(const uint8_t* data, int len);
+extern int SnapshotBlobIsValid(const uint8_t* data, int len);
+extern void IsolateCancelTerminateExecution(IsolatePtr ptr);
+extern int IsolateRetainedValueCount(IsolatePtr ptr);
+extern void IsolatePerformMicrotaskCheckpoint(IsolatePtr ptr);
+extern void IsolateDispose(IsolatePtr ptr);
+extern void IsolateTerminateExecution(IsolatePtr ptr);
+extern void IsolateSetPromiseRejectedCallback(IsolatePtr iso, bool enable);
+extern int IsolateIsExecutionTerminating(IsolatePtr ptr);
+extern IsolateHStatistics IsolationGetHeapStatistics(IsolatePtr ptr);
+extern void IsolateLowMemoryNotification(IsolatePtr ptr);
+
+// Sets whether errors include a serialized exception message.
+extern void IsolateSetExceptionMessages(IsolatePtr ptr, int enabled);
+extern int IsolateExceptionMessages(IsolatePtr ptr);
+
+// Returns whether execution was terminated because the heap limit was
+// reached, since the last call.
+extern int IsolateTakeHeapLimitReached(IsolatePtr ptr);
+extern void IsolateWriteHeapSnapshot(IsolatePtr ptr, uintptr_t writerRef);
+
+extern ValuePtr IsolateThrowException(IsolatePtr iso, ValuePtr value);
+
+extern RtnUnboundScript IsolateCompileUnboundScript(IsolatePtr iso_ptr,
+                                                    const char* source,
+                                                    const char* origin,
+                                                    CompileOptions options);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+#endif

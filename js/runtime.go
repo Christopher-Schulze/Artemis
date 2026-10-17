@@ -6,10 +6,13 @@
 package js
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 
 	"github.com/Christopher-Schulze/Artemis/parser"
 	"github.com/Christopher-Schulze/Artemis/webapi"
@@ -27,8 +30,13 @@ type Runtime struct {
 	// Held only across the cgo entry-points, not for the lifetime of
 	// a *js.Context — Eval and other in-Context calls serialise
 	// internally via v8::Locker.
-	ctxMu            sync.Mutex
-	closed           bool
+	ctxMu            isolateGate
+	execution        *executionSpan // accessed only while ctxMu is held
+	closed           atomic.Bool
+	isolateExposed   atomic.Bool
+	closeOnce        sync.Once
+	lifetime         context.Context
+	cancel           context.CancelFunc
 	cache            *scriptCache
 	cachedBootstraps map[string]string // key "all" or "tainted" -> concat
 	hasSnapshot      bool              // V8 startup snapshot baked in
@@ -37,8 +45,8 @@ type Runtime struct {
 
 	// Context pool: when poolSize > 0, NewContext borrows v8.Contexts
 	// from this channel instead of creating fresh ones. Close returns
-	// the v8.Context to the pool (after the next __artemis_reset()
-	// clears its JS state). Skips install*/flushBootstraps entirely on
+	// only pristine realms; executed/exposed realms are disposed.
+	// Reuse rebinds native page options and skips install*/flushBootstraps on
 	// reuse since all template bindings are Runtime-cached and resolve
 	// per-call via contextRegistry. Sized at NewRuntimeWithPool time.
 	ctxPool              chan *v8.Context
@@ -51,12 +59,8 @@ type Runtime struct {
 	consoleTemplates     *consoleTemplates
 	domBridgeTemplates   *domBridgeTemplates
 	observerTemplates    *observerTemplates
-	cryptoAES            *cryptoAESTemplates
 	cryptoSubtle         *cryptoSubtleTemplates
-	cryptoComplete       *cryptoCompleteTemplates
-	cryptoAsymmetric     *cryptoAsymmetricTemplates
-	cryptoExtra          *cryptoExtraTemplates
-	cryptoPKCS8          *cryptoPKCS8Templates
+	cryptoRandom         *cryptoRandomTemplates
 	iframeTemplates      *iframeTemplates
 	fetchTemplates       *fetchTemplates
 	fetchBodies          *fetchBodyHandles
@@ -64,7 +68,10 @@ type Runtime struct {
 	wsTemplates          *wsTemplates
 	extrasV2             *extrasV2Templates
 	cascadeStyleTemplate *v8.FunctionTemplate
+	performanceTemplate  *v8.FunctionTemplate
 	contextRegistry      sync.Map // *v8.Context -> *Context, populated by NewContext, drained by Close
+	localStores          map[storageIdentity]*memStorage
+	storageBudget        *storageBudget
 }
 
 // SnapshotState describes whether the embedded startup snapshot was admitted
@@ -106,17 +113,11 @@ func NewRuntime() *Runtime {
 }
 
 // NewRuntimeWithPool creates a Runtime with a v8.Context pool of the
-// given size. Pooled Contexts are reused across pages: each Close
-// returns the v8.Context to the pool, each NewContext takes one out
-// and runs `__artemis_reset()` to clear JS-side state instead of
-// re-running the full install* + bootstrap pipeline. Reduces wall
-// time per NewContext by ~30% on agent-flow pages where scripts do
-// not heavily mutate the global state. Set size to 0 to disable.
-//
-// Caveats: user scripts that mutate built-in prototypes (e.g.
-// Array.prototype.foo = ...) leak across pooled pages. Use a
-// non-pooled Runtime when running untrusted JS or full-isolation is
-// required.
+// given size. Only pristine contexts are admitted to reuse. Page execution
+// or native context exposure permanently retires that realm from the pool;
+// built-in prototypes, non-configurable properties and lexical bindings
+// cannot be safely reset by deleting globals. Warm contexts remain useful
+// for initial admission. Set size to 0 to disable pooling.
 func NewRuntimeWithPool(size int) *Runtime {
 	return newRuntime(size)
 }
@@ -171,25 +172,44 @@ func stubDocForWarmup() (*webapi.Document, error) {
 }
 
 func newRuntime(poolSize int) *Runtime {
-	var iso *v8.Isolate
 	hasSnapshot := false
 	snapshotState := SnapshotUnavailable
 	var snapshotReason string
-	if _, err := CurrentSnapshotManifest(); err == nil {
-		iso = v8.NewIsolateFromSnapshot(snapshotBlob)
+	// V8 shares one read-only heap per process, so the admitted snapshot is
+	// the process snapshot of every isolate; it activates only before V8
+	// starts. Its default context is pristine and the bootstrap realm is
+	// snapshot context 0 (newV8Context).
+	if _, err := CurrentSnapshotManifest(); err != nil {
+		snapshotReason = err.Error()
+	} else if err := v8.SetProcessSnapshot(snapshotBlob); err != nil {
+		snapshotReason = "process snapshot: " + err.Error()
+	} else {
 		hasSnapshot = true
 		snapshotState = SnapshotActive
-	} else {
-		iso = v8.NewIsolate()
-		snapshotReason = err.Error()
 	}
-	r := &Runtime{iso: iso, cache: newScriptCache(), hasSnapshot: hasSnapshot, snapshotState: snapshotState, snapshotReason: snapshotReason}
+	iso := v8.NewIsolate()
+	r := &Runtime{iso: iso, cache: newScriptCache(), hasSnapshot: hasSnapshot, snapshotState: snapshotState, snapshotReason: snapshotReason, storageBudget: &storageBudget{}}
+	iso.SetPromiseRejectionObserver(r.observePromiseRejection)
+	r.lifetime, r.cancel = context.WithCancel(context.Background())
 	if poolSize > 0 {
 		r.ctxPool = make(chan *v8.Context, poolSize)
 		r.poolSize = poolSize
 		r.poolEnabled = true
 	}
 	return r
+}
+
+// newV8Context opens a realm: the snapshot bootstrap realm when the snapshot
+// is active, otherwise a pristine context the bootstrap sources then run in.
+func (r *Runtime) newV8Context() (*v8.Context, error) {
+	if !r.hasSnapshot {
+		return v8.NewContext(r.iso), nil
+	}
+	ctx, err := v8.NewContextFromSnapshot(r.iso, 0)
+	if err != nil {
+		return nil, fmt.Errorf("js: open snapshot realm: %w", err)
+	}
+	return ctx, nil
 }
 
 // SnapshotStatus returns the immutable admission result for this runtime.
@@ -201,11 +221,27 @@ func (r *Runtime) SnapshotStatus() SnapshotActivation {
 
 // Close releases the isolate. Safe to call multiple times.
 func (r *Runtime) Close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
+	if r == nil {
 		return
 	}
+	r.closeOnce.Do(r.closeOwned)
+}
+
+func (r *Runtime) closeOwned() {
+	r.closed.Store(true)
+	r.cancel()
+	r.ctxMu.Lock()
+	var contexts []*Context
+	r.contextRegistry.Range(func(_, value any) bool {
+		contexts = append(contexts, value.(*Context))
+		return true
+	})
+	r.ctxMu.Unlock()
+	for _, owner := range contexts {
+		owner.Close()
+	}
+	r.ctxMu.Lock()
+	defer r.ctxMu.Unlock()
 	if r.ctxPool != nil {
 		// Drain pooled v8.Contexts so V8's internal handles are released
 		// before Isolate.Dispose. Each pooled context has no live *js.Context
@@ -217,9 +253,24 @@ func (r *Runtime) Close() {
 		r.ctxPool = nil
 	}
 	r.iso.Dispose()
-	r.closed = true
+	for _, store := range r.localStores {
+		store.clear()
+	}
+	clear(r.localStores)
 }
 
-// Isolate returns the underlying v8go Isolate. Intended for advanced
-// integrations.
-func (r *Runtime) Isolate() *v8.Isolate { return r.iso }
+// Isolate returns the underlying v8go Isolate for advanced integrations.
+// It returns nil after Runtime.Close. Call it outside an active V8 callback,
+// and serialize use of the returned handle against Close.
+func (r *Runtime) Isolate() *v8.Isolate {
+	if r == nil {
+		return nil
+	}
+	r.ctxMu.Lock()
+	defer r.ctxMu.Unlock()
+	if r.closed.Load() {
+		return nil
+	}
+	r.isolateExposed.Store(true)
+	return r.iso
+}

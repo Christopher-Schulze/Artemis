@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Christopher-Schulze/Artemis/internal/pool"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -214,9 +215,11 @@ func top(stack []*SemanticNode) *SemanticNode {
 }
 
 func rawText(n *html.Node) string {
-	var b strings.Builder
-	collectRawText(n, &b)
-	return b.String()
+	b := pool.GetBuffer()
+	collectRawText(n, b)
+	text := b.String()
+	pool.PutBuffer(b)
+	return text
 }
 
 // SemanticString renders a SemanticTree as an indented Markdown-ish view

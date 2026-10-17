@@ -29,7 +29,7 @@ func cmdDownload(args []string) (exitCode int) {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 1 || *timeout <= 0 || *maxFile <= 0 || *maxSession <= 0 {
+	if fs.NArg() != 1 || *timeout <= 0 || *maxFile <= 0 || *maxSession <= 0 || *allowPort < 0 || *allowPort > 65535 {
 		fs.Usage()
 		return 2
 	}
@@ -68,7 +68,7 @@ func cmdDownload(args []string) (exitCode int) {
 		errf("download: %v", err)
 		return 1
 	}
-	if err := printJSON(os.Stdout, download); err != nil {
+	if err := printLabeledJSON(os.Stdout, download, fs.Arg(0), "download"); err != nil {
 		errf("download output: %v", err)
 		return 1
 	}

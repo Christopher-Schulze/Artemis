@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,6 +81,10 @@ type PrivacyRouter interface {
 	ShouldUseLocalOnly(url string) bool
 }
 
+// SelectorVerifier checks a proposal against the current owned browser evidence.
+// A returned true must establish uniqueness and the caller's required state.
+type SelectorVerifier func(context.Context, string) (bool, error)
+
 // AIFinderStage2Config configures the Stage 2 AI Finder.
 type AIFinderStage2Config struct {
 	MaxAttempts     int           // default 3 (spec L4389: max 3 LLM attempts)
@@ -129,10 +134,14 @@ func NewAIFinderStage2(hub InferenceHubLLM, router PrivacyRouter, cache *Adaptiv
 	if config.MaxAttempts <= 0 {
 		config.MaxAttempts = 3
 	}
+	config.MaxAttempts = min(config.MaxAttempts, 3)
 	if config.Timeout <= 0 {
 		config.Timeout = 30 * time.Second
 	}
-	if config.CacheConfidence <= 0 {
+	if config.Mode == "" {
+		config.Mode = FinderModeText
+	}
+	if config.CacheConfidence <= 0 || config.CacheConfidence > 1 || math.IsNaN(config.CacheConfidence) || math.IsInf(config.CacheConfidence, 0) {
 		config.CacheConfidence = 0.70
 	}
 	if config.PromptExecutor == nil {
@@ -146,49 +155,90 @@ func NewAIFinderStage2(hub InferenceHubLLM, router PrivacyRouter, cache *Adaptiv
 	}
 }
 
-// FindStage2 resolves an element intent via cache, then up to MaxAttempts
-// LLM calls with varied formulations, applying privacy routing per call.
-// domain and urlPattern are used for cache lookup/store. pageURL is used
-// for privacy routing decisions. content is the HTML snippet (text mode)
-// or screenshot base64 (vision mode).
+// FindStage2 returns an unverified model proposal. It never consumes or
+// populates the verified selector cache. Use FindStage2Verified for healing.
 func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pageURL, intent, content string) (AIFinderStage2Result, error) {
+	return a.findStage2(ctx, domain, urlPattern, pageURL, intent, content, nil)
+}
+
+// FindStage2Verified admits/cache-heals only a current verified proposal.
+func (a *AIFinderStage2) FindStage2Verified(ctx context.Context, domain, urlPattern, pageURL, intent, content string, verify SelectorVerifier) (AIFinderStage2Result, error) {
+	if verify == nil {
+		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: live selector verifier required")
+	}
+	return a.findStage2(ctx, domain, urlPattern, pageURL, intent, content, verify)
+}
+
+func (a *AIFinderStage2) findStage2(ctx context.Context, domain, urlPattern, pageURL, intent, content string, verify SelectorVerifier) (AIFinderStage2Result, error) {
 	if a == nil {
 		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: nil receiver")
 	}
 	if a.hub == nil {
 		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: no inference hub")
 	}
+	if ctx == nil || strings.TrimSpace(intent) == "" {
+		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: context and structural intent required")
+	}
+	if err := ctx.Err(); err != nil {
+		return AIFinderStage2Result{}, err
+	}
+	a.mu.Lock()
+	config := a.config
+	a.mu.Unlock()
+	if config.Mode != FinderModeText && config.Mode != FinderModeVision {
+		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: unsupported mode")
+	}
+	pattern, err := selectorCachePattern(domain, urlPattern, pageURL, intent)
+	if err != nil {
+		return AIFinderStage2Result{}, err
+	}
+	if config.Mode == FinderModeText && len(content) > selectorEvidenceBytes {
+		return AIFinderStage2Result{}, fmt.Errorf("ai finder stage2: text evidence exceeds byte budget")
+	}
+	localOnly := a.router == nil || a.router.ShouldUseLocalOnly(pageURL)
 
 	result := AIFinderStage2Result{
-		Mode:  a.config.Mode,
+		Mode:  config.Mode,
 		Route: PrivacyRouteExternal,
-	}
-
-	// Step 1: Check cache.
-	if a.cache != nil {
-		if entry, ok := a.cache.GetContext(ctx, domain, urlPattern); ok && entry.Selector != "" {
-			a.mu.Lock()
-			a.stats.CacheHits++
-			a.mu.Unlock()
-			result.Selector = entry.Selector
-			result.Confidence = entry.Confidence
-			result.FromCache = true
-			result.AttemptsUsed = 0
-			return result, nil
-		}
-	}
-
-	// Step 2: Privacy routing — determine if local-only inference is required.
-	localOnly := false
-	if a.router != nil {
-		localOnly = a.router.ShouldUseLocalOnly(pageURL)
 	}
 	if localOnly {
 		result.Route = PrivacyRouteLocal
 	}
 
+	// Step 1: Check cache.
+	if a.cache != nil && verify != nil && config.Mode == FinderModeText {
+		entry, ok, err := a.cache.LookupContext(ctx, domain, pattern)
+		if err != nil {
+			return result, err
+		}
+		if ok && entry.Selector != "" {
+			valid, err := verify(ctx, entry.Selector)
+			if contextErr := ctx.Err(); contextErr != nil {
+				return result, contextErr
+			}
+			if err != nil {
+				return result, fmt.Errorf("ai finder stage2: verify cached selector: %w", err)
+			}
+			if !valid {
+				if err := a.cache.DeleteContext(ctx, domain, pattern); err != nil {
+					return result, fmt.Errorf("ai finder stage2: invalidate cached selector: %w", err)
+				}
+			} else {
+				a.mu.Lock()
+				a.stats.CacheHits++
+				a.mu.Unlock()
+				result.Selector = entry.Selector
+				result.Confidence = entry.Confidence
+				result.FromCache = true
+				result.Verified = true
+				result.AttemptsUsed = 0
+				return result, nil
+			}
+		}
+	}
+
 	// Step 3: Up to MaxAttempts LLM calls with varied formulations.
-	maxAttempts := a.config.MaxAttempts
+	maxAttempts := min(config.MaxAttempts, 3)
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -197,7 +247,7 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 		a.mu.Lock()
 		a.stats.TotalAttempts++
-		if a.config.Mode == FinderModeVision {
+		if config.Mode == FinderModeVision {
 			a.stats.VisionModeUsed++
 		} else {
 			a.stats.TextModeUsed++
@@ -211,8 +261,8 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 
 		// Vary the formulation on each attempt (spec L4389: varied formulations).
 		formulatedIntent := varyFormulation(intent, attempt)
-		attemptCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
-		prompt, promptErr := a.config.PromptExecutor.Execute(attemptCtx, "observe", map[string]string{
+		attemptCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+		prompt, promptErr := config.PromptExecutor.Execute(attemptCtx, "observe", map[string]string{
 			"previous_chunkwise_information": content,
 			"i":                              strconv.Itoa(attempt),
 			"total_pages":                    "1",
@@ -224,7 +274,7 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 		}
 
 		req := InferenceHubLLMRequest{
-			Mode:      a.config.Mode,
+			Mode:      config.Mode,
 			Content:   content,
 			Prompt:    prompt,
 			Intent:    formulatedIntent,
@@ -235,7 +285,15 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 		// The same per-attempt timeout covers canonical prompt rendering and
 		// the actual inference request.
 		resp, err := a.hub.AnalyzePage(attemptCtx, req)
+		attemptErr := attemptCtx.Err()
 		cancel()
+		if contextErr := ctx.Err(); contextErr != nil {
+			return result, contextErr
+		}
+		if attemptErr != nil {
+			lastErr = attemptErr
+			continue
+		}
 
 		if err != nil {
 			lastErr = fmt.Errorf("ai finder stage2: attempt %d: %w", attempt, err)
@@ -245,14 +303,35 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 			lastErr = fmt.Errorf("ai finder stage2: attempt %d: hub error: %s", attempt, resp.Error)
 			continue
 		}
+		if localOnly && !resp.Local {
+			return result, fmt.Errorf("ai finder stage2: provider violated local-only inference admission")
+		}
+		if math.IsNaN(resp.Confidence) || math.IsInf(resp.Confidence, 0) || resp.Confidence < 0 || resp.Confidence > 1 {
+			lastErr = fmt.Errorf("ai finder stage2: invalid model confidence")
+			continue
+		}
 
 		selector := strings.TrimSpace(resp.Selector)
-		if a.config.Mode == FinderModeVision {
+		if config.Mode == FinderModeVision {
 			selector = strings.TrimSpace(resp.Coordinates)
 		}
-		if selector == "" {
+		if selector == "" || len(selector) > 1024 {
 			lastErr = fmt.Errorf("ai finder stage2: attempt %d: empty result", attempt)
 			continue
+		}
+		if verify != nil {
+			valid, err := verify(ctx, selector)
+			if contextErr := ctx.Err(); contextErr != nil {
+				return result, contextErr
+			}
+			if err != nil {
+				return result, fmt.Errorf("ai finder stage2: verify proposed selector: %w", err)
+			}
+			if !valid {
+				lastErr = fmt.Errorf("ai finder stage2: proposed selector is missing, ambiguous or unready")
+				continue
+			}
+			result.Verified = true
 		}
 
 		result.Selector = selector
@@ -261,10 +340,10 @@ func (a *AIFinderStage2) FindStage2(ctx context.Context, domain, urlPattern, pag
 		result.Model = resp.Model
 
 		// Cache if confidence meets threshold.
-		if a.cache != nil && resp.Confidence >= a.config.CacheConfidence && a.config.Mode == FinderModeText {
+		if a.cache != nil && result.Verified && resp.Confidence >= config.CacheConfidence && config.Mode == FinderModeText {
 			if err := a.cache.PutContext(ctx, AdaptiveEntry{
 				Domain:     domain,
-				URLPattern: urlPattern,
+				URLPattern: pattern,
 				Selector:   selector,
 				Confidence: resp.Confidence,
 				UpdatedAt:  time.Now(),
@@ -297,6 +376,7 @@ type AIFinderStage2Result struct {
 	Mode         FinderMode   `json:"mode"`
 	Route        PrivacyRoute `json:"route"`
 	FromCache    bool         `json:"from_cache"`
+	Verified     bool         `json:"verified"`
 	Model        string       `json:"model,omitempty"`
 }
 

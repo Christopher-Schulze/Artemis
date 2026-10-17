@@ -5,13 +5,16 @@
 package v8go_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 func TestIsolateTerminateExecution(t *testing.T) {
@@ -29,18 +32,14 @@ func TestIsolateTerminateExecution(t *testing.T) {
 		go func() {
 			iso.TerminateExecution()
 		}()
-		if _, err := loop.Call(v8.Undefined(iso)); err != nil && !strings.HasPrefix(err.Error(), "ExecutionTerminated") {
-			t.Errorf("unexpected loop error: %v", err)
-		}
+		loop.Call(v8.Undefined(iso))
 
 		terminating = iso.IsExecutionTerminating()
 		return nil
 	})
 
 	global := v8.NewObjectTemplate(iso)
-	if err := global.Set("foo", fooFn); err != nil {
-		t.Fatal(err)
-	}
+	global.Set("foo", fooFn)
 
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
@@ -49,6 +48,9 @@ func TestIsolateTerminateExecution(t *testing.T) {
 	_, e := ctx.RunScript(script, "forever.js")
 	if e == nil || !strings.HasPrefix(e.Error(), "ExecutionTerminated") {
 		t.Errorf("unexpected error: %v", e)
+	}
+	if errors.Is(e, v8.ErrHeapLimitReached) {
+		t.Errorf("error matched ErrHeapLimitReached: %v", e)
 	}
 
 	if !terminating {
@@ -134,10 +136,7 @@ func TestIsolateCompileUnboundScript_InvalidOptions(t *testing.T) {
 		CachedData: &v8.CompilerCachedData{Bytes: []byte("unused")},
 		Mode:       v8.CompileModeEager,
 	}
-	panicErr := recoverPanic(func() {
-		_, err := iso.CompileUnboundScript("console.log(1)", "script.js", opts)
-		fatalIf(t, err)
-	})
+	panicErr := recoverPanic(func() { iso.CompileUnboundScript("console.log(1)", "script.js", opts) })
 	if panicErr == nil {
 		t.Error("expected panic")
 	}
@@ -166,12 +165,92 @@ func TestIsolateGetHeapStatistics(t *testing.T) {
 	}
 }
 
+func TestIsolateLowMemoryNotification(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+
+	iso.LowMemoryNotification()
+}
+
+func TestIsolateWriteHeapSnapshot(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	if _, err := ctx.RunScript("class HeapSnapshotMarker {}; globalThis.marker = new HeapSnapshotMarker();", "main.js"); err != nil {
+		t.Fatalf("RunScript failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := iso.WriteHeapSnapshot(&buf); err != nil {
+		t.Fatalf("WriteHeapSnapshot failed: %v", err)
+	}
+
+	// The format Chrome DevTools reads.
+	var snapshot struct {
+		Snapshot struct {
+			Meta struct {
+				NodeFields []string `json:"node_fields"`
+			} `json:"meta"`
+			NodeCount int `json:"node_count"`
+		} `json:"snapshot"`
+		Nodes   []int    `json:"nodes"`
+		Strings []string `json:"strings"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &snapshot); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if nf := len(snapshot.Snapshot.Meta.NodeFields); nf == 0 || snapshot.Snapshot.NodeCount*nf != len(snapshot.Nodes) {
+		t.Errorf("got %d nodes with %d fields, want %d values", snapshot.Snapshot.NodeCount, nf, len(snapshot.Nodes))
+	}
+	found := false
+	for _, s := range snapshot.Strings {
+		if s == "HeapSnapshotMarker" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("HeapSnapshotMarker not found in snapshot strings")
+	}
+}
+
+func TestIsolateWriteHeapSnapshot_WriterError(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+
+	wantErr := errors.New("write failed")
+	w := &failingWriter{err: wantErr}
+	if err := iso.WriteHeapSnapshot(w); !errors.Is(err, wantErr) {
+		t.Errorf("WriteHeapSnapshot error: got %v, want %v", err, wantErr)
+	}
+	if w.calls != 1 {
+		t.Errorf("Write calls: got %d, want 1", w.calls)
+	}
+}
+
+// failingWriter is an io.Writer that always fails.
+type failingWriter struct {
+	err   error
+	calls int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.calls++
+	return 0, w.err
+}
+
 func TestCallbackRegistry(t *testing.T) {
 	t.Parallel()
 
 	iso := v8.NewIsolate()
 	defer iso.Dispose()
-	cb := func(*v8.FunctionCallbackInfo) *v8.Value { return nil }
+	cb := func(*v8.FunctionCallbackInfo) (*v8.Value, error) { return nil, nil }
 
 	cb0 := iso.GetCallback(0)
 	if cb0 != nil {
@@ -238,8 +317,8 @@ func TestIsolateThrowException(t *testing.T) {
 	})
 
 	global := v8.NewObjectTemplate(iso)
-	fatalIf(t, global.Set("foo", fn))
-	fatalIf(t, global.Set("foo2", fn2))
+	global.Set("foo", fn)
+	global.Set("foo2", fn2)
 
 	ctx := v8.NewContext(iso, global)
 
@@ -262,6 +341,122 @@ func TestIsolateThrowException(t *testing.T) {
 	}
 }
 
+func TestIsolateSetPromiseRejectedCallback(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	var events []v8.PromiseRejectEvent
+	var lastValue *v8.Value
+
+	iso.SetPromiseRejectedCallback(func(msg v8.PromiseRejectMessage) {
+		if msg.Context != ctx {
+			t.Errorf("Context: got %p, want %p", msg.Context, ctx)
+		}
+		if msg.Promise == nil {
+			t.Error("Promise: got nil")
+		}
+		events = append(events, msg.Event)
+		lastValue = msg.Value
+	})
+
+	_, err := ctx.RunScript("Promise.reject('value')", "")
+	fatalIf(t, err)
+
+	want := []v8.PromiseRejectEvent{v8.PromiseRejectWithNoHandler}
+	if !reflect.DeepEqual(events, want) {
+		t.Errorf("Unexpected events. Want: %v. Got: %v", want, events)
+	}
+	if lastValue == nil || lastValue.String() != "value" {
+		t.Errorf("Unexpected value. Want 'value', got: %v", lastValue)
+	}
+
+	events = nil
+	_, err = ctx.RunScript("Promise.reject('value').catch(err => { /* ignore */ })", "")
+	fatalIf(t, err)
+
+	want = []v8.PromiseRejectEvent{v8.PromiseRejectWithNoHandler, v8.PromiseHandlerAddedAfterReject}
+	if !reflect.DeepEqual(events, want) {
+		t.Errorf("Unexpected events. Want: %v. Got: %v", want, events)
+	}
+	if lastValue != nil {
+		t.Errorf("Unexpected value for %v. Want nil, got: %v", v8.PromiseHandlerAddedAfterReject, lastValue)
+	}
+
+}
+
+func TestIsolateSetPromiseRejectedCallback_Replace(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	var first, second int
+	iso.SetPromiseRejectedCallback(func(v8.PromiseRejectMessage) { first++ })
+	iso.SetPromiseRejectedCallback(func(v8.PromiseRejectMessage) { second++ })
+
+	_, err := ctx.RunScript("Promise.reject('value')", "")
+	fatalIf(t, err)
+	if first != 0 || second != 1 {
+		t.Errorf("After replacing: got calls %d, %d, want 0, 1", first, second)
+	}
+
+	iso.SetPromiseRejectedCallback(nil)
+
+	_, err = ctx.RunScript("Promise.reject('value')", "")
+	fatalIf(t, err)
+	if first != 0 || second != 1 {
+		t.Errorf("After clearing: got calls %d, %d, want 0, 1", first, second)
+	}
+}
+
+func TestIsolateSetPromiseRejectedCallback_ClosedContext(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	defer iso.Dispose()
+	closedCtx := v8.NewContext(iso)
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	var events []v8.PromiseRejectEvent
+	iso.SetPromiseRejectedCallback(func(msg v8.PromiseRejectMessage) {
+		events = append(events, msg.Event)
+	})
+
+	// The reject function keeps the promise, and its creation context,
+	// alive after closedCtx is closed.
+	reject, err := closedCtx.RunScript("let r; new Promise((_, rej) => { r = rej }); r", "")
+	fatalIf(t, err)
+	fatalIf(t, ctx.Global().Set("reject", reject))
+	closedCtx.Close()
+
+	_, err = ctx.RunScript("reject('value')", "")
+	fatalIf(t, err)
+	if len(events) != 0 {
+		t.Errorf("Got events %v, want none", events)
+	}
+
+	// Promises in open contexts are still reported.
+	_, err = ctx.RunScript("Promise.reject('value')", "")
+	fatalIf(t, err)
+	if want := []v8.PromiseRejectEvent{v8.PromiseRejectWithNoHandler}; !reflect.DeepEqual(events, want) {
+		t.Errorf("Got events %v, want %v", events, want)
+	}
+}
+
+func TestIsolateSetPromiseRejectedCallback_Disposed(t *testing.T) {
+	t.Parallel()
+	iso := v8.NewIsolate()
+	iso.Dispose()
+
+	if recoverPanic(func() { iso.SetPromiseRejectedCallback(nil) }) == nil {
+		t.Error("Got no panic, want one")
+	}
+}
+
 func BenchmarkIsolateInitialization(b *testing.B) {
 	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
@@ -275,14 +470,10 @@ func BenchmarkIsolateInitAndRun(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		vm := v8.NewIsolate()
 		ctx := v8.NewContext(vm)
-		if _, err := ctx.RunScript(script, "main.js"); err != nil {
-			b.Fatal(err)
-		}
+		ctx.RunScript(script, "main.js")
 		str, _ := json.Marshal(makeObject())
 		cmd := fmt.Sprintf("process(%s)", str)
-		if _, err := ctx.RunScript(cmd, "cmd.js"); err != nil {
-			b.Fatal(err)
-		}
+		ctx.RunScript(cmd, "cmd.js")
 		ctx.Close()
 		vm.Close() // force disposal of the VM
 	}
@@ -305,5 +496,76 @@ func makeObject() interface{} {
 	return map[string]interface{}{
 		"a": rand.Intn(1000000),
 		"b": "AAAABBBBAAAABBBBAAAABBBBAAAABBBBAAAABBBB",
+	}
+}
+
+func TestIsolateHeapLimitReached(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate(v8.WithResourceConstraints(8<<20, 16<<20))
+	defer iso.Dispose()
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	limit := iso.GetHeapStatistics().HeapSizeLimit
+
+	// Reaching the limit repeatedly must neither crash the process, nor
+	// raise the limit permanently.
+	for i := 0; i < 3; i++ {
+		_, err := ctx.RunScript(`{ const data = []; for (;;) data.push("x".repeat(1000) + Math.random()); }`, "oom.js")
+		if !errors.Is(err, v8.ErrHeapLimitReached) {
+			t.Fatalf("RunScript error: got %v, want ErrHeapLimitReached", err)
+		}
+		if !strings.HasPrefix(err.Error(), "ExecutionTerminated") {
+			t.Errorf("RunScript error: got %q, want ExecutionTerminated prefix", err)
+		}
+
+		if got := iso.GetHeapStatistics().HeapSizeLimit; got != limit {
+			t.Errorf("HeapSizeLimit after %d terminations: got %d, want %d", i+1, got, limit)
+		}
+
+		val, err := ctx.RunScript("40 + 2", "after.js")
+		if err != nil {
+			t.Fatalf("RunScript after termination failed: %v", err)
+		}
+		if val.Integer() != 42 {
+			t.Errorf("RunScript after termination: got %v, want 42", val)
+		}
+	}
+}
+
+func TestNewIsolateWithConstraints(t *testing.T) {
+	t.Parallel()
+
+	iso := v8.NewIsolate(v8.WithResourceConstraints(
+		8*1024*1024,
+		16*1024*1024,
+	))
+	defer iso.Dispose()
+
+	ctx := v8.NewContext(iso)
+	defer ctx.Close()
+
+	// First test - should work fine
+	val, err := ctx.RunScript("1 + 2", "test.js")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !val.IsNumber() || val.Number() != 3 {
+		t.Errorf("expected 3, got %v", val)
+	}
+
+	// Second test - should run out of memory without crashing the process
+	val, err = ctx.RunScript(`
+			const data = [];
+			for (let i = 0; i < 1000 * 1000; i++) {
+					data.push("large data chunk ".repeat(1000));
+			}
+			data.length;
+		`, "memory-test.js")
+	if err != nil {
+		t.Logf("Memory test correctly returned error: %v", err)
+	} else {
+		t.Fatalf("Memory test completed unexpectedly: %v", val)
 	}
 }

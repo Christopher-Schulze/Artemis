@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/Christopher-Schulze/Artemis/benchmark"
 )
 
 func TestValidateOptions(t *testing.T) {
@@ -64,6 +67,29 @@ func TestBenchmarkCmdRuns(t *testing.T) {
 	}
 	if _, err := os.Stat(mdPath); err != nil {
 		t.Errorf("scorecard.md not written: %v", err)
+	}
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scorecard benchmark.Scorecard
+	if err := json.Unmarshal(data, &scorecard); err != nil {
+		t.Fatal(err)
+	}
+	if len(scorecard.Scenarios) != len(benchmark.DefaultScenarios()) {
+		t.Fatal("actual CLI omitted fixture manifest evidence")
+	}
+	for _, evidence := range scorecard.Scenarios {
+		scenario := benchmark.ScenarioByID(evidence.ID)
+		if scenario == nil || evidence.FixtureManifest == nil {
+			t.Fatal("actual CLI emitted an unknown or unbound fixture")
+		}
+		if _, err := benchmark.EncodeFixture(*scenario, *evidence.FixtureManifest); err != nil {
+			t.Fatalf("actual CLI fixture binding %s: %v", evidence.ID, err)
+		}
+	}
+	if _, err := benchmark.ReadRawArtifacts(outDir); err != nil {
+		t.Fatalf("actual CLI did not seal fixture metadata with its cohort: %v", err)
 	}
 }
 

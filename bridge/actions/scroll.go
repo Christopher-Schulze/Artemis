@@ -90,7 +90,7 @@ func (a ScrollAction) ExecuteWith(ctx context.Context, runtime *Runtime) ScrollR
 	case ScrollRight:
 		dx = float64(a.Amount)
 	}
-	out := runtime.Execute(ctx, Request{Kind: KindScroll, DeltaX: dx, DeltaY: dy})
+	out := runtime.Execute(ctx, Request{Kind: KindScroll, DeltaX: dx, DeltaY: dy, Human: &HumanProfile{ScrollSteps: a.Steps, ScrollDuration: a.Duration}})
 	return ScrollResult{Success: out.Success, Direction: a.Direction, Amount: a.Amount, Duration: out.Evidence.Duration, Error: out.Error}
 }
 

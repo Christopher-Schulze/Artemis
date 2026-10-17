@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -113,14 +114,8 @@ func TestCamofoxProviderLaunchWithURL(t *testing.T) {
 	session, err := p.Launch(context.Background(), ProviderConfig{
 		SessionName: "camofox-test",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if session.CDPURL != "http://localhost:8888" {
-		t.Fatalf("expected CDP URL, got %s", session.CDPURL)
-	}
-	if !session.Features["fingerprint_spoofing"] {
-		t.Fatal("expected fingerprint_spoofing feature")
+	if session != nil || !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("configuration cannot establish a browser runtime: session=%+v err=%v", session, err)
 	}
 }
 
@@ -135,8 +130,8 @@ func TestCamofoxProviderHealthyNoURL(t *testing.T) {
 func TestCamofoxProviderHealthyWithURL(t *testing.T) {
 	t.Setenv("CAMOFOX_URL", "http://localhost:8888")
 	p := &CamofoxProvider{}
-	if !p.Healthy() {
-		t.Fatal("camofox should be healthy with URL")
+	if p.Healthy() {
+		t.Fatal("a configured URL cannot prove a live canonical runtime")
 	}
 }
 

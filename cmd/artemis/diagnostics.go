@@ -24,7 +24,7 @@ func cmdDiagnostics(args []string) int {
 	if parseErr := fs.Parse(args); parseErr != nil {
 		return 2
 	}
-	if *path == "" || *limit < 1 || *limit > diagnostics.DefaultMaxRecords {
+	if fs.NArg() != 0 || *path == "" || *limit < 1 || *limit > diagnostics.DefaultMaxRecords {
 		fs.Usage()
 		return 2
 	}

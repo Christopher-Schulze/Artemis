@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
+	"golang.org/x/net/html"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/observe"
+	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
 // ChromiumPage is the minimal owned CDP page surface required by the hybrid
@@ -41,12 +45,13 @@ type evaluateResponse struct {
 }
 
 type chromiumPageOutput struct {
-	URL      string       `json:"url"`
-	Title    string       `json:"title"`
-	HTML     string       `json:"html"`
-	Text     string       `json:"text"`
-	Markdown string       `json:"markdown"`
-	Links    []agent.Link `json:"links"`
+	URL        string       `json:"url"`
+	Title      string       `json:"title"`
+	HTML       string       `json:"html"`
+	Text       string       `json:"text"`
+	Markdown   string       `json:"markdown"`
+	Links      []agent.Link `json:"links"`
+	StatusCode int          `json:"statusCode"`
 }
 
 func (e ChromiumExecutor) Execute(ctx context.Context, request ExecutionRequest) (ExecutionOutput, error) {
@@ -60,6 +65,14 @@ func (e ChromiumExecutor) Execute(ctx context.Context, request ExecutionRequest)
 	}
 	if _, _, err := e.Page.Navigate(ctx, request.URL); err != nil {
 		return ExecutionOutput{}, &RouteFailure{Reason: "chromium_navigation_failed", Retryable: true, Cause: err}
+	}
+	return e.Read(ctx, request.State)
+}
+
+// Read extracts the committed live DOM without navigating or replacing page identity.
+func (e ChromiumExecutor) Read(ctx context.Context, state BrowserState) (ExecutionOutput, error) {
+	if e.Page == nil {
+		return ExecutionOutput{}, fmt.Errorf("chromium page required")
 	}
 	var response evaluateResponse
 	if err := e.Page.Call(ctx, "Runtime.evaluate", evaluateParams{
@@ -77,8 +90,14 @@ func (e ChromiumExecutor) Execute(ctx context.Context, request ExecutionRequest)
 	}
 	pageURL := response.Result.Value.URL
 	if pageURL == "" {
-		pageURL = request.URL
+		return ExecutionOutput{}, fmt.Errorf("chromium snapshot omitted document URL")
 	}
+	root, err := html.Parse(strings.NewReader(response.Result.Value.HTML))
+	if err != nil {
+		return ExecutionOutput{}, fmt.Errorf("parse live DOM: %w", err)
+	}
+	doc := webapi.NewDocument(root, pageURL)
+	status := response.Result.Value.StatusCode
 	var observation *observe.ObservationEvidence
 	if e.Observer != nil {
 		evidence, err := e.Observer.CaptureEvidence(ctx)
@@ -86,14 +105,24 @@ func (e ChromiumExecutor) Execute(ctx context.Context, request ExecutionRequest)
 			return ExecutionOutput{}, &RouteFailure{Reason: "chromium_observation_failed", Retryable: false, Cause: err}
 		}
 		observation = &evidence
+		for i := len(evidence.Network) - 1; i >= 0; i-- {
+			event := evidence.Network[i]
+			if event.ResourceType == "Document" && event.URL == pageURL && event.Status >= 100 && event.Status <= 599 {
+				status = event.Status
+				break
+			}
+		}
+	}
+	if status < 100 || status > 599 {
+		return ExecutionOutput{}, &RouteFailure{Reason: "chromium_status_unobserved", Retryable: false, Cause: fmt.Errorf("no actual HTTP document status observed")}
 	}
 	return ExecutionOutput{
 		Page: PageOutput{
-			URL: pageURL, StatusCode: 200, HTML: response.Result.Value.HTML,
-			Text: response.Result.Value.Text, Markdown: response.Result.Value.Markdown,
-			Title: response.Result.Value.Title, Links: response.Result.Value.Links,
+			URL: pageURL, StatusCode: status, HTML: response.Result.Value.HTML,
+			Text: response.Result.Value.Text, Markdown: agent.Markdown(doc),
+			Title: response.Result.Value.Title, Links: agent.Links(doc),
 		},
-		State: request.State.Clone(), Observation: observation, Quality: ResultQualityVerified, Verified: true,
+		State: state.Clone(), Observation: observation, Quality: ResultQualityObserved, Verified: true,
 	}, nil
 }
 
@@ -103,17 +132,13 @@ const chromiumSnapshotExpression = `(async () => {
   }
   const root = document.documentElement;
   const body = document.body;
-  const links = Array.from(document.querySelectorAll("a[href]")).map((a) => ({
-    href: a.href,
-    text: (a.innerText || a.textContent || "").trim(),
-    title: a.getAttribute("title") || ""
-  }));
+  const html = root ? root.outerHTML : "";
+  const text = body ? (body.innerText || body.textContent || "") : "";
+  if (html.length > 1048576 || text.length > 1048576) throw new Error("live DOM exceeds extraction limit");
   return {
     url: location.href,
     title: document.title,
-    html: root ? root.outerHTML : "",
-    text: body ? (body.innerText || body.textContent || "") : "",
-    markdown: "",
-    links
+    html, text,
+    statusCode: performance.getEntriesByType("navigation")[0]?.responseStatus || 0
   };
 })()`

@@ -49,8 +49,8 @@ func HasAttribute(n *Node, name string) bool {
 // AppendChild appends child to parent, detaching it from any previous
 // parent first.
 func AppendChild(parent, child *Node) error {
-	if parent == nil || child == nil {
-		return fmt.Errorf("nil node")
+	if err := validateChildInsertion(parent, child); err != nil {
+		return err
 	}
 	if child.raw.Parent != nil {
 		child.raw.Parent.RemoveChild(child.raw)
@@ -62,7 +62,7 @@ func AppendChild(parent, child *Node) error {
 // RemoveChild detaches child from parent. The detached node remains
 // usable but is no longer part of the document tree.
 func RemoveChild(parent, child *Node) error {
-	if parent == nil || child == nil {
+	if parent == nil || child == nil || parent.raw == nil || child.raw == nil {
 		return fmt.Errorf("nil node")
 	}
 	if child.raw.Parent != parent.raw {
@@ -75,8 +75,14 @@ func RemoveChild(parent, child *Node) error {
 // InsertBefore inserts newChild before refChild under parent. If refChild
 // is nil, newChild is appended.
 func InsertBefore(parent, newChild, refChild *Node) error {
-	if parent == nil || newChild == nil {
-		return fmt.Errorf("nil node")
+	if err := validateChildInsertion(parent, newChild); err != nil {
+		return err
+	}
+	if refChild != nil && (refChild.raw == nil || refChild.raw.Parent != parent.raw) {
+		return fmt.Errorf("ref is not a child of parent")
+	}
+	if refChild != nil && newChild.raw == refChild.raw {
+		return nil
 	}
 	if newChild.raw.Parent != nil {
 		newChild.raw.Parent.RemoveChild(newChild.raw)
@@ -85,10 +91,25 @@ func InsertBefore(parent, newChild, refChild *Node) error {
 		parent.raw.AppendChild(newChild.raw)
 		return nil
 	}
-	if refChild.raw.Parent != parent.raw {
-		return fmt.Errorf("ref is not a child of parent")
-	}
 	parent.raw.InsertBefore(newChild.raw, refChild.raw)
+	return nil
+}
+
+func validateChildInsertion(parent, child *Node) error {
+	if parent == nil || child == nil || parent.raw == nil || child.raw == nil {
+		return fmt.Errorf("nil node")
+	}
+	if parent.raw.Type != html.ElementNode && parent.raw.Type != html.DocumentNode {
+		return fmt.Errorf("parent cannot contain children")
+	}
+	if child.raw.Type == html.DocumentNode {
+		return fmt.Errorf("document cannot be inserted")
+	}
+	for ancestor := parent.raw; ancestor != nil; ancestor = ancestor.Parent {
+		if ancestor == child.raw {
+			return fmt.Errorf("insertion would create a tree cycle")
+		}
+	}
 	return nil
 }
 

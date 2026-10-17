@@ -27,6 +27,19 @@ type navigateToHistoryEntryParams struct {
 	EntryID int64 `json:"entryId"`
 }
 
+type lifecycleEventsParams struct {
+	Enabled bool `json:"enabled"`
+}
+
+type frameTreeResult struct {
+	FrameTree struct {
+		Frame struct {
+			ID       string `json:"id"`
+			LoaderID string `json:"loaderId"`
+		} `json:"frame"`
+	} `json:"frameTree"`
+}
+
 type runtimeEvaluateParams struct {
 	Expression    string `json:"expression"`
 	ReturnByValue bool   `json:"returnByValue"`

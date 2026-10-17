@@ -20,21 +20,33 @@ import (
 // It uses a fixture server to serve fixture HTML and measures the
 // full fetch→parse→(optional JS)→extract pipeline.
 type ArtemisRunner struct {
-	engine *engine.Engine
-	server *fixture.Server
+	engine            *engine.Engine
+	server            *fixture.Server
+	initializationErr error
+	scenarios         map[string]Scenario
 }
+
+const contextPoolSize = 8
 
 // NewArtemisRunner creates a runner with a pooled V8 engine and a
 // fixture server serving the given scenarios. The caller must call
 // Close to release resources. warmPool pre-builds JS contexts so warm
 // runs avoid the context creation cost.
 func NewArtemisRunner(scenarios []Scenario, warmPool bool) *ArtemisRunner {
+	if len(scenarios) == 0 || len(scenarios) > 1024 {
+		return &ArtemisRunner{initializationErr: fmt.Errorf("register benchmark fixture: nonempty bounded scenario batch required")}
+	}
 	srv := fixture.NewServer()
+	registered := make(map[string]Scenario, len(scenarios))
 	for _, s := range scenarios {
-		srv.RegisterHTML("/"+s.ID, s.HTML)
+		if err := srv.RegisterHTML("/"+s.ID, s.HTML); err != nil {
+			srv.Close()
+			return &ArtemisRunner{server: srv, initializationErr: fmt.Errorf("register benchmark fixture: %w", err)}
+		}
+		registered[s.ID] = s
 	}
 	eng, err := engine.New(engine.Config{
-		JSContextPoolSize: 8,
+		JSContextPoolSize: contextPoolSize,
 		JSContextPoolWarm: warmPool,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
@@ -42,9 +54,9 @@ func NewArtemisRunner(scenarios []Scenario, warmPool bool) *ArtemisRunner {
 	})
 	if err != nil {
 		srv.Close()
-		return &ArtemisRunner{server: srv}
+		return &ArtemisRunner{server: srv, initializationErr: fmt.Errorf("initialize benchmark engine: %w", err)}
 	}
-	return &ArtemisRunner{engine: eng, server: srv}
+	return &ArtemisRunner{engine: eng, server: srv, scenarios: registered}
 }
 
 // Close releases the engine and server resources.
@@ -58,12 +70,19 @@ func (r *ArtemisRunner) Close() error {
 		r.server.Close()
 		r.server = nil
 	}
+	r.scenarios = nil
 	return closeErr
 }
 
 // Reset releases and recreates the engine so the next run is cold.
 // warmPool pre-builds JS contexts for warm runs.
 func (r *ArtemisRunner) Reset(warmPool bool) error {
+	if r.initializationErr != nil {
+		return r.initializationErr
+	}
+	if r.server == nil {
+		return fmt.Errorf("benchmark fixture owner is closed")
+	}
 	if r.engine != nil {
 		if closeErr := r.engine.Close(); closeErr != nil {
 			r.engine = nil
@@ -72,7 +91,7 @@ func (r *ArtemisRunner) Reset(warmPool bool) error {
 		r.engine = nil
 	}
 	eng, err := engine.New(engine.Config{
-		JSContextPoolSize: 8,
+		JSContextPoolSize: contextPoolSize,
 		JSContextPoolWarm: warmPool,
 		Timeout:           10 * time.Second,
 		MaxBodyBytes:      10 * 1024 * 1024,
@@ -87,6 +106,9 @@ func (r *ArtemisRunner) Reset(warmPool bool) error {
 
 // BaseURL returns the fixture server URL.
 func (r *ArtemisRunner) BaseURL() string {
+	if r.server == nil {
+		return ""
+	}
 	return r.server.BaseURL()
 }
 
@@ -103,6 +125,13 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 
 	if r.engine == nil {
 		result.Error = "artemis engine not initialized"
+		if r.initializationErr != nil {
+			result.Error = r.initializationErr.Error()
+		}
+		return result
+	}
+	if registered, ok := r.scenarios[s.ID]; !ok || registered != s {
+		result.Error = "benchmark scenario differs from registered fixture input"
 		return result
 	}
 
@@ -112,16 +141,23 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	runtime.ReadMemStats(&memBefore)
 
 	var page *engine.Page
+	var evidence ValidationEvidence
 	ms, err := measureFunc(func() error {
 		var fetchErr error
 		page, fetchErr = r.engine.Fetch(ctx, scenarioURL, engine.FetchOpts{RunScripts: s.ScriptCount > 0})
-		return fetchErr
+		if fetchErr != nil {
+			return fetchErr
+		}
+		// Measure the full page lifecycle, including extraction and cleanup.
+		evidence = validateDocument(s, page.Document())
+		return page.Close()
 	})
+	result.Validation = evidence
 	if err != nil {
 		result.WallMs = ms.WallMs
 		result.CPUMs = ms.CPUMs
 		result.RSSBytes = ms.RSSBytes
-		result.Error = fmt.Sprintf("fetch: %v", err)
+		result.Error = fmt.Sprintf("page pipeline: %v", err)
 		if page != nil {
 			if closeErr := page.Close(); closeErr != nil {
 				result.Error = fmt.Sprintf("%s; page close: %v", result.Error, closeErr)
@@ -129,12 +165,6 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 		}
 		return result
 	}
-
-	// Exercise extraction surfaces to measure the full pipeline
-	title := page.Title()
-	_ = page.Markdown()
-	links := page.Links()
-	text := page.Text()
 
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memAfter)
@@ -155,13 +185,11 @@ func (r *ArtemisRunner) RunScenario(ctx context.Context, s Scenario) ScenarioRes
 	result.AllocBytes = int64(allocBytes)
 	result.AllocCount = int64(allocCount)
 	result.Throughput = ms.Throughput
-	validated := validateScenario(s, title, links, text)
-	if closeErr := page.Close(); closeErr != nil {
-		result.Error = fmt.Sprintf("page close: %v", closeErr)
-		return result
+	result.OK = evidence.Passed
+	result.Validated = evidence.Passed
+	if !result.OK {
+		result.Error = fmt.Sprintf("scenario assertions failed: title=%q links=%d paragraphs=%d", evidence.Title, evidence.Links, evidence.Paragraphs)
 	}
-	result.OK = true
-	result.Validated = validated
 	return result
 }
 
@@ -200,6 +228,9 @@ func (r *ArtemisRunner) RunAll(ctx context.Context, scenarios []Scenario) []Scen
 // target to get precise allocation counts.
 func (r *ArtemisRunner) RunScenarioBench(b *testing.B, s Scenario) {
 	b.Helper()
+	if registered, ok := r.scenarios[s.ID]; !ok || registered != s {
+		b.Fatal("benchmark scenario differs from registered fixture input")
+	}
 	scenarioURL := r.server.URL("/" + s.ID)
 	runScripts := s.ScriptCount > 0
 

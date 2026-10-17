@@ -1,0 +1,99 @@
+! Artemis embedded base blocklist (spec L4206 Layer 1).
+! Domains from research/webstack/pinchtab-main/internal/bridge/adblock.go and
+! network.BuiltinAdTrackerPatterns. Every rule is $third-party so a vendor's
+! own site keeps working. Generic path patterns (*pixel.gif*, */tr?*,
+! */collect?*) are left to EasyList, whose precise variants avoid
+! first-party false positives.
+! category: ad
+||doubleclick.net^$third-party
+||googlesyndication.com^$third-party
+||googleadservices.com^$third-party
+||googletagservices.com^$third-party
+||adservice.google.com^$third-party
+||amazon-adsystem.com^$third-party
+||adsafeprotected.com^$third-party
+||adnxs.com^$third-party
+||adsymptotic.com^$third-party
+||adsrvr.org^$third-party
+||2mdn.net^$third-party
+||adform.net^$third-party
+||adtech.de^$third-party
+||adtech.com^$third-party
+||yieldlab.net^$third-party
+||pubmatic.com^$third-party
+||rubiconproject.com^$third-party
+||openx.net^$third-party
+||criteo.com^$third-party
+||criteo.net^$third-party
+||media.net^$third-party
+||adzerk.net^$third-party
+||casalemedia.com^$third-party
+||33across.com^$third-party
+||taboola.com^$third-party
+||outbrain.com^$third-party
+||revcontent.com^$third-party
+||zemanta.com^$third-party
+||static.ads-twitter.com^$third-party
+||ads.linkedin.com^$third-party
+||disqus.com/ads/$third-party
+! category: tracker
+||google-analytics.com^$third-party
+||analytics.google.com^$third-party
+||googletagmanager.com^$third-party
+||hotjar.com^$third-party
+||mixpanel.com^$third-party
+||mxpnl.com^$third-party
+||segment.com^$third-party
+||segment.io^$third-party
+||amplitude.com^$third-party
+||kissmetrics.com^$third-party
+||fullstory.com^$third-party
+||heapanalytics.com^$third-party
+||mouseflow.com^$third-party
+||luckyorange.com^$third-party
+||crazyegg.com^$third-party
+||clarity.ms^$third-party
+||quantserve.com^$third-party
+||quantcount.com^$third-party
+||scorecardresearch.com^$third-party
+||newrelic.com^$third-party
+||nr-data.net^$third-party
+||pingdom.net^$third-party
+||statcounter.com^$third-party
+||parsely.com^$third-party
+||chartbeat.com^$third-party
+||omtrdc.net^$third-party
+||optimizely.com^$third-party
+||visualwebsiteoptimizer.com^$third-party
+||demdex.net^$third-party
+||bluekai.com^$third-party
+||marketo.com^$third-party
+||marketo.net^$third-party
+||pardot.com^$third-party
+||leadfeeder.com^$third-party
+||clickcease.com^$third-party
+||leadforensics.com^$third-party
+||hubspot.com/analytics/$third-party
+||analytics.twitter.com^$third-party
+||twitter.com/i/adsct$third-party
+||facebook.com/tr$third-party
+||pixel.facebook.com^$third-party
+||connect.facebook.net^$third-party
+||fbcdn.net^*/fbevents.js$third-party
+||analytics.tiktok.com^$third-party
+||bat.bing.com^$third-party
+||snap.licdn.com^$third-party
+! category: social
+||facebook.com/plugins/$third-party
+||platform.twitter.com/widgets/$third-party
+||platform.instagram.com/widgets/$third-party
+||platform.linkedin.com/widgets/$third-party
+||pinterest.com/js/pinit.js$third-party
+||addthis.com^$third-party
+||sharethis.com^$third-party
+! category: consent
+||cookielaw.org^$third-party
+||cookiebot.com^$third-party
+||onetrust.com^$third-party
+||trustarc.com^$third-party
+||usercentrics.com^$third-party

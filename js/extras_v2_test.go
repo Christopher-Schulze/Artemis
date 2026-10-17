@@ -138,3 +138,14 @@ func TestCustomElementsDefine(t *testing.T) {
 		t.Errorf("got %q", v.String())
 	}
 }
+
+func TestTextDecoderReadsExactBinaryRegion(t *testing.T) {
+	c := newCtxFromHTML(t, "<html></html>", nil)
+	got, err := c.EvalString(t.Context(), `(()=>{
+		const bytes=new Uint8Array([120,97,98,99,121]), decoder=new TextDecoder();
+		return [decoder.decode(bytes.buffer),decoder.decode(bytes.subarray(1,4)),decoder.decode(new DataView(bytes.buffer,1,3))].join(':');
+	})()`)
+	if err != nil || got != "xabcy:abc:abc" {
+		t.Fatalf("decoder lost buffer or view bytes: %q %v", got, err)
+	}
+}

@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // currentToolchainMatches reports whether the committed snapshot blob was

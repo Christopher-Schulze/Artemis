@@ -1,11 +1,16 @@
 package js
 
 import (
+	"container/heap"
+	"context"
 	"errors"
+	"fmt"
+	"math"
 	"net/url"
 	"sync"
+	"time"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // NavigatorConfig configures the values returned by window.navigator.
@@ -53,9 +58,11 @@ func (n *NavigatorConfig) applyDefaults() {
 
 // memStorage is an in-memory implementation of the Storage WebAPI.
 type memStorage struct {
-	mu    sync.Mutex
-	keys  []string
-	items map[string]string
+	mu     sync.Mutex
+	keys   []string
+	items  map[string]string
+	bytes  int
+	budget *storageBudget
 }
 
 func newMemStorage() *memStorage {
@@ -69,19 +76,41 @@ func (s *memStorage) getItem(k string) (string, bool) {
 	return v, ok
 }
 
-func (s *memStorage) setItem(k, v string) {
+func (s *memStorage) setItem(k, v string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.items[k]; !ok {
+	old, exists := s.items[k]
+	nextBytes := s.bytes + storageBytes(k, v)
+	if exists {
+		nextBytes -= storageBytes(k, old)
+	}
+	if nextBytes > MaxStorageBytes || (!exists && len(s.items) >= MaxStorageKeys) {
+		return errors.New("web storage quota exceeded")
+	}
+	newKeys := 0
+	if !exists {
+		newKeys = 1
+	}
+	if err := s.budget.reserve(nextBytes-s.bytes, newKeys); err != nil {
+		return err
+	}
+	if !exists {
 		s.keys = append(s.keys, k)
 	}
 	s.items[k] = v
+	s.bytes = nextBytes
+	return nil
 }
 
 func (s *memStorage) removeItem(k string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.items[k]; !ok {
+	value, ok := s.items[k]
+	if !ok {
+		return
+	}
+	s.bytes -= storageBytes(k, value)
+	if err := s.budget.reserve(-storageBytes(k, value), -1); err != nil {
 		return
 	}
 	delete(s.items, k)
@@ -97,8 +126,12 @@ func (s *memStorage) removeItem(k string) {
 func (s *memStorage) clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.budget.reserve(-s.bytes, -len(s.items)); err != nil {
+		return
+	}
 	s.items = make(map[string]string)
 	s.keys = nil
+	s.bytes = 0
 }
 
 func (s *memStorage) key(i int) (string, bool) {
@@ -116,74 +149,160 @@ func (s *memStorage) length() int {
 	return len(s.keys)
 }
 
-// timerQueue holds pending setTimeout callbacks. Each Context owns one.
+const maxPendingTimers = 4096
+const maxTimerCallbacksPerPump = 4096
+const maxTimerFailuresPerPump = 16
+
+// timerQueue is accessed only under the owning Runtime's ctxMu.
 type timerQueue struct {
-	mu      sync.Mutex
 	nextID  int32
-	pending []timerEntry
+	pending map[int32]*timerEntry
+	ready   timerHeap
+	nesting int
 }
 
 type timerEntry struct {
-	id      int32
-	fn      *v8.Function
-	cleared bool
+	id        int32
+	fn        *v8.Function
+	due       time.Time
+	delay     time.Duration
+	repeating bool
+	nesting   int
+	index     int
+	running   bool
 }
 
 func newTimerQueue() *timerQueue {
-	return &timerQueue{}
+	return &timerQueue{pending: make(map[int32]*timerEntry)}
 }
 
-func (q *timerQueue) schedule(fn *v8.Function) int32 {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+func (q *timerQueue) schedule(fn *v8.Function, delay time.Duration, repeating bool) int32 {
+	if len(q.pending) >= maxPendingTimers || q.nextID == math.MaxInt32 {
+		fn.Release()
+		return 0
+	}
+	if q.nesting > 5 && delay < 4*time.Millisecond {
+		delay = 4 * time.Millisecond
+	}
 	q.nextID++
-	id := q.nextID
-	q.pending = append(q.pending, timerEntry{id: id, fn: fn})
-	return id
+	entry := &timerEntry{id: q.nextID, fn: fn, delay: delay, due: time.Now().Add(delay), repeating: repeating, nesting: q.nesting + 1}
+	q.pending[entry.id] = entry
+	heap.Push(&q.ready, entry)
+	return entry.id
 }
 
 func (q *timerQueue) cancel(id int32) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for i := range q.pending {
-		if q.pending[i].id == id {
-			q.pending[i].cleared = true
-			return
-		}
+	entry := q.pending[id]
+	if entry == nil {
+		return
+	}
+	delete(q.pending, id)
+	if entry.index >= 0 {
+		heap.Remove(&q.ready, entry.index)
+		entry.fn.Release()
+	} else if !entry.running {
+		entry.fn.Release()
 	}
 }
 
-// drain returns all pending non-cancelled timers and resets the queue.
-func (q *timerQueue) drain() []timerEntry {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.pending) == 0 {
+func (q *timerQueue) takeDue(now time.Time) *timerEntry {
+	if len(q.ready) == 0 || q.ready[0].due.After(now) {
 		return nil
 	}
-	out := make([]timerEntry, 0, len(q.pending))
-	for _, t := range q.pending {
-		if !t.cleared {
-			out = append(out, t)
-		}
-	}
-	q.pending = nil
-	return out
+	return heap.Pop(&q.ready).(*timerEntry)
 }
 
-// fireTimers drains the queue and calls each callback. Repeated until
-// empty so timers that schedule timers run too. Bounded loop guards
-// against runaway loops.
-func (c *Context) fireTimers() {
-	const maxRounds = 64
-	for i := 0; i < maxRounds; i++ {
-		batch := c.timers.drain()
-		if len(batch) == 0 {
-			return
+func (q *timerQueue) finish(entry *timerEntry) bool {
+	if entry.repeating && q.pending[entry.id] == entry {
+		if entry.nesting > 5 && entry.delay < 4*time.Millisecond {
+			entry.delay = 4 * time.Millisecond
 		}
-		for _, t := range batch {
-			_, _ = t.fn.Call(c.v8ctx.Global())
+		entry.nesting++
+		entry.due = time.Now().Add(entry.delay)
+		return true
+	}
+	delete(q.pending, entry.id)
+	entry.fn.Release()
+	return false
+}
+
+func (q *timerQueue) nextDelay() (time.Duration, bool) {
+	if len(q.ready) == 0 {
+		return 0, false
+	}
+	return max(0, time.Until(q.ready[0].due)), true
+}
+
+func (q *timerQueue) close() {
+	for id, entry := range q.pending {
+		entry.fn.Release()
+		delete(q.pending, id)
+	}
+	q.ready = nil
+}
+
+// fireTimers runs due work only. Future timers do not block an Eval.
+func (c *Context) fireTimers() error {
+	var callbackErrors []error
+	var omittedFailures int
+	var firedIntervals map[*timerEntry]struct{}
+	var pumpErr error
+	processed := 0
+	for processed < maxTimerCallbacksPerPump {
+		if c.closed.Load() {
+			pumpErr = context.Canceled
+			break
+		}
+		if c.evalCtx != nil && c.evalCtx.Err() != nil {
+			pumpErr = c.evalCtx.Err()
+			break
+		}
+		now := time.Now()
+		if len(c.timers.ready) == 0 || c.timers.ready[0].due.After(now) {
+			break
+		}
+		if _, alreadyFired := firedIntervals[c.timers.ready[0]]; alreadyFired {
+			break
+		}
+		entry := c.timers.takeDue(now)
+		processed++
+		previous := c.timers.nesting
+		c.timers.nesting = entry.nesting
+		receiver := c.v8ctx.Global()
+		entry.running = true
+		value, err := entry.fn.Call(receiver)
+		entry.running = false
+		receiver.Release()
+		c.timers.nesting = previous
+		if c.timers.finish(entry) {
+			if firedIntervals == nil {
+				firedIntervals = make(map[*timerEntry]struct{})
+			}
+			firedIntervals[entry] = struct{}{}
+			heap.Push(&c.timers.ready, entry)
+		}
+		if value != nil {
+			value.Release()
+		}
+		if err != nil {
+			if len(callbackErrors) < maxTimerFailuresPerPump {
+				callbackErrors = append(callbackErrors, fmt.Errorf("timer %d callback: %w", entry.id, formatJSError(err)))
+			} else {
+				omittedFailures++
+			}
 		}
 	}
+	if processed == maxTimerCallbacksPerPump {
+		if delay, pending := c.timers.nextDelay(); pending && delay == 0 {
+			if _, alreadyFired := firedIntervals[c.timers.ready[0]]; !alreadyFired {
+				pumpErr = errors.Join(pumpErr, errors.New("timer callback budget exceeded"))
+			}
+		}
+	}
+	if omittedFailures > 0 {
+		callbackErrors = append(callbackErrors, fmt.Errorf("%d additional timer callback failures omitted", omittedFailures))
+	}
+	return errors.Join(pumpErr, errors.Join(callbackErrors...))
 }
 
 func installWindow(iso *v8.Isolate, v8ctx *v8.Context, c *Context, pageURL string, nav NavigatorConfig) error {
@@ -195,12 +314,6 @@ func installWindow(iso *v8.Isolate, v8ctx *v8.Context, c *Context, pageURL strin
 	if err := global.Set("window", global); err != nil {
 		return err
 	}
-
-	// window EventTarget plumbing: addEventListener/removeEventListener/
-	// dispatchEvent backed by a JS-side listener Map per Context. This is
-	// what cross-Context postMessage delivery hooks into to fire 'message'
-	// events on the iframe's window.
-	c.registerBootstrap("artemis-window-events", inlineWindowEventsBootstrap)
 
 	// location
 	loc, err := buildLocation(c, pageURL)
@@ -324,6 +437,7 @@ func buildNavigator(iso *v8.Isolate, v8ctx *v8.Context, nav NavigatorConfig) (*v
 		return nil, err
 	}
 	if err := setNavigatorFields(iso, v8ctx, obj, nav); err != nil {
+		obj.Release()
 		return nil, err
 	}
 	return obj.Value, nil
@@ -335,18 +449,23 @@ func buildNavigator(iso *v8.Isolate, v8ctx *v8.Context, nav NavigatorConfig) (*v
 // single SetMany cgo crossing; the languages array still goes through
 // individual SetIdx because v8go has no array batch helper.
 func setNavigatorFields(iso *v8.Isolate, v8ctx *v8.Context, obj *v8.Object, nav NavigatorConfig) error {
-	langs, err := v8.NewObjectTemplate(iso).NewInstance(v8ctx)
+	langs, err := v8ctx.NewNullPrototypeObject()
 	if err != nil {
 		return err
 	}
+	defer langs.Release()
 	for i, l := range nav.Languages {
-		_ = langs.SetIdx(uint32(i), l)
+		if err := langs.SetIdx(uint32(i), l); err != nil {
+			return err
+		}
 	}
 	length, ok := checkedIntToInt32(len(nav.Languages))
 	if !ok {
 		return errors.New("navigator languages exceed JavaScript integer range")
 	}
-	_ = langs.Set("length", length)
+	if err := langs.Set("length", length); err != nil {
+		return err
+	}
 	return obj.SetManyPrepared(navigatorKeys, []interface{}{
 		nav.UserAgent, nav.Language, nav.Platform, langs, true, true, v8.Null(iso),
 		nav.Vendor, int32(nav.HardwareConcurrency), nav.DeviceMemory, int32(nav.MaxTouchPoints),
@@ -359,8 +478,8 @@ var navigatorKeys = v8.PrepareKeys([]string{
 })
 
 // timerTemplates holds the cached setTimeout/clearTimeout function
-// templates. setInterval reuses setTimeout's template (we don't model
-// recurring timers); clearInterval reuses clearTimeout's. Per-Context
+// templates. setInterval reuses setTimeout's scheduling template with its
+// recurring flag; clearInterval reuses clearTimeout's. Per-Context
 // dispatch happens via Runtime.contextFor(info.Context()).
 type timerTemplates struct {
 	set   *v8.FunctionTemplate
@@ -375,48 +494,96 @@ func (r *Runtime) ensureTimerTemplates() *timerTemplates {
 	}
 	iso := r.iso
 	r.timerTemplates = &timerTemplates{
-		set: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
-			c := r.contextFor(info.Context())
-			args := info.Args()
-			if c == nil || len(args) < 1 {
-				return mustValue(iso, int32(0))
-			}
-			fn, err := args[0].AsFunction()
-			if err != nil {
-				return mustValue(iso, int32(0))
-			}
-			return mustValue(iso, c.timers.schedule(fn))
-		}),
-		clear: v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
-			c := r.contextFor(info.Context())
-			args := info.Args()
-			if c == nil || len(args) < 1 {
-				return v8.Null(iso)
-			}
-			timerID, ok := checkedInt64ToInt32(args[0].Integer())
-			if !ok {
-				return v8.Null(iso)
-			}
-			c.timers.cancel(timerID)
-			return v8.Null(iso)
-		}),
+		set:   v8.NewFunctionTemplate(iso, r.scheduleTimer),
+		clear: v8.NewFunctionTemplate(iso, r.clearTimer),
 	}
 	return r.timerTemplates
+}
+
+func (r *Runtime) scheduleTimer(info *v8.FunctionCallbackInfo) *v8.Value {
+	c := r.contextFor(info.Context())
+	args := info.Args()
+	defer info.This().Release()
+	defer func() {
+		for index := 1; index < len(args); index++ {
+			args[index].Release()
+		}
+	}()
+	if c == nil || len(args) != 3 {
+		if len(args) > 0 {
+			args[0].Release()
+		}
+		return r.callbackPrimitive(info, int32(0))
+	}
+	fn, err := args[0].AsFunction()
+	if err != nil {
+		args[0].Release()
+		return r.callbackPrimitive(info, int32(0))
+	}
+	// The queue owns the function argument; the other callback handles retire here.
+	delay := time.Duration(max(0, args[1].Int32())) * time.Millisecond
+	return r.callbackPrimitive(info, c.timers.schedule(fn, delay, args[2].Boolean()))
+}
+
+func (r *Runtime) clearTimer(info *v8.FunctionCallbackInfo) *v8.Value {
+	defer info.Release()
+	c := r.contextFor(info.Context())
+	args := info.Args()
+	if c == nil || len(args) < 1 {
+		return v8.Null(r.iso)
+	}
+	timerID, ok := checkedInt64ToInt32(args[0].Integer())
+	if !ok {
+		return v8.Null(r.iso)
+	}
+	c.timers.cancel(timerID)
+	return v8.Null(r.iso)
 }
 
 func installTimers(iso *v8.Isolate, v8ctx *v8.Context, c *Context) error {
 	tt := c.rt.ensureTimerTemplates()
 	g := v8ctx.Global()
+	defer g.Release()
 	setFn := tt.set.GetFunction(v8ctx)
+	defer setFn.Release()
 	clearFn := tt.clear.GetFunction(v8ctx)
-	if err := g.Set("setTimeout", setFn); err != nil {
+	defer clearFn.Release()
+	if err := g.Set("__artemisSetTimer", setFn); err != nil {
 		return err
 	}
-	if err := g.Set("setInterval", setFn); err != nil {
+	if err := g.Set("__artemisClearTimer", clearFn); err != nil {
 		return err
 	}
-	if err := g.Set("clearTimeout", clearFn); err != nil {
-		return err
-	}
-	return g.Set("clearInterval", clearFn)
+	c.registerBootstrap("artemis-timers", timerBootstrap)
+	return nil
 }
+
+const timerBootstrap = `
+(() => {
+  const owner = globalThis;
+  const schedule = owner.__artemisSetTimer;
+  const clear = owner.__artemisClearTimer;
+  const apply = Reflect.apply, stringify = String, number = Number, evaluate = eval;
+  const TypeFailure = TypeError, RangeFailure = RangeError;
+  delete owner.__artemisSetTimer;
+  delete owner.__artemisClearTimer;
+  const makeTimer = repeat => function(handler, delay = 0, ...args) {
+    if (arguments.length === 0) throw new TypeFailure('timer handler is required');
+    let callback;
+    if (typeof handler === 'function') {
+      callback = () => apply(handler, owner, args);
+    } else {
+      if (typeof handler === 'symbol') throw new TypeFailure('timer handler requires a function or string');
+      const code = stringify(handler);
+      callback = () => (0, evaluate)(code);
+    }
+    const timeout = number(delay) >> 0;
+    const id = schedule(callback, timeout > 0 ? timeout : 0, repeat);
+    if (id === 0) throw new RangeFailure('timer admission limit exceeded');
+    return id;
+  };
+  owner.setTimeout = makeTimer(false);
+  owner.setInterval = makeTimer(true);
+  owner.clearTimeout = owner.clearInterval = id => clear(number(id) >> 0);
+})();
+`

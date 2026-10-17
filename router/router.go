@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Artemis/bridge"
+	"github.com/Christopher-Schulze/Artemis/network"
 	"github.com/Christopher-Schulze/Artemis/observe"
 	"github.com/Christopher-Schulze/Artemis/solver"
 )
@@ -267,7 +268,7 @@ func (r *HybridRouter) Execute(ctx context.Context, request RouteRequest) (Route
 			continue
 		}
 		execRequest := ExecutionRequest{
-			Mode: mode, URL: req.URL, Method: req.Method, Headers: req.Headers.Clone(),
+			Mode: mode, URL: req.URL, Method: req.Method, Headers: req.Headers.Clone(), AsyncFetch: req.AsyncFetch,
 			Body: append([]byte(nil), req.Body...), Action: req.Action, Signals: req.Signals,
 			Auth: req.Auth, State: state.Clone(), TraceID: req.TraceID, EvidenceID: req.EvidenceID,
 		}
@@ -322,6 +323,12 @@ func (r *HybridRouter) Execute(ctx context.Context, request RouteRequest) (Route
 		breaker.failure(r.now())
 		failure := classifyFailure(executeErr)
 		next := nextMode(mode)
+		for next != "" {
+			if _, registered := r.executor(next); registered {
+				break
+			}
+			next = nextMode(next)
+		}
 		if !failure.Retryable || next == "" || len(evidence.Fallbacks) >= req.Policy.MaxFallbacks {
 			return r.finishFailure(evidence, mode, failureCode(failure), executeErr)
 		}
@@ -496,6 +503,12 @@ func normalizedState(output, previous BrowserState, auth AuthState, pageURL stri
 }
 
 func classifyFailure(err error) RouteFailure {
+	if errors.Is(err, network.ErrPolicyDenied) || errors.Is(err, network.ErrRobotsDisallowed) || errors.Is(err, network.ErrDecisionAudit) {
+		return RouteFailure{Reason: "policy_denied", Retryable: false, Cause: err}
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return RouteFailure{Reason: "cancelled", Retryable: false, Cause: err}
+	}
 	var failure *RouteFailure
 	if errors.As(err, &failure) && failure != nil {
 		if failure.Reason == "" {
@@ -503,12 +516,15 @@ func classifyFailure(err error) RouteFailure {
 		}
 		return *failure
 	}
-	return RouteFailure{Reason: "execution_error", Retryable: true, Cause: err}
+	return RouteFailure{Reason: "execution_error", Retryable: false, Cause: err}
 }
 
 func failureCode(failure RouteFailure) string {
 	if failure.Reason == "policy_denied" {
 		return ErrorPolicyDenied
+	}
+	if failure.Reason == "cancelled" {
+		return ErrorCancelled
 	}
 	return ErrorExecution
 }

@@ -243,9 +243,14 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeScraperTestResource(t, "cache", cache.Close)
+	doc := selectorTestDocument(t, `<div class="cached-selector">Target</div>`, "https://cached.com/cached")
+	pattern, err := selectorCachePattern("cached.com", "/cached", doc.URL(), "target")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if putErr := cache.Put(AdaptiveEntry{
 		Domain:     "cached.com",
-		URLPattern: "/cached",
+		URLPattern: pattern,
 		Selector:   ".cached-selector",
 		Confidence: 0.95,
 		UpdatedAt:  time.Now(),
@@ -256,11 +261,11 @@ func TestAIFinderStage2_CacheHit(t *testing.T) {
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
 
-	result, err := f.FindStage2(context.Background(), "cached.com", "/cached", "https://cached.com/cached", "target", "<div>...</div>")
+	result, err := f.FindStage2Verified(t.Context(), "cached.com", "/cached", doc.URL(), "target", `<div class="cached-selector">Target</div>`, verifiedDocumentSelector(doc))
 	if err != nil {
 		t.Fatalf("FindStage2 error: %v", err)
 	}
-	if !result.FromCache {
+	if !result.FromCache || !result.Verified {
 		t.Fatal("FromCache = false, want true")
 	}
 	if result.Selector != ".cached-selector" {
@@ -288,11 +293,16 @@ func TestAIFinderStage2_CachesHighConfidence(t *testing.T) {
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
 
-	_, err = f.FindStage2(context.Background(), "conf.com", "/page", "https://conf.com/page", "target", "<div>...</div>")
+	doc := selectorTestDocument(t, `<div class="high-conf">Target</div>`, "https://conf.com/page")
+	_, err = f.FindStage2Verified(t.Context(), "conf.com", "/page", doc.URL(), "target", `<div class="high-conf">Target</div>`, verifiedDocumentSelector(doc))
 	if err != nil {
 		t.Fatalf("FindStage2 error: %v", err)
 	}
-	entry, ok := cache.Get("conf.com", "/page")
+	pattern, err := selectorCachePattern("conf.com", "/page", doc.URL(), "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := cache.Get("conf.com", pattern)
 	if !ok {
 		t.Fatal("selector not cached after high-confidence result")
 	}
@@ -315,11 +325,16 @@ func TestAIFinderStage2_DoesNotCacheLowConfidence(t *testing.T) {
 	router := &mockPrivacyRouter{}
 	f := NewAIFinderStage2(hub, router, cache, DefaultAIFinderStage2Config())
 
-	_, err = f.FindStage2(context.Background(), "low.com", "/page", "https://low.com/page", "target", "<div>...</div>")
+	doc := selectorTestDocument(t, `<div class="low-conf">Target</div>`, "https://low.com/page")
+	_, err = f.FindStage2Verified(t.Context(), "low.com", "/page", doc.URL(), "target", `<div class="low-conf">Target</div>`, verifiedDocumentSelector(doc))
 	if err != nil {
 		t.Fatalf("FindStage2 error: %v", err)
 	}
-	_, ok := cache.Get("low.com", "/page")
+	pattern, err := selectorCachePattern("low.com", "/page", doc.URL(), "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := cache.Get("low.com", pattern)
 	if ok {
 		t.Fatal("selector should not be cached with low confidence")
 	}

@@ -34,6 +34,114 @@ func TestPooledContextReusesV8Ctx(t *testing.T) {
 	}
 }
 
+func TestClosedContextDoesNotExposeRecycledNativeContext(t *testing.T) {
+	rt := NewRuntimeWithPool(1)
+	defer rt.Close()
+	doc, err := parser.ParseHTML(strings.NewReader("<html></html>"), "https://example.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := rt.NewContext(doc, ContextOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recycled := first.v8ctx
+	first.Close()
+	second, err := rt.NewContext(doc, ContextOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if second.v8ctx != recycled {
+		t.Fatal("test setup did not borrow the closed owner's pooled V8 context")
+	}
+	if got := first.V8Context(); got != nil {
+		t.Fatal("closed context exposed a V8 context borrowed by a new owner")
+	}
+	if got, err := second.EvalString(t.Context(), "'new owner remains usable'"); err != nil || got != "new owner remains usable" {
+		t.Fatalf("stale accessor affected the current owner: %q %v", got, err)
+	}
+}
+
+func TestPoolRetiresEveryRealmExposedToPageCode(t *testing.T) {
+	for _, test := range []struct {
+		name, mutate, observe string
+		raw                   bool
+	}{
+		{"non-configurable global", `Object.defineProperty(globalThis, 'pageSecret', {value: 'secret', configurable: false})`, `typeof pageSecret`, false},
+		{"prototype", `Array.prototype.pageSecret = 'secret'`, `typeof [].pageSecret`, false},
+		{"lexical binding", `let pageSecret = 'secret'`, `typeof pageSecret`, false},
+		{"raw native access", `Object.prototype.pageSecret = 'secret'`, `typeof ({}).pageSecret`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rt := NewRuntimeWithPool(1)
+			defer rt.Close()
+			doc, err := parser.ParseHTML(strings.NewReader("<html></html>"), "https://example.test/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := rt.NewContext(doc, ContextOpts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.raw {
+				value, err := first.V8Context().RunScript(test.mutate, "<actual-raw-page-mutation>")
+				if err != nil {
+					t.Fatal(err)
+				}
+				value.Release()
+			} else if _, err := first.EvalString(t.Context(), test.mutate+`; 'mutated'`); err != nil {
+				t.Fatal(err)
+			}
+			first.Close()
+			second, err := rt.NewContext(doc, ContextOpts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer second.Close()
+			if first.v8ctx == second.v8ctx {
+				t.Error("page-exposed realm was returned to the pool")
+			}
+			if got, err := second.EvalString(t.Context(), test.observe); err != nil || got != "undefined" {
+				t.Fatalf("page state crossed realm ownership: %q %v", got, err)
+			}
+		})
+	}
+}
+
+func TestPristinePoolRebindsCurrentFetchAndNavigator(t *testing.T) {
+	rt := NewRuntimeWithPool(1)
+	defer rt.Close()
+	doc, err := parser.ParseHTML(strings.NewReader("<html></html>"), "https://example.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := rt.NewContext(doc, ContextOpts{Navigator: NavigatorConfig{Language: "de-DE"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	second, err := rt.NewContext(doc, ContextOpts{Navigator: NavigatorConfig{Language: "fr-FR"}, Fetch: func(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
+		return &FetchResponse{Status: 200, Body: []byte("current-response")}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if first.v8ctx != second.v8ctx {
+		t.Fatal("pristine pool no longer reuses its admitted realm")
+	}
+	if got, err := second.EvalString(t.Context(), `navigator.language`); err != nil || got != "fr-FR" {
+		t.Fatalf("pristine reuse retained former navigator: %q %v", got, err)
+	}
+	if _, err := second.EvalString(t.Context(), `fetch('/current').then(r => r.text()).then(text => { document.title = text }); 'requested'`); err != nil {
+		t.Fatal(err)
+	}
+	if second.doc.Title() != "current-response" {
+		t.Fatalf("pristine reuse retained former fetch binding: %q", second.doc.Title())
+	}
+}
+
 // TestPooledContextResetsGlobals verifies that user-set globals from a
 // previous page do not leak into the next page through the pool.
 func TestPooledContextResetsGlobals(t *testing.T) {

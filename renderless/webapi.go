@@ -3,7 +3,9 @@ package renderless
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
+	"unicode"
 )
 
 // webapi.go (spec L4022: renderless/webapi.go - DOM/WebAPI globals).
@@ -17,29 +19,49 @@ import (
 // WebAPIRegistry holds DOM/WebAPI global definitions
 // (spec L4022: DOM/WebAPI globals).
 type WebAPIRegistry struct {
-	mu      sync.RWMutex
-	globals map[string]WebAPIGlobal
+	mu               sync.RWMutex
+	globals          map[string]WebAPIGlobal
+	observation      *bindingObservation
+	observationError error
+	conformance      *compiledConformance
+	conformanceError error
 }
 
 // WebAPIGlobal represents a DOM/WebAPI global
 // (spec L4022: DOM/WebAPI globals).
 type WebAPIGlobal struct {
-	Name        string             `json:"name"`
-	Type        string             `json:"type"` // "function", "object", "constructor"
-	Implemented bool               `json:"implemented"`
-	Category    CapabilityCategory `json:"category,omitempty"`
+	Name            string             `json:"name"`
+	Type            string             `json:"type"` // "function", "object", "constructor"
+	Implemented     bool               `json:"implemented"`
+	Category        CapabilityCategory `json:"category,omitempty"`
+	BindingPath     string             `json:"bindingPath,omitempty"`
+	ConformanceCase string             `json:"conformanceCase,omitempty"`
 }
 
 // NewWebAPIRegistry creates a new WebAPIRegistry with standard globals
 // (spec L4022: DOM/WebAPI globals).
 func NewWebAPIRegistry() *WebAPIRegistry {
 	r := &WebAPIRegistry{globals: make(map[string]WebAPIGlobal)}
+	r.observation, r.observationError = currentBindingObservation()
+	r.conformance, r.conformanceError = currentConformance()
 	r.registerStandard()
 	return r
 }
 
 func (r *WebAPIRegistry) registerStandard() {
+	if r.observation == nil {
+		return
+	}
+	for _, binding := range r.observation.inventory.Bindings {
+		name := binding.Path
+		if strings.ContainsAny(name, ".[$@") || strings.HasPrefix(name, "__") || r.observation.nativeGlobals[name] {
+			continue
+		}
+		g := r.observeDefinition(WebAPIGlobal{Name: name, Implemented: true, Category: CategoryUnsupportedEscalate})
+		r.globals[name] = g
+	}
 	standards := make([]WebAPIGlobal, 0, len(defaultSupportedReal())+len(defaultStubCompatible()))
+	standards = append(standards, WebAPIGlobal{Name: "getComputedStyle", Type: "function", Implemented: true, Category: CategoryUnsupportedEscalate})
 	for _, name := range defaultSupportedReal() {
 		standards = append(standards, WebAPIGlobal{
 			Name: name, Type: webAPIType(name), Implemented: true, Category: CategorySupportedReal,
@@ -53,7 +75,7 @@ func (r *WebAPIRegistry) registerStandard() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, g := range standards {
-		r.globals[g.Name] = g
+		r.globals[g.Name] = r.observeDefinition(g)
 	}
 }
 
@@ -79,17 +101,37 @@ func (r *WebAPIRegistry) Get(name string) (WebAPIGlobal, bool) {
 
 // Register registers a new global
 // (spec L4022: DOM/WebAPI globals).
+// Binding presence never supplies an omitted semantic classification.
 func (r *WebAPIRegistry) Register(g WebAPIGlobal) {
-	if g.Category == "" {
-		if g.Implemented {
-			g.Category = CategorySupportedReal
-		} else {
-			g.Category = CategoryUnsupportedEscalate
-		}
-	}
+	g = r.observeDefinition(g)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.globals[g.Name] = g
+}
+
+func webAPICategory(g WebAPIGlobal) CapabilityCategory {
+	if !g.Implemented {
+		return CategoryUnsupportedEscalate
+	}
+	switch g.Category {
+	case CategorySupportedReal, CategoryStubCompatible:
+		return g.Category
+	default:
+		return CategoryUnsupportedEscalate
+	}
+}
+
+// webAPIIdentity matches the Unicode folding used by CapabilityMatch.
+func webAPIIdentity(name string) string {
+	return strings.Map(func(r rune) rune {
+		minimum := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < minimum {
+				minimum = next
+			}
+		}
+		return unicode.ToLower(minimum)
+	}, name)
 }
 
 // All returns all registered globals

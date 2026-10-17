@@ -4,6 +4,236 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+## [v0.39.0] - 2026-10-16
+
+### Changed
+- Auto-bumped V8 to 15.5.35.25.
+
+## [v0.38.0] - 2026-10-14
+
+### Added
+- Add Windows amd64 support, requiring Go 1.27 and LLVM's MSVC-target clang with LLD. See the README for details. In [#121](https://github.com/tommie/v8go/issues/121).
+- Add `CPUProfiler.Do` to profile a function. It keeps the function on the OS thread V8 samples.
+- Add `Isolate.SetPromiseRejectedCallback` to be notified of unhandled promise rejections, and of rejection handlers added after the fact. Based on [#108](https://github.com/tommie/v8go/pull/108).
+- `NewValue` wraps Go pointers in V8 Externals, read back with `Value.External`, e.g. to wrap Go objects in JavaScript objects. The Go value is released when V8 garbage collects the External, or the Isolate is disposed. In [#107](https://github.com/tommie/v8go/pull/107).
+
+### Changed
+- Document that `CPUProfiler.StartProfiling` requires JavaScript to execute on the calling OS thread. V8 only samples that thread, so the profile silently missed samples when Go moved the goroutine to another thread.
+- Auto-bumped V8 to 15.5.35.23.
+
+### Fixed
+- `CPUProfile.GetDuration` was 1000 times too long, since V8's microseconds were read as milliseconds.
+- `go mod vendor` copies the V8 and libc++ header files, so vendored builds work again. In [#116](https://github.com/tommie/v8go/issues/116).
+
+## [v0.37.0] - 2026-10-02
+
+### Changed
+- Auto-bumped V8 to 15.4.80.20.
+
+## [v0.36.0] - 2026-10-01
+
+### Added
+- Add `Isolate.WriteHeapSnapshot` to write a heap snapshot for Chrome DevTools, and `Isolate.LowMemoryNotification`, based on [#110](https://github.com/tommie/v8go/pull/110).
+- Add `ErrHeapLimitReached`, matched by `errors.Is` when execution was terminated because the isolate reached its heap limit.
+- Add `WithExceptionMessages` and `JSError.ExceptionMessage`, returning the exception's script, line, columns, source line, and stack frames.
+
+### Changed
+- Pin depot_tools in V8 builds, upgrading it together with V8, instead of self-updating it during builds.
+- Link Clang's compiler-rt builtins on Linux, instead of relying on libgcc from GCC 12 or newer.
+- The error message when the heap limit is reached is now `ExecutionTerminated: heap limit reached`.
+- Building requires Clang 21 or newer, and `CGO_CXXFLAGS=-nostdinc++`, since V8 and v8go use Chromium's libc++. See the README. This already applied to v0.35.0.
+
+### Fixed
+- Linux libraries can be linked with glibc older than 2.38, e.g. on Debian 12, Ubuntu 22.04 and RHEL 9. V8 is now built against Chromium's Debian bullseye sysroot, making glibc 2.31 the minimum.
+- Restore the heap limit after reaching it terminated execution. It was doubled on every termination, so a reused isolate's limit grew without bound.
+
+## [v0.35.0] - 2026-09-30
+
+### Changed
+- Auto-bumped V8 to 15.4.80.19.
+
+## [v0.34.0] - 2025-10-07
+
+### Added
+
+- Add support for ObjectTemplate.MarkAsUndetectable.
+- Add `Value.StrictEquals` providing strict equality checks in Go code.
+- Add resource constraint options to `NewIsolate` in [#111](https://github.com/tommie/v8go/pull/111).
+- Add support for `Value.TypeOf()` corresponding to JavaScript `typeof` operator in [#104](https://github.com/tommie/v8go/pull/104).
+
+### Changed
+
+## [v0.33.0] - 2025-05-15
+
+### Added
+- Add support for `FunctionTemplate.Inherit` to set up prototype inheritance.
+
+### Changed
+- Auto-bumped V8 to 13.6.233.10.
+
+## [v0.32.0] - 2025-04-30
+
+### Changed
+- Auto-bumped V8 to 13.6.233.8.
+
+## [v0.31.0] - 2025-04-02
+
+### Changed
+- Auto-bumped V8 to 13.5.212.10.
+
+## [v0.30.0] - 2025-02-26
+
+### Changed
+- Auto-bumped V8 to 13.3.415.23.
+
+## [v0.29.0] - 2025-02-19
+
+### Added
+
+- Add support to setup an `Inspector`, and `InspectorClient` to receive output from `console` messages in JS code.
+- Add `FunctionTemplate.InstanceTemplate` to add own properties to instances when the function is used as a constructor.
+- Add `FunctionTemplate.PrototypeTemplates` to add own properties to the prototype of an instance when the function is used as a constructor.
+
+### Changed
+- Auto-bumped V8 to 13.3.415.22.
+
+## [v0.28.0] - 2025-01-08
+
+### Changed
+- Auto-bumped V8 to 13.1.201.22.
+
+## [v0.27.0] - 2024-12-19
+
+### Changed
+- Auto-bumped V8 to 13.1.201.19.
+
+## [v0.26.0] - 2024-12-11
+
+### Changed
+- Auto-bumped V8 to 13.1.201.16.
+
+## [v0.25.0] - 2024-12-04
+
+### Changed
+- Auto-bumped V8 to 13.1.201.15.
+
+## [v0.24.0] - 2024-11-20
+
+### Changed
+- Auto-bumped V8 to 13.1.201.9.
+
+## [v0.23.0] - 2024-11-13
+
+### Changed
+- Auto-bumped V8 to 13.1.201.8.
+
+## [v0.22.0] - 2024-10-16
+
+### Changed
+- Auto-bumped V8 to 13.0.245.16.
+
+## [v0.21.0] - 2024-10-09
+
+### Changed
+- Auto-bumped V8 to 12.9.202.27.
+
+## [v0.20.0] - 2024-10-02
+
+### Changed
+- Auto-bumped V8 to 12.9.202.24.
+
+## [v0.19.0] - 2024-09-25
+
+### Changed
+- Auto-bumped V8 to 12.9.202.22.
+
+## [v0.18.0] - 2024-09-18
+
+### Changed
+- Auto-bumped V8 to 12.9.202.18.
+
+## [v0.17.0] - 2024-08-07
+
+### Changed
+
+## [v0.16.0] - 2024-08-07
+
+### Changed
+- Auto-bumped V8 to 12.7.224.18.
+
+## [v0.15.0] - 2024-07-25
+
+### Changed
+- Auto-bumped V8 to 12.7.224.16.
+
+## [v0.14.0] - 2024-07-17
+
+### Changed
+- Auto-bumped V8 to 12.6.228.28.
+
+## [v0.13.1] - 2024-06-28
+
+### Added
+- Made scheduled V8 rebuilding and releases fully automatic.
+
+### Changed
+
+### Fixed
+- The build broke because CopyablePersistentTraits was removed in V8 4683daaf774982b1aa0e46ae38f2bdf9c995c90d.
+- Removed bad release 0.13.0.
+
+## [v0.13.0] - 2024-06-28
+
+### Changed
+- Auto-bumped V8 to 12.6.228.21.
+
+## [v0.12.0] - 2024-05-01
+
+### Changed
+- Auto-bumped V8 to c546005d65b58039ccaf3f81be3772eee45454f9.
+- The build workflows commit directly, instead of creating PRs.
+
+### Fixed
+- Release tags need to include the patch number.
+  Thank you for the report, @GraphR00t.
+  (https://github.com/tommie/v8go/issues/62)
+
+## [v0.11] - 2024-03-02
+
+### Changed
+- Bumped V8 to d5c51572dec5b2a385b57549fe195c319f1284e2.
+
+## [v0.10.1] - 2023-12-30
+
+### Changed
+- Required Go version changed to 1.19 for CGo across modules.
+
+### Fixed
+- Split the built libraries into separate submodules to work around Go's 500 MB module size limit.
+- The library modules still had the old x86_64 names.
+
+## [v0.10.0] - 2023-12-29
+
+### Changed
+- Required Go version changed to 1.17 (needed for SharedArrayBuffer support)
+- Forked from rogchap.com/v8go
+- x86_64 is now referred to as amd64 in V8 builds, conforming to `GOARCH`
+
+### Added
+- Support for getting the underlying data (as a `[]byte`) from a SharedArrayBuffer
+- Support for `Symbol`
+- Support for `FunctionCallback` to return an error
+- Support for exceptions as Go errors
+- Support for Android on amd64 and arm64
+
+### Fixed
+- Upgrade to V8 12.0.267.10
+
+
 ## [v0.9.0] - 2023-03-30
 
 ### Fixed

@@ -1,9 +1,13 @@
 package renderless
 
 import (
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	artemisengine "github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/router"
 )
 
 func TestCapabilityCategories(t *testing.T) {
@@ -19,6 +23,22 @@ func TestCapabilityCategories(t *testing.T) {
 	}
 }
 
+func TestCSSCapabilitiesRequireCurrentConformanceInsteadOfDeclaredNames(t *testing.T) {
+	registry := NewWebAPIRegistry()
+	profile := GenerateCapabilityProfile(EngineConfig{}, registry)
+	for _, api := range []string{"CSSStyleSheet", "CSSStyleDeclaration", "getComputedStyle"} {
+		if profile.CapabilityMatch(api) != CategoryUnsupportedEscalate || !profile.RequiresEscalation(api, true) {
+			t.Fatalf("unproved CSS API acquired supported semantics: %s", api)
+		}
+	}
+	if len(profile.CSSSupport) != 0 || profile.CSSConformance != nil {
+		t.Fatal("constructor invented CSS conformance evidence")
+	}
+	if !registry.IsImplemented("getComputedStyle") || registry.IsImplemented("CSSStyleSheet") || registry.IsImplemented("CSSStyleDeclaration") {
+		t.Fatal("registry presence differs from actual CSS globals")
+	}
+}
+
 func TestDefaultSupportedReal(t *testing.T) {
 	apis := defaultSupportedReal()
 	// Must include key APIs from spec L3992
@@ -26,7 +46,7 @@ func TestDefaultSupportedReal(t *testing.T) {
 		"fetch", "XMLHttpRequest", "FormData", "Headers",
 		"URL", "URLSearchParams", "cookie", "localStorage",
 		"history", "location", "SubtleCrypto", "customElements",
-		"MutationObserver", "WebSocket", "CSSStyleSheet",
+		"MutationObserver", "WebSocket",
 	}
 	for _, req := range required {
 		found := false
@@ -157,8 +177,8 @@ func TestRequiresEscalation(t *testing.T) {
 
 func TestGenerateCapabilityProfileHasCategories(t *testing.T) {
 	registry := NewWebAPIRegistry()
-	registry.Register(WebAPIGlobal{Name: "fetch", Implemented: true})
-	registry.Register(WebAPIGlobal{Name: "XMLHttpRequest", Implemented: true})
+	registry.Register(WebAPIGlobal{Name: "fetch", Implemented: true, Category: CategorySupportedReal})
+	registry.Register(WebAPIGlobal{Name: "XMLHttpRequest", Implemented: true, Category: CategorySupportedReal})
 
 	cfg := EngineConfig{}
 	profile := GenerateCapabilityProfile(cfg, registry)
@@ -210,6 +230,47 @@ func TestCapabilityProfileForEngineUsesProductionAuthority(t *testing.T) {
 	}
 }
 
+func TestProductionBindingClassificationsDriveActualRouterDecisions(t *testing.T) {
+	backend, err := artemisengine.New(artemisengine.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeRenderlessTestResource(t, "backend", backend.Close)
+	profile := CapabilityProfileForEngine(backend)
+	routerOwner, err := router.New(router.Config{Executors: map[router.Mode]router.Executor{router.ModeRenderlessJS: router.RenderlessExecutor{Engine: backend}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		api      string
+		real     bool
+		category CapabilityCategory
+		mode     router.Mode
+	}{
+		{"fetch", true, CategorySupportedReal, router.ModeRenderlessJS},
+		{"Worker", false, CategoryStubCompatible, router.ModeRenderlessJS},
+		{"Worker", true, CategoryStubCompatible, router.ModeChromiumCDP},
+		{"getBoundingClientRect", true, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
+		{"crypto.subtle.sign", true, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
+		{"__fetch", false, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
+	} {
+		t.Run(test.api+":"+string(test.mode), func(t *testing.T) {
+			request := router.RouteRequest{URL: "https://inventory.invalid/", Signals: router.Signals{IsHTML: true}, RequiredWebAPIs: []string{test.api}, NeedsRealSemantics: test.real, Capabilities: profile}
+			decision, err := routerOwner.Decide(request)
+			if err != nil || decision.Mode != test.mode || len(decision.Capabilities) != 1 {
+				t.Fatalf("production authority selected wrong route: %+v %v", decision, err)
+			}
+			if evidence := decision.Capabilities[0]; evidence.API != test.api || evidence.Category != string(test.category) || evidence.Escalate != (test.mode == router.ModeChromiumCDP) {
+				t.Fatalf("actual routing lost source capability evidence: %+v", evidence)
+			}
+			request.ForceMode = router.ModeRenderlessJS
+			if _, err := routerOwner.Decide(request); (test.mode == router.ModeChromiumCDP) != errors.Is(err, router.ErrCapabilityEscalationNeeded) || (test.mode == router.ModeRenderlessJS && err != nil) {
+				t.Fatalf("forced mode bypassed production capability authority: %v", err)
+			}
+		})
+	}
+}
+
 func TestCapabilityProfileNilEngineFailsClosed(t *testing.T) {
 	profile := CapabilityProfileForEngine(nil)
 	if profile.IsCapable() || profile.FetchSupport || profile.DeterministicWait {
@@ -217,5 +278,88 @@ func TestCapabilityProfileNilEngineFailsClosed(t *testing.T) {
 	}
 	if !profile.RequiresEscalation("unknown", false) {
 		t.Fatal("unknown capability must escalate")
+	}
+}
+
+func TestCapabilityProfileRejectsUnclassifiedAndConflictingClaims(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		definition WebAPIGlobal
+	}{
+		{"unclassified", WebAPIGlobal{Name: "fetch", Implemented: true}},
+		{"invalid-category", WebAPIGlobal{Name: "fetch", Implemented: true, Category: "typo"}},
+		{"absent", WebAPIGlobal{Name: "fetch", Implemented: false, Category: CategorySupportedReal}},
+		{"case-conflict", WebAPIGlobal{Name: "FETCH", Implemented: true, Category: CategoryStubCompatible}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := NewWebAPIRegistry()
+			registry.Register(test.definition)
+			profile := GenerateCapabilityProfile(EngineConfig{}, registry)
+			if got := profile.CapabilityMatch("fetch"); got != CategoryUnsupportedEscalate || profile.FetchSupport {
+				t.Fatalf("unproved/conflicting fetch acquired real support: category=%q fetch=%v", got, profile.FetchSupport)
+			}
+			count := 0
+			for _, names := range [][]string{profile.SupportedReal, profile.StubCompatible, profile.UnsupportedEscalate} {
+				for _, name := range names {
+					if strings.EqualFold(name, "fetch") {
+						count++
+					}
+				}
+			}
+			if count != 1 {
+				t.Fatalf("binding needs exactly one classification, got %d", count)
+			}
+		})
+	}
+}
+
+func TestCapabilityMatchRejectsContradictoryProfileLists(t *testing.T) {
+	for _, profile := range []RenderlessCapabilityProfile{
+		{SupportedReal: []string{"fetch"}, StubCompatible: []string{"FETCH"}},
+		{SupportedReal: []string{"fetch"}, UnsupportedEscalate: []string{"FETCH"}},
+		{StubCompatible: []string{"fetch"}, UnsupportedEscalate: []string{"FETCH"}},
+	} {
+		if got := profile.CapabilityMatch("fetch"); got != CategoryUnsupportedEscalate || !profile.RequiresEscalation("fetch", false) {
+			t.Fatalf("contradictory profile acquired execution authority: %q", got)
+		}
+	}
+	if got := (RenderlessCapabilityProfile{SupportedReal: []string{""}}).CapabilityMatch(""); got != CategoryUnsupportedEscalate {
+		t.Fatalf("empty API acquired support: %q", got)
+	}
+}
+
+func TestRegistryCannotPromoteUnprovedCSSCapabilities(t *testing.T) {
+	registry := NewWebAPIRegistry()
+	registry.Register(WebAPIGlobal{Name: "getComputedStyle", Type: "function", Implemented: true, Category: CategorySupportedReal})
+	profile := GenerateCapabilityProfile(EngineConfig{}, registry)
+	if got := profile.CapabilityMatch("getComputedStyle"); got != CategoryUnsupportedEscalate || profile.CSSConformance != nil {
+		t.Fatalf("registry declaration substituted for current CSS observations: %q", got)
+	}
+}
+
+func TestCapabilityProfilePartitionsEveryRegisteredBindingDeterministically(t *testing.T) {
+	registry := NewWebAPIRegistry()
+	registry.Register(WebAPIGlobal{Name: "fetch", Implemented: false, Category: CategorySupportedReal})
+	registry.Register(WebAPIGlobal{Name: "WORKER", Implemented: true, Category: CategorySupportedReal})
+	registry.Register(WebAPIGlobal{Name: "Headerſ", Implemented: true, Category: CategoryStubCompatible})
+	profile := GenerateCapabilityProfile(EngineConfig{}, registry)
+	for _, binding := range registry.All() {
+		count := 0
+		for _, names := range [][]string{profile.SupportedReal, profile.StubCompatible, profile.UnsupportedEscalate} {
+			for _, name := range names {
+				if strings.EqualFold(name, binding.Name) {
+					count++
+				}
+			}
+		}
+		if count != 1 {
+			t.Fatalf("binding %q has %d classifications", binding.Name, count)
+		}
+	}
+	if got := profile.CapabilityMatch("Worker"); got != CategoryUnsupportedEscalate {
+		t.Fatalf("case collision promoted an existing synthetic binding: %q", got)
+	}
+	if next := GenerateCapabilityProfile(EngineConfig{}, registry); !reflect.DeepEqual(profile, next) {
+		t.Fatal("same registry generated different profile ordering or values")
 	}
 }

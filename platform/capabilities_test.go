@@ -1,8 +1,11 @@
 package platform
 
 import (
+	"encoding/json"
 	"runtime"
 	"testing"
+
+	"github.com/Christopher-Schulze/Artemis/internal/jpegcodec"
 )
 
 func TestDetectReturnsValidCapabilities(t *testing.T) {
@@ -17,38 +20,36 @@ func TestDetectReturnsValidCapabilities(t *testing.T) {
 
 func TestDetectOSCapabilities(t *testing.T) {
 	caps := Detect()
-	switch runtime.GOOS {
-	case "linux":
-		if !caps.HasTCPFastOpen {
-			t.Error("HasTCPFastOpen should be true on linux")
+	for _, observation := range []struct {
+		flag   bool
+		result ProbeResult
+	}{
+		{caps.HasTCPFastOpen, caps.Evidence.TCPFastOpen},
+		{caps.HasCPUAffinity, caps.Evidence.CPUAffinity},
+		{caps.HasMmap, caps.Evidence.Mmap},
+		{caps.HasHWJPEGDecode, caps.Evidence.HardwareJPEG},
+	} {
+		if observation.flag != (observation.result.State == StateAvailable) || observation.result.Source == "" || observation.result.Reason == "" {
+			t.Fatalf("flag has no proved support: %+v", observation)
 		}
-		if !caps.HasCPUAffinity {
-			t.Error("HasCPUAffinity should be true on linux")
+	}
+	codec := jpegcodec.Probe()
+	if caps.HasHWJPEGDecode != codec.Available || caps.Evidence.HardwareJPEG.Reason != codec.Reason {
+		t.Fatalf("capability disagrees with actual codec admission: %+v; %+v", caps.Evidence.HardwareJPEG, codec)
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		if caps.Evidence.Memory.State != StateAvailable || caps.TotalMemoryMB == 0 || caps.TotalMemoryMB != caps.Evidence.Memory.Value/(1024*1024) {
+			t.Fatalf("physical memory absent or wrong units: %+v", caps.Evidence.Memory)
 		}
-		if !caps.HasMmap {
-			t.Error("HasMmap should be true on linux")
-		}
-		if runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64" {
-			if !caps.HasHWJPEGDecode {
-				t.Error("HasHWJPEGDecode should be true on linux amd64/arm64")
-			}
-		}
-	case "darwin":
-		if !caps.HasMmap {
-			t.Error("HasMmap should be true on darwin")
-		}
-		if runtime.GOARCH == "arm64" && !caps.HasHWJPEGDecode {
-			t.Error("HasHWJPEGDecode should be true on darwin/arm64")
-		}
-	default:
-		// Other OSes: just verify Detect doesn't panic.
 	}
 }
 
 func TestIsContainerizedNonLinux(t *testing.T) {
 	if runtime.GOOS == "linux" {
-		// On linux, just verify it doesn't panic.
-		_ = isContainerized()
+		result := probeContainer()
+		if result.Source == "" || result.Reason == "" {
+			t.Fatal("container detection has no evidence")
+		}
 		return
 	}
 	if isContainerized() {
@@ -57,31 +58,25 @@ func TestIsContainerizedNonLinux(t *testing.T) {
 }
 
 func TestIsContainerizedReturnsBool(t *testing.T) {
-	// Just verify it doesn't panic and returns a bool.
-	_ = isContainerized()
+	result := probeContainer()
+	if result.Source == "" || result.Reason == "" || (result.State != StateAvailable && result.State != StateUnknown) {
+		t.Fatalf("container observation has no explicit truth state: %+v", result)
+	}
 }
 
 func TestPlatformCapabilitiesStruct(t *testing.T) {
-	caps := PlatformCapabilities{
-		HasTCPFastOpen:  true,
-		HasCPUAffinity:  true,
-		HasMmap:         true,
-		HasHWJPEGDecode: false,
-		NumCPU:          4,
-		TotalMemoryMB:   8192,
-		IsContainerized: true,
+	caps := Detect()
+	data, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !caps.HasTCPFastOpen {
-		t.Error("HasTCPFastOpen should be true")
+	var decoded PlatformCapabilities
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
 	}
-	if !caps.IsContainerized {
-		t.Error("IsContainerized should be true")
-	}
-	if caps.NumCPU != 4 {
-		t.Errorf("NumCPU = %d, want 4", caps.NumCPU)
-	}
-	if caps.TotalMemoryMB != 8192 {
-		t.Errorf("TotalMemoryMB = %d, want 8192", caps.TotalMemoryMB)
+	second, err := json.Marshal(decoded)
+	if err != nil || string(second) != string(data) || decoded.Evidence.ObservedAt.IsZero() {
+		t.Fatalf("frozen snapshot lost evidence: %v", err)
 	}
 }
 

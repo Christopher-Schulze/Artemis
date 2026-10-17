@@ -1,20 +1,69 @@
 # Execute JavaScript from Go
 
-<a href="https://github.com/rogchap/v8go/releases"><img src="https://img.shields.io/github/v/release/rogchap/v8go" alt="Github release"></a>
-[![Go Report Card](https://goreportcard.com/badge/rogchap.com/v8go)](https://goreportcard.com/report/rogchap.com/v8go)
-[![Go Reference](https://pkg.go.dev/badge/rogchap.com/v8go.svg)](https://pkg.go.dev/rogchap.com/v8go)
-[![CI](https://github.com/rogchap/v8go/workflows/CI/badge.svg)](https://github.com/rogchap/v8go/actions?query=workflow%3ACI)
-![V8 Build](https://github.com/rogchap/v8go/workflows/V8%20Build/badge.svg)
-[![codecov](https://codecov.io/gh/rogchap/v8go/branch/master/graph/badge.svg?token=VHZwzGm3dV)](https://codecov.io/gh/rogchap/v8go)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git.svg?type=shield)](https://app.fossa.com/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git?ref=badge_shield)
-[![#v8go Slack Channel](https://img.shields.io/badge/slack-%23v8go-4A154B?logo=slack)](https://gophers.slack.com/channels/v8go)
+<a href="https://github.com/tommie/v8go/releases"><img src="https://img.shields.io/github/v/release/tommie/v8go" alt="Github release"></a>
+[![Go Reference](https://pkg.go.dev/badge/github.com/tommie/v8go.svg)](https://pkg.go.dev/github.com/tommie/v8go)
+[![Test](https://github.com/tommie/v8go/actions/workflows/test.yml/badge.svg)](https://github.com/tommie/v8go/actions/workflows/test.yml)
 
-<img src="gopher.jpg" width="200px" alt="V8 Gopher based on original artwork from the amazing Renee French" />
+<img src="gopher.jpg" width="200px" alt="V8 Gopher based on original artwork from the amazing Renee French" style="float:right" />
+
+## Relation to `rogchap.com/v8go`
+
+This is a fork of https://github.com/rogchap/v8go at v0.9.0.
+
+Major differences include
+
+* Android amd64/arm64 support.
+* Works with the new Chromium release dashboard (used to find what the stable version of V8 is).
+* Actually upgrades V8.
+  See https://github.com/rogchap/v8go/issues/399.
+* Splits the v8 static libraries to work around the [GitHub file size limit](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github#file-size-limits) of 100 MB.
+  The splitter doesn't care about dependencies, so binutils `ld` requires `--start-group` around them.
+  Notably, the XCode `ld` doesn't care about ordering.
+* [Support](https://github.com/rogchap/v8go/pull/194) for JS Symbols.
+* [Support](https://github.com/rogchap/v8go/pull/195) for native exceptions and `FunctionCallback` returning an error.
+* A rebuilt build pipeline, being more consistent.
+  * We now build everything at once.
+    Originally, the build pipeline left the master branch inconsistent between header files and libraries of individual architectures.
+  * The library builder commits directly, without a PR, avoiding PR blow-up.
+  * Using ccache, based on https://github.com/kuoruan/libv8.
+
+## Requirements
+
+V8 is built with Chromium's hardened libc++, and v8go must be compiled
+against the same headers. This requires Clang, in a version recent
+enough for the libc++ headers in `deps/include_libcxx/`, currently
+Clang 21. Since `-nostdinc++` isn't allowed in `#cgo` directives, it
+must also be set in `CGO_CXXFLAGS`:
+
+```sh
+CC=clang-21 CXX=clang++-21 CGO_CXXFLAGS=-nostdinc++ go build
+```
+
+Note that these environment variables apply to all cgo packages in the
+build.
+
+### Windows
+
+Windows amd64 is supported with Go 1.27 or newer. V8 is built with the
+MSVC ABI, so v8go must also be compiled with an MSVC-target clang,
+which is what [LLVM's Windows release](https://releases.llvm.org/) is,
+not MinGW. It must link with LLD, and the Microsoft C runtime and
+Windows SDK libraries must be installed, e.g. with the Visual Studio
+Build Tools:
+
+```sh
+CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld" CGO_CXXFLAGS=-nostdinc++ go build
+```
+
+`-fuse-ld=lld` must be in `CC`, or in `-ldflags=-extldflags=-fuse-ld=lld`,
+for Go to detect LLD. Otherwise, it passes flags only GNU ld accepts.
+Since Go splits `CC` on spaces, clang must be in `PATH`, rather than
+given as a full path.
 
 ## Usage
 
 ```go
-import v8 "rogchap.com/v8go"
+import v8 "github.com/tommie/v8go"
 ```
 
 ### Running a script
@@ -76,7 +125,7 @@ val, err := ctx.RunScript(src, filename)
 if err != nil {
   e := err.(*v8.JSError) // JavaScript errors will be returned as the JSError struct
   fmt.Println(e.Message) // the message of the exception thrown
-  fmt.Println(e.Location) // the filename, line number and the column where the error occured
+  fmt.Println(e.Location) // the filename, line number and the column where the error occurred
   fmt.Println(e.StackTrace) // the full stack trace of the error, if available
 
   fmt.Printf("javascript error: %v", e) // will format the standard error message
@@ -133,7 +182,31 @@ case <- time.After(200 * time.Milliseconds):
 }
 ```
 
+### Setting memory limits
+V8 supports setting a hard limit on Javascript memory usage.
+To do so, add a call to `WithResourceConstraints` to the `NewIsolate` invocation.
+If the limit is hit, v8go terminates the running script, like `TerminateExecution` above, instead of letting V8 end the process.
+The error matches `v8.ErrHeapLimitReached`, and the isolate can be used again.
+
+```go
+vm := v8.NewIsolate(v8.WithResourceConstraints(8*1024*1024, 16*1024*1024))
+ctx := v8.NewContext(vm)
+val, err = ctx.RunScript(`
+    const data = [];
+    for (let i = 0; i < 1000 * 1000; i++) {
+        data.push("large data chunk ".repeat(1000));
+    }
+    data.length;
+  `, "memory-test.js")
+// errors.Is(err, v8.ErrHeapLimitReached) is true.
+```
+
 ### CPU Profiler
+
+V8 only samples the OS thread that started profiling.
+`CPUProfiler.Do` keeps the profiled function on that thread.
+When using `StartProfiling` and `StopProfiling` directly, call `runtime.LockOSThread` first, and execute JavaScript on the same goroutine.
+Otherwise, samples are silently missing from the profile.
 
 ```go
 func createProfile() {
@@ -141,14 +214,12 @@ func createProfile() {
 	ctx := v8.NewContext(iso)
 	cpuProfiler := v8.NewCPUProfiler(iso)
 
-	cpuProfiler.StartProfiling("my-profile")
-
-	ctx.RunScript(profileScript, "script.js") # this script is defined in cpuprofiler_test.go
-	val, _ := ctx.Global().Get("start")
-	fn, _ := val.AsFunction()
-	fn.Call(ctx.Global())
-
-	cpuProfile := cpuProfiler.StopProfiling("my-profile")
+	cpuProfile := cpuProfiler.Do("my-profile", func() {
+		ctx.RunScript(profileScript, "script.js") # this script is defined in cpuprofiler_test.go
+		val, _ := ctx.Global().Get("start")
+		fn, _ := val.AsFunction()
+		fn.Call(ctx.Global())
+	})
 
 	printTree("", cpuProfile.GetTopDownRoot()) # helper function to print the profile
 }
@@ -183,7 +254,7 @@ func printTree(nest string, node *v8.CPUProfileNode) {
 
 ## Documentation
 
-Go Reference & more examples: https://pkg.go.dev/rogchap.com/v8go
+Go Reference & more examples: https://pkg.go.dev/github.com/tommie/v8go
 
 ### Support
 
@@ -192,7 +263,7 @@ please join the [**#v8go**](https://gophers.slack.com/channels/v8go) channel on 
 
 ### Windows
 
-There used to be Windows binary support. For further information see, [PR #234](https://github.com/rogchap/v8go/pull/234).
+There used to be Windows binary support. For further information see, [rogchap PR #234](https://github.com/rogchap/v8go/pull/234).
 
 The v8go library would welcome contributions from anyone able to get an external windows
 build of the V8 library linking with v8go, using the version of V8 checked out in the
@@ -200,14 +271,10 @@ build of the V8 library linking with v8go, using the version of V8 checked out i
 involve passing a linker flag when building v8go (e.g. using the `CGO_LDFLAGS` environment
 variable.
 
-## V8 dependency
+## V8 Dependency
 
-V8 version: **9.0.257.18** (April 2021)
-
-In order to make `v8go` usable as a standard Go package, prebuilt static libraries of V8
-are included for Linux and macOS. you *should not* require to build V8 yourself.
-
-Due to security concerns of binary blobs hiding malicious code, the V8 binary is built via CI *ONLY*.
+See `deps/v8/` for the version of V8 we're currently on.
+In order to make `v8go` usable as a standard Go package, prebuilt static libraries of V8 are included for Linux and macOS. you *should not* require to build V8 yourself.
 
 ## Project Goals
 
@@ -221,7 +288,7 @@ This project also aims to keep up-to-date with the latest (stable) release of V8
 
 ## License
 
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git.svg?type=large)](https://app.fossa.com/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git?ref=badge_large)
+[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B22862%2Fgit%40github.com%3Atommie%2Fv8go.git.svg?type=large)](https://app.fossa.com/projects/custom%2B22862%2Fgit%40github.com%3Atommie%2Fv8go.git?ref=badge_large)
 
 ## Development
 
@@ -236,18 +303,27 @@ This project also aims to keep up-to-date with the latest (stable) release of V8
 
 ### Upgrading the V8 binaries
 
-We have the [upgradev8](https://github.com/rogchap/v8go/.github/workflow/v8upgrade.yml) workflow.
+We have the [v8upgrade](https://github.com/tommie/v8go/.github/workflow/v8upgrade.yml) workflow.
 The workflow is triggered every day or manually.
+When run, it finds the current stable V8 version on https://chromiumdash.appspot.com/.
+If the new version is different from `deps/v8_hash`, it runs `v8build` and `release`.
 
-If the current [v8_version](https://github.com/rogchap/v8go/deps/v8_version) is different from the latest stable version, the workflow takes care of fetching the latest stable v8 files and copying them into `deps/include`. The last step of the workflow opens a new PR with the branch name `v8_upgrade/<v8-version>` with all the changes.
+The [v8build](https://github.com/tommie/v8go/.github/workflow/v8build.yml) workflow upgrades V8 and builds the libraries.
+It is triggered by the `v8upgrade` workflow, or being run manually.
+Each architecture is a separate job, storing build artifacts that are picked up by the Commit job.
+This job updates the master branch.
+Then it runs `syncsubdeps`.
 
-The next steps are:
+The [syncsubdeps](https://github.com/tommie/v8go/.github/workflow/syncsubdeps.yml) workflow updates the `go.mod` file to point to the new commit.
+Each architecture in `deps/` is its own Go module.
+This is needed to work around size constraints in Go module handling due to the large libv8 files.
+But we still want them to be consistent across builds, something that needs to happen after the built files have been committed.
+Once this is done, the upgrade is complete.
 
-1) The build is not yet triggered automatically. To trigger it manually, go to the [V8
-Build](https://github.com/rogchap/v8go/actions?query=workflow%3A%22V8+Build%22) Github Action, Select "Run workflow",
-and select your pushed branch eg. `v8_upgrade/<v8-version>`.
-1) Once built, this should open 3 PRs against your branch to add the `libv8.a` for Linux (for x86_64) and macOS for x86_64 and arm64; merge
-these PRs into your branch. You are now ready to raise the PR against `master` with the latest version of V8.
+Releasing the library is a matter of running the [release](https://github.com/tommie/v8go/.github/workflow/release.yml) workflow.
+It reads `CHANGELOG.md`, creates a Git tag and a GitHub release.
+The tag is what matters for Go modules, and the GitHub release is useful for notifications.
+Releases happen automatically for upgrades.
 
 ### Flushing after C/C++ standard library printing for debugging
 
@@ -287,7 +363,7 @@ with leak checking enabled, since it isn't enabled by default on macOS. E.g. wit
 installation of llvm, the tests can be run with
 
 ```
-CXX=/usr/local/opt/llvm/bin/clang++ CC=/usr/local/opt/llvm/bin/clang go test -c --tags leakcheck -ldflags=-compressdwarf=false
+CXX=$HOMEBREW_PREFIX/opt/llvm/bin/clang++ CC=$HOMEBREW_PREFIX/opt/llvm/bin/clang go test -c --tags leakcheck -ldflags=-compressdwarf=false
 ASAN_OPTIONS=detect_leaks=1 ./v8go.test
 ```
 
@@ -295,8 +371,8 @@ The `-ldflags=-compressdwarf=false` is currently (with clang 13) needed to get l
 
 ### Formatting
 
-Go has `go fmt`, C has `clang-format`. Any changes to the `v8go.h|cc` should be formated with `clang-format` with the
-"Chromium" Coding style. This can be done easily by running the `go generate` command.
+Go has `go fmt`, C has `clang-format`. Any changes to the `*.h` and `*.cc` files should be formatted with `clang-format`
+with the "Chromium" Coding style, as configured in `.clang-format`. This can be done easily by running the `go generate` command.
 
 `brew install clang-format` to install on macOS.
 

@@ -1,6 +1,7 @@
 package tabs
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -16,42 +17,71 @@ import (
 // (spec L4021: per-tab locking).
 type TabLock struct {
 	mu      sync.Mutex
-	locks   map[string]*sync.Mutex
 	owners  map[string]string // tabID -> owner description
 	changed map[string]chan struct{}
+	waiters map[string]int
 }
 
 // NewTabLock creates a new TabLock manager
 // (spec L4021: per-tab locking).
 func NewTabLock() *TabLock {
 	return &TabLock{
-		locks:   make(map[string]*sync.Mutex),
 		owners:  make(map[string]string),
 		changed: make(map[string]chan struct{}),
+		waiters: make(map[string]int),
 	}
 }
 
 // Lock acquires a lock for a specific tab
 // (spec L4021: per-tab locking).
 func (l *TabLock) Lock(tabID, owner string) {
-	l.mu.Lock()
-	lock, ok := l.locks[tabID]
-	if !ok {
-		lock = &sync.Mutex{}
-		l.locks[tabID] = lock
+	if err := l.LockContext(context.Background(), tabID, owner); err != nil {
+		return
 	}
-	l.mu.Unlock()
-	lock.Lock()
+}
+
+// LockContext acquires a tab without polling and honors cancellation while queued.
+func (l *TabLock) LockContext(ctx context.Context, tabID, owner string) error {
+	if ctx == nil {
+		return fmt.Errorf("tab lock: context required")
+	}
 	l.mu.Lock()
-	l.owners[tabID] = owner
-	l.mu.Unlock()
+	l.waiters[tabID]++
+	defer func() {
+		l.waiters[tabID]--
+		if l.waiters[tabID] == 0 {
+			delete(l.waiters, tabID)
+			delete(l.changed, tabID)
+		}
+		l.mu.Unlock()
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, held := l.owners[tabID]; !held {
+			l.owners[tabID] = owner
+			return nil
+		}
+		wait := l.changed[tabID]
+		if wait == nil {
+			wait = make(chan struct{})
+			l.changed[tabID] = wait
+		}
+		l.mu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-wait:
+		}
+		l.mu.Lock()
+	}
 }
 
 // Unlock releases the lock for a specific tab
 // (spec L4021: per-tab locking).
 func (l *TabLock) Unlock(tabID string) {
 	l.mu.Lock()
-	lock, ok := l.locks[tabID]
+	_, ok := l.owners[tabID]
 	if !ok {
 		l.mu.Unlock()
 		return
@@ -59,60 +89,32 @@ func (l *TabLock) Unlock(tabID string) {
 	delete(l.owners, tabID)
 	if ch := l.changed[tabID]; ch != nil {
 		close(ch)
-		l.changed[tabID] = make(chan struct{})
+		delete(l.changed, tabID)
 	}
 	l.mu.Unlock()
-	lock.Unlock()
 }
 
 // TryLock attempts to acquire a lock without blocking
 // (spec L4021: per-tab locking).
 func (l *TabLock) TryLock(tabID, owner string) bool {
 	l.mu.Lock()
-	lock, ok := l.locks[tabID]
-	if !ok {
-		lock = &sync.Mutex{}
-		l.locks[tabID] = lock
-	}
-	l.mu.Unlock()
-	if !lock.TryLock() {
+	defer l.mu.Unlock()
+	if _, held := l.owners[tabID]; held {
 		return false
 	}
-	l.mu.Lock()
 	l.owners[tabID] = owner
-	l.mu.Unlock()
 	return true
 }
 
 // LockWithTimeout attempts to acquire a lock with a timeout. Waiters block on
 // a per-tab channel closed by Unlock instead of polling on a fixed interval.
 func (l *TabLock) LockWithTimeout(tabID, owner string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if l.TryLock(tabID, owner) {
-			return true
-		}
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return false
-		}
-		l.mu.Lock()
-		wait := l.changed[tabID]
-		if wait == nil {
-			wait = make(chan struct{})
-			l.changed[tabID] = wait
-		}
-		l.mu.Unlock()
-		timer := time.NewTimer(remaining)
-		select {
-		case <-wait:
-			if !timer.Stop() {
-				<-timer.C
-			}
-		case <-timer.C:
-			return l.TryLock(tabID, owner)
-		}
+	if timeout <= 0 {
+		return l.TryLock(tabID, owner)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return l.LockContext(ctx, tabID, owner) == nil
 }
 
 // Owner returns the current owner of a tab lock
@@ -127,16 +129,9 @@ func (l *TabLock) Owner(tabID string) string {
 // (spec L4021: per-tab locking).
 func (l *TabLock) IsLocked(tabID string) bool {
 	l.mu.Lock()
-	lock, ok := l.locks[tabID]
-	l.mu.Unlock()
-	if !ok {
-		return false
-	}
-	if !lock.TryLock() {
-		return true
-	}
-	lock.Unlock()
-	return false
+	defer l.mu.Unlock()
+	_, held := l.owners[tabID]
+	return held
 }
 
 // Remove removes a tab lock entry (only if not currently locked)
@@ -147,7 +142,9 @@ func (l *TabLock) Remove(tabID string) bool {
 	if _, ok := l.owners[tabID]; ok {
 		return false // still locked
 	}
-	delete(l.locks, tabID)
+	if l.waiters[tabID] != 0 {
+		return false
+	}
 	delete(l.changed, tabID)
 	return true
 }

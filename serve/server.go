@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/Christopher-Schulze/Artemis"
 	"github.com/Christopher-Schulze/Artemis/profile"
+	"github.com/Christopher-Schulze/Artemis/security"
 )
 
 // Opts configures a Server.
@@ -36,6 +39,13 @@ type Opts struct {
 	// RateLimit configures per-connection and normalized-client limits.
 	// Zero fields receive secure defaults.
 	RateLimit RateLimit
+	// Ready reports the owned bound endpoint; a reporting failure aborts startup.
+	Ready func(Readiness) error
+	// IDPI labels page-derived results; nil selects security.DefaultIDPIConfig.
+	IDPI *security.IDPIChecker
+	// WorkflowJournalDir holds durable workflow.run journals; empty refuses
+	// journaled runs.
+	WorkflowJournalDir string
 }
 
 // RateLimit configures per-connection and normalized-client throttling.
@@ -52,6 +62,7 @@ type RateLimit struct {
 type Server struct {
 	agent            *artemis.Agent
 	opts             Opts
+	idpi             *security.IDPIChecker
 	mu               sync.Mutex
 	writeMu          sync.Mutex
 	nextSeq          atomic.Int64
@@ -66,6 +77,8 @@ type Server struct {
 	sessionOwner     map[string]string
 	clientLimiter    *clientRateLimiter
 	connections      map[*websocket.Conn]uint64
+	closing          bool
+	instanceID       string
 }
 
 type requestKey struct {
@@ -121,6 +134,11 @@ func New(agent *artemis.Agent, opts Opts) *Server {
 		sessionOwner:     make(map[string]string),
 		clientLimiter:    newClientRateLimiter(opts.RateLimit),
 		connections:      make(map[*websocket.Conn]uint64),
+		instanceID:       rand.Text(),
+	}
+	s.idpi = opts.IDPI
+	if s.idpi == nil {
+		s.idpi = security.NewIDPIChecker(security.DefaultIDPIConfig())
 	}
 	s.authGeneration.Store(1)
 	return s
@@ -128,6 +146,9 @@ func New(agent *artemis.Agent, opts Opts) *Server {
 
 // ListenAndServe blocks while serving on addr until ctx is cancelled.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	if ctx == nil {
+		return fmt.Errorf("serve context required")
+	}
 	if s.getAuthToken() == "" {
 		return fmt.Errorf("serve authentication token required")
 	}
@@ -141,15 +162,43 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			s.opts.Logger.Warn("health response write", "err", err)
 		}
 	})
-	s.srv = &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("bind serve listener: %w", err)
+	}
+	server := &http.Server{Addr: listener.Addr().String(), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	s.mu.Lock()
+	if s.closing || s.srv != nil {
+		s.mu.Unlock()
+		return errors.Join(fmt.Errorf("serve owner already started or closed"), listener.Close())
+	}
+	s.srv = server
+	s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, listener.Close())
+	}
+	if s.opts.Ready != nil {
+		if err := s.opts.Ready(newReadiness(listener.Addr().String(), s.instanceID)); err != nil {
+			return errors.Join(fmt.Errorf("report serve readiness: %w", err), listener.Close())
+		}
+	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- s.srv.ListenAndServe() }()
+	go func() { errCh <- server.Serve(listener) }()
 	select {
 	case <-ctx.Done():
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.srv.Shutdown(shutCtx); err != nil {
-			s.opts.Logger.Warn("server shutdown", "err", err)
+		shutdownErr := server.Shutdown(shutCtx)
+		var closeErr error
+		if shutdownErr != nil {
+			closeErr = server.Close()
+		}
+		serveErr := <-errCh
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			serveErr = nil
+		}
+		if err := errors.Join(shutdownErr, closeErr, serveErr); err != nil {
+			return errors.Join(ctx.Err(), err)
 		}
 		return ctx.Err()
 	case err := <-errCh:
@@ -162,10 +211,44 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 // Close stops the server.
 func (s *Server) Close() error {
-	if s.srv == nil {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
 		return nil
 	}
-	return s.srv.Close()
+	s.closing = true
+	httpServer := s.srv
+	for _, cancel := range s.inflight {
+		cancel()
+	}
+	s.mu.Unlock()
+	s.authStateMu.Lock()
+	defer s.authStateMu.Unlock()
+	s.mu.Lock()
+	connections := make([]*websocket.Conn, 0, len(s.connections))
+	for connection := range s.connections {
+		connections = append(connections, connection)
+	}
+	sessionIDs := make([]string, 0, len(s.sessionOwner))
+	for sessionID := range s.sessionOwner {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	s.sessionOwner = make(map[string]string)
+	s.outbox = make(map[string]*streamOutbox)
+	s.mu.Unlock()
+	var err error
+	for _, connection := range connections {
+		if closeErr := connection.CloseNow(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			err = errors.Join(err, closeErr)
+		}
+	}
+	for _, sessionID := range sessionIDs {
+		err = errors.Join(err, s.agent.CloseSession(sessionID))
+	}
+	if httpServer != nil {
+		err = errors.Join(err, httpServer.Close())
+	}
+	return err
 }
 
 // HandleWSForTest exposes the WebSocket handler for in-process tests
@@ -219,7 +302,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			s.opts.Logger.Warn("ws close", "err", closeErr)
 		}
 	}()
-	s.trackConnection(c, authGeneration, true)
+	if !s.trackConnection(c, authGeneration, true) {
+		return
+	}
 	defer s.trackConnection(c, authGeneration, false)
 	// Page dumps (especially HTML) can easily exceed the default 32KB
 	// read limit. Allow up to 8MB per message.
@@ -269,7 +354,11 @@ func (s *Server) handleRequest(ctx context.Context, c *websocket.Conn, client cl
 		return
 	}
 	dispatchCtx, cancel := context.WithCancel(ctx)
-	s.registerInflight(client.id, req.ID, cancel)
+	if !s.registerInflight(client.id, req.ID, cancel) {
+		cancel()
+		s.writeResp(ctx, c, errResp(req.ID, string(ErrBadRequest), "duplicate in-flight request ID"))
+		return
+	}
 	defer func() {
 		cancel()
 		s.unregisterInflight(client.id, req.ID)
@@ -346,7 +435,7 @@ func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, clien
 	case string(CmdPageEval):
 		return s.cmdPageEval(ctx, client, req)
 	case string(CmdPageDump):
-		return s.cmdPageDump(client, req)
+		return s.cmdPageDump(ctx, client, req)
 	case string(CmdPageClickByText):
 		return s.cmdPageClickByText(ctx, client, req)
 	case string(CmdPageType):
@@ -357,21 +446,52 @@ func (s *Server) dispatch(ctx, connCtx context.Context, c *websocket.Conn, clien
 		return s.cmdPageAssert(ctx, client, req)
 	case string(CmdChromiumAct):
 		return s.cmdChromiumAct(ctx, client, req)
+	case string(CmdChromiumOpen):
+		return s.cmdChromiumOpen(ctx, client, req)
+	case string(CmdChromiumObserve):
+		return s.cmdChromiumObserve(ctx, client, req)
+	case string(CmdChromiumQuery):
+		return s.cmdChromiumQuery(ctx, client, req)
+	case string(CmdChromiumClose):
+		return s.cmdChromiumClose(ctx, client, req)
 	case string(CmdStream):
 		return s.cmdStream(ctx, connCtx, c, client, req, wg)
 	case string(CmdCancel):
 		return s.cmdCancel(client, req)
 	case string(CmdTokenRotate):
 		return s.cmdTokenRotate(req)
+	case string(CmdAdBlockWhitelist):
+		return s.cmdAdBlockWhitelist(req)
+	case string(CmdWorkflowRecord):
+		return s.cmdWorkflowRecord(ctx, client, req)
+	case string(CmdWorkflowRun):
+		return s.cmdWorkflowRun(ctx, client, req)
+	case string(CmdChromiumVisual):
+		return s.cmdChromiumVisual(ctx, client, req)
+	case string(CmdChromiumVisualAct):
+		return s.cmdChromiumVisualAct(ctx, client, req)
+	case string(CmdChromiumVisualGround):
+		return s.cmdChromiumVisualGround(ctx, client, req)
+	case string(CmdPageExtract):
+		return s.cmdPageExtract(ctx, client, req)
+	case string(CmdPageLease):
+		return s.cmdPageLease(client, req)
+	case string(CmdPageHandoff):
+		return s.cmdPageHandoff(client, req)
 	default:
 		return errResp(req.ID, string(ErrUnknownCmd), fmt.Sprintf("unknown cmd %q", req.Cmd))
 	}
 }
 
-func (s *Server) registerInflight(clientID, id string, cancel context.CancelFunc) {
+func (s *Server) registerInflight(clientID, id string, cancel context.CancelFunc) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.inflight[requestKey{clientID: clientID, requestID: id}] = cancel
+	key := requestKey{clientID: clientID, requestID: id}
+	if _, exists := s.inflight[key]; exists {
+		return false
+	}
+	s.inflight[key] = cancel
+	return true
 }
 
 func (s *Server) unregisterInflight(clientID, id string) {
@@ -405,14 +525,18 @@ func (s *Server) cancelOtherInflight(clientID, requestID string) {
 	}
 }
 
-func (s *Server) trackConnection(connection *websocket.Conn, generation uint64, add bool) {
+func (s *Server) trackConnection(connection *websocket.Conn, generation uint64, add bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if add {
+		if s.closing {
+			return false
+		}
 		s.connections[connection] = generation
-		return
+		return true
 	}
 	delete(s.connections, connection)
+	return true
 }
 
 func (s *Server) invalidateAuthenticatedState() {
@@ -486,10 +610,15 @@ func majorVersion(v string) string {
 
 func (s *Server) taskErrorResponse(req *Request, err error, fallback ErrCode) *Response {
 	var taskErr *artemis.TaskError
-	if !errors.As(err, &taskErr) {
-		return errResp(req.ID, string(fallback), err.Error())
+	code := fallback
+	if errors.As(err, &taskErr) {
+		code = mapTaskErrorCode(taskErr, fallback)
 	}
-	return errResp(req.ID, string(mapTaskErrorCode(taskErr, fallback)), taskErr.Error())
+	response := errResp(req.ID, string(code), err.Error())
+	if code == ErrFetchFailed && observedNetworkFailure(err) {
+		response.Error.FailureKind = FailureNetwork
+	}
+	return response
 }
 
 func mapTaskErrorCode(err *artemis.TaskError, fallback ErrCode) ErrCode {
@@ -504,7 +633,9 @@ func mapTaskErrorCode(err *artemis.TaskError, fallback ErrCode) ErrCode {
 		return fallback
 	case artemis.TaskErrorCancelled:
 		return ErrCancelled
-	case artemis.TaskErrorStaleReference, artemis.TaskErrorInvalidTransition:
+	case artemis.TaskErrorStaleReference:
+		return ErrStaleReference
+	case artemis.TaskErrorInvalidTransition:
 		return ErrNoSession
 	case artemis.TaskErrorSessionNotFound:
 		return ErrNoSession
@@ -527,7 +658,10 @@ func (s *Server) cmdVersion(req *Request) *Response {
 	return okResp(req.ID, VersionResponse{
 		Protocol:     ProtocolVersion,
 		Server:       "artemis-serve",
+		InstanceID:   s.instanceID,
+		ProcessID:    os.Getpid(),
 		Capabilities: artemis.Capabilities(),
+		Health:       s.agent.Health(),
 	})
 }
 
@@ -535,7 +669,10 @@ func (s *Server) cmdCapabilities(req *Request) *Response {
 	return okResp(req.ID, VersionResponse{
 		Protocol:     ProtocolVersion,
 		Server:       "artemis-serve",
+		InstanceID:   s.instanceID,
+		ProcessID:    os.Getpid(),
 		Capabilities: artemis.Capabilities(),
+		Health:       s.agent.Health(),
 	})
 }
 
@@ -664,15 +801,16 @@ func (s *Server) cmdPageOpen(ctx context.Context, client clientIdentity, req *Re
 	if sessionErr != nil {
 		return sessionError(req, sessionErr)
 	}
-	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts)
+	pageID, page, err := session.OpenPage(ctx, params.URL, params.RunScripts, artemis.PageOpenOptions{AsyncFetch: params.AsyncFetch})
 	if err != nil {
 		return s.taskErrorResponse(req, err, ErrFetchFailed)
 	}
-	return okResp(req.ID, PageOpenResult{
-		PageID: pageID,
-		URL:    page.URL(),
-		Status: page.StatusCode(),
-		Title:  page.Title(),
+	return s.labeledResp(req, page.URL(), "page.open", PageOpenResult{
+		PageID:  pageID,
+		URL:     page.URL(),
+		Status:  page.StatusCode(),
+		Title:   page.Title(),
+		AdBlock: session.AdBlockFinding(pageID),
 	})
 }
 
@@ -704,10 +842,12 @@ func (s *Server) cmdPageEval(ctx context.Context, client clientIdentity, req *Re
 	if err != nil {
 		return s.taskErrorResponse(req, err, ErrEvalFailed)
 	}
-	return okResp(req.ID, PageEvalResult{Value: v.String()})
+	result := PageEvalResult{Value: v.String()}
+	v.Release()
+	return s.pageResp(ctx, req, session, params.PageID, "page.eval", result)
 }
 
-func (s *Server) cmdPageDump(client clientIdentity, req *Request) *Response {
+func (s *Server) cmdPageDump(ctx context.Context, client clientIdentity, req *Request) *Response {
 	var params PageDumpParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResp(req.ID, string(ErrBadParams), err.Error())
@@ -720,6 +860,9 @@ func (s *Server) cmdPageDump(client clientIdentity, req *Request) *Response {
 		return sessionError(req, sessionErr)
 	}
 	data, err := session.Dump(params.PageID, params.Format)
+	if session.Page(params.PageID) == nil {
+		data, err = session.DumpChromiumPage(ctx, params.PageID, params.Format)
+	}
 	if err != nil {
 		var taskErr *artemis.TaskError
 		if errors.As(err, &taskErr) && taskErr.Code == artemis.TaskErrorInvalidInput && strings.Contains(taskErr.Error(), "unknown format") {
@@ -727,7 +870,7 @@ func (s *Server) cmdPageDump(client clientIdentity, req *Request) *Response {
 		}
 		return s.taskErrorResponse(req, err, ErrBadFormat)
 	}
-	return okResp(req.ID, PageDumpResult{Data: data})
+	return s.pageResp(ctx, req, session, params.PageID, "page.dump", PageDumpResult{Data: data})
 }
 
 func (s *Server) cmdPageClickByText(ctx context.Context, client clientIdentity, req *Request) *Response {
@@ -792,7 +935,7 @@ func (s *Server) cmdPageAssert(ctx context.Context, client clientIdentity, req *
 		}
 		return s.taskErrorResponse(req, err, ErrAssertFailed)
 	}
-	return okResp(req.ID, AssertResult{Pass: result.Pass, Got: result.Got})
+	return s.pageResp(ctx, req, session, params.PageID, "page.assert", AssertResult{Pass: result.Pass, Got: result.Got})
 }
 
 func (s *Server) cmdChromiumAct(ctx context.Context, client clientIdentity, req *Request) *Response {
@@ -804,14 +947,17 @@ func (s *Server) cmdChromiumAct(ctx context.Context, client clientIdentity, req 
 	if sessionErr != nil {
 		return sessionError(req, sessionErr)
 	}
-	outcome, err := session.ChromiumAct(ctx, params.Request)
+	if params.PageID == "" {
+		return errResp(req.ID, string(ErrBadParams), "explicit pageId required")
+	}
+	if params.LeaseToken != "" {
+		ctx = artemis.WithWriterLease(ctx, params.LeaseToken)
+	}
+	outcome, err := session.ActChromiumPage(ctx, params.PageID, params.SnapshotEpoch, params.Request)
 	if err != nil {
 		return s.taskErrorResponse(req, err, ErrCapabilityUnavailable)
 	}
-	if !outcome.Success {
-		return errResp(req.ID, string(outcome.Failure), outcome.Error)
-	}
-	return okResp(req.ID, ChromiumActResult{Outcome: outcome})
+	return s.pageResp(ctx, req, session, params.PageID, "chromium.act", ChromiumActResult{Outcome: outcome})
 }
 
 func (s *Server) cmdStream(ctx, connCtx context.Context, c *websocket.Conn, client clientIdentity, req *Request, wg *sync.WaitGroup) *Response {
@@ -887,19 +1033,15 @@ func (s *Server) streamOpen(ctx context.Context, c *websocket.Conn, session *art
 	}
 
 	outbox.pushEvent(&Event{Event: "stream.progress", Params: StreamProgress{StreamID: streamID, Stage: "loaded"}})
-	outbox.pushEvent(&Event{Event: "stream.result", Params: PageOpenResult{
-		PageID: pageID,
-		URL:    page.URL(),
-		Status: page.StatusCode(),
-		Title:  page.Title(),
-	}})
-
-	resp := okResp(outbox.reqID, PageOpenResult{
+	resp := s.labeledResp(&Request{ID: outbox.reqID}, page.URL(), "stream", PageOpenResult{
 		PageID: pageID,
 		URL:    page.URL(),
 		Status: page.StatusCode(),
 		Title:  page.Title(),
 	})
+	if resp.OK {
+		outbox.pushEvent(&Event{Event: "stream.result", Params: resp.Value, Trust: resp.Trust})
+	}
 	outbox.pushTerminal(resp)
 	s.writeResp(ctx, c, resp)
 }
@@ -984,6 +1126,18 @@ func newStreamID() string {
 		return strconv.FormatUint(uint64(time.Now().UnixNano()), 10)
 	}
 	return hex.EncodeToString(b)
+}
+
+func (s *Server) cmdAdBlockWhitelist(req *Request) *Response {
+	var params AdBlockWhitelistParams
+	if err := DecodeParams(req, &params); err != nil {
+		return errResp(req.ID, string(ErrBadParams), err.Error())
+	}
+	domains, err := s.agent.AdBlockWhitelist(params.Op, params.Domain)
+	if err != nil {
+		return s.taskErrorResponse(req, err, ErrBadParams)
+	}
+	return okResp(req.ID, AdBlockWhitelistResult{Domains: domains})
 }
 
 func okResp(id string, value any) *Response {

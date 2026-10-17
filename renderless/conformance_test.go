@@ -130,7 +130,10 @@ func TestConformanceInterceptHandler(t *testing.T) {
 // (spec L4022: conformance test).
 func TestConformanceCSSParser(t *testing.T) {
 	p := NewCSSParser()
-	rules := p.Parse("div { color: red; } .class { font-size: 14px; }")
+	rules, err := p.Parse("div { color: red; } .class { font-size: 14px; }")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rules) != 2 {
 		t.Errorf("conformance: rules: got %d, want 2", len(rules))
 	}

@@ -10,9 +10,11 @@ type emptyParams struct{}
 type emptyResult struct{}
 
 type dispatchKeyEventParams struct {
-	Type string `json:"type"`
-	Key  string `json:"key,omitempty"`
-	Text string `json:"text,omitempty"`
+	Type                  string `json:"type"`
+	Key                   string `json:"key,omitempty"`
+	Code                  string `json:"code,omitempty"`
+	Text                  string `json:"text,omitempty"`
+	WindowsVirtualKeyCode int    `json:"windowsVirtualKeyCode,omitempty"`
 }
 
 type dispatchMouseEventParams struct {
@@ -44,10 +46,19 @@ type cancelDownloadParams struct {
 }
 
 type captureScreenshotParams struct {
-	Format                string `json:"format"`
-	Quality               *int   `json:"quality,omitempty"`
-	FromSurface           bool   `json:"fromSurface"`
-	CaptureBeyondViewport bool   `json:"captureBeyondViewport"`
+	Format                string          `json:"format"`
+	Quality               *int            `json:"quality,omitempty"`
+	FromSurface           bool            `json:"fromSurface"`
+	CaptureBeyondViewport bool            `json:"captureBeyondViewport"`
+	Clip                  *screenshotClip `json:"clip,omitempty"`
+}
+
+type screenshotClip struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+	Scale  float64 `json:"scale"`
 }
 
 type printToPDFParams struct {
@@ -96,10 +107,6 @@ type callFunctionOnParams struct {
 	AwaitPromise        bool                  `json:"awaitPromise"`
 }
 
-type getFrameOwnerParams struct {
-	FrameID string `json:"frameId"`
-}
-
 type dataResult struct {
 	Data string `json:"data"`
 }
@@ -129,15 +136,8 @@ type resolveNodeResult struct {
 	Object runtimeRemoteObject `json:"object"`
 }
 
-type getFrameOwnerResult struct {
-	BackendNodeID int64 `json:"backendNodeId"`
-}
-
-type frameTreeResult struct {
-	FrameTree frameBranch `json:"frameTree"`
-}
-
 type downloadWillBeginEvent struct {
+	FrameID           string `json:"frameId"`
 	GUID              string `json:"guid"`
 	SuggestedFilename string `json:"suggestedFilename"`
 }
@@ -151,13 +151,6 @@ type downloadProgressEvent struct {
 type viewportDimensions struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
-}
-
-type elementRect struct {
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"w,omitempty"`
-	Height float64 `json:"h,omitempty"`
 }
 
 type targetMetadata struct {

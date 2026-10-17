@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -9,45 +10,54 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
-	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	httpsig "github.com/remitly-oss/httpsig-go"
 )
 
-// webbotauth.go (TASK-2343: WebBotAuth — cryptographic good-bot signature).
+// webbotauth.go (TASK-2343, TASK-2988: WebBotAuth - cryptographic good-bot
+// signature).
 //
 // WebBotAuth is the honest counterpart to the stealth layer: instead of
-// hiding that the agent is a bot, it cryptographically signs outbound HTTP
-// requests so that participating origins can verify the agent's identity.
-// This implements the IETF Web Bot Auth architecture
-// (draft-meunier-web-bot-auth-architecture) on top of RFC 9421 HTTP Message
-// Signatures, using Ed25519 keys.
+// hiding that the agent is a bot, it signs outbound HTTP requests so that
+// participating origins can verify the agent's identity. It follows the IETF
+// Web Bot Auth architecture (draft-meunier-web-bot-auth-architecture) on top
+// of RFC 9421 HTTP Message Signatures with Ed25519 keys. The RFC 9421 signature
+// base, structured-field encoding and verification come from the vetted
+// github.com/remitly-oss/httpsig-go library (AGENTS.md: no custom cryptography).
 //
 // The signer is operator-gated: it only activates when the operator provides
 // a private key and agent URL via config. When disabled, requests pass
-// through unsigned (the default, preserving current behavior).
+// through unsigned (the default).
 //
 // Headers produced on each signed request:
-//   Signature-Agent: g="<agentURL>"
-//   Signature-Input: g=("@authority" "created" "expires" "keyid" "tag");tag="web-bot-auth";...
-//   Signature: g=:<base64-signature>:
+//   Signature-Agent: "<agentURL>"
+//   Signature-Input: sig1=("@authority" "signature-agent");created=...;expires=...;nonce=...;alg="ed25519";keyid="...";tag="web-bot-auth"
+//   Signature: sig1=:<base64-signature>:
 //
-// The signature is computed over the canonical signature base string per
-// RFC 9421 §2.3, covering @authority and the signature-params themselves.
+// Signature-Agent is a covered component, so the claimed identity cannot be
+// swapped without invalidating the signature; the nonce enables replay
+// rejection in WebBotAuthVerifier.
 
 // WebBotAuthTag is the required tag parameter value for web-bot-auth.
 const WebBotAuthTag = "web-bot-auth"
 
 // WebBotAuthLabel is the signature label used in Signature-Input/Signature.
-const WebBotAuthLabel = "g"
+const WebBotAuthLabel = "sig1"
+
+// webBotAuthFields are the covered components of every web-bot-auth signature.
+var webBotAuthFields = []string{"@authority", "signature-agent"}
+
+var webBotAuthMetadata = []httpsig.Metadata{httpsig.MetaCreated, httpsig.MetaExpires, httpsig.MetaNonce, httpsig.MetaAlgorithm, httpsig.MetaKeyID, httpsig.MetaTag}
 
 // WebBotAuthConfig configures the WebBotAuth signer (operator-gated).
 type WebBotAuthConfig struct {
 	// Enabled gates signing. When false, Sign is a no-op.
 	Enabled bool
-	// AgentURL is the agent's identity URL (e.g. "https://agent.example.com").
-	// This is published in the Signature-Agent header as g="<AgentURL>".
+	// AgentURL is the agent's identity URL (e.g. "https://agent.example.com"),
+	// published as the covered Signature-Agent header.
 	AgentURL string
 	// PrivateKey is the Ed25519 private key used for signing.
 	PrivateKey ed25519.PrivateKey
@@ -69,8 +79,9 @@ type WebBotAuthStats struct {
 // WebBotAuth signs HTTP requests per the web-bot-auth architecture
 // (TASK-2343). It is safe for concurrent use.
 type WebBotAuth struct {
-	cfg   WebBotAuthConfig
-	stats WebBotAuthStats
+	cfg    WebBotAuthConfig
+	stats  WebBotAuthStats
+	signer *httpsig.Signer
 }
 
 // NewWebBotAuth creates a signer from the given config. Returns an error if
@@ -100,105 +111,86 @@ func NewWebBotAuth(cfg WebBotAuthConfig) (*WebBotAuth, error) {
 		}
 		cfg.KeyID = kid
 	}
-	return &WebBotAuth{cfg: cfg}, nil
+	agent, err := url.Parse(cfg.AgentURL)
+	if err != nil || agent.Scheme != "https" || agent.Host == "" {
+		return nil, fmt.Errorf("webbotauth: AgentURL must be an absolute https URL")
+	}
+	signer, err := httpsig.NewSigner(httpsig.SigningProfile{
+		Algorithm:       httpsig.Algo_ED25519,
+		Fields:          httpsig.Fields(webBotAuthFields...),
+		Metadata:        webBotAuthMetadata,
+		Label:           WebBotAuthLabel,
+		ExpiresDuration: cfg.MaxExpiry,
+		Nonce:           httpsig.NonceRandom32,
+	}, httpsig.SigningKey{Key: cfg.PrivateKey, MetaKeyID: cfg.KeyID, MetaTag: WebBotAuthTag})
+	if err != nil {
+		return nil, fmt.Errorf("webbotauth: signer: %w", err)
+	}
+	return &WebBotAuth{cfg: cfg, signer: signer}, nil
 }
 
-// Sign signs an outbound HTTP request in-place by adding Signature-Agent,
-// Signature-Input, and Signature headers (TASK-2343). If the signer is
-// disabled, the request is returned unmodified.
+// Sign signs an outbound HTTP request in place by adding the covered
+// Signature-Agent header and the RFC 9421 Signature-Input and Signature
+// headers. If the signer is disabled, the request is returned unmodified.
 func (w *WebBotAuth) Sign(req *http.Request) error {
 	w.stats.Total.Add(1)
 	if !w.cfg.Enabled {
 		w.stats.Skipped.Add(1)
 		return nil
 	}
-	if req == nil {
+	if req == nil || req.URL == nil {
 		w.stats.Errors.Add(1)
 		return errors.New("webbotauth: nil request")
 	}
-
-	created := time.Now().Unix()
-	expires := time.Now().Add(w.cfg.MaxExpiry).Unix()
-
-	// @authority is the Host header value (RFC 9421 §2.2.3).
-	authority := req.Host
-	if authority == "" {
-		if req.URL != nil {
-			authority = req.URL.Host
-		}
-	}
-	if authority == "" {
+	if req.Host == "" && req.URL.Host == "" {
 		w.stats.Errors.Add(1)
 		return errors.New("webbotauth: cannot determine @authority (empty Host)")
 	}
-
-	// Build the signature-input header value.
-	sigInput := buildSignatureInput(authority, created, expires, w.cfg.KeyID)
-
-	// Build the canonical signature base string (RFC 9421 §2.3).
-	sigBase, err := buildSignatureBase(authority, sigInput)
-	if err != nil {
-		w.stats.Errors.Add(1)
-		return fmt.Errorf("webbotauth: build signature base: %w", err)
+	if req.Host == "" {
+		// Redirect hops arrive with an empty Host; sign the authority the
+		// transport actually sends.
+		req.Host = req.URL.Host
 	}
-
-	// Sign with Ed25519.
-	sig := ed25519.Sign(w.cfg.PrivateKey, []byte(sigBase))
-	sigB64 := base64.StdEncoding.EncodeToString(sig)
-
-	// Attach headers.
-	req.Header.Set("Signature-Agent", fmt.Sprintf(`g=%q`, w.cfg.AgentURL))
-	req.Header.Set("Signature-Input", sigInput)
-	req.Header.Set("Signature", fmt.Sprintf("g=:%s:", sigB64))
-
+	if req.Header == nil {
+		req.Header = http.Header{}
+	}
+	req.Header.Set("Signature-Agent", fmt.Sprintf("%q", w.cfg.AgentURL))
+	if err := w.signer.Sign(req); err != nil {
+		w.stats.Errors.Add(1)
+		return fmt.Errorf("webbotauth: sign: %w", err)
+	}
 	w.stats.Signed.Add(1)
 	return nil
 }
 
-// SignRequest is a convenience wrapper for the network.Request type used by
-// HTTPClient. It sets the three signature headers in r.Headers.
+// SignRequest signs a network.Request for method and targetURL by setting the
+// three signature headers in r.Headers.
 func (w *WebBotAuth) SignRequest(r *Request, method, targetURL string) error {
-	w.stats.Total.Add(1)
 	if !w.cfg.Enabled {
+		w.stats.Total.Add(1)
 		w.stats.Skipped.Add(1)
 		return nil
 	}
 	if r == nil {
+		w.stats.Total.Add(1)
 		w.stats.Errors.Add(1)
 		return errors.New("webbotauth: nil request")
+	}
+	probe, err := http.NewRequest(method, targetURL, nil)
+	if err != nil {
+		w.stats.Total.Add(1)
+		w.stats.Errors.Add(1)
+		return fmt.Errorf("webbotauth: build request: %w", err)
+	}
+	if err := w.Sign(probe); err != nil {
+		return err
 	}
 	if r.Headers == nil {
 		r.Headers = http.Header{}
 	}
-
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		w.stats.Errors.Add(1)
-		return fmt.Errorf("webbotauth: parse URL: %w", err)
+	for _, name := range []string{"Signature-Agent", "Signature-Input", "Signature"} {
+		r.Headers.Set(name, probe.Header.Get(name))
 	}
-	authority := u.Host
-	if authority == "" {
-		w.stats.Errors.Add(1)
-		return errors.New("webbotauth: empty authority in URL")
-	}
-
-	created := time.Now().Unix()
-	expires := time.Now().Add(w.cfg.MaxExpiry).Unix()
-
-	sigInput := buildSignatureInput(authority, created, expires, w.cfg.KeyID)
-	sigBase, err := buildSignatureBase(authority, sigInput)
-	if err != nil {
-		w.stats.Errors.Add(1)
-		return fmt.Errorf("webbotauth: build signature base: %w", err)
-	}
-	sig := ed25519.Sign(w.cfg.PrivateKey, []byte(sigBase))
-	sigB64 := base64.StdEncoding.EncodeToString(sig)
-
-	r.Headers.Set("Signature-Agent", fmt.Sprintf(`g=%q`, w.cfg.AgentURL))
-	r.Headers.Set("Signature-Input", sigInput)
-	r.Headers.Set("Signature", fmt.Sprintf("g=:%s:", sigB64))
-
-	w.stats.Signed.Add(1)
 	return nil
 }
 
@@ -217,66 +209,6 @@ func (w *WebBotAuth) Stats() (total, signed, skipped, errors int64) {
 		w.stats.Signed.Load(),
 		w.stats.Skipped.Load(),
 		w.stats.Errors.Load()
-}
-
-// buildSignatureInput constructs the Signature-Input header value for label
-// "g" covering @authority with the required web-bot-auth parameters.
-func buildSignatureInput(authority string, created, expires int64, keyID string) string {
-	// Signature-Input: g=("@authority");created=<ts>;expires=<ts>;keyid="<kid>";tag="web-bot-auth"
-	return fmt.Sprintf(`g=("@authority");created=%d;expires=%d;keyid=%q;tag=%q`,
-		created, expires, keyID, WebBotAuthTag)
-}
-
-// buildSignatureBase constructs the canonical signature base string per
-// RFC 9421 §2.3. For web-bot-auth, the covered components are:
-//
-//	"@authority": <authority>\n
-//	"@signature-params": <sig-input-params>\n
-//
-// The @signature-params value is the content inside the parentheses of the
-// Signature-Input header (the component list + parameters), per RFC 9421.
-func buildSignatureBase(authority, sigInput string) (string, error) {
-	// Extract the signature-params from the Signature-Input header value.
-	// The header is: g=("@authority");created=...;expires=...;keyid=...;tag=...
-	// We need the part after "g=" (the params list including the trailing params).
-	paramsStr, err := extractSignatureParams(sigInput)
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	// @authority component (RFC 9421 §2.2.3): the Host header value.
-	b.WriteString(`"@authority": `)
-	b.WriteString(quoteHTTPString(authority))
-	b.WriteString("\n")
-	// @signature-params component (RFC 9421 §2.3): the signature params.
-	b.WriteString(`"@signature-params": `)
-	b.WriteString(quoteHTTPString(paramsStr))
-	b.WriteString("\n")
-	return b.String(), nil
-}
-
-// extractSignatureParams extracts the signature-params value from a
-// Signature-Input header value. The header format is:
-//
-//	g=("@authority");created=...;expires=...;keyid=...;tag=...
-//
-// The signature-params value is everything after "g=" (including the
-// component list and the parameters), per RFC 9421 §2.3.
-func extractSignatureParams(sigInput string) (string, error) {
-	// Find the label= prefix.
-	idx := strings.Index(sigInput, "=")
-	if idx < 0 {
-		return "", errors.New("webbotauth: malformed Signature-Input (no =)")
-	}
-	return sigInput[idx+1:], nil
-}
-
-// quoteHTTPString wraps a string in double quotes per RFC 9421 §4.1.6
-// (HTTP string literal). It escapes backslash and double-quote.
-func quoteHTTPString(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	return `"` + s + `"`
 }
 
 // computeKeyID computes the base64url-encoded JWK SHA-256 thumbprint for an
@@ -349,137 +281,123 @@ func (w *WebBotAuth) PublishPublicKey() ([]byte, error) {
 	return json.MarshalIndent(ks, "", "  ")
 }
 
-// VerifyWebBotAuthSignature verifies a web-bot-auth signature on an
-// http.Request using the given Ed25519 public key. Returns nil if the
-// signature is valid, an error otherwise. This is the server-side
-// verification function; the agent uses Sign.
-func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
-	if req == nil {
-		return errors.New("webbotauth: nil request")
+// webBotAuthKey resolves exactly one trusted Ed25519 key.
+type webBotAuthKey struct {
+	spec httpsig.KeySpec
+}
+
+func (k webBotAuthKey) FetchByKeyID(_ context.Context, _ http.Header, keyID string) (httpsig.KeySpecer, error) {
+	if keyID != k.spec.KeyID {
+		return nil, fmt.Errorf("webbotauth: unknown keyid %q", keyID)
 	}
-	sigInput := req.Header.Get("Signature-Input")
-	sigHeader := req.Header.Get("Signature")
-	if sigInput == "" || sigHeader == "" {
+	return k.spec, nil
+}
+
+func (k webBotAuthKey) Fetch(context.Context, http.Header, httpsig.MetadataProvider) (httpsig.KeySpecer, error) {
+	return nil, errors.New("webbotauth: keyid required")
+}
+
+// WebBotAuthVerifier verifies web-bot-auth signatures for one agent key and
+// rejects replayed nonces until their signature expires. It is safe for
+// concurrent use; the nonce memory is bounded.
+type WebBotAuthVerifier struct {
+	verifier  *httpsig.Verifier
+	maxNonces int
+	now       func() time.Time
+	mu        sync.Mutex
+	nonces    map[string]time.Time
+}
+
+const defaultWebBotAuthNonces = 100_000
+
+// NewWebBotAuthVerifier builds a verifier for pub. maxNonces <= 0 selects
+// 100,000 remembered nonces.
+func NewWebBotAuthVerifier(pub ed25519.PublicKey, maxNonces int) (*WebBotAuthVerifier, error) {
+	if len(pub) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("webbotauth: public key len = %d, want %d", len(pub), ed25519.PublicKeySize)
+	}
+	keyID, err := computeKeyID(pub)
+	if err != nil {
+		return nil, err
+	}
+	verifier, err := httpsig.NewVerifier(webBotAuthKey{spec: httpsig.KeySpec{KeyID: keyID, Algo: httpsig.Algo_ED25519, PubKey: pub}}, httpsig.VerifyProfile{
+		SignatureLabel:       WebBotAuthLabel,
+		RequiredFields:       httpsig.Fields(webBotAuthFields...),
+		RequiredMetadata:     webBotAuthMetadata,
+		AllowedAlgorithms:    []httpsig.Algorithm{httpsig.Algo_ED25519},
+		CreatedValidDuration: 24 * time.Hour,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("webbotauth: verifier: %w", err)
+	}
+	if maxNonces <= 0 {
+		maxNonces = defaultWebBotAuthNonces
+	}
+	return &WebBotAuthVerifier{verifier: verifier, maxNonces: maxNonces, now: time.Now, nonces: make(map[string]time.Time)}, nil
+}
+
+// Verify checks signature, covered components, metadata, freshness, the
+// web-bot-auth tag and nonce uniqueness. Returns nil only for a valid,
+// first-seen signature.
+func (v *WebBotAuthVerifier) Verify(req *http.Request) error {
+	if v == nil || req == nil {
+		return errors.New("webbotauth: verifier and request required")
+	}
+	if req.Header.Get("Signature-Input") == "" || req.Header.Get("Signature") == "" {
 		return errors.New("webbotauth: missing Signature-Input or Signature header")
 	}
-	// Extract the signature bytes from "g=:<base64>:".
-	sig, err := extractSignatureValue(sigHeader)
+	result, err := v.verifier.Verify(req)
 	if err != nil {
-		return fmt.Errorf("webbotauth: extract signature: %w", err)
+		return fmt.Errorf("webbotauth: signature verification failed: %w", err)
 	}
-	// Extract the signature-params from the Signature-Input header.
-	if windowErr := validateSignatureWindow(sigInput, time.Now()); windowErr != nil {
-		return windowErr
-	}
-	// Reconstruct the @authority value.
-	authority := req.Host
-	if authority == "" && req.URL != nil {
-		authority = req.URL.Host
-	}
-	if authority == "" {
-		return errors.New("webbotauth: cannot determine @authority")
-	}
-	// Rebuild the signature base.
-	sigBase, err := buildSignatureBase(authority, sigInput)
-	if err != nil {
-		return fmt.Errorf("webbotauth: rebuild base: %w", err)
-	}
-	// Verify the Ed25519 signature.
-	if !ed25519.Verify(pub, []byte(sigBase), sig) {
+	if !result.Verified {
 		return errors.New("webbotauth: signature verification failed")
 	}
-	return nil
-}
-
-func validateSignatureWindow(sigInput string, now time.Time) error {
-	created, expires, _, _, err := ParseWebBotAuthSignatureInput(sigInput)
+	tag, err := result.Tag()
+	if err != nil || tag != WebBotAuthTag {
+		return fmt.Errorf("webbotauth: tag must be %q", WebBotAuthTag)
+	}
+	nonce, err := result.Nonce()
+	if err != nil || nonce == "" {
+		return errors.New("webbotauth: nonce required")
+	}
+	expires, err := result.Expires()
 	if err != nil {
-		return fmt.Errorf("webbotauth: parse signature-input: %w", err)
+		return errors.New("webbotauth: expires required")
 	}
-	if created <= 0 || expires <= created {
-		return errors.New("webbotauth: invalid signature time window")
+	return v.admitNonce(nonce, time.Unix(int64(expires), 0))
+}
+
+func (v *WebBotAuthVerifier) admitNonce(nonce string, expires time.Time) error {
+	now := v.now()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if seenUntil, seen := v.nonces[nonce]; seen && now.Before(seenUntil) {
+		return errors.New("webbotauth: replayed nonce")
 	}
-	nowUnix := now.Unix()
-	if created > nowUnix+int64((5*time.Minute)/time.Second) {
-		return errors.New("webbotauth: signature created in the future")
+	if len(v.nonces) >= v.maxNonces {
+		for key, until := range v.nonces {
+			if !now.Before(until) {
+				delete(v.nonces, key)
+			}
+		}
+		if len(v.nonces) >= v.maxNonces {
+			return errors.New("webbotauth: nonce memory exhausted; rejecting to stay replay-safe")
+		}
 	}
-	if expires < nowUnix {
-		return errors.New("webbotauth: signature expired")
-	}
+	v.nonces[nonce] = expires
 	return nil
 }
 
-// extractSignatureValue extracts the base64-decoded signature bytes from a
-// Signature header value of the form "g=:<base64>:".
-func extractSignatureValue(sigHeader string) ([]byte, error) {
-	// Format: g=:<base64>:
-	prefix := WebBotAuthLabel + "=:"
-	if !strings.HasPrefix(sigHeader, prefix) {
-		return nil, errors.New("webbotauth: signature header missing label prefix")
+// VerifyWebBotAuthSignature verifies one web-bot-auth signature on req with
+// pub without replay memory. Servers that accept repeated requests should use
+// WebBotAuthVerifier to also reject replayed nonces.
+func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
+	verifier, err := NewWebBotAuthVerifier(pub, 1)
+	if err != nil {
+		return err
 	}
-	rest := sigHeader[len(prefix):]
-	if !strings.HasSuffix(rest, ":") {
-		return nil, errors.New("webbotauth: signature header missing trailing colon")
-	}
-	b64 := rest[:len(rest)-1]
-	return base64.StdEncoding.DecodeString(b64)
-}
-
-// ParseWebBotAuthSignatureInput parses a Signature-Input header value and
-// returns the key parameters (created, expires, keyid, tag). Returns an
-// error if the header is malformed or missing required parameters.
-func ParseWebBotAuthSignatureInput(sigInput string) (created, expires int64, keyID, tag string, err error) {
-	// Strip the label prefix: g=(...);created=...;...
-	rest := sigInput
-	if idx := strings.Index(rest, "="); idx >= 0 {
-		rest = rest[idx+1:]
-	}
-	// Split on ';' but the first element is the component list "(...)".
-	// Find the closing paren.
-	closeParen := strings.Index(rest, ")")
-	if closeParen < 0 {
-		return 0, 0, "", "", errors.New("webbotauth: malformed Signature-Input (no closing paren)")
-	}
-	paramsPart := rest[closeParen+1:]
-	// Now parse the parameters: ;created=...;expires=...;keyid=...;tag=...
-	parts := strings.Split(paramsPart, ";")
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		eq := strings.Index(p, "=")
-		if eq < 0 {
-			continue
-		}
-		key := p[:eq]
-		val := p[eq+1:]
-		// Strip surrounding quotes.
-		val = strings.Trim(val, `"`)
-		switch key {
-		case "created":
-			created, err = strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return 0, 0, "", "", fmt.Errorf("webbotauth: parse created: %w", err)
-			}
-		case "expires":
-			expires, err = strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return 0, 0, "", "", fmt.Errorf("webbotauth: parse expires: %w", err)
-			}
-		case "keyid":
-			keyID = val
-		case "tag":
-			tag = val
-		}
-	}
-	if tag != WebBotAuthTag {
-		return 0, 0, "", "", fmt.Errorf("webbotauth: tag = %q, want %q", tag, WebBotAuthTag)
-	}
-	if keyID == "" {
-		return 0, 0, "", "", errors.New("webbotauth: missing keyid")
-	}
-	return created, expires, keyID, tag, nil
+	return verifier.Verify(req)
 }
 
 // WebBotAuthMiddleware is an HTTP transport wrapper that signs every
@@ -507,6 +425,13 @@ func (m *WebBotAuthMiddleware) RoundTrip(req *http.Request) (*http.Response, err
 		transport = http.DefaultTransport
 	}
 	return transport.RoundTrip(req)
+}
+
+// CloseIdleConnections forwards lifecycle teardown to the wrapped transport.
+func (m *WebBotAuthMiddleware) CloseIdleConnections() {
+	if closer, ok := m.Transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
 }
 
 // NewWebBotAuthTransport wraps an HTTP transport with WebBotAuth signing.
@@ -552,93 +477,4 @@ func DecodePublicKey(s string) (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("webbotauth: decoded key len = %d, want %d", len(data), ed25519.PublicKeySize)
 	}
 	return ed25519.PublicKey(data), nil
-}
-
-// SignRequestURL is a convenience that signs a request for the given method
-// and URL string, returning the three headers that should be attached. This
-// is useful for non-http.Request contexts (e.g. the network.Request type).
-func SignRequestURL(signer *WebBotAuth, method, targetURL string) (sigAgent, sigInput, sigValue string, err error) {
-	if signer == nil || !signer.Enabled() {
-		return "", "", "", nil
-	}
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		return "", "", "", fmt.Errorf("webbotauth: parse URL: %w", err)
-	}
-	authority := u.Host
-	if authority == "" {
-		return "", "", "", errors.New("webbotauth: empty authority")
-	}
-	created := time.Now().Unix()
-	expires := time.Now().Add(signer.cfg.MaxExpiry).Unix()
-	sigInput = buildSignatureInput(authority, created, expires, signer.cfg.KeyID)
-	sigBase, err := buildSignatureBase(authority, sigInput)
-	if err != nil {
-		return "", "", "", err
-	}
-	sig := ed25519.Sign(signer.cfg.PrivateKey, []byte(sigBase))
-	sigValue = fmt.Sprintf("g=:%s:", base64.StdEncoding.EncodeToString(sig))
-	sigAgent = fmt.Sprintf(`g=%q`, signer.cfg.AgentURL)
-	return sigAgent, sigInput, sigValue, nil
-}
-
-// VerifySignatureBase reconstructs the signature base string from the given
-// authority and Signature-Input header value, then verifies the signature
-// against the public key. This is the core verification primitive used by
-// VerifyWebBotAuthSignature and can be used independently for testing.
-func VerifySignatureBase(authority, sigInput string, sigB64 string, pub ed25519.PublicKey) error {
-	sigBase, err := buildSignatureBase(authority, sigInput)
-	if err != nil {
-		return fmt.Errorf("webbotauth: rebuild base: %w", err)
-	}
-	sig, err := base64.StdEncoding.DecodeString(sigB64)
-	if err != nil {
-		return fmt.Errorf("webbotauth: decode signature: %w", err)
-	}
-	if !ed25519.Verify(pub, []byte(sigBase), sig) {
-		return errors.New("webbotauth: signature verification failed")
-	}
-	return nil
-}
-
-// extractSigB64FromHeader extracts the base64 signature from a Signature
-// header value "g=:<b64>:".
-func extractSigB64FromHeader(sigHeader string) (string, error) {
-	prefix := WebBotAuthLabel + "=:"
-	if !strings.HasPrefix(sigHeader, prefix) {
-		return "", errors.New("webbotauth: signature header missing label prefix")
-	}
-	rest := sigHeader[len(prefix):]
-	if !strings.HasSuffix(rest, ":") {
-		return "", errors.New("webbotauth: signature header missing trailing colon")
-	}
-	return rest[:len(rest)-1], nil
-}
-
-// VerifyRequestHeaders verifies the web-bot-auth signature on a request
-// using the three header values (Signature-Agent, Signature-Input,
-// Signature) and the public key. Returns nil if valid.
-func VerifyRequestHeaders(sigAgent, sigInput, sigHeader, authority string, pub ed25519.PublicKey) error {
-	if sigInput == "" || sigHeader == "" {
-		return errors.New("webbotauth: missing Signature-Input or Signature header")
-	}
-	// Verify the tag is web-bot-auth.
-	if err := validateSignatureWindow(sigInput, time.Now()); err != nil {
-		return err
-	}
-	sigB64, err := extractSigB64FromHeader(sigHeader)
-	if err != nil {
-		return fmt.Errorf("webbotauth: extract signature: %w", err)
-	}
-	if err := VerifySignatureBase(authority, sigInput, sigB64, pub); err != nil {
-		return err
-	}
-	// Verify Signature-Agent if provided.
-	if sigAgent != "" {
-		// sigAgent format: g="<url>"
-		if !strings.HasPrefix(sigAgent, `g="`) || !strings.HasSuffix(sigAgent, `"`) || len(sigAgent) <= len(`g=""`) {
-			return errors.New("webbotauth: malformed Signature-Agent header")
-		}
-	}
-	return nil
 }

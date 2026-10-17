@@ -39,15 +39,15 @@ func TestFullExecutionRouterRouteRules(t *testing.T) {
 			wantReason: "bot_waf_captcha_detected",
 		},
 		{
-			name:       "webauthn_to_stealth",
+			name:       "webauthn_to_chromium",
 			signals:    RouterSignals{IsHTML: true, HasWebAuthn: true},
-			wantMode:   ModeStealth,
+			wantMode:   ModeChromiumCDP,
 			wantReason: "auth_profile_required",
 		},
 		{
-			name:       "auth_profile_to_stealth",
+			name:       "auth_profile_to_chromium",
 			signals:    RouterSignals{IsHTML: true, NeedsAuthProfile: true},
-			wantMode:   ModeStealth,
+			wantMode:   ModeChromiumCDP,
 			wantReason: "auth_profile_required",
 		},
 		{
@@ -273,10 +273,10 @@ func TestRouteFromEscalation(t *testing.T) {
 		t.Errorf("service worker: mode = %s, want chromium_cdp", d.Mode)
 	}
 
-	// Login wall -> stealth (auth profile)
+	// Login wall -> chromium_cdp (auth profile; stealth only for bot signals)
 	d = r.RouteFromEscalation(scraper.EscalationSignals{HasLoginWall: true})
-	if d.Mode != ModeStealth {
-		t.Errorf("login wall: mode = %s, want stealth", d.Mode)
+	if d.Mode != ModeChromiumCDP {
+		t.Errorf("login wall: mode = %s, want chromium_cdp", d.Mode)
 	}
 
 	// No signals -> static_fetch

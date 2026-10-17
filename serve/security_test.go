@@ -18,7 +18,7 @@ import (
 
 func startSecurityServer(t *testing.T, opts Opts) (string, *Server, func()) {
 	t.Helper()
-	agent, err := artemis.NewAgent(testAgentConfig())
+	agent, err := artemis.NewAgent(testAgentConfig(t))
 	if err != nil {
 		t.Fatalf("agent: %v", err)
 	}
@@ -62,7 +62,7 @@ func dialSecurityClient(t *testing.T, addr, token, clientID, origin string) (*we
 }
 
 func TestServeFailsClosedWithoutAuthenticationToken(t *testing.T) {
-	agent, err := artemis.NewAgent(testAgentConfig())
+	agent, err := artemis.NewAgent(testAgentConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	_ "embed"
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 const (

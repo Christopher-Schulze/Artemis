@@ -114,6 +114,10 @@ func TestPopupBlocker(t *testing.T) {
 	if !pb.ShouldBlock("tab-1", true) {
 		t.Error("popup should be blocked when enabled")
 	}
+	if pb.BlockedCount() != 0 {
+		t.Fatal("a policy decision counted an unconfirmed browser close")
+	}
+	pb.RecordClosed()
 	if pb.ShouldBlock("tab-1", false) {
 		t.Error("non-popup should not be blocked")
 	}

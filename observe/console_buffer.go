@@ -176,7 +176,7 @@ func (r *ConsoleRingBuffer) Clear() {
 	defer r.mu.Unlock()
 	r.head = 0
 	r.full = false
-	r.buf = make([]ConsoleEntry, r.cap)
+	clear(r.buf)
 }
 
 // FilterByLevel returns entries matching the given level

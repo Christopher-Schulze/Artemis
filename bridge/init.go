@@ -125,6 +125,9 @@ func (bi *BridgeInitializer) Stop() error {
 	}
 	err := bi.provider.Close()
 	if err != nil {
+		if bi.session != nil && bi.session.Runtime != nil && bi.session.Runtime.Stopped() {
+			bi.provider, bi.session, bi.started = nil, nil, false
+		}
 		if state != BridgeStateError {
 			_ = bi.state.Transition(BridgeStateError)
 		}
@@ -144,7 +147,7 @@ func (bi *BridgeInitializer) Stop() error {
 func (bi *BridgeInitializer) IsStarted() bool {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
-	return bi.started
+	return bi.started && bi.session != nil && bi.provider != nil && bi.provider.Healthy()
 }
 
 // Config returns the initialization config

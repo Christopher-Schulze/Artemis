@@ -143,6 +143,11 @@ func NewLiveCollector(caller bridgeobserve.Caller, source BrowserEventSource, co
 	live.cancel = cancel
 	live.workers.Add(1)
 	go live.consumeEvents(streamCtx, subscription)
+	if page, ok := caller.(*bridge.Page); ok {
+		if err := page.AddCleanup(live.Close); err != nil {
+			return nil, err
+		}
+	}
 	return live, nil
 }
 
@@ -150,6 +155,17 @@ func NewLiveCollector(caller bridgeobserve.Caller, source BrowserEventSource, co
 // network records so route consumers see a complete point-in-time projection.
 func (c *LiveCollector) CaptureEvidence(ctx context.Context) (ObservationEvidence, error) {
 	return c.Capture(ctx, bridgeobserve.ModeFull, "")
+}
+
+// QueryWithNamespace delegates task projections to the canonical ref owner.
+func (c *LiveCollector) QueryWithNamespace(ctx context.Context, request bridgeobserve.QueryRequest, namespace string) (bridgeobserve.QueryResult, error) {
+	if c == nil || c.snapshot == nil || c.closed.Load() {
+		return bridgeobserve.QueryResult{}, errors.New("observation: live collector is unavailable")
+	}
+	if err := c.eventError(); err != nil {
+		return bridgeobserve.QueryResult{}, fmt.Errorf("observation events: %w", err)
+	}
+	return c.snapshot.QueryWithNamespace(ctx, request, namespace)
 }
 
 // Capture captures one bounded observation mode together with all protocol
@@ -215,6 +231,21 @@ func (c *LiveCollector) RecordNetwork(event NetworkEvent) {
 	c.network.Push(event)
 }
 
+// ConsoleErrorCount returns the buffered console errors and uncaught
+// exceptions of the page.
+func (c *LiveCollector) ConsoleErrorCount() int {
+	if c == nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range c.console.Snapshot() {
+		if entry.Level == ConsoleLevelError {
+			count++
+		}
+	}
+	return count
+}
+
 func (c *LiveCollector) RecordConsole(entry ConsoleEntry) {
 	if c == nil || c.closed.Load() {
 		return
@@ -243,6 +274,11 @@ func (c *LiveCollector) Close() error {
 			c.stream.Close()
 		}
 		c.workers.Wait()
+		c.pendingMu.Lock()
+		clear(c.pending)
+		c.pendingMu.Unlock()
+		c.network.Clear()
+		c.console.Clear()
 	})
 	return nil
 }
@@ -301,6 +337,8 @@ func (c *LiveCollector) recordEvent(event bridge.CDPEvent) {
 		c.finishNetwork(event.Params, 0)
 	case "Runtime.consoleAPICalled":
 		c.recordConsoleEvent(event.Params)
+	case "Runtime.exceptionThrown":
+		c.recordExceptionEvent(event.Params)
 	}
 }
 
@@ -464,6 +502,30 @@ func (c *LiveCollector) recordConsoleEvent(raw json.RawMessage) {
 	}
 	timestamp := time.Now().UTC()
 	c.console.Push(ConsoleEntry{Level: NormalizeLevel(event.Type), Args: args, Timestamp: timestamp, StackTrace: truncateString(event.Stack.Description, MaxPostDataLen)})
+}
+
+type exceptionThrown struct {
+	Details struct {
+		Text      string       `json:"text"`
+		Exception remoteObject `json:"exception"`
+		Stack     struct {
+			Description string `json:"description"`
+		} `json:"stackTrace"`
+	} `json:"exceptionDetails"`
+}
+
+// recordExceptionEvent keeps uncaught page exceptions as error entries so
+// evidence and adblock breakage detection see script failures.
+func (c *LiveCollector) recordExceptionEvent(raw json.RawMessage) {
+	var event exceptionThrown
+	if json.Unmarshal(raw, &event) != nil {
+		return
+	}
+	message := strings.TrimSpace(event.Details.Exception.Description)
+	if message == "" {
+		message = strings.TrimSpace(event.Details.Text)
+	}
+	c.console.Push(ConsoleEntry{Level: ConsoleLevelError, Args: []string{truncateString(message, MaxPostDataLen)}, Timestamp: time.Now().UTC(), StackTrace: truncateString(event.Details.Stack.Description, MaxPostDataLen)})
 }
 
 func (c *LiveCollector) captureMetrics(ctx context.Context, evidence *ObservationEvidence) error {

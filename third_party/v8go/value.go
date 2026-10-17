@@ -5,13 +5,16 @@
 package v8go
 
 // #include <stdlib.h>
-// #include "v8go.h"
+// #include "value.h"
+// #include "artemis.h"
 import "C"
 import (
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
+	"reflect"
+	"runtime/cgo"
 	"unsafe"
 )
 
@@ -62,6 +65,19 @@ func Null(iso *Isolate) *Value {
 //	uint64 -> V8::BigInt
 //	bool -> V8::Boolean
 //	*big.Int -> V8::BigInt
+//
+// Other pointers are wrapped in a V8::External. JavaScript sees an opaque
+// object, which can e.g. be stored in an internal field with
+// [Object.SetInternalField], or passed to a function. The Go value is read
+// back with [Value.External]. Other types are not supported: a slice or map
+// was probably meant to be converted, and a struct would be copied.
+//
+// Each call creates a new External, so wrapping the same pointer twice gives
+// two values that are not equal in JavaScript.
+//
+// V8 keeps the Go value until the External is garbage collected, or the
+// Isolate is disposed. The returned Value keeps the External alive until it
+// is released, like any other Value.
 func NewValue(iso *Isolate, val interface{}) (*Value, error) {
 	if iso == nil {
 		return nil, errors.New("v8go: failed to create new Value: Isolate cannot be <nil>")
@@ -125,18 +141,44 @@ func NewValue(iso *Isolate, val interface{}) (*Value, error) {
 		bits := v.Bits()
 		count = len(bits)
 
-		words := make([]C.uint64_t, count)
+		words := make([]C.uint64_t, count, count)
 		for idx, word := range bits {
 			words[idx] = C.uint64_t(word)
 		}
 
 		rtn := C.NewValueBigIntFromWords(iso.ptr, C.int(sign), C.int(count), &words[0])
 		return valueResult(nil, rtn)
-	default:
+	case Valuer:
+		// Wrapping a Value in an External is almost certainly a mistake.
 		return nil, fmt.Errorf("v8go: unsupported value type `%T`", v)
+	default:
+		if reflect.ValueOf(v).Kind() != reflect.Pointer {
+			return nil, fmt.Errorf("v8go: unsupported value type `%T`", v)
+		}
+		rtnVal = &Value{
+			ptr: C.NewValueGo(iso.ptr, C.uintptr_t(cgo.NewHandle(v))),
+		}
 	}
 
 	return rtnVal, nil
+}
+
+// External returns the Go value wrapped by [NewValue]. It returns false if
+// the value is not an External.
+func (v *Value) External() (any, bool) {
+	h := cgo.Handle(C.ValueToGo(v.ptr))
+	if h == 0 {
+		return nil, false
+	}
+	return h.Value(), true
+}
+
+// goDeleteHandle is called from C++ when V8 has collected an External
+// created by NewValue, or the Isolate is disposed.
+//
+//export goDeleteHandle
+func goDeleteHandle(h C.uintptr_t) {
+	cgo.Handle(h).Delete()
 }
 
 // Format implements the fmt.Formatter interface to provide a custom formatter
@@ -145,20 +187,14 @@ func (v *Value) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
 		if s.Flag('+') {
-			if _, err := io.WriteString(s, v.DetailString()); err != nil {
-				return
-			}
+			io.WriteString(s, v.DetailString())
 			return
 		}
 		fallthrough
 	case 's':
-		if _, err := io.WriteString(s, v.String()); err != nil {
-			return
-		}
+		io.WriteString(s, v.String())
 	case 'q':
-		if _, err := fmt.Fprintf(s, "%q", v.String()); err != nil {
-			return
-		}
+		fmt.Fprintf(s, "%q", v.String())
 	}
 }
 
@@ -247,8 +283,22 @@ func (v *Value) Object() *Object {
 // print their definition.
 func (v *Value) String() string {
 	s := C.ValueToString(v.ptr)
-	defer C.free(unsafe.Pointer(s.data))
+	defer C.RtnStringRelease(s)
 	return C.GoStringN(s.data, C.int(s.length))
+}
+
+// StringChecked converts to a string and returns any JavaScript conversion
+// exception. Unlike String, it never replaces a thrown exception with empty text.
+func (v *Value) StringChecked() (string, error) {
+	if v == nil || v.ptr == nil {
+		return "", errors.New("v8go: valid value required for string conversion")
+	}
+	result := C.ValueToStringChecked(v.ptr)
+	if result.error.msg != nil {
+		return "", newJSError(result.error)
+	}
+	defer C.free(unsafe.Pointer(result.data))
+	return C.GoStringN(result.data, C.int(result.length)), nil
 }
 
 // Uint32 perform the equivalent of `Number(value)` in JS and convert the result to an
@@ -343,8 +393,7 @@ func (v *Value) IsNumber() bool {
 
 // IsExternal returns true if this value is an `External` object.
 func (v *Value) IsExternal() bool {
-	// TODO(rogchap): requires test case
-	return v.ctx != nil && C.ValueIsExternal(v.ptr) != 0
+	return C.ValueIsExternal(v.ptr) != 0
 }
 
 // IsInt32 returns true if this value is a 32-bit signed integer.
@@ -543,6 +592,15 @@ func (v *Value) Release() {
 	C.ValueRelease(v.ptr)
 }
 
+// ReturnFromCallback transfers an owned handle to the current native callback.
+// Return this exact value from that callback. Native code copies the JavaScript
+// value before releasing the handle. Do not reuse or Release it afterward, and
+// never transfer a borrowed handle or cached Null/Undefined value.
+func (v *Value) ReturnFromCallback() *Value {
+	C.ValueReleaseAfterCallback(v.ptr)
+	return v
+}
+
 // IsWasmModuleObject returns true if this value is a `WasmModuleObject`.
 func (v *Value) IsWasmModuleObject() bool {
 	// TODO(rogchap): requires test case
@@ -565,11 +623,27 @@ func (v *Value) AsObject() (*Object, error) {
 	return &Object{v}, nil
 }
 
+// AsSymbol will cast the value to the Symbol type. If the value is not a Symbol
+// then an error is returned.
+func (v *Value) AsSymbol() (*Symbol, error) {
+	if !v.IsSymbol() {
+		return nil, errors.New("v8go: value is not a Symbol")
+	}
+	return &Symbol{v}, nil
+}
+
 func (v *Value) AsPromise() (*Promise, error) {
 	if !v.IsPromise() {
 		return nil, errors.New("v8go: value is not a Promise")
 	}
 	return &Promise{&Object{v}}, nil
+}
+
+func (v *Value) AsException() (*Exception, error) {
+	if !v.IsNativeError() {
+		return nil, errors.New("v8go: value is not an Error")
+	}
+	return &Exception{v}, nil
 }
 
 func (v *Value) AsFunction() (*Function, error) {
@@ -586,4 +660,31 @@ func (v *Value) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return []byte(jsonStr), nil
+}
+
+func (v *Value) SharedArrayBufferGetContents() ([]byte, func(), error) {
+	if !v.IsSharedArrayBuffer() {
+		return nil, nil, errors.New("v8go: value is not a SharedArrayBuffer")
+	}
+
+	backingStore := C.SharedArrayBufferGetBackingStore(v.ptr)
+	release := func() {
+		C.BackingStoreRelease(backingStore)
+	}
+
+	byte_ptr := (*byte)(unsafe.Pointer(C.BackingStoreData(backingStore)))
+	byte_size := C.BackingStoreByteLength(backingStore)
+	byte_slice := unsafe.Slice(byte_ptr, byte_size)
+
+	return byte_slice, release, nil
+}
+
+func (v *Value) StrictEquals(other *Value) bool {
+	return C.ValueStrictEquals(v.ptr, other.ptr) != 0
+}
+
+func (v *Value) TypeOf() string {
+	s := C.ValueTypeOf(v.ptr)
+	defer C.RtnStringRelease(s)
+	return C.GoStringN(s.data, C.int(s.length))
 }

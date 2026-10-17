@@ -18,12 +18,12 @@ func HTML(d *webapi.Document) string {
 	if d == nil || d.RawRoot() == nil {
 		return ""
 	}
-	b := pool.GetBuilder()
-	defer pool.PutBuilder(b)
+	b := pool.GetBuffer()
+	defer pool.PutBuffer(b)
 	if err := html.Render(b, d.RawRoot()); err != nil {
 		return ""
 	}
-	return strings.Clone(b.String())
+	return b.String()
 }
 
 // Text returns the visible text of the document, skipping <script>,
@@ -33,12 +33,11 @@ func Text(d *webapi.Document) string {
 	if d == nil || d.RawRoot() == nil {
 		return ""
 	}
-	b := pool.GetBuilder()
+	b := pool.GetBuffer()
 	collectVisibleText(d.RawRoot(), b)
-	// Clone before the builder re-enters the pool: collapseWhitespace may
-	// return its input unchanged, which would alias the pooled buffer.
-	s := strings.Clone(b.String())
-	pool.PutBuilder(b)
+	// String copies, so the result never aliases the pooled buffer.
+	s := b.String()
+	pool.PutBuffer(b)
 	return collapseWhitespace(s)
 }
 
@@ -52,7 +51,7 @@ var blockElements = map[string]bool{
 	"tr": true, "ul": true, "td": true, "th": true,
 }
 
-func collectVisibleText(n *html.Node, b *strings.Builder) {
+func collectVisibleText(n *html.Node, b *pool.Buffer) {
 	if n == nil {
 		return
 	}

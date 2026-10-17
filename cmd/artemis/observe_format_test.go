@@ -63,7 +63,7 @@ func TestWriteObserveOutputHAR(t *testing.T) {
 	evidence := observeFixture()
 	var out bytes.Buffer
 
-	if err := writeObserveOutput(&out, formatHAR, evidence); err != nil {
+	if err := writeObserveOutput(&out, formatHAR, evidence, "https://example.test/"); err != nil {
 		t.Fatalf("writeObserveOutput HAR: %v", err)
 	}
 	// The CLI must emit a loadable HAR file: the log nested under "log".
@@ -100,7 +100,7 @@ func TestWriteObserveOutputNDJSON(t *testing.T) {
 	evidence := observeFixture()
 	var out bytes.Buffer
 
-	if err := writeObserveOutput(&out, formatNDJSON, evidence); err != nil {
+	if err := writeObserveOutput(&out, formatNDJSON, evidence, "https://example.test/"); err != nil {
 		t.Fatalf("writeObserveOutput NDJSON: %v", err)
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -124,7 +124,7 @@ func TestWriteObserveOutputEvidenceDefault(t *testing.T) {
 	evidence := observeFixture()
 	var out bytes.Buffer
 
-	if err := writeObserveOutput(&out, formatEvidence, evidence); err != nil {
+	if err := writeObserveOutput(&out, formatEvidence, evidence, "https://example.test/"); err != nil {
 		t.Fatalf("writeObserveOutput evidence: %v", err)
 	}
 	var decoded artemisobserve.ObservationEvidence

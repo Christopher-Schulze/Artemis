@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Christopher-Schulze/Artemis/agent"
 	"github.com/Christopher-Schulze/Artemis/js"
+	"github.com/Christopher-Schulze/Artemis/security"
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
@@ -23,8 +25,13 @@ type Page struct {
 	download   func(string, string, []byte) (*Download, error)
 	session    *sessionBudgetController
 	sessionID  string
-	closeOnce  sync.Once
-	closeErr   error
+	adBlocked  *atomic.Int64
+	adFinding  *security.AdBlockFinding
+	// degradations records page resources that did not load or run, so a
+	// partial page is never presented as complete.
+	degradations []string
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 // URL returns the final URL of the page after redirects.
@@ -45,8 +52,8 @@ func (p *Page) RawBody() []byte { return append([]byte(nil), p.rawBody...) }
 // SaveDownload atomically stores this response body in the owning engine
 // session's download directory. The target must be a filename, not a path.
 func (p *Page) SaveDownload(filename string) (*Download, error) {
-	if p.session != nil && p.session.err() != nil {
-		return nil, p.session.err()
+	if p.session != nil && p.session.sessionErr(p.sessionID) != nil {
+		return nil, p.session.sessionErr(p.sessionID)
 	}
 	if p.download == nil {
 		return nil, errors.New("page has no download owner")
@@ -104,7 +111,7 @@ func (p *Page) Click(ctx context.Context, n *webapi.Node) error {
 	}
 	ctx, release := p.sessionContext(ctx)
 	defer release()
-	_, err := p.jsCtx.Eval(ctx, fmt.Sprintf("__wrap(%d).click()", id))
+	err := p.jsCtx.EvalDiscard(ctx, fmt.Sprintf("__wrap(%d).click()", id))
 	if sessionErr := p.sessionError(); sessionErr != nil {
 		return sessionErr
 	}
@@ -131,7 +138,29 @@ func (p *Page) Eval(ctx context.Context, expr string) (*js.Value, error) {
 	defer release()
 	value, err := p.jsCtx.Eval(ctx, expr)
 	if sessionErr := p.sessionError(); sessionErr != nil {
+		value.Release()
 		return nil, sessionErr
+	}
+	return value, err
+}
+
+// EvalString keeps string evaluation and copying inside the page's existing
+// session and isolate owners rather than returning a live V8 handle.
+func (p *Page) EvalString(ctx context.Context, expr string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("page: eval context required")
+	}
+	if err := p.sessionError(); err != nil {
+		return "", err
+	}
+	if p.jsCtx == nil {
+		return "", errors.New("page has no JS context")
+	}
+	ctx, release := p.sessionContext(ctx)
+	defer release()
+	value, err := p.jsCtx.EvalString(ctx, expr)
+	if sessionErr := p.sessionError(); sessionErr != nil {
+		return "", sessionErr
 	}
 	return value, err
 }
@@ -175,12 +204,22 @@ func (p *Page) sessionContext(ctx context.Context) (context.Context, context.Can
 	if p.session == nil {
 		return ctx, func() {}
 	}
-	return p.session.mergeContext(ctx)
+	return p.session.mergeSessionContext(ctx, p.sessionID)
 }
 
 func (p *Page) sessionError() error {
 	if p.session == nil {
 		return nil
 	}
-	return p.session.err()
+	return p.session.sessionErr(p.sessionID)
+}
+
+// Degradations lists subresources that did not load or run (external script
+// failures and non-200 statuses); empty means none were observed. Ad/tracker
+// blocking is reported through AdBlockedRequests instead.
+func (p *Page) Degradations() []string {
+	if p == nil {
+		return nil
+	}
+	return append([]string(nil), p.degradations...)
 }

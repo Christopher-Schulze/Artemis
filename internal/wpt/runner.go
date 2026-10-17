@@ -3,38 +3,28 @@ package wpt
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/Christopher-Schulze/Artemis/engine"
+	"github.com/Christopher-Schulze/Artemis/fixtureasset"
 	"github.com/Christopher-Schulze/Artemis/internal/fixture"
 )
 
 //go:embed testdata/wpt
 var testdata embed.FS
 
-const testHarnessShim = `self = globalThis;
-(function() {
-  var __origSetTimeout = globalThis.setTimeout;
-  globalThis.setTimeout = function(fn, delay) {
-    if (delay === 0 || delay === undefined) {
-      return __origSetTimeout(fn, 0);
-    }
-    return 0;
-  };
-})();
-`
-
 // Result is the observed outcome of a single WPT test.
 type Result struct {
-	Path          string
-	Name          string
-	Status        string
-	Message       string
-	HarnessStatus string
+	Path            string
+	Name            string
+	Status          string
+	Message         string
+	HarnessStatus   string
+	FixtureManifest *fixtureasset.Manifest
 }
 
 // Validate returns an error if the result is incomplete or inconsistent.
@@ -51,11 +41,18 @@ func (r Result) Validate() error {
 	if r.HarnessStatus == "" {
 		return fmt.Errorf("wpt Result %q/%q: HarnessStatus is empty", r.Path, r.Name)
 	}
-	if strings.HasPrefix(r.Status, "UNKNOWN(") {
+	switch r.Status {
+	case "PASS", "FAIL", "TIMEOUT", "NOTRUN", "PRECONDITION_FAILED":
+	default:
 		return fmt.Errorf("wpt Result %q/%q: unsupported test status %q", r.Path, r.Name, r.Status)
 	}
-	if strings.HasPrefix(r.HarnessStatus, "UNKNOWN(") {
+	switch r.HarnessStatus {
+	case "OK", "ERROR", "TIMEOUT", "PRECONDITION_FAILED":
+	default:
 		return fmt.Errorf("wpt Result %q/%q: unsupported harness status %q", r.Path, r.Name, r.HarnessStatus)
+	}
+	if r.Status == "PASS" && r.HarnessStatus != "OK" {
+		return fmt.Errorf("wpt Result %q/%q: failed harness cannot substantiate PASS", r.Path, r.Name)
 	}
 	return nil
 }
@@ -63,19 +60,43 @@ func (r Result) Validate() error {
 // Runner serves a pinned WPT subset from the embedded testdata mirror and
 // executes it against an Artemis engine.
 type Runner struct {
-	Engine *engine.Engine
-	Server *fixture.Server
+	Engine   *engine.Engine
+	Server   *fixture.Server
+	input    fixtureInput
+	manifest fixtureasset.Manifest
 }
 
 // NewRunner creates a runner with a dedicated fixture server and engine.
 func NewRunner() (*Runner, error) {
+	manifest, content, err := DefaultFixture()
+	if err != nil {
+		return nil, err
+	}
+	return NewRunnerFromFixture(context.Background(), manifest, content)
+}
+
+// NewRunnerFromFixture admits exact governed bytes before creating resources.
+func NewRunnerFromFixture(ctx context.Context, manifest fixtureasset.Manifest, content []byte) (*Runner, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("wpt: owning context required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	input, err := decodeFixture(manifest, content)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	srv := fixture.NewServer()
 	eng, err := engine.New(engine.Config{PolicyConfig: srv.PolicyConfig()})
 	if err != nil {
 		srv.Close()
 		return nil, fmt.Errorf("engine: %w", err)
 	}
-	r := &Runner{Engine: eng, Server: srv}
+	r := &Runner{Engine: eng, Server: srv, input: input, manifest: manifest.Detached()}
 	if err := r.registerFiles(); err != nil {
 		if closeErr := r.Close(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close WPT runner: %w", closeErr))
@@ -87,20 +108,49 @@ func NewRunner() (*Runner, error) {
 
 // Close releases the engine and fixture server.
 func (r *Runner) Close() error {
+	if r == nil {
+		return nil
+	}
 	var err error
 	if r.Engine != nil {
 		err = r.Engine.Close()
+		r.Engine = nil
 	}
 	if r.Server != nil {
 		r.Server.Close()
+		r.Server = nil
 	}
+	r.input = fixtureInput{}
+	r.manifest = fixtureasset.Manifest{}
 	return err
 }
 
 // Run executes the subset and returns the result for each test case.
 func (r *Runner) Run(ctx context.Context, subset Subset) ([]Result, error) {
+	if r == nil || r.Engine == nil || r.Server == nil || ctx == nil {
+		return nil, fmt.Errorf("wpt: current runner and owning context required")
+	}
 	if err := subset.Validate(); err != nil {
 		return nil, err
+	}
+	pinned := DefaultSubset()
+	if subset.Revision != pinned.Revision || subset.OriginURL != pinned.OriginURL {
+		return nil, fmt.Errorf("wpt: subset provenance differs from embedded mirror")
+	}
+	for _, tc := range subset.Tests {
+		if _, err := fs.Stat(testdata, "testdata/wpt/"+tc.Path); err != nil {
+			return nil, fmt.Errorf("wpt: test asset %s is absent from embedded mirror: %w", tc.Path, err)
+		}
+		admitted := false
+		for _, pinnedCase := range r.input.Subset.Tests {
+			if pinnedCase == tc {
+				admitted = true
+				break
+			}
+		}
+		if !admitted {
+			return nil, fmt.Errorf("wpt: test assertion or capability differs from admitted fixture")
+		}
 	}
 	var out []Result
 	for _, tc := range subset.Tests {
@@ -121,6 +171,14 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (result Result, resul
 	if err := tc.Validate(); err != nil {
 		return Result{}, err
 	}
+	if ctx == nil {
+		return Result{}, fmt.Errorf("wpt: execution context is required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if r.Server.ScenarioByPath("/"+tc.Path) == nil {
+		return Result{}, fmt.Errorf("wpt: test asset %s is not registered", tc.Path)
+	}
 	pageURL := r.Server.URL(tc.Path)
 	page, err := r.Engine.Fetch(ctx, pageURL, engine.FetchOpts{RunScripts: true})
 	if err != nil {
@@ -133,82 +191,31 @@ func (r *Runner) RunCase(ctx context.Context, tc TestCase) (result Result, resul
 		}
 	}()
 
-	if _, dispatchErr := page.Eval(ctx, "window.dispatchEvent(new Event('load'))"); dispatchErr != nil {
-		return Result{}, fmt.Errorf("dispatch load %s: %w", tc.Path, dispatchErr)
-	}
-
-	v, err := page.Eval(ctx, "JSON.stringify(__wptResults)")
+	result, err = awaitReport(ctx, page, tc)
 	if err != nil {
-		return Result{}, fmt.Errorf("read results %s: %w", tc.Path, err)
+		return Result{}, err
 	}
-
-	raw := v.String()
-	if raw == "undefined" || raw == "null" || raw == "" {
-		return Result{}, fmt.Errorf("wpt %s/%s: harness produced no results", tc.Path, tc.Name)
-	}
-
-	var report struct {
-		HarnessStatus  int    `json:"harnessStatus"`
-		HarnessMessage string `json:"harnessMessage"`
-		Tests          []struct {
-			Name    string `json:"name"`
-			Status  int    `json:"status"`
-			Message string `json:"message"`
-		} `json:"tests"`
-	}
-	if err := json.Unmarshal([]byte(raw), &report); err != nil {
-		return Result{}, fmt.Errorf("parse results %s: %w", tc.Path, err)
-	}
-
-	for _, t := range report.Tests {
-		if t.Name == tc.Name {
-			caseResult := Result{
-				Path:          tc.Path,
-				Name:          tc.Name,
-				Status:        testStatus(t.Status),
-				Message:       t.Message,
-				HarnessStatus: harnessStatus(report.HarnessStatus),
-			}
-			if err := caseResult.Validate(); err != nil {
-				return Result{}, err
-			}
-			return caseResult, nil
+	for _, admitted := range r.input.Subset.Tests {
+		if admitted == tc {
+			manifest := r.manifest.Detached()
+			result.FixtureManifest = &manifest
+			break
 		}
 	}
-
-	return Result{
-		Path:          tc.Path,
-		Name:          tc.Name,
-		Status:        "NOT_FOUND",
-		HarnessStatus: harnessStatus(report.HarnessStatus),
-	}, nil
+	return result, nil
 }
 
-// registerFiles walks the embedded testdata mirror and registers every file
-// on the fixture server so the engine can fetch it at the same path the
-// upstream WPT test expects.
+// registerFiles serves the exact admitted bundle bytes at upstream paths.
 func (r *Runner) registerFiles() error {
-	return fs.WalkDir(testdata, "testdata/wpt", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
+	if r == nil || r.Server == nil || len(r.input.Files) == 0 {
+		return fmt.Errorf("wpt: admitted fixture input and server required")
+	}
+	for _, file := range r.input.Files {
+		if err := r.Server.RegisterRaw("/"+file.Path, contentType(file.Path), 200, file.Content); err != nil {
 			return err
 		}
-		if d.IsDir() {
-			return nil
-		}
-		rel := strings.TrimPrefix(p, "testdata/wpt/")
-		content, err := testdata.ReadFile(p)
-		if err != nil {
-			return err
-		}
-
-		if rel == "resources/testharness.js" {
-			content = append([]byte(testHarnessShim), content...)
-		}
-
-		ct := contentType(rel)
-		r.Server.RegisterRaw("/"+rel, ct, 200, content)
-		return nil
-	})
+	}
+	return nil
 }
 
 func contentType(rel string) string {

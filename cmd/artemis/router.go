@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -40,8 +41,7 @@ func routePage(ctx context.Context, eng *engine.Engine, targetURL string, runScr
 		return nil, err
 	}
 	if _, ok := result.Resource.(*engine.Page); !ok {
-		_ = result.Close()
-		return nil, fmt.Errorf("router: no retained renderless page")
+		return nil, errors.Join(fmt.Errorf("router: no retained renderless page"), result.Close())
 	}
 	return &result, nil
 }

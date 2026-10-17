@@ -16,7 +16,7 @@ import (
 
 func TestReplayCaptureAndRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	srv := NewServerWithDefaults()
+	srv := newDefaultTestServer(t)
 	defer srv.Close()
 
 	sc := srv.ScenarioByID("html-001")
@@ -83,19 +83,24 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 		t.Errorf("Result.StatusCode = %d, want %d", loaded.Result.StatusCode, result.StatusCode)
 	}
 
-	reg := loaded.AsRegression()
+	reg, err := loaded.AsRegression()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if reg.Status != result.StatusCode {
 		t.Errorf("regression Status = %d, want %d", reg.Status, result.StatusCode)
 	}
 	if reg.Expect.Title != result.Title {
 		t.Errorf("regression Expect.Title = %q, want %q", reg.Expect.Title, result.Title)
 	}
-	if reg.Path != "/regression/html-001" {
-		t.Errorf("regression Path = %q, want /regression/html-001", reg.Path)
+	if reg.Path != "/regression/"+loaded.ID {
+		t.Errorf("regression Path = %q, want capture-bound identity", reg.Path)
 	}
 
 	// The regression scenario should be servable and reproduce the title.
-	srv.Register(reg)
+	if err := srv.Register(reg); err != nil {
+		t.Fatalf("register actual regression: %v", err)
+	}
 	replayRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL(reg.Path), nil)
 	if err != nil {
 		t.Fatalf("new replay request: %v", err)
@@ -123,6 +128,7 @@ func TestReplayCaptureAndRoundTrip(t *testing.T) {
 
 func TestReplayRedaction(t *testing.T) {
 	result := CrossResult{
+		StatusCode: 200,
 		URL:        "https://example.com?api_key=secret123&token=abc",
 		Title:      "Contact page",
 		Text:       "Email us at user@example.com or call 555-123-4567",
@@ -196,18 +202,18 @@ func TestReplayRejectsInvalidRedactionPattern(t *testing.T) {
 	cfg := DefaultRedactionConfig()
 	cfg.Patterns = []string{"["}
 
-	if _, err := CaptureReplay(Scenario{ID: "invalid-pattern"}, "renderless", CrossResult{}, 0, SystemMetadata(), cfg, ""); err == nil {
+	if _, err := CaptureReplay(Scenario{ID: "invalid-pattern", Path: "/invalid-pattern", Kind: KindHTML}, "renderless", CrossResult{StatusCode: 200}, 0, SystemMetadata(), cfg, ""); err == nil {
 		t.Fatal("CaptureReplay accepted an invalid redaction pattern")
 	}
 }
 
 func TestReplayDisabledRedaction(t *testing.T) {
-	result := CrossResult{URL: "https://example.com?token=abc", Text: "user@example.com"}
+	result := CrossResult{StatusCode: 200, URL: "https://example.com?token=abc", Text: "user@example.com"}
 	cfg := DefaultRedactionConfig()
 	cfg.Enabled = false
 
 	dir := t.TempDir()
-	sc := Scenario{ID: "no-redaction", Path: "/no-redaction"}
+	sc := Scenario{ID: "no-redaction", Path: "/no-redaction", Kind: KindUnknown}
 	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), cfg, dir)
 	if err != nil {
 		t.Fatalf("CaptureReplay: %v", err)
@@ -223,7 +229,10 @@ func TestReplayDisabledRedaction(t *testing.T) {
 func TestReplayRedactUserPattern(t *testing.T) {
 	cfg := DefaultRedactionConfig()
 	cfg.Patterns = []string{`user-\d+`}
-	got := Redact("hello user-123 world user-999", cfg)
+	got, err := Redact("hello user-123 world user-999", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(got, "user-123") || strings.Contains(got, "user-999") {
 		t.Errorf("user pattern not redacted: %q", got)
 	}
@@ -232,21 +241,26 @@ func TestReplayRedactUserPattern(t *testing.T) {
 func TestReplayAsRegressionFromText(t *testing.T) {
 	result := CrossResult{
 		StatusCode: 200,
-		Title:      "Plain text",
 		Text:       "Hello, regression",
 		URL:        "http://127.0.0.1:1234/text",
 	}
-	sc := Scenario{ID: "text-001", Path: "/text"}
-	replay := &Replay{ScenarioID: sc.ID, Scenario: sc, Result: result}
-	reg := replay.AsRegression()
+	sc := Scenario{ID: "text-001", Path: "/text", Kind: KindUnknown}
+	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), DefaultRedactionConfig(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := replay.AsRegression()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if reg.ContentType != "text/plain; charset=utf-8" {
 		t.Errorf("ContentType = %q, want text/plain", reg.ContentType)
 	}
 	if reg.HTML != "Hello, regression" {
 		t.Errorf("HTML = %q, want text", reg.HTML)
 	}
-	if !strings.Contains(reg.Expect.URL, "/text") {
-		t.Errorf("Expect.URL = %q, want /text", reg.Expect.URL)
+	if reg.Expect.URL != reg.Path {
+		t.Errorf("Expect.URL = %q, want actual regression route %q", reg.Expect.URL, reg.Path)
 	}
 }
 
@@ -255,19 +269,29 @@ func TestReplayAsRegressionURLPath(t *testing.T) {
 		StatusCode: 404,
 		URL:        "http://[::1]:8080/missing?x=1",
 		Title:      "Not found",
+		HTML:       "<html><title>Not found</title><body>Not found</body></html>",
 	}
-	sc := Scenario{ID: "missing"}
-	replay := &Replay{ScenarioID: sc.ID, Scenario: sc, Result: result}
-	reg := replay.AsRegression()
-	if reg.Expect.URL != "/missing" {
-		t.Errorf("Expect.URL = %q, want /missing", reg.Expect.URL)
+	sc := Scenario{ID: "missing", Path: "/missing", Kind: KindHTML}
+	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), DefaultRedactionConfig(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := replay.AsRegression()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Expect.URL != reg.Path {
+		t.Errorf("Expect.URL = %q, want actual regression route %q", reg.Expect.URL, reg.Path)
 	}
 }
 
 func TestReplaySaveAndLoad(t *testing.T) {
-	sc := Scenario{ID: "roundtrip", Path: "/roundtrip"}
+	sc := Scenario{ID: "roundtrip", Path: "/roundtrip", Kind: KindHTML}
 	result := CrossResult{StatusCode: 200, Title: "Roundtrip"}
-	replay := &Replay{ScenarioID: sc.ID, Scenario: sc, Result: result}
+	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), DefaultRedactionConfig(), "")
+	if err != nil {
+		t.Fatalf("capture valid replay: %v", err)
+	}
 	dir := t.TempDir()
 	path, err := replay.Save(dir)
 	if err != nil {
@@ -286,10 +310,10 @@ func TestReplaySaveAndLoad(t *testing.T) {
 	}
 }
 
-func TestReplaySanitizeFilename(t *testing.T) {
+func TestReplayFilenameUsesOpaqueCaptureIdentity(t *testing.T) {
 	sc := Scenario{ID: "path/with spaces"}
-	replay := &Replay{ScenarioID: sc.ID, Runner: "artemis runner"}
-	want := "replay-artemis-runner-path-with-spaces.json"
+	replay := &Replay{ID: "ABCDEFGHIJKLMNOPQRSTUVWXYZ", ScenarioID: sc.ID, Runner: "artemis runner"}
+	want := "replay-ABCDEFGHIJKLMNOPQRSTUVWXYZ.json"
 	if got := replay.filename(); got != want {
 		t.Errorf("filename = %q, want %q", got, want)
 	}
@@ -297,14 +321,17 @@ func TestReplaySanitizeFilename(t *testing.T) {
 
 func TestRedactAuthorization(t *testing.T) {
 	cfg := DefaultRedactionConfig()
-	got := Redact("Authorization: Bearer eyJ0eXAiOiJKV1Q", cfg)
+	got, err := Redact("Authorization: Bearer eyJ0eXAiOiJKV1Q", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(got, "eyJ0eXAiOiJKV1Q") {
 		t.Errorf("bearer token not redacted: %q", got)
 	}
 }
 
 func TestReplayCaptureNoOutputDir(t *testing.T) {
-	sc := Scenario{ID: "no-dir"}
+	sc := Scenario{ID: "no-dir", Path: "/no-dir", Kind: KindHTML}
 	result := CrossResult{StatusCode: 200}
 	replay, err := CaptureReplay(sc, "renderless", result, 0, SystemMetadata(), DefaultRedactionConfig(), "")
 	if err != nil {

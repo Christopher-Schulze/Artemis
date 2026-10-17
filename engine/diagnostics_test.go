@@ -51,7 +51,7 @@ func TestEngineEmitsRedactedPolicyAndResourceDiagnostics(t *testing.T) {
 	for _, record := range records {
 		if record.Policy != nil {
 			policySeen = true
-			if record.Policy.SessionRef != diagnostics.HashSession(cfg.SessionID) {
+			if record.Policy.SessionRef != engine.DiagnosticSessionRef(cfg.SessionID) {
 				t.Fatalf("session ref=%q", record.Policy.SessionRef)
 			}
 		}

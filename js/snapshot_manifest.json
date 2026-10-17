@@ -2,52 +2,52 @@
   "schema_version": 1,
   "source_path": "js/snapshot.bin",
   "mime": "application/octet-stream",
-  "size": 492968,
-  "sha256": "efebbd4e90040cad2584adf0baee73871b998df8e388c54f209e6c454e003241",
-  "source_set_sha256": "d423dfe8a32faa7add0b7ad345880e1399c19717bb2ac823d853a6d8be6ffc4b",
+  "size": 787024,
+  "sha256": "5e25867a5e64acf0b6178729c679fe23d6bd6df65fbb1722395b7fbed96f937f",
+  "source_set_sha256": "5d39f84e98cb4ff4afa512d0e79e89f0cd301be573e3c99c85f5ce25db994544",
   "generator_ref": "cmd/artemis-snapshot",
-  "toolchain_ref": "go=go1.27.1;v8go=v0.9.0;v8=10.9.194.9-v8go;target=darwin/arm64",
-  "v8_version": "10.9.194.9-v8go",
+  "toolchain_ref": "go=go1.27.2;v8go=v0.9.0;v8=15.5.35.25-v8go;target=darwin/arm64",
+  "v8_version": "15.5.35.25-v8go",
   "v8go_version": "v0.9.0",
-  "go_version": "go1.27.1",
+  "go_version": "go1.27.2",
   "target_os": "darwin",
   "target_arch": "arm64",
   "activation_owner": "artemis/js.Runtime",
   "bootstrap_sources": [
     {
       "name": "artemis-dom-bridge",
-      "size": 11590,
-      "sha256": "b41cce8fcc7428f90f0d383bd1bb6a035de8cd6e81560e72913f9ff669f91f2d"
+      "size": 18948,
+      "sha256": "c33de2e28ee43958c1d8b1b57b57d5865e4e89a667110ddced9a925d0577aeca"
     },
     {
       "name": "artemis-extras",
-      "size": 5491,
-      "sha256": "0cb6f6654a3a74840fa37925f91b1535c34b79c7d3ccce4e73a96da088bf1ac3"
+      "size": 10397,
+      "sha256": "5c901e32b2d8ec1e0a2e15c9dbe03a2085e2b3c8839acaed39a8af1270c8edf7"
     },
     {
       "name": "artemis-extras-v2",
-      "size": 14199,
-      "sha256": "f36528096abf86bcc77b8a87025ef92c3599f589e3138495698e8e603c486525"
+      "size": 18274,
+      "sha256": "ea0b94339b7abbb862e3321347442fab519fd82d45a655ae4640e694dc4ffab1"
     },
     {
       "name": "artemis-mutation-observer",
-      "size": 1650,
-      "sha256": "32b65d95b5321db90d8205d2598562b459145566d8e85803df4af9081c9fbf70"
+      "size": 4760,
+      "sha256": "d47d491a84099b8796229540080755e44f813d308e07ad3580419d58d0f58d0c"
     },
     {
       "name": "artemis-webapi-more",
-      "size": 17946,
-      "sha256": "c049e5fc786cf416645ab012ac27d31f33c3663c306433ab73c875bc9c02c760"
+      "size": 18024,
+      "sha256": "b8768f3cfe1935411e6a050add0ebd43ccddcf4916511f022f8555a8b737a518"
     },
     {
       "name": "artemis-webapi-v3",
-      "size": 33310,
-      "sha256": "0b53614574fec52144f5b14a62942587c402822005eca5504d03eff4a740f9f9"
+      "size": 36230,
+      "sha256": "8d18bc4fc0e1b747f2c1926239fd8441ee3651cc20aac837d946e8b97d40e9c0"
     },
     {
       "name": "artemis-iframe",
-      "size": 2482,
-      "sha256": "45a9d8a3fb9fc8f1ce1ee088e824795039f7c986439cf7db938dbe2114abd765"
+      "size": 3352,
+      "sha256": "636db37588dd24f557005ed425674ce9cdc2836f7d6cc1b07845bc018bf6fb3f"
     },
     {
       "name": "artemis-input-props",
@@ -56,33 +56,23 @@
     },
     {
       "name": "artemis-navigator-extras",
-      "size": 5490,
-      "sha256": "0e703d332aa7286f39e1171f97da0bac859534714a3859d0051032558154d7cd"
+      "size": 5568,
+      "sha256": "3c2519c1094c5d6cbcf8abb665a8216bce46ff7d3bbee7c20985d3ccb8a2f6f0"
     },
     {
       "name": "artemis-style-manager",
-      "size": 292,
-      "sha256": "4db850bf2c3b69e24092d7838f2bd643fa0609fb6129d3e6004752dbccc19ebb"
-    },
-    {
-      "name": "artemis-websocket",
-      "size": 2676,
-      "sha256": "f59ba28cd322ab3f81ede3c8cca2c223593f55e865cee61a7f9ed1cbc8388451"
-    },
-    {
-      "name": "artemis-window-events",
-      "size": 602,
-      "sha256": "d31908079d25d303eb1d3d99e50a578be62ab1f1b72adc9bb51d90473496321d"
+      "size": 1514,
+      "sha256": "03d30ace25e1cbf38af5c742b830579f1ad7f3f43e4930e4110b94d8a2cfdf3a"
     },
     {
       "name": "artemis-parity-gaps",
-      "size": 16812,
-      "sha256": "625d6e734fa2a4c171e74f7c12b657e97b547a5bced735533604e2d9a166e755"
+      "size": 17066,
+      "sha256": "dae19c77a17801f9a78a39e1cb1fb17b7190ba67ffa59b788cb2569e73082c2f"
     },
     {
       "name": "artemis-pool-reset",
-      "size": 2908,
-      "sha256": "3561718c0389a6b5373b40cb09eaa78626e413681364055738becd349afd9cdd"
+      "size": 2827,
+      "sha256": "4c1501252b6f6b204ba37f88de8e301eac119b34b6b910459f6debb90dc2ebc2"
     }
   ],
   "native_stub_names": [
@@ -104,43 +94,10 @@
     "__create_event",
     "__create_event_target",
     "__create_text",
-    "__crypto_aes_decrypt",
-    "__crypto_aes_encrypt",
-    "__crypto_aes_kw_unwrap",
-    "__crypto_aes_kw_wrap",
-    "__crypto_complete",
-    "__crypto_derive_aes",
-    "__crypto_derive_bits",
-    "__crypto_derive_hmac",
     "__crypto_digest",
-    "__crypto_ecdh_derive",
-    "__crypto_ecdh_generate",
-    "__crypto_ecdsa_generate",
-    "__crypto_ecdsa_sign",
-    "__crypto_ecdsa_verify",
-    "__crypto_export_jwk",
-    "__crypto_export_pkcs8",
-    "__crypto_export_raw",
-    "__crypto_export_spki",
-    "__crypto_extra",
-    "__crypto_generate_aes",
-    "__crypto_generate_hmac",
     "__crypto_get_random",
-    "__crypto_hkdf",
-    "__crypto_hmac",
-    "__crypto_import_jwk",
-    "__crypto_import_pkcs8",
-    "__crypto_import_raw",
-    "__crypto_import_spki",
-    "__crypto_pbkdf2",
-    "__crypto_pkcs8",
     "__crypto_random",
     "__crypto_random_uuid",
-    "__crypto_rsa_decrypt",
-    "__crypto_rsa_encrypt",
-    "__crypto_rsa_generate",
-    "__crypto_rsa_sign",
-    "__crypto_rsa_verify",
     "__crypto_subtle",
     "__crypto_uuid",
     "__cssom_get",

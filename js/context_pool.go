@@ -3,7 +3,7 @@ package js
 import (
 	"errors"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // poolResetBootstrap installs `__artemis_pristine` (set of property
@@ -38,10 +38,8 @@ const poolResetBootstrap = `
     if (globalThis.customElements && typeof globalThis.customElements._reset === 'function') {
       try { globalThis.customElements._reset(); } catch (_) {}
     }
-    // window.addEventListener listeners (installed via inlineWindowEventsBootstrap).
-    if (globalThis._winListeners) {
-      try { globalThis._winListeners.clear(); } catch (_) {}
-    }
+    // Reset the single DOM/Document/Window event and wrapper owner.
+    __artemisDispatchDocumentEvent(4);
     // History stack: reset to a single entry with the new URL.
     if (globalThis.history && globalThis.history._stack) {
       globalThis.history._stack = [{state: null, url: newURL || ''}];
@@ -76,15 +74,40 @@ const poolResetBootstrap = `
 })();
 `
 
-// resetPooledContext runs the JS reset script and rebinds Go-side
-// per-page state (location URL, document handle, storage internals)
-// onto the existing v8.Context. Called when a v8.Context is reused
-// from the Runtime.ctxPool.
-func resetPooledContext(c *Context, pageURL string) error {
+// resetPooledContext rebinds current native options and page state in a
+// pristine realm. The reset script is not an admission proof: no executed
+// or externally exposed realm may reach this path.
+func resetPooledContext(c *Context, pageURL string, navigator NavigatorConfig) error {
 	// JS reset clears mutated globals + rebinds location.
 	// Wrap the URL in JSON.stringify-safe form via a string literal.
 	resetExpr := "__artemis_reset(" + jsonStringLiteral(pageURL) + ")"
-	if _, err := c.v8ctx.RunScript(resetExpr, "<artemis-pool-reset>"); err != nil {
+	resetResult, err := c.v8ctx.RunScript(resetExpr, "<artemis-pool-reset>")
+	if resetResult != nil {
+		resetResult.Release()
+	}
+	if err != nil {
+		return err
+	}
+	// Pristine reuse still needs the current page's configured native bindings.
+	if err := installFetch(c.rt.iso, c.v8ctx, c); err != nil {
+		return err
+	}
+	if err := installPerformance(c); err != nil {
+		return err
+	}
+	navigator.applyDefaults()
+	global := c.v8ctx.Global()
+	defer global.Release()
+	value, err := global.Get("navigator")
+	if err != nil {
+		return err
+	}
+	defer value.Release()
+	object, err := value.AsObject()
+	if err != nil {
+		return err
+	}
+	if err := setNavigatorFields(c.rt.iso, c.v8ctx, object, navigator); err != nil {
 		return err
 	}
 	// Re-bind Storage objects: their internal-field-0 still points at the
@@ -97,7 +120,11 @@ func resetPooledContext(c *Context, pageURL string) error {
 	if err := rebindPooledStorage(c, "sessionStorage", c.sessionStorage); err != nil {
 		return err
 	}
-	return nil
+	attributes, err := c.v8ctx.RunScript(extrasV2OnAttrsBootstrap, "<artemis-current-document-attributes>")
+	if attributes != nil {
+		attributes.Release()
+	}
+	return err
 }
 
 func rebindPooledStorage(c *Context, globalName string, s *memStorage) error {
@@ -110,10 +137,13 @@ func rebindPooledStorage(c *Context, globalName string, s *memStorage) error {
 	r.mu.Unlock()
 	id := h.put(s)
 	c.storageHandleIDs = append(c.storageHandleIDs, id)
-	val, err := c.v8ctx.Global().Get(globalName)
+	global := c.v8ctx.Global()
+	defer global.Release()
+	val, err := global.Get(globalName)
 	if err != nil {
 		return err
 	}
+	defer val.Release()
 	obj, err := val.AsObject()
 	if err != nil {
 		return err
@@ -182,7 +212,10 @@ func installPoolReset(c *Context) error {
 // AFTER all installs and bootstraps so the pristine set covers the
 // full installed surface.
 func seedPoolReset(c *Context) error {
-	_, err := c.v8ctx.RunScript("__artemis_reset()", "<artemis-pool-seed>")
+	value, err := c.v8ctx.RunScript("__artemis_reset()", "<artemis-pool-seed>")
+	if value != nil {
+		value.Release()
+	}
 	return err
 }
 

@@ -123,6 +123,15 @@ func (r *NetworkRingBuffer) Len() int {
 	return r.head
 }
 
+// Clear releases every retained payload while preserving reusable capacity.
+func (r *NetworkRingBuffer) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.buf)
+	clear(r.byID)
+	r.head, r.full = 0, false
+}
+
 // Lookup retrieves an event by requestId in O(1)
 // (spec L4186: O(1) lookup by requestId).
 func (r *NetworkRingBuffer) Lookup(requestID string) (NetworkEvent, bool) {

@@ -82,9 +82,19 @@ func (r *Runtime) invalidateFormIntentPage() error {
 	return r.formIntents.InvalidatePage(r.page.SessionID(), r.page.TargetID())
 }
 
+// Close stops the tab recycling supervisor and releases form intents; it is
+// idempotent.
 func (r *Runtime) Close() error {
-	if r == nil || r.formIntents == nil {
+	if r == nil {
 		return nil
 	}
-	return r.formIntents.Close()
+	r.closeOnce.Do(func() {
+		if r.stopRecycler != nil {
+			r.stopRecycler()
+		}
+		if r.formIntents != nil {
+			r.closeErr = r.formIntents.Close()
+		}
+	})
+	return r.closeErr
 }

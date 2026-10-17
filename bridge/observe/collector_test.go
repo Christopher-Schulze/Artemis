@@ -15,6 +15,7 @@ type scriptedCaller struct {
 	roots      []int64
 	capture    int
 	failMethod string
+	hitBackend int64
 	calls      map[string][]json.RawMessage
 }
 
@@ -51,7 +52,21 @@ func (s *scriptedCaller) Call(_ context.Context, method string, params any, resu
 		raw, err = json.Marshal(s.documents[index])
 		s.capture++
 	case "DOM.getNodeForLocation":
-		raw, err = json.Marshal(getNodeForLocationResult{BackendNodeID: 4})
+		hit := s.hitBackend
+		if hit == 0 {
+			hit = 4
+		}
+		raw, err = json.Marshal(getNodeForLocationResult{BackendNodeID: hit, FrameID: "main"})
+	case "DOM.getContentQuads":
+		raw, err = json.Marshal(contentQuadsResult{Quads: [][]float64{{20, 30, 160, 30, 160, 70, 20, 70}}})
+	case "Page.getLayoutMetrics":
+		raw, err = json.Marshal(layoutMetricsResult{Viewport: &layoutViewport{Width: 1000, Height: 800}})
+	case "DOM.describeNode":
+		var request describeNodeParams
+		if err := json.Unmarshal(paramsJSON, &request); err != nil {
+			return err
+		}
+		raw, err = json.Marshal(describeNodeResult{Node: domNode{BackendNodeID: request.BackendNodeID, Children: []domNode{{BackendNodeID: 77}}}})
 	case "DOM.getDocument":
 		root := int64(1)
 		if len(s.roots) > 0 {
@@ -158,6 +173,8 @@ func assertJSON[T any](t *testing.T, value T, want string) {
 }
 
 func TestTypedCDPParameterShapes(t *testing.T) {
+	assertJSON(t, frameOwnerParams{FrameID: "frame"}, `{"frameId":"frame"}`)
+	assertJSON(t, backendNodeParams{BackendNodeID: 42}, `{"backendNodeId":42}`)
 	assertJSON(t, emptyParams{}, `{}`)
 	assertJSON(t, captureSnapshotParams{
 		ComputedStyles:    []string{"display", "visibility", "opacity", "pointer-events"},

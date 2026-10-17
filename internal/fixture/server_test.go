@@ -15,7 +15,7 @@ import (
 )
 
 func TestServerIndex(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.BaseURL(), nil)
@@ -47,7 +47,7 @@ func TestServerIndex(t *testing.T) {
 }
 
 func TestServerStaticHTML(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/html-001"), nil)
@@ -76,7 +76,7 @@ func TestServerStaticHTML(t *testing.T) {
 }
 
 func TestServerRedirectChain(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	client := &http.Client{CheckRedirect: nil}
@@ -102,7 +102,7 @@ func TestServerRedirectChain(t *testing.T) {
 }
 
 func TestServerCookiePersistence(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	jar, err := cookiejar.New(nil)
@@ -144,7 +144,7 @@ func TestServerCookiePersistence(t *testing.T) {
 }
 
 func TestServerBasicAuth(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/auth-basic-001"), nil)
@@ -192,7 +192,7 @@ func TestServerBasicAuth(t *testing.T) {
 }
 
 func TestServerFormPOST(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	form := url.Values{
@@ -226,7 +226,7 @@ func TestServerFormPOST(t *testing.T) {
 }
 
 func TestServerFileUpload(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	var b strings.Builder
@@ -269,7 +269,7 @@ func TestServerFileUpload(t *testing.T) {
 }
 
 func TestServerWebSocketEcho(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	wsURL := strings.Replace(s.URL("/ws-001"), "http://", "ws://", 1)
@@ -298,7 +298,7 @@ func TestServerWebSocketEcho(t *testing.T) {
 }
 
 func TestServerSlow(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	start := time.Now()
@@ -324,7 +324,7 @@ func TestServerSlow(t *testing.T) {
 }
 
 func TestServerCrash(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/crash-001"), nil)
@@ -346,7 +346,7 @@ func TestServerCrash(t *testing.T) {
 }
 
 func TestServerMalformed(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/malformed-001"), nil)
@@ -375,7 +375,7 @@ func TestServerMalformed(t *testing.T) {
 }
 
 func TestServerScenarioByPath(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	sc := s.ScenarioByPath("/html-001")
@@ -388,7 +388,7 @@ func TestServerScenarioByPath(t *testing.T) {
 }
 
 func TestServerPolicyConfigAllowsPort(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	cfg := s.PolicyConfig()
@@ -411,7 +411,7 @@ func TestServerPolicyConfigAllowsPort(t *testing.T) {
 }
 
 func TestServerChallenge(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/challenge-001"), nil)
@@ -459,7 +459,7 @@ func TestServerChallenge(t *testing.T) {
 }
 
 func TestServerLarge(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/large-001"), nil)
@@ -488,7 +488,7 @@ func TestServerLarge(t *testing.T) {
 }
 
 func TestServerURL(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	if s.URL("/foo") != s.BaseURL()+"/foo" {
@@ -503,7 +503,7 @@ func TestServerURL(t *testing.T) {
 }
 
 func TestServerFormGET(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/form-search?q=fixture"), nil)
@@ -529,7 +529,7 @@ func TestServerFormGET(t *testing.T) {
 }
 
 func TestServerSPAJSON(t *testing.T) {
-	s := NewServerWithDefaults()
+	s := newDefaultTestServer(t)
 	defer s.Close()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL("/api/spa-data"), nil)

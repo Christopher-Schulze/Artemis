@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/tommie/v8go"
 )
 
 // storageHandles maps a uint32 handle to the *memStorage that backs it.
@@ -59,13 +59,14 @@ type storageTemplates struct {
 // is missing internal data (caller should bail out gracefully).
 func storageFromInfo(info *v8.FunctionCallbackInfo, h *storageHandles) *memStorage {
 	this := info.This()
-	if this == nil {
+	if this == nil || this.InternalFieldCount() != 1 {
 		return nil
 	}
 	field := this.GetInternalField(0)
 	if field == nil {
 		return nil
 	}
+	defer field.Release()
 	id, ok := checkedInt64ToUint32(field.Integer())
 	if !ok {
 		return nil
@@ -76,11 +77,13 @@ func storageFromInfo(info *v8.FunctionCallbackInfo, h *storageHandles) *memStora
 	return h.get(id)
 }
 
-func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
+func (r *Runtime) newStorageTemplates(h *storageHandles) *storageTemplates {
+	iso := r.iso
 	st := &storageTemplates{}
 	st.objTmpl = v8.NewObjectTemplate(iso)
 	st.objTmpl.SetInternalFieldCount(1)
 	st.getItem = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		args := info.Args()
 		if s == nil || len(args) < 1 {
@@ -90,18 +93,27 @@ func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
 		if !ok {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, v)
+		return r.callbackPrimitive(info, v)
 	})
 	st.setItem = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		args := info.Args()
 		if s == nil || len(args) < 2 {
 			return v8.Null(iso)
 		}
-		s.setItem(args[0].String(), args[1].String())
+		if err := s.setItem(args[0].String(), args[1].String()); err != nil {
+			exception, exceptionErr := info.Context().RunScript("new DOMException('Web Storage quota exceeded', 'QuotaExceededError')", "<storage-quota>")
+			if exceptionErr != nil {
+				return r.responseError(info, exceptionErr)
+			}
+			defer exception.Release()
+			return iso.ThrowException(exception).ReturnFromCallback()
+		}
 		return v8.Null(iso)
 	})
 	st.rmItem = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		args := info.Args()
 		if s == nil || len(args) < 1 {
@@ -111,6 +123,7 @@ func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
 		return v8.Null(iso)
 	})
 	st.clear = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		if s != nil {
 			s.clear()
@@ -118,6 +131,7 @@ func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
 		return v8.Null(iso)
 	})
 	st.key = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		args := info.Args()
 		if s == nil || len(args) < 1 {
@@ -127,18 +141,19 @@ func newStorageTemplates(iso *v8.Isolate, h *storageHandles) *storageTemplates {
 		if !ok {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, k)
+		return r.callbackPrimitive(info, k)
 	})
 	st.lenOf = v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+		defer info.Release()
 		s := storageFromInfo(info, h)
 		if s == nil {
-			return mustValue(iso, int32(0))
+			return r.callbackPrimitive(info, int32(0))
 		}
 		length, ok := checkedIntToInt32(s.length())
 		if !ok {
 			return v8.Null(iso)
 		}
-		return mustValue(iso, length)
+		return r.callbackPrimitive(info, length)
 	})
 	return st
 }
@@ -155,7 +170,7 @@ func buildStorageCached(c *Context, s *memStorage) (*v8.Value, error) {
 		r.storageHandles = &storageHandles{}
 	}
 	if r.storageTemplates == nil {
-		r.storageTemplates = newStorageTemplates(r.iso, r.storageHandles)
+		r.storageTemplates = r.newStorageTemplates(r.storageHandles)
 	}
 	st := r.storageTemplates
 	h := r.storageHandles

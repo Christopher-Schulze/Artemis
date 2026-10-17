@@ -1,6 +1,7 @@
 package fixture
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"html"
 	"net/http"
@@ -10,19 +11,30 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Christopher-Schulze/Artemis/network"
 )
+
+const replayContentSecurityPolicy = "sandbox; default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+const AccessTokenHeader = "X-Artemis-Fixture-Token"
 
 // Server wraps an httptest.Server with a deterministic fixture corpus.
 // Routes are registered before or after the server starts; the Server is
 // safe for use by multiple concurrent tests when each test creates its own
 // instance.
 type Server struct {
-	srv       *httptest.Server
-	mux       *http.ServeMux
-	mu        sync.RWMutex
-	scenarios map[string]Scenario
+	srv             *httptest.Server
+	mux             *http.ServeMux
+	mu              sync.RWMutex
+	scenarios       map[string]Scenario
+	registeredBytes int64
+	requests        chan struct{}
+	closed          bool
+	accessToken     string
+	corpusData      []byte
+	corpusScenarios []Scenario
 }
 
 // NewServer creates an empty fixture server.
@@ -31,21 +43,48 @@ func NewServer() *Server {
 	s := &Server{
 		mux:       mux,
 		scenarios: make(map[string]Scenario),
+		requests:  make(chan struct{}, maxFixtureConcurrentRequests),
 	}
-	s.srv = httptest.NewServer(mux)
 	mux.Handle("/", s)
+	s.srv = httptest.NewUnstartedServer(http.HandlerFunc(s.handleRequest))
+	s.srv.Config.ReadHeaderTimeout = 5 * time.Second
+	s.srv.Config.ReadTimeout = 10 * time.Second
+	s.srv.Config.MaxHeaderBytes = 32 << 10
+	s.srv.Start()
 	return s
+}
+
+// RequireAccessToken protects every route, including the index. It must be
+// configured once before any scenario is registered; callers own token entropy.
+func (s *Server) RequireAccessToken(token string) error {
+	if s == nil || len(token) < 26 || len(token) > 128 || strings.Trim(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") != "" {
+		return fmt.Errorf("fixture: bounded base32 access token required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || len(s.scenarios) != 0 || s.accessToken != "" {
+		return fmt.Errorf("fixture: access token must precede registration and cannot change")
+	}
+	s.accessToken = token
+	return nil
 }
 
 // NewServerWithDefaults creates a server and registers DefaultScenarios.
-func NewServerWithDefaults() *Server {
-	s := NewServer()
-	s.RegisterAll(DefaultScenarios())
-	return s
+func NewServerWithDefaults() (*Server, error) {
+	data, err := DefaultCorpusBytes()
+	if err != nil {
+		return nil, err
+	}
+	return NewServerFromCorpus(data)
 }
 
 // Close stops the server.
-func (s *Server) Close() { s.srv.Close() }
+func (s *Server) Close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	s.srv.Close()
+}
 
 // BaseURL returns the server base URL (scheme://host:port).
 func (s *Server) BaseURL() string { return s.srv.URL }
@@ -81,36 +120,55 @@ func (s *Server) PolicyConfig() network.PolicyConfig {
 }
 
 // Register adds a fully configured scenario to the server.
-func (s *Server) Register(sc Scenario) {
-	if sc.Path == "" {
-		sc.Path = "/" + sc.ID
-	}
-	if !strings.HasPrefix(sc.Path, "/") {
-		sc.Path = "/" + sc.Path
-	}
-
-	s.mu.Lock()
-	s.scenarios[sc.Path] = sc
-	s.mu.Unlock()
-
-	if sc.Handler != nil {
-		s.mux.Handle(sc.Path, sc.Handler)
-		return
-	}
-
-	s.mux.Handle(sc.Path, s.contentHandler(sc))
+func (s *Server) Register(sc Scenario) error {
+	return s.RegisterAll([]Scenario{sc})
 }
 
 // RegisterAll registers every scenario.
-func (s *Server) RegisterAll(scenarios []Scenario) {
-	for _, sc := range scenarios {
-		s.Register(sc)
+func (s *Server) RegisterAll(scenarios []Scenario) error {
+	if s == nil || len(scenarios) == 0 || len(scenarios) > maxRegisteredScenarios {
+		return fmt.Errorf("fixture: nonempty bounded registration batch required")
 	}
+	prepared := make([]Scenario, len(scenarios))
+	var addedBytes int64
+	for i, sc := range scenarios {
+		value, size, err := prepareScenario(sc)
+		if err != nil {
+			return err
+		}
+		prepared[i] = value
+		addedBytes += size
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || len(prepared) > maxRegisteredScenarios-len(s.scenarios) || addedBytes > maxRegisteredBytes-s.registeredBytes {
+		return fmt.Errorf("fixture: closed owner or registration budget exceeded")
+	}
+	paths, ids := make(map[string]bool), make(map[string]bool)
+	for _, sc := range s.scenarios {
+		paths[sc.Path], ids[sc.ID] = true, true
+	}
+	for _, sc := range prepared {
+		if paths[sc.Path] || ids[sc.ID] {
+			return fmt.Errorf("fixture: duplicate path or ID for %q", sc.ID)
+		}
+		paths[sc.Path], ids[sc.ID] = true, true
+	}
+	for _, sc := range prepared {
+		handler := sc.Handler
+		if handler == nil {
+			handler = s.contentHandler(sc)
+		}
+		s.mux.Handle(sc.Path, handler)
+		s.scenarios[sc.Path] = sc
+	}
+	s.registeredBytes += addedBytes
+	return nil
 }
 
 // RegisterHTML serves a static HTML body at the given path.
-func (s *Server) RegisterHTML(path, html string) {
-	s.Register(Scenario{
+func (s *Server) RegisterHTML(path, html string) error {
+	return s.Register(Scenario{
 		ID:          strings.Trim(path, "/"),
 		Path:        path,
 		Kind:        KindHTML,
@@ -121,8 +179,8 @@ func (s *Server) RegisterHTML(path, html string) {
 }
 
 // RegisterRaw serves a static response with the given content type and status.
-func (s *Server) RegisterRaw(path, contentType string, status int, body []byte) {
-	s.Register(Scenario{
+func (s *Server) RegisterRaw(path, contentType string, status int, body []byte) error {
+	return s.Register(Scenario{
 		ID:          strings.Trim(path, "/"),
 		Path:        path,
 		Kind:        KindUnknown,
@@ -133,8 +191,8 @@ func (s *Server) RegisterRaw(path, contentType string, status int, body []byte) 
 }
 
 // RegisterHandler serves a custom handler at the given path.
-func (s *Server) RegisterHandler(path string, h http.Handler) {
-	s.Register(Scenario{
+func (s *Server) RegisterHandler(path string, h http.Handler) error {
+	return s.Register(Scenario{
 		ID:      strings.Trim(path, "/"),
 		Path:    path,
 		Kind:    KindUnknown,
@@ -148,7 +206,7 @@ func (s *Server) Scenarios() []Scenario {
 	defer s.mu.RUnlock()
 	out := make([]Scenario, 0, len(s.scenarios))
 	for _, sc := range s.scenarios {
-		out = append(out, sc)
+		out = append(out, cloneScenario(sc))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
@@ -162,7 +220,8 @@ func (s *Server) ScenarioByPath(path string) *Scenario {
 	if !ok {
 		return nil
 	}
-	return &sc
+	copy := cloneScenario(sc)
+	return &copy
 }
 
 // ScenarioByID returns the first scenario with the given ID, or nil.
@@ -171,7 +230,8 @@ func (s *Server) ScenarioByID(id string) *Scenario {
 	defer s.mu.RUnlock()
 	for _, sc := range s.scenarios {
 		if sc.ID == id {
-			return &sc
+			copy := cloneScenario(sc)
+			return &copy
 		}
 	}
 	return nil
@@ -189,6 +249,12 @@ func (s *Server) contentHandler(sc Scenario) http.Handler {
 	body := []byte(sc.HTML)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
+		if sc.inertReplay {
+			w.Header().Set("Content-Security-Policy", replayContentSecurityPolicy)
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		w.WriteHeader(status)
 		if _, err := w.Write(body); err != nil {
 			return
@@ -196,8 +262,44 @@ func (s *Server) contentHandler(sc Scenario) http.Handler {
 	})
 }
 
+func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	closed := s.closed
+	accessToken := s.accessToken
+	handler, _ := s.mux.Handler(r)
+	s.mu.RUnlock()
+	if closed {
+		http.Error(w, "fixture owner closed", http.StatusServiceUnavailable)
+		return
+	}
+	if accessToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get(AccessTokenHeader)), []byte(accessToken)) != 1 {
+		http.NotFound(w, r)
+		return
+	}
+	select {
+	case s.requests <- struct{}{}:
+		defer func() { <-s.requests }()
+	default:
+		http.Error(w, "fixture request capacity exceeded", http.StatusServiceUnavailable)
+		return
+	}
+	if r.ContentLength > fixtureUploadMaxBytes {
+		http.Error(w, "fixture request body limit exceeded", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, fixtureUploadMaxBytes)
+	handler.ServeHTTP(w, r)
+}
+
 // ServeHTTP implements the root index handler and 404 fallback.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	closed, accessToken := s.closed, s.accessToken
+	s.mu.RUnlock()
+	if closed || accessToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get(AccessTokenHeader)), []byte(accessToken)) != 1 {
+		http.NotFound(w, r)
+		return
+	}
 	if r.URL.Path == "/" {
 		s.indexHandler(w, r)
 		return

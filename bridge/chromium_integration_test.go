@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Artemis/bridge/tabs"
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 	"github.com/coder/websocket"
 )
@@ -196,6 +197,17 @@ func TestChromiumTargetCrashTransitionsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupOrder := make(chan int, 2)
+	for _, resource := range []int{1, 2} {
+		if err := page.AddCleanup(func() error { cleanupOrder <- resource; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lease, err := page.AcquireExecution(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
 	// chrome://kill kills the current tab's renderer (chrome://crash kills
 	// the whole browser process). Page.crash is not consistently
 	// implemented in headless builds.
@@ -204,6 +216,32 @@ func TestChromiumTargetCrashTransitionsState(t *testing.T) {
 		t.Logf("chrome://kill navigate returned: %v", err)
 	}
 	cancelCrash()
+	select {
+	case <-page.DownSignal():
+	case <-ctx.Done():
+		t.Fatal("renderer crash did not emit DownSignal")
+	}
+	if page.LifecycleState() != tabs.TabLifecycleLost || lease.Context().Err() == nil {
+		t.Fatalf("crash failed to retire execution: lifecycle=%s ctx=%v", page.LifecycleState(), lease.Context().Err())
+	}
+	select {
+	case <-page.CleanupDone():
+		t.Fatal("resources retired while execution still held the page")
+	default:
+	}
+	lease.Release()
+	select {
+	case <-page.CleanupDone():
+	case <-ctx.Done():
+		t.Fatal("renderer crash retained target resources")
+	}
+	if first, second := <-cleanupOrder, <-cleanupOrder; first != 2 || second != 1 {
+		t.Fatalf("cleanup order=%d,%d", first, second)
+	}
+	lateDisposed := false
+	if err := page.AddCleanup(func() error { lateDisposed = true; return nil }); err == nil || !lateDisposed {
+		t.Fatal("late resource registration leaked its resource")
+	}
 	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
 	for page.State() == TargetStateAttached {
