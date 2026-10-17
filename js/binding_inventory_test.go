@@ -21,7 +21,7 @@ func TestInstalledBindingInventoryObservesActualRealmAndSource(t *testing.T) {
 	for _, binding := range inventory.Bindings {
 		bindings[binding.Path] = binding
 	}
-	for _, name := range []string{"$", "document", "fetch", "MutationObserver", "WebSocket", "crypto", "@element", "@input", "@form", "@iframe", "@canvas", "__fetch", "__wrap"} {
+	for _, name := range []string{"$", "document", "fetch", "MutationObserver", "WebSocket", "crypto", "@element", "@input", "@form", "@iframe", "@canvas", "__fetch_abort", "__wrap"} {
 		if _, ok := bindings[name]; !ok {
 			t.Fatalf("actual installed binding omitted: %s", name)
 		}

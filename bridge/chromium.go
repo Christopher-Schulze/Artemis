@@ -1668,6 +1668,9 @@ func (p *Page) monitorFrameTargets(ctx context.Context, sub *CDPSubscription) {
 		sub.Close()
 		close(jobs)
 		workers.Wait()
+		for job := range jobs {
+			p.abortPausedJob(job)
+		}
 	}()
 	for {
 		select {
@@ -1886,6 +1889,9 @@ func (p *Page) closeWithContext(ctx context.Context, remote bool) (resultErr err
 		return &TargetError{TargetID: p.targetID, State: previous, Message: "page has no browser owner"}
 	}
 	if remote && previous != TargetStateClosed {
+		// Retire request routing first: the monitor fails every paused request
+		// it still owns, so closing the target cannot release one to the network.
+		p.stopFrameRouting()
 		if err := p.owner.browser.closeTarget(ctx, p.targetID); err != nil {
 			p.mu.RLock()
 			destroyed := p.state == TargetStateClosed
@@ -1898,7 +1904,7 @@ func (p *Page) closeWithContext(ctx context.Context, remote bool) (resultErr err
 					return errors.Join(err, fmt.Errorf("reconcile target close: %w", reconcileErr))
 				}
 				if exists {
-					return err
+					return fmt.Errorf("close target (request routing retired; further requests stay paused until close succeeds): %w", err)
 				}
 			}
 		}

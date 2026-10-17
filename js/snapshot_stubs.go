@@ -17,7 +17,9 @@ const snapshotStubsBootstrapTemplate = `
     globalThis.document.head = null;
   }
   if (!globalThis.navigator) {
-    globalThis.navigator = Object.create(null);
+    // An ordinary object, like the from-scratch realm's navigator, so the
+    // snapshot realm does not expose a distinguishable null prototype.
+    globalThis.navigator = {};
   }
   if (!globalThis.performance) {
     globalThis.performance = Object.create(null);

@@ -103,13 +103,13 @@ func TestEveryObservedBindingHasOneSourceLinkedClassification(t *testing.T) {
 		}
 		seen[claim.Path] = claim
 	}
-	for _, path := range []string{"fetch", "document", "Worker", "PerformanceObserver", "crypto.subtle.digest", "__fetch"} {
+	for _, path := range []string{"fetch", "document", "Worker", "PerformanceObserver", "crypto.subtle.digest", "__fetch_abort"} {
 		if _, exists := seen[path]; !exists {
 			t.Fatalf("actual public/nested/private binding disappeared: %s", path)
 		}
 	}
-	if seen["fetch"].Category != CategorySupportedReal || seen["Worker"].Category != CategoryStubCompatible || seen["PerformanceObserver"].Category != CategoryUnsupportedEscalate || seen["crypto.subtle.digest"].Category != CategoryUnsupportedEscalate || seen["__fetch"].Category != CategoryUnsupportedEscalate {
-		t.Fatalf("object or public evidence leaked into unproved children/private entries: fetch=%+v worker=%+v performance_observer=%+v digest=%+v private=%+v", seen["fetch"], seen["Worker"], seen["PerformanceObserver"], seen["crypto.subtle.digest"], seen["__fetch"])
+	if seen["fetch"].Category != CategorySupportedReal || seen["Worker"].Category != CategoryStubCompatible || seen["PerformanceObserver"].Category != CategoryUnsupportedEscalate || seen["crypto.subtle.digest"].Category != CategoryUnsupportedEscalate || seen["__fetch_abort"].Category != CategoryUnsupportedEscalate {
+		t.Fatalf("object or public evidence leaked into unproved children/private entries: fetch=%+v worker=%+v performance_observer=%+v digest=%+v private=%+v", seen["fetch"], seen["Worker"], seen["PerformanceObserver"], seen["crypto.subtle.digest"], seen["__fetch_abort"])
 	}
 	profile.BindingCapabilities[0].Path = "caller mutation"
 	if next := GenerateCapabilityProfile(EngineConfig{}, registry); next.BindingCapabilities[0].Path != inventory.Bindings[0].Path {

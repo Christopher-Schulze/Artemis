@@ -17,6 +17,8 @@ const (
 	policyRequestWorkers = 4
 	policyRequestQueue   = 128
 	policyRequestTimeout = 15 * time.Second
+	// policyAbortTimeout bounds failing one paused request during retirement.
+	policyAbortTimeout = 2 * time.Second
 )
 
 type fetchRequestPattern struct {
@@ -168,10 +170,37 @@ func (p *Page) runPolicyRequestWorker(ctx context.Context, jobs <-chan fetchRequ
 		if err != nil {
 			if ctx.Err() == nil {
 				p.failNetworkEnforcement(err)
+			} else {
+				// Retirement cancelled this request's callback before it
+				// resolved; fail it so Chromium cannot continue it later.
+				p.abortPausedJob(job)
 			}
 			return
 		}
 	}
+}
+
+// abortPausedJob fails one paused request that retirement leaves unresolved.
+// Chromium continues requests still paused when their Fetch session detaches,
+// so every queued or cancelled request is failed before the target closes. A
+// protocol error means the request is no longer paused and a closed transport
+// means the browser went with it; neither leaves an emission to prevent.
+func (p *Page) abortPausedJob(job fetchRequestJob) {
+	ctx, cancel := context.WithTimeout(context.Background(), policyAbortTimeout)
+	defer cancel()
+	method, params := "Fetch.failRequest", any(fetchFailRequestParams{RequestID: job.payload.RequestID, ErrorReason: "Aborted"})
+	if job.authRequired {
+		method = "Fetch.continueWithAuth"
+		params = fetchContinueAuthParams{RequestID: job.payload.RequestID, AuthChallengeResponse: fetchAuthChallengeResponse{Response: "CancelAuth"}}
+	}
+	err := p.owner.browser.transport.CallSession(ctx, job.sessionID, method, params, nil)
+	var protocolErr *ProtocolError
+	if err == nil || errors.As(err, &protocolErr) || IsCDPError(err, CDPErrorClosed) {
+		return
+	}
+	p.mu.Lock()
+	p.retirementErr = errors.Join(p.retirementErr, fmt.Errorf("abort paused request %s: %w", job.payload.RequestID, err))
+	p.mu.Unlock()
 }
 
 func (p *Page) enforcePausedRequest(ctx context.Context, job fetchRequestJob) error {

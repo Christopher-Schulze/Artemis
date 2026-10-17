@@ -252,7 +252,7 @@ func TestProductionBindingClassificationsDriveActualRouterDecisions(t *testing.T
 		{"Worker", true, CategoryStubCompatible, router.ModeChromiumCDP},
 		{"getBoundingClientRect", true, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
 		{"crypto.subtle.sign", true, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
-		{"__fetch", false, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
+		{"__fetch_abort", false, CategoryUnsupportedEscalate, router.ModeChromiumCDP},
 	} {
 		t.Run(test.api+":"+string(test.mode), func(t *testing.T) {
 			request := router.RouteRequest{URL: "https://inventory.invalid/", Signals: router.Signals{IsHTML: true}, RequiredWebAPIs: []string{test.api}, NeedsRealSemantics: test.real, Capabilities: profile}

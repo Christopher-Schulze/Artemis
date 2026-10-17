@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"syscall"
 )
 
@@ -21,6 +22,12 @@ func SignalProcessGroup(process *os.Process, signal syscall.Signal) error {
 	}
 	err := syscall.Kill(-process.Pid, signal)
 	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	// Darwin reports EPERM instead of ESRCH for an owned group whose members
+	// are all zombies (the leader exited but is not reaped yet); any live
+	// member would have been signaled. Nothing remains to signal.
+	if runtime.GOOS == "darwin" && errors.Is(err, syscall.EPERM) {
 		return nil
 	}
 	return err
