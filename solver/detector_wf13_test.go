@@ -7,15 +7,29 @@ import (
 	"time"
 )
 
-// =============================================================================
-// SP-artemis-solver-SEC (detector.go, turnstile.go, security_privacy)
-// Claim: Detect denies cancelled contexts, SolveTurnstile denies nil solver,
-// nil pageProvider, nil challenge, and non-Cloudflare challenge types
-// =============================================================================
+// TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput proves SP-artemis-solver-SEC:
+// Six actual local cancelled-context, missing-dependency and unsupported-challenge rejections. Each invalid-challenge case must report an unsolved result with a reason; erroneous Solved=true or absent result/reason now fails its named subtest rather than being converted into a fabricated denial. Positive detector fixtures do not prove a successful real-browser CAPTCHA solve.
 
 func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
-	// Security: challenge detector and turnstile solver must deny invalid
-	// inputs to prevent bypass of CAPTCHA challenge detection.
+	blockedDenials, attemptedDenials := 0, 0
+	recordDenial := func(blocked bool) bool {
+		attemptedDenials++
+		if blocked {
+			blockedDenials++
+		}
+		return blocked
+	}
+	t.Cleanup(func() {
+		denyRate := 0.0
+		if attemptedDenials == 0 {
+			t.Error("expected at least one actual denial case")
+		} else {
+			denyRate = float64(blockedDenials) / float64(attemptedDenials)
+		}
+		t.Logf("deny_rate=%.6f blocked=%d attempted=%d", denyRate, blockedDenials, attemptedDenials)
+	})
+
+	// Measure only the actual local rejection cases described above.
 
 	cases := []struct {
 		name string
@@ -59,8 +73,8 @@ func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if result.Solved {
-					return fmt.Errorf("expected nil challenge to not be solved")
+				if result == nil || result.Solved || result.Error == "" {
+					return nil
 				}
 				return fmt.Errorf("denied: %s", result.Error)
 			},
@@ -75,8 +89,8 @@ func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if result.Solved {
-					return fmt.Errorf("expected non-cloudflare challenge to not be solved")
+				if result == nil || result.Solved || result.Error == "" {
+					return nil
 				}
 				return fmt.Errorf("denied: %s", result.Error)
 			},
@@ -91,25 +105,20 @@ func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if result.Solved {
-					return fmt.Errorf("expected recaptcha challenge to not be solved by turnstile solver")
+				if result == nil || result.Solved || result.Error == "" {
+					return nil
 				}
 				return fmt.Errorf("denied: %s", result.Error)
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
-		err := c.fn()
-		if err == nil {
-			t.Fatalf("%s: expected error/deny, got nil", c.name)
-		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
+		t.Run(c.name, func(t *testing.T) {
+			err := c.fn()
+			if !recordDenial(err != nil) {
+				t.Fatalf("%s: expected error/deny, got nil", c.name)
+			}
+		})
 	}
 
 	// Baseline: valid Detect with Cloudflare signals succeeds (positive control)

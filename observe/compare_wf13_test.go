@@ -1,20 +1,33 @@
 package observe
 
 import (
-	"fmt"
 	"testing"
 	"time"
 )
 
-// =============================================================================
-// SP-artemis-observe-SEC (compare.go, security_privacy)
-// Claim: Compare denies nil detector and unset baseline (fail-closed),
-// and NewChangeDetector denies negative thresholds and non-positive intervals
-// =============================================================================
+// TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput proves SP-artemis-observe-SEC:
+// Two actual local Compare rejections for a missing detector or baseline. Constructor defaults and snapshot-diff controls remain outside the denominator; no persistent observation, polling or silent-bypass prevention guarantee.
 
 func TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput(t *testing.T) {
-	// Security: change detector must deny nil detector and unset baseline
-	// to prevent silent observation bypass.
+	blockedDenials, attemptedDenials := 0, 0
+	recordDenial := func(blocked bool) bool {
+		attemptedDenials++
+		if blocked {
+			blockedDenials++
+		}
+		return blocked
+	}
+	t.Cleanup(func() {
+		denyRate := 0.0
+		if attemptedDenials == 0 {
+			t.Error("expected at least one actual denial case")
+		} else {
+			denyRate = float64(blockedDenials) / float64(attemptedDenials)
+		}
+		t.Logf("deny_rate=%.6f blocked=%d attempted=%d", denyRate, blockedDenials, attemptedDenials)
+	})
+
+	// Measure only the actual local rejection cases described above.
 
 	cases := []struct {
 		name string
@@ -37,21 +50,14 @@ func TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		err := c.fn()
-		if err == nil {
+		if !recordDenial(err != nil) {
 			t.Fatalf("%s: expected error, got nil", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
-	// Baseline: NewChangeDetector denies negative threshold by defaulting to 0
+	// Baseline: NewChangeDetector defaults a negative threshold and nonpositive interval
 	d := NewChangeDetector(-10, nil, 0)
 	if d.Threshold != 0 {
 		t.Fatalf("negative threshold must default to 0, got %d", d.Threshold)

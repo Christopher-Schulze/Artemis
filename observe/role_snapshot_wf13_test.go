@@ -1,21 +1,22 @@
 package observe
 
 import (
-	"fmt"
 	"testing"
 )
 
-// =============================================================================
-// SP-artemis-perf-SEC (role_snapshot.go, security_privacy)
-// Claim: ClassifyRole denies empty/unknown roles by returning RoleUnknown,
-// SnapshotByRole denies non-matching nodes, SnapshotInteractive denies
-// non-interactive roles, and BuildRoleRefMap denies empty IDs by using
-// ref as fallback key to prevent ref collisions
-// =============================================================================
+// TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract proves SP-artemis-perf-SEC:
+// Local supplied accessibility-role classification, grouping, filtering and ref-key contract. No live accessibility tree, browser lookup, action targeting or security refusal is exercised.
 
-func TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput(t *testing.T) {
-	// Security: role snapshot must deny unknown/empty roles and
-	// non-interactive elements to prevent unauthorized element targeting.
+func TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract(t *testing.T) {
+	t.Cleanup(func() {
+		contractPassRate := 0.0
+		if !t.Failed() {
+			contractPassRate = 1.0
+		}
+		t.Logf("contract_pass_rate=%.6f", contractPassRate)
+	})
+
+	// These are local supplied-tree data transformations.
 
 	cases := []struct {
 		name string
@@ -87,17 +88,10 @@ func TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		if !c.fn() {
 			t.Fatalf("%s: expected deny behavior, got allow", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
 	// Baseline: valid ClassifyRole returns correct role (positive control)

@@ -1,20 +1,22 @@
 package stealth
 
 import (
-	"fmt"
 	"testing"
 )
 
-// =============================================================================
-// SP-artemis-stealth-SEC (bot_detect.go, security_privacy)
-// Claim: DetectBot denies bot-blocked pages (403/429 status, blocked titles,
-// empty body, CAPTCHA markers), SuggestEscalation denies escalation when
-// no signals are present
-// =============================================================================
+// TestWFArtemisStealth_BotDetectDeniesInvalidInput_Contract proves SP-artemis-stealth-SEC:
+// Local bot-signal and escalation classification contract over supplied HTTP/title/body data. All original classification samples and escalation assertions remain. No actual HTTP response, browser request, challenge handling, scraping refusal or observed evasion is exercised.
 
-func TestWFArtemisStealth_BotDetectDeniesInvalidInput(t *testing.T) {
-	// Security: bot detection must deny blocked/challenged pages to
-	// prevent silent scraping failures and bot-detection bypass.
+func TestWFArtemisStealth_BotDetectDeniesInvalidInput_Contract(t *testing.T) {
+	t.Cleanup(func() {
+		contractPassRate := 0.0
+		if !t.Failed() {
+			contractPassRate = 1.0
+		}
+		t.Logf("contract_pass_rate=%.6f", contractPassRate)
+	})
+
+	// Supplied page data exercises classification and tier recommendations.
 
 	cases := []struct {
 		name   string
@@ -72,7 +74,6 @@ func TestWFArtemisStealth_BotDetectDeniesInvalidInput(t *testing.T) {
 			true,
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		if !c.signal.Blocked && !c.signal.Challenge {
 			t.Fatalf("%s: expected Blocked or Challenge, got neither", c.name)
@@ -80,12 +81,6 @@ func TestWFArtemisStealth_BotDetectDeniesInvalidInput(t *testing.T) {
 		if len(c.signal.Reasons) == 0 {
 			t.Fatalf("%s: expected reasons, got none", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all blocked pages detected), got %.1f", denyRate)
 	}
 
 	// Baseline: normal page is not blocked (positive control)

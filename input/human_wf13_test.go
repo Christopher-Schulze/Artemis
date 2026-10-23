@@ -1,21 +1,23 @@
 package input
 
 import (
-	"fmt"
 	"testing"
 	"time"
 )
 
-// =============================================================================
-// SP-artemis-input-SEC (human.go, keyboard.go, security_privacy)
-// Claim: BezierPath denies steps <= 1, PathLength denies paths < 2,
-// EaseInOutScroll denies steps <= 0, and TypingDelays enforces minimum
-// delay floor (40ms) to prevent detectable bot-like zero-delay input
-// =============================================================================
+// TestWFArtemisInput_DeniesInvalidInputParameters_Contract proves SP-artemis-input-SEC:
+// Local geometry, timing and fallback contract for supplied input values. Every original sample remains and the delay-floor case must return three delays. No mouse/keyboard event, browser interaction, observed bot evasion or security denial is exercised.
 
-func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
-	// Security: input simulation must deny invalid parameters that would
-	// produce detectable bot-like behavior (zero delays, empty paths).
+func TestWFArtemisInput_DeniesInvalidInputParameters_Contract(t *testing.T) {
+	t.Cleanup(func() {
+		contractPassRate := 0.0
+		if !t.Failed() {
+			contractPassRate = 1.0
+		}
+		t.Logf("contract_pass_rate=%.6f", contractPassRate)
+	})
+
+	// Supplied values exercise local generator outputs and defaults.
 
 	cases := []struct {
 		name string
@@ -66,6 +68,9 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 			func() bool {
 				cfg := TypingConfig{SigmaPct: 100} // extreme jitter
 				delays := TypingDelays("abc", cfg, nil)
+				if len(delays) != 3 {
+					return false
+				}
 				for _, d := range delays {
 					if d < 40*time.Millisecond {
 						return false
@@ -83,17 +88,10 @@ func TestWFArtemisInput_DeniesInvalidInputParameters(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		if !c.fn() {
 			t.Fatalf("%s: expected deny behavior, got allow", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid params denied), got %.1f", denyRate)
 	}
 
 	// Baseline: valid BezierPath produces multi-step path (positive control)
