@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// TestWFArtemisSecurity_EffectOracle proves SP-artemis-security-EFFECT:
+// TestArtemisSecurity_EffectOracle verifies:
 // Netguard; Allow; ErrPrivateIP; IsPrivateOrLocal; CheckHostPublic;
 // FilterEasyListRules; BuiltinAdTrackerPatterns; IsAdTrackerDomain;
 // FilterAdTrackerDomains; BuiltinAdTrackerPatternCount.
-func TestWFArtemisSecurity_EffectOracle(t *testing.T) {
+func TestArtemisSecurity_EffectOracle(t *testing.T) {
 	t.Run("oracle: Netguard BlockPrivate=false allows all", func(t *testing.T) {
 		n := Netguard{BlockPrivate: false}
 		if err := n.Allow("http://127.0.0.1:8080"); err != nil {
@@ -170,7 +170,4 @@ func TestWFArtemisSecurity_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

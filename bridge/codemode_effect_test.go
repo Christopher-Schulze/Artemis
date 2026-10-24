@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// TestWFArtemisCodemode_EffectOracle proves SP-artemis-codemode-EFFECT:
+// TestArtemisCodemode_EffectOracle verifies:
 // CodeModeProvider/CodeModeToolFunc/CodeModeExecutor/ExecuteResult;
 // NewCodeModeExecutor; RegisterProvider; SetTimeout; NormalizeCode;
 // GenerateTypeDeclarations; DefaultBrowserProvider.
-func TestWFArtemisCodemode_EffectOracle(t *testing.T) {
+func TestArtemisCodemode_EffectOracle(t *testing.T) {
 	t.Run("oracle: CodeModeProvider struct has fields", func(t *testing.T) {
 		p := &CodeModeProvider{Name: "browser", Tools: map[string]CodeModeToolFunc{}}
 		if p.Name != "browser" || len(p.Tools) != 0 {
@@ -135,7 +135,4 @@ func TestWFArtemisCodemode_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

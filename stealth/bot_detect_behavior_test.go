@@ -4,17 +4,10 @@ import (
 	"testing"
 )
 
-// TestWFArtemisStealth_BotDetectDeniesInvalidInput_Contract proves SP-artemis-stealth-SEC:
+// TestArtemisStealth_BotDetectDeniesInvalidInput_Contract verifies:
 // Local bot-signal and escalation classification contract over supplied HTTP/title/body data. All original classification samples and escalation assertions remain. No actual HTTP response, browser request, challenge handling, scraping refusal or observed evasion is exercised.
 
-func TestWFArtemisStealth_BotDetectDeniesInvalidInput_Contract(t *testing.T) {
-	t.Cleanup(func() {
-		contractPassRate := 0.0
-		if !t.Failed() {
-			contractPassRate = 1.0
-		}
-		t.Logf("contract_pass_rate=%.6f", contractPassRate)
-	})
+func TestArtemisStealth_BotDetectDeniesInvalidInput_Contract(t *testing.T) {
 
 	// Supplied page data exercises classification and tier recommendations.
 

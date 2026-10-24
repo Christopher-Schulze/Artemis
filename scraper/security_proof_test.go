@@ -13,10 +13,10 @@ func closeScraperTestResource(t testing.TB, label string, close func() error) {
 	}
 }
 
-// BenchmarkWFAdaptiveCachePerf measures the L1 hot-path Get after a Put,
+// BenchmarkAdaptiveCachePerf measures the L1 hot-path Get after a Put,
 // which should be a single map lookup under the RLock. This is the
 // performance claim for the adaptive selector cache.
-func BenchmarkWFAdaptiveCachePerf(b *testing.B) {
+func BenchmarkAdaptiveCachePerf(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "adaptive.db")
 	cache, err := OpenAdaptiveCache(path, 128)
 	if err != nil {
@@ -38,10 +38,10 @@ func BenchmarkWFAdaptiveCachePerf(b *testing.B) {
 	}
 }
 
-// BenchmarkWFAdaptiveCachePerfBaseline measures the L2 SQLite path: a
+// BenchmarkAdaptiveCachePerfBaseline measures the L2 SQLite path: a
 // fresh cache opened against the same DB file (empty L1) must hit the
 // database on every Get, which is strictly slower than the L1 map path.
-func BenchmarkWFAdaptiveCachePerfBaseline(b *testing.B) {
+func BenchmarkAdaptiveCachePerfBaseline(b *testing.B) {
 	dir := b.TempDir()
 	path := filepath.Join(dir, "adaptive.db")
 	warm, err := OpenAdaptiveCache(path, 128)
@@ -78,10 +78,10 @@ func BenchmarkWFAdaptiveCachePerfBaseline(b *testing.B) {
 	}
 }
 
-// TestWFAdaptiveCachePerfCorrectness verifies Put then Get returns the
+// TestAdaptiveCachePerfCorrectness verifies Put then Get returns the
 // stored selector and confidence, and that persistence across a reopen
 // works, proving the benchmark exercises real cache behavior.
-func TestWFAdaptiveCachePerfCorrectness(t *testing.T) {
+func TestAdaptiveCachePerfCorrectness(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "adaptive.db")
 	cache, err := OpenAdaptiveCache(path, 128)
 	if err != nil {
@@ -105,11 +105,11 @@ func TestWFAdaptiveCachePerfCorrectness(t *testing.T) {
 	fmt.Printf("l1_hit_selector=%s confidence=%.2f\n", got.Selector, got.Confidence)
 }
 
-// TestWFAdaptiveCacheEffect verifies the two-tier cache feature: an
+// TestAdaptiveCacheEffect verifies the two-tier cache feature: an
 // entry written via one cache instance is retrievable from a second
 // instance opened on the same SQLite file (L2 persistence), and the L1
 // fast path returns the same value as the L2 path.
-func TestWFAdaptiveCacheEffect(t *testing.T) {
+func TestAdaptiveCacheEffect(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "adaptive.db")
 	c1, err := OpenAdaptiveCache(path, 64)
 	if err != nil {
@@ -144,16 +144,14 @@ func TestWFAdaptiveCacheEffect(t *testing.T) {
 	if l1.Selector != l2.Selector {
 		t.Fatalf("L1/L2 diverge: %q vs %q", l1.Selector, l2.Selector)
 	}
-	effectivenessRate := 1.0
-	fmt.Printf("effectiveness_rate=%.1f\n", effectivenessRate)
 	fmt.Printf("tier_match=true l1_selector=%s l2_selector=%s confidence=%.2f\n",
 		l1.Selector, l2.Selector, l2.Confidence)
 }
 
-// TestWFAdaptiveCacheEffectBaseline confirms a Get against a brand-new
+// TestAdaptiveCacheEffectBaseline confirms a Get against a brand-new
 // empty cache returns ok=false (no false positives), establishing the
 // baseline against which the persistence effect is measured.
-func TestWFAdaptiveCacheEffectBaseline(t *testing.T) {
+func TestAdaptiveCacheEffectBaseline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "adaptive.db")
 	cache, err := OpenAdaptiveCache(path, 64)
 	if err != nil {
@@ -164,5 +162,4 @@ func TestWFAdaptiveCacheEffectBaseline(t *testing.T) {
 	if ok {
 		t.Fatal("expected miss on empty cache")
 	}
-	fmt.Printf("baseline_hit_rate=0.0\n")
 }

@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// TestWFArtemisNetwork_EffectOracle proves SP-artemis-network-EFFECT:
+// TestArtemisNetwork_EffectOracle verifies:
 // DNSResolverMode constants; DNSPrefetchCache; OpenDNSPrefetchCache;
 // Resolve; Prefetch; Close; parseIPs.
-func TestWFArtemisNetwork_EffectOracle(t *testing.T) {
+func TestArtemisNetwork_EffectOracle(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("oracle: DNSResolverMode constants are distinct", func(t *testing.T) {
@@ -122,7 +122,4 @@ func TestWFArtemisNetwork_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestWFArtemisRuntime_EffectOracle proves SP-artemis-runtime-EFFECT:
+// TestArtemisRuntime_EffectOracle verifies:
 // Agent/AgentConfig/AgentState/Session/Task/TaskResult; NewAgent;
 // Start/Stop/IsStarted/State/Config; CreateSession; ExecuteTask;
 // ApplyDefaults; IsValidAgentState.
-func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
+func TestArtemisRuntime_EffectOracle(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("oracle: AgentState constants are distinct", func(t *testing.T) {
@@ -136,7 +136,4 @@ func TestWFArtemisRuntime_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

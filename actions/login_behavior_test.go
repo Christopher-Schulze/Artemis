@@ -2,17 +2,15 @@ package actions
 
 import (
 	"context"
-	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-actions-SEC (login.go, security_privacy)
 // Claim: DetectLoginForm denies incomplete forms and VerifyPostLogin denies
 // when the login form is still visible
 // =============================================================================
 
-func TestWFArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
+func TestArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
 	// Security: login form detection must deny incomplete forms (missing
 	// password, username, or submit) to prevent credential injection into
 	// non-login forms. Post-login verification must deny when the login
@@ -81,7 +79,6 @@ func TestWFArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all incomplete forms denied), got %.1f", denyRate)
 	}

@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestWFArtemisBridge_EffectOracle proves SP-artemis-bridge-EFFECT:
+// TestArtemisBridge_EffectOracle verifies:
 // Command/Response/Error/Batcher/Flusher/FormFill; NewBatcher; Add; Flush;
 // Pending; BatchFillForm; Error.Error.
-func TestWFArtemisBridge_EffectOracle(t *testing.T) {
+func TestArtemisBridge_EffectOracle(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("oracle: Command struct has fields", func(t *testing.T) {
@@ -140,7 +140,4 @@ func TestWFArtemisBridge_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

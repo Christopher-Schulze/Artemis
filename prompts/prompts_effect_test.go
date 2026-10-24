@@ -2,10 +2,10 @@ package prompts
 
 import "testing"
 
-// TestWFArtemisPrompts_EffectOracle proves SP-artemis-prompts-EFFECT:
+// TestArtemisPrompts_EffectOracle verifies:
 // PromptType constants; String; PromptTemplate; AllPromptTypes;
 // GetPrompt; GetPromptName; GetPromptTemplate; AllTemplates.
-func TestWFArtemisPrompts_EffectOracle(t *testing.T) {
+func TestArtemisPrompts_EffectOracle(t *testing.T) {
 	t.Run("oracle: PromptType.String returns correct names", func(t *testing.T) {
 		if PromptSystem.String() != "system" {
 			t.Fatal("expected system")
@@ -127,7 +127,4 @@ func TestWFArtemisPrompts_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

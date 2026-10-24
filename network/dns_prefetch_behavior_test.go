@@ -9,12 +9,11 @@ import (
 )
 
 // =============================================================================
-// SP-artemis-network-SEC (dns_prefetch.go, security_privacy)
 // Claim: DNSPrefetchCache.Resolve denies nil cache, empty host, and
 // missing resolver
 // =============================================================================
 
-func TestWFArtemisNetwork_DNSResolveDeniesInvalidInput(t *testing.T) {
+func TestArtemisNetwork_DNSResolveDeniesInvalidInput(t *testing.T) {
 	// Security: DNS prefetch must deny resolution of invalid inputs to
 	// prevent cache poisoning and DNS rebinding attacks.
 
@@ -39,7 +38,6 @@ func TestWFArtemisNetwork_DNSResolveDeniesInvalidInput(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}

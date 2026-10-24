@@ -1,16 +1,14 @@
 package prompts
 
 import (
-	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-prompts-SEC (prompts.go, security_privacy)
 // Claim: GetPrompt and GetPromptTemplate deny unknown prompt types
 // =============================================================================
 
-func TestWFArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
+func TestArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
 	// Security: prompt lookup must deny unknown prompt types to prevent
 	// injection of arbitrary prompt content via invalid type indices.
 
@@ -32,7 +30,6 @@ func TestWFArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(unknownTypes))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all unknown types denied), got %.1f", denyRate)
 	}

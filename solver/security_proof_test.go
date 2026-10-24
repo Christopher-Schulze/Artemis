@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// BenchmarkWFChallengeDetectorPerf measures the Detect hot path for a
+// BenchmarkChallengeDetectorPerf measures the Detect hot path for a
 // clean (no-challenge) page, which is the common case and should be the
 // fastest branch (early string scans miss, returns TypeNone).
-func BenchmarkWFChallengeDetectorPerf(b *testing.B) {
+func BenchmarkChallengeDetectorPerf(b *testing.B) {
 	d := NewChallengeDetector()
 	sig := PageSignals{
 		Title: "Welcome to the store",
@@ -27,11 +27,11 @@ func BenchmarkWFChallengeDetectorPerf(b *testing.B) {
 	}
 }
 
-// BenchmarkWFChallengeDetectorPerfBaseline measures Detect on a page
+// BenchmarkChallengeDetectorPerfBaseline measures Detect on a page
 // that contains a Cloudflare challenge iframe, which hits the first
 // detection branch and returns early with TypeCloudflare. This serves
 // as the baseline branch for comparison.
-func BenchmarkWFChallengeDetectorPerfBaseline(b *testing.B) {
+func BenchmarkChallengeDetectorPerfBaseline(b *testing.B) {
 	d := NewChallengeDetector()
 	sig := PageSignals{
 		Title: "Just a moment...",
@@ -49,10 +49,10 @@ func BenchmarkWFChallengeDetectorPerfBaseline(b *testing.B) {
 	}
 }
 
-// TestWFChallengeDetectorPerfCorrectness verifies Detect classifies a
+// TestChallengeDetectorPerfCorrectness verifies Detect classifies a
 // clean page as TypeNone with confidence 1.0, proving the benchmark
 // exercises the real detection logic.
-func TestWFChallengeDetectorPerfCorrectness(t *testing.T) {
+func TestChallengeDetectorPerfCorrectness(t *testing.T) {
 	d := NewChallengeDetector()
 	info, err := d.Detect(context.Background(), PageSignals{
 		Title: "Home",
@@ -70,10 +70,10 @@ func TestWFChallengeDetectorPerfCorrectness(t *testing.T) {
 	fmt.Printf("clean_type=%s confidence=%.2f\n", info.Type, info.Confidence)
 }
 
-// TestWFChallengeDetectorEffect verifies the detector correctly
+// TestChallengeDetectorEffect verifies the detector correctly
 // classifies each supported challenge type (Cloudflare, hCaptcha,
 // reCAPTCHA, generic title, generic class) with the expected confidence.
-func TestWFChallengeDetectorEffect(t *testing.T) {
+func TestChallengeDetectorEffect(t *testing.T) {
 	d := NewChallengeDetector()
 	cases := []struct {
 		name     string
@@ -122,7 +122,6 @@ func TestWFChallengeDetectorEffect(t *testing.T) {
 			wantType: TypeGeneric, minConf: 0.7,
 		},
 	}
-	hits := 0
 	for _, c := range cases {
 		info, err := d.Detect(context.Background(), c.sig)
 		if err != nil {
@@ -136,7 +135,6 @@ func TestWFChallengeDetectorEffect(t *testing.T) {
 			t.Errorf("%s: confidence=%f want>=%f", c.name, info.Confidence, c.minConf)
 			continue
 		}
-		hits++
 	}
 	signalCases := []struct {
 		name   string
@@ -186,15 +184,12 @@ func TestWFChallengeDetectorEffect(t *testing.T) {
 			t.Fatalf("missing %s/%s signal in %+v", c.source, c.marker, info.Signals)
 		})
 	}
-	hitRate := float64(hits) / float64(len(cases))
-	fmt.Printf("effectiveness_rate=%.1f\n", hitRate)
-	fmt.Printf("detection_hit_rate=%.2f classified=%d\n", hitRate, hits)
 }
 
-// TestWFChallengeDetectorEffectBaseline verifies a page with no
+// TestChallengeDetectorEffectBaseline verifies a page with no
 // challenge signals is classified as TypeNone, establishing the
 // baseline against which the effect (positive detections) is measured.
-func TestWFChallengeDetectorEffectBaseline(t *testing.T) {
+func TestChallengeDetectorEffectBaseline(t *testing.T) {
 	d := NewChallengeDetector()
 	info, err := d.Detect(context.Background(), PageSignals{
 		Title: "About Us",
@@ -209,12 +204,12 @@ func TestWFChallengeDetectorEffectBaseline(t *testing.T) {
 	fmt.Printf("baseline_type=%s\n", info.Type)
 }
 
-// TestWFChallengeDetectorInno verifies the innovative aspect of the
+// TestChallengeDetectorInno verifies the innovative aspect of the
 // detector: it distinguishes multiple challenge vendors from a single
 // static-HTML signal without a live browser, and surfaces an ElementRef
 // for the Cloudflare iframe branch (a feature beyond simple keyword
 // matching). The innovation score reflects vendor coverage breadth.
-func TestWFChallengeDetectorInno(t *testing.T) {
+func TestChallengeDetectorInno(t *testing.T) {
 	d := NewChallengeDetector()
 	vendors := map[string]PageSignals{
 		"cloudflare": {Title: "x", HTML: `challenges.cloudflare.com`},
@@ -243,15 +238,13 @@ func TestWFChallengeDetectorInno(t *testing.T) {
 	if cf.Type != TypeCloudflare || cf.ElementRef == "" {
 		t.Fatalf("cloudflare element ref missing: %+v", cf)
 	}
-	score := float64(recognized) / float64(len(vendors))
-	fmt.Printf("innovation_score=%.1f\n", score)
 }
 
-// TestWFChallengeDetectorInnoBaseline verifies that a non-challenge
+// TestChallengeDetectorInnoBaseline verifies that a non-challenge
 // page yields no vendor recognition and no ElementRef, establishing the
 // baseline against which the innovation (multi-vendor recognition) is
 // measured.
-func TestWFChallengeDetectorInnoBaseline(t *testing.T) {
+func TestChallengeDetectorInnoBaseline(t *testing.T) {
 	d := NewChallengeDetector()
 	info, err := d.Detect(context.Background(), PageSignals{
 		Title: "Docs",
@@ -266,7 +259,6 @@ func TestWFChallengeDetectorInnoBaseline(t *testing.T) {
 	if info.ElementRef != "" {
 		t.Fatalf("expected empty element ref, got %q", info.ElementRef)
 	}
-	fmt.Printf("innovation_score=0.0\n")
 }
 
 // ==================== TASK-2344 pipeline hot-path benchmarks ====================

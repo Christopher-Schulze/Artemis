@@ -7,27 +7,10 @@ import (
 	"time"
 )
 
-// TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput proves SP-artemis-solver-SEC:
+// TestArtemisSolver_DetectAndSolveDeniesInvalidInput verifies:
 // Six actual local cancelled-context, missing-dependency and unsupported-challenge rejections. Each invalid-challenge case must report an unsolved result with a reason; erroneous Solved=true or absent result/reason now fails its named subtest rather than being converted into a fabricated denial. Positive detector fixtures do not prove a successful real-browser CAPTCHA solve.
 
-func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
-	blockedDenials, attemptedDenials := 0, 0
-	recordDenial := func(blocked bool) bool {
-		attemptedDenials++
-		if blocked {
-			blockedDenials++
-		}
-		return blocked
-	}
-	t.Cleanup(func() {
-		denyRate := 0.0
-		if attemptedDenials == 0 {
-			t.Error("expected at least one actual denial case")
-		} else {
-			denyRate = float64(blockedDenials) / float64(attemptedDenials)
-		}
-		t.Logf("deny_rate=%.6f blocked=%d attempted=%d", denyRate, blockedDenials, attemptedDenials)
-	})
+func TestArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
 
 	// Measure only the actual local rejection cases described above.
 
@@ -115,7 +98,7 @@ func TestWFArtemisSolver_DetectAndSolveDeniesInvalidInput(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := c.fn()
-			if !recordDenial(err != nil) {
+			if err == nil {
 				t.Fatalf("%s: expected error/deny, got nil", c.name)
 			}
 		})

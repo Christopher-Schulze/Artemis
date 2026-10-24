@@ -5,27 +5,10 @@ import (
 	"time"
 )
 
-// TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput proves SP-artemis-observe-SEC:
+// TestArtemisObserve_ChangeDetectorDeniesInvalidInput verifies:
 // Two actual local Compare rejections for a missing detector or baseline. Constructor defaults and snapshot-diff controls remain outside the denominator; no persistent observation, polling or silent-bypass prevention guarantee.
 
-func TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput(t *testing.T) {
-	blockedDenials, attemptedDenials := 0, 0
-	recordDenial := func(blocked bool) bool {
-		attemptedDenials++
-		if blocked {
-			blockedDenials++
-		}
-		return blocked
-	}
-	t.Cleanup(func() {
-		denyRate := 0.0
-		if attemptedDenials == 0 {
-			t.Error("expected at least one actual denial case")
-		} else {
-			denyRate = float64(blockedDenials) / float64(attemptedDenials)
-		}
-		t.Logf("deny_rate=%.6f blocked=%d attempted=%d", denyRate, blockedDenials, attemptedDenials)
-	})
+func TestArtemisObserve_ChangeDetectorDeniesInvalidInput(t *testing.T) {
 
 	// Measure only the actual local rejection cases described above.
 
@@ -52,7 +35,7 @@ func TestWFArtemisObserve_ChangeDetectorDeniesInvalidInput(t *testing.T) {
 	}
 	for _, c := range cases {
 		err := c.fn()
-		if !recordDenial(err != nil) {
+		if err == nil {
 			t.Fatalf("%s: expected error, got nil", c.name)
 		}
 	}

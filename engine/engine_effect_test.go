@@ -2,10 +2,10 @@ package engine
 
 import "testing"
 
-// TestWFArtemisRenderless_EffectOracle proves SP-artemis-renderless-EFFECT:
+// TestArtemisRenderless_EffectOracle verifies:
 // FetchOpts; RequestInfo; ResponseInfo; ErrRobotsDisallowed; Engine;
 // Config; New; Config() method; HTTPClient; Close.
-func TestWFArtemisRenderless_EffectOracle(t *testing.T) {
+func TestArtemisRenderless_EffectOracle(t *testing.T) {
 	t.Run("oracle: FetchOpts struct has fields", func(t *testing.T) {
 		o := FetchOpts{Method: "POST", RunScripts: true}
 		if o.Method != "POST" || !o.RunScripts {
@@ -106,7 +106,4 @@ func TestWFArtemisRenderless_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

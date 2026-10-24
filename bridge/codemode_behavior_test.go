@@ -2,17 +2,15 @@ package bridge
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 )
 
 // =============================================================================
-// SP-artemis-codemode-SEC (codemode.go, security_privacy)
 // Claim: CodeModeExecutor.Execute denies invalid code and missing session
 // =============================================================================
 
-func TestWFArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
+func TestArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
 	// Security: Code Mode must deny execution of invalid/empty code and
 	// deny execution when no session is bound. This prevents arbitrary
 	// code execution against an unbound or invalid context.
@@ -81,7 +79,6 @@ func TestWFArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}

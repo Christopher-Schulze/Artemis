@@ -5,11 +5,11 @@ import (
 	"time"
 )
 
-// TestWFArtemisObserve_EffectOracle proves SP-artemis-observe-EFFECT:
+// TestArtemisObserve_EffectOracle verifies:
 // DefaultNetworkRingCapacity/MaxNetworkRingCapacity constants; NetworkEvent;
 // NetworkRingBuffer; NewNetworkRingBuffer; Push; Snapshot; Len; Lookup;
 // Capacity; sanitizeEvent; truncateString.
-func TestWFArtemisObserve_EffectOracle(t *testing.T) {
+func TestArtemisObserve_EffectOracle(t *testing.T) {
 	t.Run("oracle: DefaultNetworkRingCapacity is 100", func(t *testing.T) {
 		if DefaultNetworkRingCapacity != 100 {
 			t.Fatal("expected 100")
@@ -131,7 +131,4 @@ func TestWFArtemisObserve_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

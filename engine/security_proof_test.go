@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// BenchmarkWFEngineFetchPerf measures the cost of a renderless (no JS
+// BenchmarkEngineFetchPerf measures the cost of a renderless (no JS
 // execution) Fetch through the Engine using an OnRequest mock that
 // short-circuits the network call. This isolates the parse + JS context
 // build path that the renderless claim targets.
-func BenchmarkWFEngineFetchPerf(b *testing.B) {
+func BenchmarkEngineFetchPerf(b *testing.B) {
 	eng, err := New(Config{})
 	if err != nil {
 		b.Fatal(err)
@@ -38,11 +38,11 @@ func BenchmarkWFEngineFetchPerf(b *testing.B) {
 	}
 }
 
-// BenchmarkWFEngineFetchPerfBaseline runs the same Fetch path but with
+// BenchmarkEngineFetchPerfBaseline runs the same Fetch path but with
 // RunScripts enabled, which forces the script walker to traverse the
 // document and attempt execution. This is the slower baseline against
 // which the renderless fast path is compared.
-func BenchmarkWFEngineFetchPerfBaseline(b *testing.B) {
+func BenchmarkEngineFetchPerfBaseline(b *testing.B) {
 	eng, err := New(Config{})
 	if err != nil {
 		b.Fatal(err)
@@ -70,10 +70,10 @@ func BenchmarkWFEngineFetchPerfBaseline(b *testing.B) {
 	}
 }
 
-// TestWFEngineFetchPerfCorrectness verifies the renderless Fetch returns
+// TestEngineFetchPerfCorrectness verifies the renderless Fetch returns
 // a parsed Page whose accessors reflect the mocked response, proving the
 // performance benchmark exercises real parsing rather than a no-op.
-func TestWFEngineFetchPerfCorrectness(t *testing.T) {
+func TestEngineFetchPerfCorrectness(t *testing.T) {
 	eng, err := New(Config{})
 	if err != nil {
 		t.Fatal(err)

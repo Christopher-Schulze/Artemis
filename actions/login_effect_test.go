@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestWFArtemisActions_EffectOracle proves SP-artemis-actions-EFFECT:
+// TestArtemisActions_EffectOracle verifies:
 // LoginField/LoginForm/LoginPage/LoginDetection structs; DetectLoginForm;
 // findPasswordField; findUsernameField; isUsernameCandidate; findSubmit;
 // isSubmitCandidate; containsAny; lower; usernameKeywords/passwordAutocompleteValues/submitKeywords.
-func TestWFArtemisActions_EffectOracle(t *testing.T) {
+func TestArtemisActions_EffectOracle(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("oracle: LoginField struct has fields", func(t *testing.T) {
@@ -227,7 +227,4 @@ func TestWFArtemisActions_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

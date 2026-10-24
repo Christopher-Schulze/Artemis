@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-// TestWFArtemisInput_EffectOracle proves SP-artemis-input-EFFECT:
+// TestArtemisInput_EffectOracle verifies:
 // Point; BezierPath; cubicBezier; ClickGaussianOffset; PathLength;
 // HoverDwell; EaseInOutScroll; TypingConfig; DefaultTypingConfig;
 // baseDelayMs; TypingDelays; TypingRhythm; TotalTypingDuration;
 // GaussianJitter; min.
-func TestWFArtemisInput_EffectOracle(t *testing.T) {
+func TestArtemisInput_EffectOracle(t *testing.T) {
 	t.Run("oracle: Point struct has fields", func(t *testing.T) {
 		p := Point{X: 1.5, Y: 2.5}
 		if p.X != 1.5 || p.Y != 2.5 {
@@ -147,7 +147,4 @@ func TestWFArtemisInput_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

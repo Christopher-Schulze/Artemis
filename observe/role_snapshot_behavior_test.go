@@ -4,17 +4,10 @@ import (
 	"testing"
 )
 
-// TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract proves SP-artemis-perf-SEC:
+// TestArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract verifies:
 // Local supplied accessibility-role classification, grouping, filtering and ref-key contract. No live accessibility tree, browser lookup, action targeting or security refusal is exercised.
 
-func TestWFArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract(t *testing.T) {
-	t.Cleanup(func() {
-		contractPassRate := 0.0
-		if !t.Failed() {
-			contractPassRate = 1.0
-		}
-		t.Logf("contract_pass_rate=%.6f", contractPassRate)
-	})
+func TestArtemisPerf_RoleSnapshotDeniesInvalidInput_Contract(t *testing.T) {
 
 	// These are local supplied-tree data transformations.
 

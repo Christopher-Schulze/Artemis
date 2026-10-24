@@ -5,17 +5,10 @@ import (
 	"time"
 )
 
-// TestWFArtemisInput_DeniesInvalidInputParameters_Contract proves SP-artemis-input-SEC:
+// TestArtemisInput_DeniesInvalidInputParameters_Contract verifies:
 // Local geometry, timing and fallback contract for supplied input values. Every original sample remains and the delay-floor case must return three delays. No mouse/keyboard event, browser interaction, observed bot evasion or security denial is exercised.
 
-func TestWFArtemisInput_DeniesInvalidInputParameters_Contract(t *testing.T) {
-	t.Cleanup(func() {
-		contractPassRate := 0.0
-		if !t.Failed() {
-			contractPassRate = 1.0
-		}
-		t.Logf("contract_pass_rate=%.6f", contractPassRate)
-	})
+func TestArtemisInput_DeniesInvalidInputParameters_Contract(t *testing.T) {
 
 	// Supplied values exercise local generator outputs and defaults.
 

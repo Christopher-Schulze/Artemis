@@ -1,21 +1,19 @@
 package profile
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-profile-SEC (credentials.go, security_privacy)
 // Claim: NewCredentialStore denies non-32-byte keys, encryptPassword denies
 // empty passwords, decryptPassword denies missing ciphertext/nonce,
 // StoreCredential denies empty profile/domain/username, GetCredential denies
 // missing records, DeleteCredential denies unknown IDs
 // =============================================================================
 
-func TestWFArtemisProfile_CredentialStoreDeniesInvalidInput(t *testing.T) {
+func TestArtemisProfile_CredentialStoreDeniesInvalidInput(t *testing.T) {
 	// Security: credential store must deny invalid keys, empty passwords,
 	// missing fields, and unknown records to prevent credential bypass.
 
@@ -122,7 +120,6 @@ func TestWFArtemisProfile_CredentialStoreDeniesInvalidInput(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}

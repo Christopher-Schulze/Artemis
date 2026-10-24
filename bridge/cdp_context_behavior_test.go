@@ -1,17 +1,15 @@
 package bridge
 
 import (
-	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-bridge-SEC (cdp_context.go, security_privacy)
 // Claim: CDPContextTree.Attach denies empty IDs and missing parents,
 // and Hierarchy denies unknown IDs and broken parent chains
 // =============================================================================
 
-func TestWFArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
+func TestArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
 	// Security: CDP context tree must deny invalid context attachments
 	// and unknown lookups to prevent unauthorized CDP routing.
 
@@ -80,7 +78,6 @@ func TestWFArtemisBridge_CDPContextTreeDeniesInvalidInput(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}

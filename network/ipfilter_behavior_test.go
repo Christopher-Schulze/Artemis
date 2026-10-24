@@ -1,20 +1,18 @@
 package network
 
 import (
-	"fmt"
 	"net"
 	"net/url"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-renderless-SEC (ipfilter.go, security_privacy)
 // Claim: IsPrivateOrLocal denies loopback, unspecified, multicast,
 // link-local, RFC1918 private, and RFC6598 CGN addresses; CheckHostPublic
 // denies URLs with private/internal resolved addresses (SSRF protection)
 // =============================================================================
 
-func TestWFArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
+func TestArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
 	// Security: IP filter must deny private/internal addresses to prevent
 	// SSRF attacks via the renderless engine.
 
@@ -116,12 +114,6 @@ func TestWFArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
 				return CheckHostPublic(u) == ErrPrivateIP
 			},
 		},
-		{
-			"nil_ip_returns_false",
-			func() bool {
-				return IsPrivateOrLocal(nil) == false
-			},
-		},
 	}
 	blocked := 0
 	for _, c := range cases {
@@ -131,7 +123,9 @@ func TestWFArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
+	if IsPrivateOrLocal(nil) {
+		t.Fatal("a nil IP must not be classified private or local")
+	}
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all private addresses denied), got %.1f", denyRate)
 	}

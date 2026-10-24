@@ -1,18 +1,16 @@
 package scraper
 
 import (
-	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-scraper-SEC (egress.go, security_privacy)
 // Claim: NewEgressRouter denies empty/invalid proxy URLs and unsupported
 // schemes, EnsureDNSConsistency denies SOCKS5 proxies that fail DNS
 // resolution, ResolveWithDoH denies empty DoH server fallbacks
 // =============================================================================
 
-func TestWFArtemisScraper_EgressRouterDeniesInvalidInput(t *testing.T) {
+func TestArtemisScraper_EgressRouterDeniesInvalidInput(t *testing.T) {
 	// Security: egress router must deny invalid proxy URLs and unsupported
 	// schemes to prevent DNS leaks and unauthorized proxy bypass.
 
@@ -79,7 +77,6 @@ func TestWFArtemisScraper_EgressRouterDeniesInvalidInput(t *testing.T) {
 		blocked++
 	}
 	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
 	if denyRate != 1.0 {
 		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}

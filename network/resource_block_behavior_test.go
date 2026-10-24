@@ -1,18 +1,16 @@
 package network
 
 import (
-	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// SP-artemis-runtime-SEC (resource_block.go, security_privacy)
 // Claim: IsBlocked denies blocked resource types from non-allowed domains,
 // IsDomainBlocked denies blocked domains (with subdomain matching) unless
 // allowlisted, and domainMatches denies empty inputs
 // =============================================================================
 
-func TestWFArtemisRuntime_ResourceBlockDeniesInvalidInput(t *testing.T) {
+func TestArtemisRuntime_ResourceBlockDeniesInvalidInput(t *testing.T) {
 	// Security: resource blocker must deny blocked resource types and
 	// domains to prevent unauthorized resource loading.
 
@@ -110,17 +108,10 @@ func TestWFArtemisRuntime_ResourceBlockDeniesInvalidInput(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		if !c.fn() {
 			t.Fatalf("%s: expected deny behavior, got allow", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	fmt.Printf("deny_rate=%.1f blocked=1\n", denyRate)
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
 	// Baseline: valid domainMatches succeeds (positive control)

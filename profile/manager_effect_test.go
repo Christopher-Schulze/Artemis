@@ -2,11 +2,11 @@ package profile
 
 import "testing"
 
-// TestWFArtemisProfile_EffectOracle proves SP-artemis-profile-EFFECT:
+// TestArtemisProfile_EffectOracle verifies:
 // ShareScope constants; BrowserProfile; AccessDecision; BrowserProfileAccessGate;
 // Check; ProfileManager; NewProfileManager; DefaultProfileBaseDir;
 // ProfileDataDir; Create; Get; List; Delete; SwitchProfile.
-func TestWFArtemisProfile_EffectOracle(t *testing.T) {
+func TestArtemisProfile_EffectOracle(t *testing.T) {
 	t.Run("oracle: ShareScope constants are distinct", func(t *testing.T) {
 		if SharePrivate != "private" || ShareOperatorShared != "operator_shared" || ShareWorkspaceShared != "workspace_shared" {
 			t.Fatal("ShareScope constants incorrect")
@@ -161,7 +161,4 @@ func TestWFArtemisProfile_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }

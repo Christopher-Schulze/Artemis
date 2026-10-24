@@ -2,11 +2,11 @@ package observe
 
 import "testing"
 
-// TestWFArtemisPerf_EffectOracle proves SP-artemis-perf-EFFECT:
+// TestArtemisPerf_EffectOracle verifies:
 // RoleName constants; InteractiveRoles/StructuralRoles/ContentRoles;
 // RoleNameTracker; NewRoleNameTracker; GetNextIndex; TrackRef;
 // GetDuplicateKeys; ClassifyRole; isValidRole; SnapshotByRole; SnapshotAllRoles.
-func TestWFArtemisPerf_EffectOracle(t *testing.T) {
+func TestArtemisPerf_EffectOracle(t *testing.T) {
 	t.Run("oracle: RoleName constants are distinct", func(t *testing.T) {
 		if RoleButton != "button" || RoleLink != "link" || RoleTextbox != "textbox" || RoleHeading != "heading" || RoleUnknown != "unknown" {
 			t.Fatal("RoleName constants incorrect")
@@ -133,7 +133,4 @@ func TestWFArtemisPerf_EffectOracle(t *testing.T) {
 		}
 	})
 
-	t.Run("emits oracle_pass metric", func(t *testing.T) {
-		t.Logf("oracle_pass_rate=1.0 verified=1")
-	})
 }
