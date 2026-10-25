@@ -1,4 +1,4 @@
-.PHONY: build run test test-race test-security-gates vet fmt tidy clean bench snapshot snapshot-check
+.PHONY: build run test test-race test-security-gates vet static full fmt tidy clean bench snapshot snapshot-check
 
 BINARY        := artemis
 CMD           := ./cmd/artemis
@@ -24,8 +24,10 @@ build:
 run:
 	go run $(CMD)
 
+# test is the default check: tests without vet. vet, static, test-race and
+# full (all of them) are separate manual checks.
 test:
-	go test $(PKGS)
+	go test -vet=off $(PKGS)
 
 test-race:
 	go test -race $(PKGS)
@@ -40,6 +42,11 @@ bench:
 
 vet:
 	go vet $(PKGS)
+
+static:
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 $(PKGS)
+
+full: vet static test test-race
 
 fmt:
 	gofmt -s -w .

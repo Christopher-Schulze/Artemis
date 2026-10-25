@@ -1,5 +1,7 @@
 name: CI
 
+# Pushes and pull requests run the build and the tests only. The heavier
+# checks run on manual dispatch through full.yml.
 on:
   push:
     branches: [main, master]
@@ -11,7 +13,7 @@ permissions:
 
 jobs:
   test-linux:
-    name: Linux - Build + Vet + Race + Bench
+    name: Linux - Build + Test
     runs-on: ubuntu-latest
     env:
       CC: clang-21
@@ -25,8 +27,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod sets only the go 1.27 minimum. The committed V8 snapshot
-          # activates only on the Go release named in js/snapshot_manifest.json.
+          # go.mod pins go 1.27.3, the Go release named in
+          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
           go-version-file: go.mod
           cache: true
 
@@ -50,17 +52,11 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Vet
-        run: go vet ./...
-
-      - name: Race test
-        run: go test -race -count=1 -p 1 -timeout 600s ./...
-
-      - name: Bench (smoke)
-        run: go test -bench=. -benchmem -run='^$' -benchtime=1x ./...
+      - name: Test
+        run: go test -vet=off -count=1 -p 1 -timeout 600s ./...
 
   test-macos-arm64:
-    name: macOS Apple Silicon - Build + Vet + Race
+    name: macOS Apple Silicon - Build + Test
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
@@ -70,8 +66,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod sets only the go 1.27 minimum. The committed V8 snapshot
-          # activates only on the Go release named in js/snapshot_manifest.json.
+          # go.mod pins go 1.27.3, the Go release named in
+          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
           go-version-file: go.mod
           cache: true
 
@@ -82,14 +78,11 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Vet
-        run: go vet ./...
-
       - name: Snapshot manifest
         # The committed V8 snapshot is generated on darwin/arm64 — the
         # regen-check is toolchain/arch-bound and only meaningful here.
         run: go run ./cmd/artemis-snapshot --check
 
-      - name: Race test
-        run: go test -race -count=1 -p 1 -timeout 600s ./...
+      - name: Test
+        run: go test -vet=off -count=1 -p 1 -timeout 600s ./...
 

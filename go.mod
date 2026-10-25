@@ -1,6 +1,6 @@
 module github.com/Christopher-Schulze/Artemis
 
-go 1.27
+go 1.27.3
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.11.0

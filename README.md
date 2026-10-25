@@ -210,7 +210,7 @@ missing baseline, navigation or changed projection returns a full reset. See
 
 ## Build
 
-Requires **Go 1.27** or newer and a C toolchain (for V8 via cgo). The committed V8
+Requires **Go 1.27.3** or newer (the release `go.mod` names) and a C toolchain (for V8 via cgo). The committed V8
 startup snapshot activates only on the Go release and target named in
 `js/snapshot_manifest.json`; on any other release the runtime starts without it.
 `make snapshot` regenerates it for the installed release and `make snapshot-check`
@@ -218,10 +218,18 @@ verifies the committed assets.
 
 ```sh
 make build      # build the artemis binary
-make test       # run the test suite
+make test       # run the test suite (without vet)
+make vet        # go vet
+make static     # staticcheck
 make test-race  # run with the race detector
+make full       # vet, static, test and test-race
 make bench      # run the benchmark suite
 ```
+
+`make test` is the default check. Vet, staticcheck, race and benchmarks are
+separate checks: CI runs the build and the tests on every push and pull
+request, and the manual Full workflow runs vet, staticcheck, the race tests and
+the benchmark smoke.
 
 ## Quality
 

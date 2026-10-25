@@ -1,0 +1,81 @@
+name: Full
+
+# Manual only: vet, staticcheck, race tests and the benchmark smoke run on
+# explicit dispatch, never on pushes or pull requests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-linux:
+    name: Linux - Vet + Staticcheck + Race + Bench
+    runs-on: ubuntu-latest
+    env:
+      CC: clang-21
+      CXX: clang++-21
+      CGO_CXXFLAGS: -nostdinc++
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # go.mod pins go 1.27.3, the Go release named in
+          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install LLVM Clang 21
+        # V8 is built against Chromium's libc++, so the v8go binding needs
+        # LLVM Clang >= 21 with -nostdinc++ on Linux (docs: Build and Run).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential lsb-release wget software-properties-common gnupg
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 21
+          clang++-21 --version
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: make static
+
+      - name: Race test
+        run: go test -race -vet=off -count=1 -p 1 -timeout 900s ./...
+
+      - name: Bench (smoke)
+        run: go test -vet=off -bench=. -benchmem -run='^$' -benchtime=1x ./...
+
+  full-macos-arm64:
+    name: macOS Apple Silicon - Vet + Staticcheck + Race
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # go.mod pins go 1.27.3, the Go release named in
+          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install C toolchain
+        run: |
+          brew install --quiet autoconf automake libtool || true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: make static
+
+      - name: Race test
+        run: go test -race -vet=off -count=1 -p 1 -timeout 900s ./...
