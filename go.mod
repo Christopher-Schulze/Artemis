@@ -2,8 +2,6 @@ module github.com/Christopher-Schulze/Artemis
 
 go 1.27
 
-toolchain go1.27.2
-
 require (
 	github.com/CycloneDX/cyclonedx-go v0.11.0
 	github.com/andybalholm/brotli v1.0.6

@@ -25,8 +25,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod pins `toolchain go1.27.2`; the committed V8 snapshot is
-          # bound to that exact compiler.
+          # go.mod sets only the go 1.27 minimum. The committed V8 snapshot
+          # activates only on the Go release named in js/snapshot_manifest.json.
           go-version-file: go.mod
           cache: true
 
@@ -70,8 +70,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod pins `toolchain go1.27.2`; the committed V8 snapshot is
-          # bound to that exact compiler.
+          # go.mod sets only the go 1.27 minimum. The committed V8 snapshot
+          # activates only on the Go release named in js/snapshot_manifest.json.
           go-version-file: go.mod
           cache: true
 
