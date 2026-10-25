@@ -18,7 +18,6 @@ func TestArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
 		PromptType(255),
 		PromptType(42),
 	}
-	blocked := 0
 	for _, pt := range unknownTypes {
 		tmpl, err := GetPrompt(pt)
 		if err == nil {
@@ -27,11 +26,6 @@ func TestArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
 		if tmpl != "" {
 			t.Fatalf("GetPrompt(%d): expected empty string, got %q", pt, tmpl)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(unknownTypes))
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all unknown types denied), got %.1f", denyRate)
 	}
 
 	// GetPromptTemplate must also deny unknown types.
@@ -43,7 +37,6 @@ func TestArtemisPrompts_DenyUnknownPromptType(t *testing.T) {
 		if tmpl != nil {
 			t.Fatalf("GetPromptTemplate(%d): expected nil, got %+v", pt, tmpl)
 		}
-		blocked++
 	}
 
 	// Baseline: all 9 known types succeed (positive control).

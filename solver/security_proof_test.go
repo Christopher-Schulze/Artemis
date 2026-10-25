@@ -2,7 +2,6 @@ package solver
 
 import (
 	"context"
-	"fmt"
 	"testing"
 )
 
@@ -67,7 +66,6 @@ func TestChallengeDetectorPerfCorrectness(t *testing.T) {
 	if info.Confidence != 1.0 {
 		t.Fatalf("confidence=%f", info.Confidence)
 	}
-	fmt.Printf("clean_type=%s confidence=%.2f\n", info.Type, info.Confidence)
 }
 
 // TestChallengeDetectorEffect verifies the detector correctly
@@ -201,22 +199,19 @@ func TestChallengeDetectorEffectBaseline(t *testing.T) {
 	if info.Type != TypeNone {
 		t.Fatalf("expected none, got %s", info.Type)
 	}
-	fmt.Printf("baseline_type=%s\n", info.Type)
 }
 
-// TestChallengeDetectorInno verifies the innovative aspect of the
-// detector: it distinguishes multiple challenge vendors from a single
-// static-HTML signal without a live browser, and surfaces an ElementRef
-// for the Cloudflare iframe branch (a feature beyond simple keyword
-// matching). The innovation score reflects vendor coverage breadth.
-func TestChallengeDetectorInno(t *testing.T) {
+// TestChallengeDetectorRecognizesVendorsAndCloudflareFrame verifies that the
+// detector distinguishes multiple challenge vendors from a single
+// static-HTML signal without a live browser and surfaces an ElementRef for
+// the Cloudflare iframe branch.
+func TestChallengeDetectorRecognizesVendorsAndCloudflareFrame(t *testing.T) {
 	d := NewChallengeDetector()
 	vendors := map[string]PageSignals{
 		"cloudflare": {Title: "x", HTML: `challenges.cloudflare.com`},
 		"hcaptcha":   {Title: "x", HTML: `hcaptcha.com`},
 		"recaptcha":  {Title: "x", HTML: `g-recaptcha`},
 	}
-	recognized := 0
 	for vendor, sig := range vendors {
 		info, err := d.Detect(context.Background(), sig)
 		if err != nil {
@@ -224,9 +219,7 @@ func TestChallengeDetectorInno(t *testing.T) {
 		}
 		if info.Type == TypeNone {
 			t.Errorf("%s: not recognized", vendor)
-			continue
 		}
-		recognized++
 	}
 	// Cloudflare branch must populate ElementRef.
 	cf, err := d.Detect(context.Background(), PageSignals{
@@ -240,11 +233,9 @@ func TestChallengeDetectorInno(t *testing.T) {
 	}
 }
 
-// TestChallengeDetectorInnoBaseline verifies that a non-challenge
-// page yields no vendor recognition and no ElementRef, establishing the
-// baseline against which the innovation (multi-vendor recognition) is
-// measured.
-func TestChallengeDetectorInnoBaseline(t *testing.T) {
+// TestChallengeDetectorIgnoresPagesWithoutChallenge verifies that a
+// non-challenge page yields no vendor recognition and no ElementRef.
+func TestChallengeDetectorIgnoresPagesWithoutChallenge(t *testing.T) {
 	d := NewChallengeDetector()
 	info, err := d.Detect(context.Background(), PageSignals{
 		Title: "Docs",

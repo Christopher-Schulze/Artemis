@@ -57,7 +57,6 @@ func TestArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
 			"",
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		dec, err := DetectLoginForm(context.Background(), c.page)
 		if c.reason == "" {
@@ -76,11 +75,6 @@ func TestArtemisActions_LoginDetectionDeniesIncompleteForms(t *testing.T) {
 				t.Fatalf("%s: expected reason %q, got %q", c.name, c.reason, dec.Reason)
 			}
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all incomplete forms denied), got %.1f", denyRate)
 	}
 
 	// Post-login deny: login form still visible

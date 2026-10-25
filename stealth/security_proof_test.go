@@ -1,7 +1,6 @@
 package stealth
 
 import (
-	"fmt"
 	neturl "net/url"
 	"path/filepath"
 	"strings"
@@ -72,7 +71,6 @@ func TestReferrerForDomainPerfCorrectness(t *testing.T) {
 	if !strings.Contains(ref, "shop.example.com") {
 		t.Fatalf("referrer missing host: %q", ref)
 	}
-	fmt.Printf("referrer_len=%d host_encoded=true\n", len(ref))
 }
 
 // TestReferrerForDomainEffect verifies the referrer feature: public
@@ -120,7 +118,6 @@ func TestReferrerForDomainEffect(t *testing.T) {
 	if mem2 == "" || !strings.Contains(mem2, "google.com") {
 		t.Fatalf("memory-backed referrer: %q", mem2)
 	}
-	fmt.Printf("public_referrer=true local_referrer=false memory_referrer=true\n")
 }
 
 // TestReferrerForDomainEffectBaseline verifies an invalid URL yields
@@ -131,47 +128,34 @@ func TestReferrerForDomainEffectBaseline(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error for invalid URL")
 	}
-	fmt.Printf("baseline_referrer_emitted=false\n")
 }
 
-// TestReferrerForDomainInno verifies the innovative aspect: the
-// referrer is a plausible Google search URL (host encoded as the query)
-// rather than a bare domain or empty string, which is the stealth
-// innovation that makes the Referer header look organic. The innovation
-// score reflects the fraction of organic-looking properties present.
-func TestReferrerForDomainInno(t *testing.T) {
+// TestReferrerForDomainBuildsOrganicGoogleReferrer verifies that the
+// referrer is a plausible Google search URL with the host encoded as the
+// query rather than a bare domain or an empty string, so the Referer
+// header looks organic.
+func TestReferrerForDomainBuildsOrganicGoogleReferrer(t *testing.T) {
 	ref, err := ReferrerForDomain("https://shop.example.com/item/123", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	properties := 0
-	const expected = 4
-	if strings.HasPrefix(ref, "https://www.google.com/search?q=") {
-		properties++ // google search origin
+	if !strings.HasPrefix(ref, "https://www.google.com/search?q=") || !strings.Contains(ref, "shop.example.com") {
+		t.Fatalf("referrer %q is not a Google search for the target host", ref)
 	}
-	if strings.Contains(ref, "shop.example.com") {
-		properties++ // target host embedded
+	u, err := neturl.Parse(ref)
+	if err != nil || u.RawQuery == "" {
+		t.Fatalf("referrer %q is not a URL with a query string: %v", ref, err)
 	}
-	u, perr := neturl.Parse(ref)
-	if perr == nil && u.RawQuery != "" {
-		properties++ // parseable as a real URL with a query string
-	}
-	// The query value must decode back to exactly the hostname, proving
-	// url.QueryEscape was used (organic encoding) rather than raw concat.
-	if u != nil {
-		if q := u.Query().Get("q"); q == "shop.example.com" {
-			properties++ // query decodes to the bare host
-		}
-	}
-	if properties != expected {
-		t.Fatalf("organic properties=%d/%d ref=%q", properties, expected, ref)
+	// The query value decodes back to exactly the hostname, proving
+	// url.QueryEscape was used rather than raw concatenation.
+	if q := u.Query().Get("q"); q != "shop.example.com" {
+		t.Fatalf("referrer query = %q, want the bare host", q)
 	}
 }
 
-// TestReferrerForDomainInnoBaseline verifies that a local host
-// produces an empty referrer (no organic properties), establishing the
-// baseline against which the innovation (organic referrer) is measured.
-func TestReferrerForDomainInnoBaseline(t *testing.T) {
+// TestReferrerForDomainLocalHostHasNoReferrer verifies that a local host
+// produces an empty referrer.
+func TestReferrerForDomainLocalHostHasNoReferrer(t *testing.T) {
 	ref, err := ReferrerForDomain("http://localhost/admin", nil)
 	if err != nil {
 		t.Fatal(err)

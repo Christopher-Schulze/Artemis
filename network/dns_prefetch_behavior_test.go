@@ -29,17 +29,11 @@ func TestArtemisNetwork_DNSResolveDeniesInvalidInput(t *testing.T) {
 		{"whitespace_host", validCache, "   "},
 		{"no_resolver", &DNSPrefetchCache{l1: make(map[string]dnsEntry), resolver: nil}, "example.com"},
 	}
-	blocked := 0
 	for _, c := range cases {
 		_, err := c.cache.Resolve(context.Background(), c.host)
 		if err == nil {
 			t.Fatalf("%s: expected error, got nil", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
 	// Baseline: valid host with mock resolver succeeds (positive control).

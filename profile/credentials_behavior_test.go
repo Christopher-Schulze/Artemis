@@ -111,17 +111,11 @@ func TestArtemisProfile_CredentialStoreDeniesInvalidInput(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		err := c.fn()
 		if err == nil {
 			t.Fatalf("%s: expected error, got nil", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
 	// Baseline: valid store with valid key succeeds (positive control)

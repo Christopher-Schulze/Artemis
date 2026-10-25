@@ -1,7 +1,6 @@
 package scraper
 
 import (
-	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -102,7 +101,6 @@ func TestAdaptiveCachePerfCorrectness(t *testing.T) {
 	if got.Selector != ".product-name" || got.Confidence != 0.87 {
 		t.Fatalf("got=%+v", got)
 	}
-	fmt.Printf("l1_hit_selector=%s confidence=%.2f\n", got.Selector, got.Confidence)
 }
 
 // TestAdaptiveCacheEffect verifies the two-tier cache feature: an
@@ -144,8 +142,6 @@ func TestAdaptiveCacheEffect(t *testing.T) {
 	if l1.Selector != l2.Selector {
 		t.Fatalf("L1/L2 diverge: %q vs %q", l1.Selector, l2.Selector)
 	}
-	fmt.Printf("tier_match=true l1_selector=%s l2_selector=%s confidence=%.2f\n",
-		l1.Selector, l2.Selector, l2.Confidence)
 }
 
 // TestAdaptiveCacheEffectBaseline confirms a Get against a brand-new

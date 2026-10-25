@@ -115,19 +115,13 @@ func TestArtemisRenderless_IPFilterDeniesPrivateAddresses(t *testing.T) {
 			},
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		if !c.fn() {
 			t.Fatalf("%s: expected deny behavior, got allow", c.name)
 		}
-		blocked++
 	}
-	denyRate := float64(blocked) / float64(len(cases))
 	if IsPrivateOrLocal(nil) {
 		t.Fatal("a nil IP must not be classified private or local")
-	}
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all private addresses denied), got %.1f", denyRate)
 	}
 
 	// Baseline: public addresses are allowed (positive control)

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -102,6 +101,4 @@ func TestEngineFetchPerfCorrectness(t *testing.T) {
 	if len(links) != 1 || !strings.HasSuffix(links[0].Href, "/x") {
 		t.Fatalf("links=%+v", links)
 	}
-	fmt.Printf("renderless_fetch_status=%d parsed_title_len=%d link_count=%d\n",
-		page.StatusCode(), len(page.Title()), len(links))
 }

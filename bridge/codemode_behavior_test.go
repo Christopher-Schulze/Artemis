@@ -51,7 +51,6 @@ func TestArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
 			"code normalization failed",
 		},
 	}
-	blocked := 0
 	for _, c := range cases {
 		var res *ExecuteResult
 		var err error
@@ -67,7 +66,6 @@ func TestArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s: expected either nil result with error or non-nil result", c.name)
 			}
-			blocked++
 			continue
 		}
 		if res.Success {
@@ -76,11 +74,6 @@ func TestArtemisCodemode_ExecuteDeniesInvalidInput(t *testing.T) {
 		if res.Error == "" {
 			t.Fatalf("%s: expected non-empty error message", c.name)
 		}
-		blocked++
-	}
-	denyRate := float64(blocked) / float64(len(cases))
-	if denyRate != 1.0 {
-		t.Fatalf("expected deny_rate=1.0 (all invalid inputs denied), got %.1f", denyRate)
 	}
 
 	// Baseline: cancelled context denies execution (positive control on deny path).
