@@ -7,7 +7,7 @@
 > **A renderless web engine built for AI agents.** Artemis fetches HTML, executes JavaScript in V8, maintains a DOM, and extracts agent-ready content without a layout or paint engine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Go 1.27+](https://img.shields.io/badge/Go-1.27%2B-00ADD8.svg)](https://go.dev)
+[![Go 1.27.3](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://go.dev)
 [![Tests: behavior and race coverage](https://img.shields.io/badge/tests-behavior%20%2B%20race%20coverage-blue.svg)](#quality)
 
 Artemis 0.1.0 supports renderless fetch, JavaScript execution, extraction, an owned high-level Agent lifecycle for typed fetch actions, persistent renderless steering over JSON WebSocket, an owned or externally attached Chromium/CDP lifecycle, high-level Chromium actions, deterministic hybrid routing, browser screenshots, persistent profiles, and measured-profile stealth injection (env-gated, legal acknowledgement required). Challenge resolution is experimental.
@@ -81,7 +81,7 @@ machine-readable contract or just `artemis fetch <url>`.
 
 ### Install and first run
 
-Build the standalone repository with Go 1.27 or newer and a C toolchain:
+Build the standalone repository with Go 1.27.3 and a C toolchain:
 
 ```sh
 git clone https://github.com/Christopher-Schulze/Artemis.git
@@ -210,10 +210,11 @@ missing baseline, navigation or changed projection returns a full reset. See
 
 ## Build
 
-Requires **Go 1.27.3** or newer (the release `go.mod` names) and a C toolchain (for V8 via cgo). The committed V8
+The Makefile and CI select exactly **Go 1.27.3** through `GOTOOLCHAIN`; direct Go
+commands use `GOTOOLCHAIN=go1.27.3`. A C toolchain is required for V8 via cgo. The committed V8
 startup snapshot activates only on the Go release and target named in
 `js/snapshot_manifest.json`; on any other release the runtime starts without it.
-`make snapshot` regenerates it for the installed release and `make snapshot-check`
+`make snapshot` regenerates it for the pinned release and `make snapshot-check`
 verifies the committed assets.
 
 ```sh

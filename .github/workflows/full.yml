@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.27.3
+
 jobs:
   full-linux:
     name: Linux - Vet + Staticcheck + Race + Bench

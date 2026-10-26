@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.27.3
+
 jobs:
   test-linux:
     name: Linux - Build + Test

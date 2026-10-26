@@ -1,10 +1,12 @@
 .PHONY: build run test test-race test-security-gates vet static full fmt tidy clean bench snapshot snapshot-check
 
+override export GOTOOLCHAIN := go1.27.3
+
 BINARY        := artemis
 CMD           := ./cmd/artemis
 SNAPSHOT_TOOL := ./cmd/artemis-snapshot
 SNAPSHOT_BIN  := js/snapshot.bin
-PKGS          := $(shell go list ./... 2>/dev/null | grep -v '/research/')
+PKGS          := $(shell GOTOOLCHAIN=$(GOTOOLCHAIN) go list ./... 2>/dev/null | grep -v '/research/')
 SECURITY_GATE_PKGS := ./network ./bridge ./engine ./download ./process
 
 # snapshot regenerates the V8 startup snapshot and its provenance manifest.
@@ -30,7 +32,7 @@ test:
 	go test -vet=off $(PKGS)
 
 test-race:
-	go test -race $(PKGS)
+	go test -race -vet=off $(PKGS)
 
 test-security-gates:
 	go test -race -count=1 -timeout=300s -run='^TestSecurityGate' $(SECURITY_GATE_PKGS)
