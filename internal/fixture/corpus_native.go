@@ -11,29 +11,32 @@ import (
 )
 
 // RunNativeScenario uses the existing target/frame/loader-bound observer.
-// Its event consumer is joined without writing an unused trace archive.
+// Its event consumer is joined without writing an unused trace archive. Every
+// step error names its phase and the time since the scenario started.
 func RunNativeScenario(ctx context.Context, page *bridge.Page, scenario Scenario, target string) (result CrossResult, runErr error) {
+	started := time.Now()
 	recorder, err := telemetry.NewBrowserTraceRecorder(page, telemetry.TraceRecordConfig{DiscardArchive: true})
 	if err != nil {
-		return result, err
+		return result, PhaseFailure(PhaseTraceStart, started, err)
 	}
 	if err := recorder.Start(ctx); err != nil {
-		return result, err
+		return result, PhaseFailure(PhaseTraceStart, started, err)
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, err := recorder.Stop(cleanup)
-		runErr = errors.Join(runErr, err)
+		runErr = errors.Join(runErr, PhaseFailure(PhaseTraceStop, started, err))
 	}()
 	frame, loader, err := page.Navigate(ctx, target)
 	if err != nil {
-		return result, err
+		return result, PhaseFailure(PhaseNavigation, started, err)
 	}
 	if err := waitNativeReady(ctx, page); err != nil {
-		return result, err
+		return result, PhaseFailure(PhaseReadiness, started, err)
 	}
-	return observeNativeOutcome(ctx, page, recorder, frame, loader, scenario)
+	result, err = observeNativeOutcome(ctx, page, recorder, frame, loader, scenario)
+	return result, PhaseFailure(PhaseObservation, started, err)
 }
 
 func waitNativeReady(ctx context.Context, page *bridge.Page) error {

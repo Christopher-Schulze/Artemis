@@ -40,10 +40,10 @@ func RunChromium(ctx context.Context, manifest fixtureasset.Manifest, content []
 	if err != nil || eligibility.State != fixture.EligibilityReady {
 		return result, errors.Join(err, fmt.Errorf("fixture Chromium execution: zero passing coverage: %+v", eligibility))
 	}
-	return runAdmittedChromium(ctx, manifest, content, scenario, launch)
+	return runAdmittedChromium(ctx, manifest, content, scenario, launch, started)
 }
 
-func runAdmittedChromium(ctx context.Context, manifest fixtureasset.Manifest, content []byte, scenario fixture.Scenario, launch process.LaunchConfig) (result Result, runErr error) {
+func runAdmittedChromium(ctx context.Context, manifest fixtureasset.Manifest, content []byte, scenario fixture.Scenario, launch process.LaunchConfig, started time.Time) (result Result, runErr error) {
 	if err := validateCorpusLaunch(launch); err != nil {
 		return result, err
 	}
@@ -60,7 +60,7 @@ func runAdmittedChromium(ctx context.Context, manifest fixtureasset.Manifest, co
 	if err != nil {
 		return result, err
 	}
-	return runChromiumPage(ctx, manifest, scenario, server, launch)
+	return runChromiumPage(ctx, manifest, scenario, server, launch, started)
 }
 
 func prepareCorpusLaunch(launch process.LaunchConfig) (process.LaunchConfig, error) {
@@ -84,22 +84,28 @@ func prepareCorpusLaunch(launch process.LaunchConfig) (process.LaunchConfig, err
 	return launch, nil
 }
 
-func runChromiumPage(ctx context.Context, manifest fixtureasset.Manifest, scenario fixture.Scenario, server *fixture.Server, launch process.LaunchConfig) (result Result, runErr error) {
+// runChromiumPage names the phase of every browser step error with the time
+// since RunChromium started; the native scenario names its own steps.
+func runChromiumPage(ctx context.Context, manifest fixtureasset.Manifest, scenario fixture.Scenario, server *fixture.Server, launch process.LaunchConfig, started time.Time) (result Result, runErr error) {
 	browser, err := bridge.LaunchChromium(ctx, launch)
 	if err != nil {
-		return result, err
+		return result, fixture.PhaseFailure(fixture.PhaseLaunch, started, err)
 	}
-	defer func() { runErr = errors.Join(runErr, browser.Close()) }()
+	defer func() {
+		runErr = errors.Join(runErr, fixture.PhaseFailure(fixture.PhaseClose, started, browser.Close()))
+	}()
 	browserContext, err := browser.NewContext(ctx)
 	if err != nil {
-		return result, err
+		return result, fixture.PhaseFailure(fixture.PhaseContext, started, err)
 	}
-	defer func() { runErr = errors.Join(runErr, browserContext.Close()) }()
+	defer func() {
+		runErr = errors.Join(runErr, fixture.PhaseFailure(fixture.PhaseClose, started, browserContext.Close()))
+	}()
 	page, err := browserContext.NewPage(ctx, "about:blank")
 	if err != nil {
-		return result, err
+		return result, fixture.PhaseFailure(fixture.PhasePage, started, err)
 	}
-	defer func() { runErr = errors.Join(runErr, page.Close()) }()
+	defer func() { runErr = errors.Join(runErr, fixture.PhaseFailure(fixture.PhaseClose, started, page.Close())) }()
 	observed, err := fixture.RunNativeScenario(ctx, page, scenario, server.URL(scenario.Path))
 	result = Result{FixtureManifest: manifest.Detached(), StatusCode: observed.StatusCode, URL: observed.URL,
 		Title: observed.Title, Text: observed.Text, HTML: observed.HTML, Markdown: observed.Markdown,
