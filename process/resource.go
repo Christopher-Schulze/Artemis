@@ -77,14 +77,23 @@ func (b ResourceBudget) exceeded(usage ResourceUsage) error {
 
 type resourceSampler func(int, string) (ResourceUsage, error)
 
+// directorySize measures a directory another process is writing to. What went away between
+// being listed and being measured no longer counts, because a failed sample ends the browser.
+// Only the root itself being gone is an error.
 func directorySize(root string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if path != root && errors.Is(walkErr, fs.ErrNotExist) {
+				return nil
+			}
 			return walkErr
 		}
 		if entry.Type().IsRegular() {
 			info, err := entry.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
