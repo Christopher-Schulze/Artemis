@@ -27,9 +27,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # The latest Go 1.27 patch: js/snapshot_manifest.json binds the
-          # committed V8 snapshot to the go1.27 release line, not a patch.
-          go-version: '1.27.x'
+          # The latest stable Go release; Artemis pins no toolchain.
+          go-version: stable
           check-latest: true
           cache: true
 
@@ -68,9 +67,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # The latest Go 1.27 patch: js/snapshot_manifest.json binds the
-          # committed V8 snapshot to the go1.27 release line, not a patch.
-          go-version: '1.27.x'
+          # The latest stable Go release; Artemis pins no toolchain.
+          go-version: stable
           check-latest: true
           cache: true
 

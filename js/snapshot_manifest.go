@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/version"
 	"io"
 	"runtime"
 	"strings"
@@ -24,8 +23,8 @@ const (
 
 // SnapshotManifest is the embedded, cryptographically bound provenance for
 // the V8 startup snapshot. It is generated beside snapshot.bin and embedded
-// into the same Artemis binary. GoVersion records the Go release line
-// (go1.27), not the patch release: the V8 blob does not depend on it.
+// into the same Artemis binary. It binds the V8 runtime and target but no Go
+// release: the blob is produced by V8 and does not depend on the Go compiler.
 type SnapshotManifest struct {
 	SchemaVersion    int                    `json:"schema_version"`
 	SourcePath       string                 `json:"source_path"`
@@ -37,7 +36,6 @@ type SnapshotManifest struct {
 	ToolchainRef     string                 `json:"toolchain_ref"`
 	V8Version        string                 `json:"v8_version"`
 	V8GoVersion      string                 `json:"v8go_version"`
-	GoVersion        string                 `json:"go_version"`
 	TargetOS         string                 `json:"target_os"`
 	TargetArch       string                 `json:"target_arch"`
 	ActivationOwner  string                 `json:"activation_owner"`
@@ -50,7 +48,7 @@ var embeddedSnapshotManifest []byte
 
 // NewSnapshotManifest creates the canonical provenance projection for a
 // freshly generated blob.
-func NewSnapshotManifest(input SnapshotInputManifest, blob []byte, v8Version, goVersion, targetOS, targetArch string) SnapshotManifest {
+func NewSnapshotManifest(input SnapshotInputManifest, blob []byte, v8Version, targetOS, targetArch string) SnapshotManifest {
 	return SnapshotManifest{
 		SchemaVersion:    SnapshotManifestSchemaVersion,
 		SourcePath:       SnapshotAssetPath,
@@ -59,10 +57,9 @@ func NewSnapshotManifest(input SnapshotInputManifest, blob []byte, v8Version, go
 		SHA256:           digestString(blob),
 		SourceSetSHA256:  input.SourceSetSHA256,
 		GeneratorRef:     SnapshotGeneratorRef,
-		ToolchainRef:     snapshotToolchainRef(v8Version, goVersion, targetOS, targetArch),
+		ToolchainRef:     snapshotToolchainRef(v8Version, targetOS, targetArch),
 		V8Version:        v8Version,
 		V8GoVersion:      SnapshotV8GoVersion,
-		GoVersion:        snapshotGoLine(goVersion),
 		TargetOS:         targetOS,
 		TargetArch:       targetArch,
 		ActivationOwner:  SnapshotOwnerRef,
@@ -98,7 +95,7 @@ func EmbeddedSnapshotManifest() (SnapshotManifest, error) {
 
 // ValidateSnapshotManifest proves that a blob and its provenance match the
 // current source, target and linked V8 runtime before snapshot activation.
-func ValidateSnapshotManifest(manifest SnapshotManifest, blob []byte, input SnapshotInputManifest, v8Version, goVersion, targetOS, targetArch string) error {
+func ValidateSnapshotManifest(manifest SnapshotManifest, blob []byte, input SnapshotInputManifest, v8Version, targetOS, targetArch string) error {
 	if manifest.SchemaVersion != SnapshotManifestSchemaVersion {
 		return fmt.Errorf("snapshot manifest: schema_version=%d, want=%d", manifest.SchemaVersion, SnapshotManifestSchemaVersion)
 	}
@@ -120,11 +117,10 @@ func ValidateSnapshotManifest(manifest SnapshotManifest, blob []byte, input Snap
 	if manifest.GeneratorRef != SnapshotGeneratorRef || manifest.ActivationOwner != SnapshotOwnerRef {
 		return fmt.Errorf("snapshot manifest: generator/owner mismatch")
 	}
-	goLine := snapshotGoLine(goVersion)
-	if manifest.V8Version != v8Version || manifest.V8GoVersion != SnapshotV8GoVersion || goLine == "" || manifest.GoVersion != goLine || manifest.TargetOS != targetOS || manifest.TargetArch != targetArch {
+	if manifest.V8Version != v8Version || manifest.V8GoVersion != SnapshotV8GoVersion || manifest.TargetOS != targetOS || manifest.TargetArch != targetArch {
 		return fmt.Errorf("snapshot manifest: runtime compatibility mismatch")
 	}
-	if manifest.ToolchainRef != snapshotToolchainRef(v8Version, goVersion, targetOS, targetArch) {
+	if manifest.ToolchainRef != snapshotToolchainRef(v8Version, targetOS, targetArch) {
 		return fmt.Errorf("snapshot manifest: toolchain reference mismatch")
 	}
 	if !sameSnapshotSources(manifest.BootstrapSources, input.BootstrapSources) || !sameStrings(manifest.NativeStubNames, input.NativeStubNames) {
@@ -144,7 +140,7 @@ func CurrentSnapshotManifest() (SnapshotManifest, error) {
 	if err != nil {
 		return SnapshotManifest{}, err
 	}
-	return manifest, ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return manifest, ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
 // CurrentToolchainRef returns the toolchain identity of this build. The
@@ -152,18 +148,11 @@ func CurrentSnapshotManifest() (SnapshotManifest, error) {
 // ToolchainRef equals this value — on any other toolchain activation is
 // correctly rejected and snapshot-dependent assertions must skip.
 func CurrentToolchainRef() string {
-	return snapshotToolchainRef(v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return snapshotToolchainRef(v8.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
-// snapshotGoLine reduces a Go toolchain version (go1.27.4, go1.27rc1) to its
-// release line (go1.27); a development or unparseable toolchain yields "" and
-// never validates.
-func snapshotGoLine(goVersion string) string {
-	return version.Lang(goVersion)
-}
-
-func snapshotToolchainRef(v8Version, goVersion, targetOS, targetArch string) string {
-	return strings.Join([]string{"go=" + snapshotGoLine(goVersion), "v8go=" + SnapshotV8GoVersion, "v8=" + v8Version, "target=" + targetOS + "/" + targetArch}, ";")
+func snapshotToolchainRef(v8Version, targetOS, targetArch string) string {
+	return strings.Join([]string{"v8go=" + SnapshotV8GoVersion, "v8=" + v8Version, "target=" + targetOS + "/" + targetArch}, ";")
 }
 
 func sameSnapshotSources(left, right []SnapshotSourceDigest) bool {

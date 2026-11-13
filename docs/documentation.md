@@ -156,10 +156,9 @@ The V8 startup snapshot (`js/snapshot.bin`) and its provenance manifest
 `go:embed`. Regenerate both whenever you change a snapshot-eligible JS
 bootstrap (anything in `js.BootstrapSources()`), then run `make snapshot-check`.
 The generator binds the ordered bootstrap digests, native callback inventory,
-V8/v8go/Go target tuple, generator identity and activation owner. The Go part
-is the release line (`go1.27`), not the patch release: the blob does not
-depend on it, so every Go 1.27.x build validates and activates the snapshot,
-while another release line or a development toolchain is rejected. It runs V8
+V8/v8go version and target, generator identity and activation owner. It binds
+no Go release: the blob is produced by V8 and does not depend on the Go
+compiler, so every Go release validates and activates it. It runs V8
 in predictable, single-threaded mode and rejects wall-clock state in the
 snapshot bootstrap, so identical inputs produce byte-identical output. The
 native callback inventory lists only names that every realm replaces with a Go

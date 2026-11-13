@@ -3,6 +3,7 @@ package js
 import (
 	"encoding/json"
 	"runtime"
+	"strings"
 	"testing"
 
 	v8 "github.com/tommie/v8go"
@@ -42,36 +43,38 @@ func TestCurrentSnapshotManifestMatchesEmbeddedInputs(t *testing.T) {
 	}
 }
 
-func TestSnapshotManifestBindsTheGoReleaseLineNotThePatch(t *testing.T) {
-	// The committed target is passed explicitly, so the Go-line rule is
-	// proven on every build host, not only on the snapshot target.
+func TestSnapshotManifestBindsV8AndTargetButNoGoRelease(t *testing.T) {
+	// The committed target is passed explicitly, so the binding is proven on
+	// every build host, not only on the snapshot target.
 	manifest, err := EmbeddedSnapshotManifest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	targetOS, targetArch := manifest.TargetOS, manifest.TargetArch
-	if manifest.GoVersion != "go1.27" || manifest.ToolchainRef != snapshotToolchainRef(v8.Version(), "go1.27.0", targetOS, targetArch) {
-		t.Fatalf("manifest go_version=%q toolchain_ref=%q, want the go1.27 release line", manifest.GoVersion, manifest.ToolchainRef)
+	if strings.Contains(";"+manifest.ToolchainRef, ";go=") || manifest.ToolchainRef != snapshotToolchainRef(v8.Version(), targetOS, targetArch) {
+		t.Fatalf("toolchain_ref=%q, want V8, v8go and target only", manifest.ToolchainRef)
+	}
+	if _, err := DecodeSnapshotManifest([]byte(strings.Replace(string(embeddedSnapshotManifest), "{", `{"go_version":"go1.27.3",`, 1))); err == nil {
+		t.Fatal("a manifest that binds a Go release decoded")
 	}
 	input, err := BuildSnapshotInputManifest(SnapshotStubBootstrap())
 	if err != nil {
 		t.Fatal(err)
 	}
-	tests := []struct {
-		goVersion string
-		valid     bool
-	}{
-		{"go1.27.0", true}, {"go1.27.3", true}, {"go1.27.4", true}, {"go1.27.19", true}, {"go1.27rc2", true},
-		{"go1.26.9", false}, {"go1.28.0", false}, {"go1.2", false}, {"devel go1.28-0123456789ab", false}, {"", false},
+	if err := ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), targetOS, targetArch); err != nil {
+		t.Fatalf("committed snapshot rejected on its own target: %v", err)
 	}
-	for _, test := range tests {
-		err := ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), test.goVersion, targetOS, targetArch)
-		if (err == nil) != test.valid {
-			t.Fatalf("%q: err=%v, want valid=%t", test.goVersion, err, test.valid)
+	for _, mismatch := range []struct{ v8Version, targetOS, targetArch string }{
+		{v8.Version() + "-other", targetOS, targetArch},
+		{v8.Version(), "plan9", targetArch},
+		{v8.Version(), targetOS, "mips"},
+	} {
+		if err := ValidateSnapshotManifest(manifest, snapshotBlob, input, mismatch.v8Version, mismatch.targetOS, mismatch.targetArch); err == nil {
+			t.Fatalf("snapshot admitted %+v", mismatch)
 		}
 	}
-	if fresh := NewSnapshotManifest(input, snapshotBlob, v8.Version(), "go1.27.4", targetOS, targetArch); fresh.GoVersion != manifest.GoVersion || fresh.ToolchainRef != manifest.ToolchainRef {
-		t.Fatalf("a go1.27.4 generation records %q/%q, committed %q/%q", fresh.GoVersion, fresh.ToolchainRef, manifest.GoVersion, manifest.ToolchainRef)
+	if fresh := NewSnapshotManifest(input, snapshotBlob, v8.Version(), targetOS, targetArch); fresh.ToolchainRef != manifest.ToolchainRef {
+		t.Fatalf("a fresh generation records %q, committed %q", fresh.ToolchainRef, manifest.ToolchainRef)
 	}
 }
 
@@ -84,7 +87,7 @@ func TestSnapshotManifestUsesStandaloneIdentity(t *testing.T) {
 		t.Fatalf("snapshot identities are not module relative: %q %q", manifest.SourcePath, manifest.GeneratorRef)
 	}
 	manifest.SourcePath = "private-root/" + manifest.SourcePath
-	if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
+	if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
 		t.Fatal("snapshot admitted a noncanonical source identity")
 	}
 }
@@ -120,7 +123,7 @@ func TestValidateSnapshotManifestRejectsBlobCorruption(t *testing.T) {
 	if !matches {
 		// On a foreign toolchain the corruption test degenerates to the
 		// toolchain gate; assert that rejection instead.
-		if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
+		if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
 			t.Fatal("ValidateSnapshotManifest accepted foreign-toolchain manifest")
 		}
 		return
@@ -131,7 +134,7 @@ func TestValidateSnapshotManifestRejectsBlobCorruption(t *testing.T) {
 	}
 	corrupt := append([]byte(nil), snapshotBlob...)
 	corrupt[len(corrupt)-1] ^= 0x01
-	if err := ValidateSnapshotManifest(manifest, corrupt, input, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
+	if err := ValidateSnapshotManifest(manifest, corrupt, input, v8.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
 		t.Fatal("ValidateSnapshotManifest accepted a corrupted blob")
 	}
 }
@@ -139,7 +142,7 @@ func TestValidateSnapshotManifestRejectsBlobCorruption(t *testing.T) {
 func TestValidateSnapshotManifestRejectsSourceSetDrift(t *testing.T) {
 	manifest, matches := currentToolchainMatches(t)
 	if !matches {
-		if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
+		if err := ValidateSnapshotManifest(manifest, snapshotBlob, SnapshotInputManifest{}, v8.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
 			t.Fatal("ValidateSnapshotManifest accepted foreign-toolchain manifest")
 		}
 		return
@@ -149,7 +152,7 @@ func TestValidateSnapshotManifestRejectsSourceSetDrift(t *testing.T) {
 		t.Fatalf("BuildSnapshotInputManifest: %v", err)
 	}
 	input.SourceSetSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
-	if err := ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
+	if err := ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), runtime.GOOS, runtime.GOARCH); err == nil {
 		t.Fatal("ValidateSnapshotManifest accepted source-set drift")
 	}
 }

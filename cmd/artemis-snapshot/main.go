@@ -56,7 +56,7 @@ func runMode(checkOnly bool) error {
 	if err != nil {
 		return err
 	}
-	manifest := js.NewSnapshotManifest(input, blob, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	manifest := js.NewSnapshotManifest(input, blob, v8.Version(), runtime.GOOS, runtime.GOARCH)
 	manifestBytes, err := marshalManifest(manifest)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func verifyCommittedAssets(generatedBlob []byte, generatedManifest js.SnapshotMa
 	if err != nil {
 		return err
 	}
-	if err := js.ValidateSnapshotManifest(committedManifest, committedBlob, input, v8.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH); err != nil {
+	if err := js.ValidateSnapshotManifest(committedManifest, committedBlob, input, v8.Version(), runtime.GOOS, runtime.GOARCH); err != nil {
 		return fmt.Errorf("snapshot drift: committed manifest invalid: %w", err)
 	}
 	if !bytes.Equal(committedManifestBytes, generatedManifestBytes) {
