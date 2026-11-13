@@ -228,7 +228,7 @@ func parseObserveFormat(value string) (observeFormat, error) {
 
 // writeObserveOutput renders one capture in the selected format. The HAR and
 // NDJSON paths route the captured network events through the spec-mandated
-// formatters in observe/format.go (spec L4024).
+// formatters in observe/format.go.
 func writeObserveOutput(out io.Writer, format observeFormat, evidence artemisobserve.ObservationEvidence, pageURL string) error {
 	switch format {
 	case formatHAR, formatNDJSON:

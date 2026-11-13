@@ -1,10 +1,10 @@
 // Package parser exposes HTML parsing as a thin facade over
 // golang.org/x/net/html. This file implements the Scrapling parser
-// result types (spec L4383): TextHandler, TextHandlers,
+// result types: TextHandler, TextHandlers,
 // AttributesHandler, Selector, Selectors and the ResultJSON helper.
 //
 // The Go types mirror the Python originals in
-// research/webstack/Scrapling-main/scrapling/core/custom_types.py and
+// github.com/D4Vinci/Scrapling/scrapling/core/custom_types.py and
 // scrapling/parser.py without depending on the HTML parser at runtime:
 // callers populate the structs via the New* constructors (typically from
 // an x/net/html unit tree) and the result types provide read-only,

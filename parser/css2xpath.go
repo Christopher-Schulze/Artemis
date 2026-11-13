@@ -1,10 +1,10 @@
 // Package parser exposes HTML parsing as a thin facade over
 // golang.org/x/net/html. This file implements the Scrapling CSS-to-XPath
-// translator (spec L4393) supporting the ::text and ::attr() pseudo
+// translator supporting the ::text and ::attr() pseudo
 // elements that Scrapling adds on top of standard CSS.
 //
 // The translator mirrors the behaviour of
-// research/webstack/Scrapling-main/scrapling/core/translator.py: class
+// github.com/D4Vinci/Scrapling/scrapling/core/translator.py: class
 // selectors use the contains(concat(' ', normalize-space(@class), ' '),
 // ' name ') form, and the ::text / ::attr(name) pseudo-elements append
 // /text() and /@name respectively.

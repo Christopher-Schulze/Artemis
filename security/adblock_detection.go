@@ -12,8 +12,7 @@ import (
 )
 
 // AdBlockerDetection implements Layer 2 of the intelligent ad blocker:
-// AdBlocker-detection + auto-disable
-// (spec L4212-L4215).
+// AdBlocker-detection + auto-disable.
 //
 // Case A (explicit): page shows "disable your adblocker" overlay.
 // Case B (subtle): page breaks without overlay.
@@ -24,7 +23,7 @@ type AdBlockerDetection struct {
 }
 
 // NewAdBlockerDetection opens the persistent site whitelist at
-// whitelistPath (spec L4208: persistent across updates, no auto-expiry). A
+// whitelistPath (persistent across updates, no auto-expiry). A
 // missing file starts empty; an unreadable or corrupt file is an error so
 // operator decisions are never silently dropped.
 func NewAdBlockerDetection(whitelistPath string) (*AdBlockerDetection, error) {
@@ -49,7 +48,7 @@ func DefaultAdBlockerDetection() (*AdBlockerDetection, error) {
 }
 
 // AdBlockerOverlaySignals are the detection signals for Case A
-// (explicit overlay detection, spec L4208).
+// (explicit overlay detection).
 type AdBlockerOverlaySignals struct {
 	// TextPatterns: "adblock", "ad blocker", "werbeblocker"
 	TextMatches []string
@@ -60,7 +59,7 @@ type AdBlockerOverlaySignals struct {
 }
 
 // AdBlockerBreakageSignals are the detection signals for Case B
-// (subtle page breakage, spec L4208).
+// (subtle page breakage).
 type AdBlockerBreakageSignals struct {
 	// BlockedRequestCount: number of requests blocked by adblocker
 	BlockedRequestCount int
@@ -71,7 +70,7 @@ type AdBlockerBreakageSignals struct {
 }
 
 // DetectExplicitOverlay detects Case A: explicit "disable your
-// adblocker" overlay (spec L4208).
+// adblocker" overlay.
 // Returns true if an adblocker notice overlay is detected.
 func DetectExplicitOverlay(signals AdBlockerOverlaySignals) bool {
 	// Must have text match AND (CSS class match OR overlay)
@@ -82,7 +81,7 @@ func DetectExplicitOverlay(signals AdBlockerOverlaySignals) bool {
 }
 
 // DetectSubtleBreakage detects Case B: subtle page breakage without
-// overlay (spec L4208).
+// overlay.
 // Returns true if the page appears broken due to adblocker.
 // Detection: load WITH adblocker -> count blocked_requests ->
 // if >5 AND JS errors or missing critical elements -> breakage.
@@ -94,7 +93,7 @@ func DetectSubtleBreakage(signals AdBlockerBreakageSignals) bool {
 }
 
 // AdBlockerTextPatterns are the text patterns for detecting adblocker
-// notices (spec L4208: "adblock"/"ad blocker"/"werbeblocker").
+// notices ("adblock"/"ad blocker"/"werbeblocker").
 var AdBlockerTextPatterns = []string{
 	"adblock",
 	"ad blocker",
@@ -109,7 +108,7 @@ var AdBlockerTextPatterns = []string{
 }
 
 // AdBlockerCSSPatterns are the CSS class patterns for detecting
-// adblocker notices (spec L4208: .adblock-notice/.adblock-overlay).
+// adblocker notices (.adblock-notice/.adblock-overlay).
 var AdBlockerCSSPatterns = []string{
 	"adblock-notice",
 	"adblock-overlay",
@@ -122,7 +121,7 @@ var AdBlockerCSSPatterns = []string{
 }
 
 // MatchAdBlockerText checks if the given text contains any adblocker
-// notice text patterns (spec L4208).
+// notice text patterns.
 func MatchAdBlockerText(text string) []string {
 	lower := strings.ToLower(text)
 	var matches []string
@@ -135,7 +134,7 @@ func MatchAdBlockerText(text string) []string {
 }
 
 // MatchAdBlockerCSS checks if the given CSS class list contains any
-// adblocker notice CSS patterns (spec L4208).
+// adblocker notice CSS patterns.
 func MatchAdBlockerCSS(classList string) []string {
 	lower := strings.ToLower(classList)
 	var matches []string
@@ -148,7 +147,7 @@ func MatchAdBlockerCSS(classList string) []string {
 }
 
 // IsWhitelisted reports whether domain or one of its parent domains is in
-// the persistent whitelist (spec L4208).
+// the persistent whitelist.
 func (d *AdBlockerDetection) IsWhitelisted(domain string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -166,7 +165,7 @@ func (d *AdBlockerDetection) IsWhitelisted(domain string) bool {
 }
 
 // AddToWhitelist adds a domain to the persistent whitelist
-// (spec L4208: whitelist domain + reload).
+// (whitelist domain + reload).
 func (d *AdBlockerDetection) AddToWhitelist(domain string) error {
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	if domain == "" || strings.ContainsAny(domain, "/:@ ") {
@@ -179,7 +178,7 @@ func (d *AdBlockerDetection) AddToWhitelist(domain string) error {
 }
 
 // RemoveFromWhitelist removes a domain from the whitelist
-// (spec L4208: operator can clean via maintenance API).
+// (operator can clean via maintenance API).
 func (d *AdBlockerDetection) RemoveFromWhitelist(domain string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -200,7 +199,7 @@ func (d *AdBlockerDetection) WhitelistDomains() []string {
 }
 
 // loadWhitelist loads the whitelist from the JSON file
-// (spec L4208: persistent across updates).
+// (persistent across updates).
 func (d *AdBlockerDetection) loadWhitelist() error {
 	if d.filePath == "" {
 		return nil

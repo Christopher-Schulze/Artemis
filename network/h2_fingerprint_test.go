@@ -6,10 +6,10 @@ import (
 
 // ==================== H2SettingID tests ====================
 
-// TestTASK2241_H2SettingIDConstants verifies the setting ID constants
-// (spec L4099: HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
+// TestH2SettingIDConstants verifies the setting ID constants
+// (HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
 // INITIAL_WINDOW, MAX_FRAME, MAX_HEADER).
-func TestTASK2241_H2SettingIDConstants(t *testing.T) {
+func TestH2SettingIDConstants(t *testing.T) {
 	if H2SettingHeaderTableSize != 1 {
 		t.Error("HEADER_TABLE_SIZE should be ID=1")
 	}
@@ -30,9 +30,8 @@ func TestTASK2241_H2SettingIDConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2241_H2SettingIDString verifies the String method
-// (spec L4099).
-func TestTASK2241_H2SettingIDString(t *testing.T) {
+// TestH2SettingIDString verifies the String method.
+func TestH2SettingIDString(t *testing.T) {
 	cases := []struct {
 		id   H2SettingID
 		name string
@@ -51,8 +50,8 @@ func TestTASK2241_H2SettingIDString(t *testing.T) {
 	}
 }
 
-// TestTASK2241_H2SettingIDUnknownString verifies unknown ID String.
-func TestTASK2241_H2SettingIDUnknownString(t *testing.T) {
+// TestH2SettingIDUnknownString verifies unknown ID String.
+func TestH2SettingIDUnknownString(t *testing.T) {
 	id := H2SettingID(99)
 	if id.String() != "UNKNOWN(99)" {
 		t.Errorf("unknown ID String: got %s, want UNKNOWN(99)", id.String())
@@ -61,9 +60,9 @@ func TestTASK2241_H2SettingIDUnknownString(t *testing.T) {
 
 // ==================== ChromiumH2Settings tests ====================
 
-// TestTASK2241_ChromiumH2Settings verifies the Chromium H2 settings
-// have all 6 settings in the correct order (spec L4099).
-func TestTASK2241_ChromiumH2Settings(t *testing.T) {
+// TestChromiumH2Settings verifies the Chromium H2 settings
+// have all 6 settings in the correct order.
+func TestChromiumH2Settings(t *testing.T) {
 	frame := ChromiumH2Settings()
 	if len(frame.Settings) != 6 {
 		t.Fatalf("expected 6 settings, got %d", len(frame.Settings))
@@ -77,9 +76,9 @@ func TestTASK2241_ChromiumH2Settings(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ChromiumH2SettingsValues verifies the Chromium H2
-// settings values (spec L4099).
-func TestTASK2241_ChromiumH2SettingsValues(t *testing.T) {
+// TestChromiumH2SettingsValues verifies the Chromium H2
+// settings values.
+func TestChromiumH2SettingsValues(t *testing.T) {
 	frame := ChromiumH2Settings()
 	expected := map[H2SettingID]uint32{
 		H2SettingHeaderTableSize:      65536,
@@ -102,9 +101,9 @@ func TestTASK2241_ChromiumH2SettingsValues(t *testing.T) {
 
 // ==================== Serialize tests ====================
 
-// TestTASK2241_Serialize verifies serialization to Akamai format
-// (spec L4099: "ID:VALUE;ID:VALUE;...").
-func TestTASK2241_Serialize(t *testing.T) {
+// TestSerialize verifies serialization to Akamai format
+// ("ID:VALUE;ID:VALUE;...").
+func TestSerialize(t *testing.T) {
 	frame := ChromiumH2Settings()
 	s := frame.Serialize()
 	expected := "1:65536;2:0;3:1000;4:6291456;5:16384;6:262144"
@@ -113,16 +112,16 @@ func TestTASK2241_Serialize(t *testing.T) {
 	}
 }
 
-// TestTASK2241_SerializeEmpty verifies empty frame serializes to "".
-func TestTASK2241_SerializeEmpty(t *testing.T) {
+// TestSerializeEmpty verifies empty frame serializes to "".
+func TestSerializeEmpty(t *testing.T) {
 	frame := H2SettingsFrame{}
 	if frame.Serialize() != "" {
 		t.Error("empty frame should serialize to empty string")
 	}
 }
 
-// TestTASK2241_SerializeRoundTrip verifies serialize+parse round-trip.
-func TestTASK2241_SerializeRoundTrip(t *testing.T) {
+// TestSerializeRoundTrip verifies serialize+parse round-trip.
+func TestSerializeRoundTrip(t *testing.T) {
 	original := ChromiumH2Settings()
 	s := original.Serialize()
 	parsed, err := ParseH2SettingsFrame(s)
@@ -139,9 +138,8 @@ func TestTASK2241_SerializeRoundTrip(t *testing.T) {
 
 // ==================== ParseH2SettingsFrame tests ====================
 
-// TestTASK2241_ParseValid verifies parsing a valid fingerprint string
-// (spec L4099).
-func TestTASK2241_ParseValid(t *testing.T) {
+// TestParseValid verifies parsing a valid fingerprint string.
+func TestParseValid(t *testing.T) {
 	frame, err := ParseH2SettingsFrame("1:65536;2:0;3:1000;4:6291456;5:16384;6:262144")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -154,32 +152,32 @@ func TestTASK2241_ParseValid(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ParseEmpty verifies parsing empty string errors.
-func TestTASK2241_ParseEmpty(t *testing.T) {
+// TestParseEmpty verifies parsing empty string errors.
+func TestParseEmpty(t *testing.T) {
 	_, err := ParseH2SettingsFrame("")
 	if err == nil {
 		t.Fatal("empty string should error")
 	}
 }
 
-// TestTASK2241_ParseMalformed verifies parsing malformed string errors.
-func TestTASK2241_ParseMalformed(t *testing.T) {
+// TestParseMalformed verifies parsing malformed string errors.
+func TestParseMalformed(t *testing.T) {
 	_, err := ParseH2SettingsFrame("1:65536;malformed;3:1000")
 	if err == nil {
 		t.Fatal("malformed string should error")
 	}
 }
 
-// TestTASK2241_ParseInvalidNumber verifies parsing invalid number errors.
-func TestTASK2241_ParseInvalidNumber(t *testing.T) {
+// TestParseInvalidNumber verifies parsing invalid number errors.
+func TestParseInvalidNumber(t *testing.T) {
 	_, err := ParseH2SettingsFrame("1:abc;2:0")
 	if err == nil {
 		t.Fatal("invalid number should error")
 	}
 }
 
-// TestTASK2241_ParseSingleSetting verifies parsing a single setting.
-func TestTASK2241_ParseSingleSetting(t *testing.T) {
+// TestParseSingleSetting verifies parsing a single setting.
+func TestParseSingleSetting(t *testing.T) {
 	frame, err := ParseH2SettingsFrame("1:4096")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -194,16 +192,16 @@ func TestTASK2241_ParseSingleSetting(t *testing.T) {
 
 // ==================== MatchesChromium tests ====================
 
-// TestTASK2241_MatchesChromiumTrue verifies Chromium settings match.
-func TestTASK2241_MatchesChromiumTrue(t *testing.T) {
+// TestMatchesChromiumTrue verifies Chromium settings match.
+func TestMatchesChromiumTrue(t *testing.T) {
 	frame := ChromiumH2Settings()
 	if !frame.MatchesChromium() {
 		t.Error("Chromium settings should match Chromium")
 	}
 }
 
-// TestTASK2241_MatchesChromiumFalse verifies wrong values don't match.
-func TestTASK2241_MatchesChromiumFalse(t *testing.T) {
+// TestMatchesChromiumFalse verifies wrong values don't match.
+func TestMatchesChromiumFalse(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 4096}, // wrong value
@@ -219,9 +217,9 @@ func TestTASK2241_MatchesChromiumFalse(t *testing.T) {
 	}
 }
 
-// TestTASK2241_MatchesChromiumWrongOrder verifies wrong order doesn't
-// match (spec L4099: frame order MUST match).
-func TestTASK2241_MatchesChromiumWrongOrder(t *testing.T) {
+// TestMatchesChromiumWrongOrder verifies wrong order doesn't
+// match (frame order MUST match).
+func TestMatchesChromiumWrongOrder(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingEnablePush, 0}, // wrong order (should be 2nd)
@@ -237,9 +235,9 @@ func TestTASK2241_MatchesChromiumWrongOrder(t *testing.T) {
 	}
 }
 
-// TestTASK2241_MatchesChromiumWrongCount verifies wrong count doesn't
+// TestMatchesChromiumWrongCount verifies wrong count doesn't
 // match.
-func TestTASK2241_MatchesChromiumWrongCount(t *testing.T) {
+func TestMatchesChromiumWrongCount(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 65536},
@@ -253,24 +251,24 @@ func TestTASK2241_MatchesChromiumWrongCount(t *testing.T) {
 
 // ==================== Validate tests ====================
 
-// TestTASK2241_ValidateValid verifies valid frame passes validation.
-func TestTASK2241_ValidateValid(t *testing.T) {
+// TestValidateValid verifies valid frame passes validation.
+func TestValidateValid(t *testing.T) {
 	frame := ChromiumH2Settings()
 	if err := frame.Validate(); err != nil {
 		t.Errorf("valid frame should pass: %v", err)
 	}
 }
 
-// TestTASK2241_ValidateEmpty verifies empty frame fails validation.
-func TestTASK2241_ValidateEmpty(t *testing.T) {
+// TestValidateEmpty verifies empty frame fails validation.
+func TestValidateEmpty(t *testing.T) {
 	frame := H2SettingsFrame{}
 	if err := frame.Validate(); err == nil {
 		t.Fatal("empty frame should fail validation")
 	}
 }
 
-// TestTASK2241_ValidateInvalidID verifies invalid ID fails validation.
-func TestTASK2241_ValidateInvalidID(t *testing.T) {
+// TestValidateInvalidID verifies invalid ID fails validation.
+func TestValidateInvalidID(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingID(99), 100},
@@ -281,9 +279,9 @@ func TestTASK2241_ValidateInvalidID(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateDuplicateID verifies duplicate ID fails
+// TestValidateDuplicateID verifies duplicate ID fails
 // validation.
-func TestTASK2241_ValidateDuplicateID(t *testing.T) {
+func TestValidateDuplicateID(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 65536},
@@ -295,9 +293,9 @@ func TestTASK2241_ValidateDuplicateID(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateEnablePushInvalid verifies ENABLE_PUSH > 1
+// TestValidateEnablePushInvalid verifies ENABLE_PUSH > 1
 // fails validation (RFC 7540: must be 0 or 1).
-func TestTASK2241_ValidateEnablePushInvalid(t *testing.T) {
+func TestValidateEnablePushInvalid(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingEnablePush, 2},
@@ -308,9 +306,9 @@ func TestTASK2241_ValidateEnablePushInvalid(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateMaxFrameSizeTooSmall verifies MAX_FRAME_SIZE
+// TestValidateMaxFrameSizeTooSmall verifies MAX_FRAME_SIZE
 // < 16384 fails validation (RFC 7540: min 2^14).
-func TestTASK2241_ValidateMaxFrameSizeTooSmall(t *testing.T) {
+func TestValidateMaxFrameSizeTooSmall(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingMaxFrameSize, 1000},
@@ -321,9 +319,9 @@ func TestTASK2241_ValidateMaxFrameSizeTooSmall(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateMaxFrameSizeTooLarge verifies MAX_FRAME_SIZE
+// TestValidateMaxFrameSizeTooLarge verifies MAX_FRAME_SIZE
 // > 16777215 fails validation (RFC 7540: max 2^24-1).
-func TestTASK2241_ValidateMaxFrameSizeTooLarge(t *testing.T) {
+func TestValidateMaxFrameSizeTooLarge(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingMaxFrameSize, 99999999},
@@ -334,9 +332,9 @@ func TestTASK2241_ValidateMaxFrameSizeTooLarge(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateInitialWindowTooLarge verifies
+// TestValidateInitialWindowTooLarge verifies
 // INITIAL_WINDOW_SIZE > 2^31-1 fails validation (RFC 7540).
-func TestTASK2241_ValidateInitialWindowTooLarge(t *testing.T) {
+func TestValidateInitialWindowTooLarge(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingInitialWindowSize, 3000000000},
@@ -347,9 +345,9 @@ func TestTASK2241_ValidateInitialWindowTooLarge(t *testing.T) {
 	}
 }
 
-// TestTASK2241_ValidateEnablePushValid verifies ENABLE_PUSH=0 and =1
+// TestValidateEnablePushValid verifies ENABLE_PUSH=0 and =1
 // pass validation.
-func TestTASK2241_ValidateEnablePushValid(t *testing.T) {
+func TestValidateEnablePushValid(t *testing.T) {
 	for _, val := range []uint32{0, 1} {
 		frame := H2SettingsFrame{
 			Settings: []H2Setting{
@@ -364,8 +362,8 @@ func TestTASK2241_ValidateEnablePushValid(t *testing.T) {
 
 // ==================== Get tests ====================
 
-// TestTASK2241_Get verifies Get returns the correct value.
-func TestTASK2241_Get(t *testing.T) {
+// TestGet verifies Get returns the correct value.
+func TestGet(t *testing.T) {
 	frame := ChromiumH2Settings()
 	val, ok := frame.Get(H2SettingHeaderTableSize)
 	if !ok {
@@ -376,8 +374,8 @@ func TestTASK2241_Get(t *testing.T) {
 	}
 }
 
-// TestTASK2241_GetNotFound verifies Get returns false for missing ID.
-func TestTASK2241_GetNotFound(t *testing.T) {
+// TestGetNotFound verifies Get returns false for missing ID.
+func TestGetNotFound(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 65536},
@@ -391,18 +389,18 @@ func TestTASK2241_GetNotFound(t *testing.T) {
 
 // ==================== HasAllChromiumSettings tests ====================
 
-// TestTASK2241_HasAllChromiumSettingsTrue verifies Chromium frame has
+// TestHasAllChromiumSettingsTrue verifies Chromium frame has
 // all settings.
-func TestTASK2241_HasAllChromiumSettingsTrue(t *testing.T) {
+func TestHasAllChromiumSettingsTrue(t *testing.T) {
 	frame := ChromiumH2Settings()
 	if !frame.HasAllChromiumSettings() {
 		t.Error("Chromium frame should have all settings")
 	}
 }
 
-// TestTASK2241_HasAllChromiumSettingsFalse verifies partial frame
+// TestHasAllChromiumSettingsFalse verifies partial frame
 // doesn't have all.
-func TestTASK2241_HasAllChromiumSettingsFalse(t *testing.T) {
+func TestHasAllChromiumSettingsFalse(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 65536},
@@ -416,17 +414,17 @@ func TestTASK2241_HasAllChromiumSettingsFalse(t *testing.T) {
 
 // ==================== OrderMatchesChromium tests ====================
 
-// TestTASK2241_OrderMatchesChromiumTrue verifies Chromium order matches.
-func TestTASK2241_OrderMatchesChromiumTrue(t *testing.T) {
+// TestOrderMatchesChromiumTrue verifies Chromium order matches.
+func TestOrderMatchesChromiumTrue(t *testing.T) {
 	frame := ChromiumH2Settings()
 	if !frame.OrderMatchesChromium() {
 		t.Error("Chromium frame order should match")
 	}
 }
 
-// TestTASK2241_OrderMatchesChromiumFalse verifies wrong order doesn't
-// match (spec L4099: frame order MUST match).
-func TestTASK2241_OrderMatchesChromiumFalse(t *testing.T) {
+// TestOrderMatchesChromiumFalse verifies wrong order doesn't
+// match (frame order MUST match).
+func TestOrderMatchesChromiumFalse(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingMaxHeaderListSize, 262144}, // wrong order
@@ -442,9 +440,9 @@ func TestTASK2241_OrderMatchesChromiumFalse(t *testing.T) {
 	}
 }
 
-// TestTASK2241_OrderMatchesChromiumDifferentValues verifies order
+// TestOrderMatchesChromiumDifferentValues verifies order
 // matches even with different values (order check is ID-only).
-func TestTASK2241_OrderMatchesChromiumDifferentValues(t *testing.T) {
+func TestOrderMatchesChromiumDifferentValues(t *testing.T) {
 	frame := H2SettingsFrame{
 		Settings: []H2Setting{
 			{H2SettingHeaderTableSize, 999}, // different value
@@ -462,10 +460,10 @@ func TestTASK2241_OrderMatchesChromiumDifferentValues(t *testing.T) {
 
 // ==================== integration with TLSFingerprint tests ====================
 
-// TestTASK2241_TLSFingerprintH2Consistency verifies that the
+// TestTLSFingerprintH2Consistency verifies that the
 // TLSFingerprint.HTTP2Fingerprint string matches the structured
-// H2SettingsFrame serialization (spec L4099).
-func TestTASK2241_TLSFingerprintH2Consistency(t *testing.T) {
+// H2SettingsFrame serialization.
+func TestTLSFingerprintH2Consistency(t *testing.T) {
 	fp := Chrome145Fingerprint()
 	frame := ChromiumH2Settings()
 	if fp.HTTP2Fingerprint != frame.Serialize() {
@@ -474,9 +472,9 @@ func TestTASK2241_TLSFingerprintH2Consistency(t *testing.T) {
 	}
 }
 
-// TestTASK2241_TLSFingerprintH2ParseAndVerify verifies the
+// TestTLSFingerprintH2ParseAndVerify verifies the
 // HTTP2Fingerprint string can be parsed and matches Chromium.
-func TestTASK2241_TLSFingerprintH2ParseAndVerify(t *testing.T) {
+func TestTLSFingerprintH2ParseAndVerify(t *testing.T) {
 	fp := Chrome145Fingerprint()
 	frame, err := ParseH2SettingsFrame(fp.HTTP2Fingerprint)
 	if err != nil {
@@ -487,11 +485,11 @@ func TestTASK2241_TLSFingerprintH2ParseAndVerify(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2241_FullSpecParity verifies full spec parity for L4099
-// (spec L4099: H2 settings frame order matches real Chromium build).
-func TestTASK2241_FullSpecParity(t *testing.T) {
+// TestH2FingerprintParity verifies full parity.
+// (H2 settings frame order matches real Chromium build).
+func TestH2FingerprintParity(t *testing.T) {
 	// 1. All 6 setting IDs exist
 	ids := []H2SettingID{
 		H2SettingHeaderTableSize,

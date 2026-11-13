@@ -7,16 +7,15 @@ import (
 	"unicode/utf8"
 )
 
-// annotations.go (spec L4264: Snapshot Annotations).
+// annotations.go (Snapshot Annotations).
 //
 // Produces numbered overlay boxes over interactive DOM elements so an
 // agent can refer to elements by ordinal ("click [3]") instead of
 // fragile CSS selectors. Thread-safe via RWMutex.
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/observe/snapshot.go
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/observe/snapshot.go
 
-// BoundingBox is an axis-aligned rectangle in viewport pixels
-// (spec L4264).
+// BoundingBox is an axis-aligned rectangle in viewport pixels.
 type BoundingBox struct {
 	X      int `json:"x"`
 	Y      int `json:"y"`
@@ -25,7 +24,7 @@ type BoundingBox struct {
 }
 
 // Annotation is a single numbered overlay box pointing at an
-// interactive element (spec L4264).
+// interactive element.
 type Annotation struct {
 	ID           int         `json:"id"`
 	Text         string      `json:"text"`
@@ -35,7 +34,7 @@ type Annotation struct {
 }
 
 // AnnotationOverlay is the full set of annotations rendered over a
-// snapshot (spec L4264).
+// snapshot.
 type AnnotationOverlay struct {
 	Annotations    []Annotation `json:"annotations"`
 	TotalCount     int          `json:"total_count"`
@@ -43,8 +42,8 @@ type AnnotationOverlay struct {
 	ViewportHeight int          `json:"viewport_height"`
 }
 
-// AnnotatableUnit is a DOM element candidate for annotation
-// (spec L4264). ElementType is the lowercased tag name (e.g.
+// AnnotatableUnit is a DOM element candidate for annotation.
+// ElementType is the lowercased tag name (e.g.
 // "button", "a", "input"). Text is a short label derived from the
 // element's visible text or aria-label.
 type AnnotatableUnit struct {
@@ -54,8 +53,7 @@ type AnnotatableUnit struct {
 }
 
 // interactiveElementTypes is the set of element types considered
-// interactive and therefore eligible for numbered annotations
-// (spec L4264).
+// interactive and therefore eligible for numbered annotations.
 var interactiveElementTypes = map[string]bool{
 	"button":        true,
 	"a":             true,
@@ -71,15 +69,15 @@ var interactiveElementTypes = map[string]bool{
 }
 
 // DefaultViewportWidth is the fallback viewport width when none is
-// supplied to Annotate (spec L4264).
+// supplied to Annotate.
 const DefaultViewportWidth = 1280
 
 // DefaultViewportHeight is the fallback viewport height when none is
-// supplied to Annotate (spec L4264).
+// supplied to Annotate.
 const DefaultViewportHeight = 720
 
-// Annotator assigns numbered IDs to interactive elements
-// (spec L4264). It is safe for concurrent use.
+// Annotator assigns numbered IDs to interactive elements.
+// It is safe for concurrent use.
 type Annotator struct {
 	mu             sync.RWMutex
 	viewportWidth  int
@@ -128,7 +126,7 @@ func (a *Annotator) SetViewport(width, height int) {
 }
 
 // isInteractive reports whether a node's element type is eligible
-// for annotation (spec L4264).
+// for annotation.
 func isInteractive(elementType string) bool {
 	elementType = strings.ToLower(strings.TrimSpace(elementType))
 	if interactiveElementTypes[elementType] {
@@ -162,8 +160,8 @@ func (a *Annotator) hasValidBox(box BoundingBox) bool {
 }
 
 // Annotate assigns sequential numbered IDs (starting at 1) to the
-// interactive, in-viewport nodes among the supplied candidates
-// (spec L4264). Non-interactive or off-screen nodes are skipped.
+// interactive, in-viewport nodes among the supplied candidates.
+// Non-interactive or off-screen nodes are skipped.
 func (a *Annotator) Annotate(nodes []AnnotatableUnit) AnnotationOverlay {
 	a.mu.RLock()
 	vw, vh := a.viewportWidth, a.viewportHeight
@@ -221,8 +219,8 @@ func normalizeAnnotationText(text string) string {
 }
 
 // ProjectScrollOffset returns a copy of the given bounding box with
-// its coordinates offset by the supplied scroll position
-// (spec L4264). This converts page-relative coordinates into
+// its coordinates offset by the supplied scroll position.
+// This converts page-relative coordinates into
 // viewport-relative coordinates (or vice-versa by negating the
 // offsets).
 func ProjectScrollOffset(box BoundingBox, scrollX, scrollY int) BoundingBox {
@@ -235,8 +233,7 @@ func ProjectScrollOffset(box BoundingBox, scrollX, scrollY int) BoundingBox {
 }
 
 // FormatAnnotation formats a single annotation as the spec-mandated
-// overlay string: " [1] button 'Submit' at (100,200) 80x30"
-// (spec L4264).
+// overlay string: " [1] button 'Submit' at (100,200) 80x30".
 func FormatAnnotation(annotation Annotation) string {
 	text := annotation.Text
 	if text == "" {

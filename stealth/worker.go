@@ -1,6 +1,6 @@
 package stealth
 
-// worker.go (spec L4023: stealth/worker.go - web worker stealth parity).
+// worker.go (stealth/worker.go - web worker stealth parity).
 //
 // This file is the spec-mandated facade for web worker stealth parity.
 // The implementation lives in worker_stealth.go; this file re-exports
@@ -11,11 +11,11 @@ package stealth
 // (service workers, dedicated workers, shared workers).
 
 // WorkerTarget is the spec-mandated name for WorkerTargetInfo
-// (spec L4023: worker.go - web worker stealth parity).
+// (worker.go - web worker stealth parity).
 type WorkerTarget = WorkerTargetInfo
 
 // NewWorkerTracker is the spec-mandated name for NewWorkerStealthTracker
-// (spec L4023: worker.go - web worker stealth parity).
+// (worker.go - web worker stealth parity).
 func NewWorkerTracker() *WorkerStealthTracker {
 	return NewWorkerStealthTracker()
 }

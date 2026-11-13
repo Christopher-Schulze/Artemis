@@ -1,5 +1,5 @@
-// Package security: redact.go implements the Secret Redaction Pipeline
-// (spec L4279): a 3-point redaction system that scrubs secrets at
+// Package security: redact.go implements the Secret Redaction Pipeline:
+// a 3-point redaction system that scrubs secrets at
 // (1) URL validation before navigation, (2) snapshot text before LLM
 // ingestion, and (3) vision LLM output after generation.
 //
@@ -14,7 +14,7 @@ import (
 	"sync"
 )
 
-// RedactionPoint identifies one of the three pipeline stages (spec L4279).
+// RedactionPoint identifies one of the three pipeline stages.
 type RedactionPoint string
 
 const (
@@ -33,7 +33,7 @@ const (
 // defaultReplacement is the token substituted for matched secrets.
 const defaultReplacement = "[REDACTED]"
 
-// RedactionConfig configures the Redactor (spec L4279).
+// RedactionConfig configures the Redactor.
 type RedactionConfig struct {
 	// Enabled gates redaction. When false, Redact returns the content
 	// unchanged with empty PatternsMatched.
@@ -67,7 +67,7 @@ type RedactionStats struct {
 }
 
 // DefaultRedactionConfig returns an enabled config with the standard
-// secret patterns (spec L4279): API keys, bearer tokens, passwords,
+// secret patterns: API keys, bearer tokens, passwords,
 // SSNs, credit cards, emails, and phone numbers. Patterns are
 // case-insensitive where appropriate and intentionally conservative to
 // minimize false positives on ordinary prose.
@@ -123,7 +123,7 @@ func defaultPatterns() []RedactionPattern {
 }
 
 // Redactor applies the configured secret patterns at the three pipeline
-// points (spec L4279). It is safe for concurrent use.
+// points. It is safe for concurrent use.
 type Redactor struct {
 	mu   sync.RWMutex
 	cfg  RedactionConfig
@@ -203,20 +203,20 @@ func (r *Redactor) Redact(content string, point RedactionPoint) RedactionResult 
 	return result
 }
 
-// ValidateURL is redaction point 1 (spec L4279): redact secrets in a URL
+// ValidateURL is redaction point 1: redact secrets in a URL
 // before navigation. The URL is treated as raw content so query-string
 // secrets (e.g. ?api_key=...) are scrubbed.
 func (r *Redactor) ValidateURL(url string) RedactionResult {
 	return r.Redact(url, RedactionPointURLValidation)
 }
 
-// RedactSnapshot is redaction point 2 (spec L4279): redact secrets in
+// RedactSnapshot is redaction point 2: redact secrets in
 // DOM/snapshot text before it is sent to an LLM.
 func (r *Redactor) RedactSnapshot(text string) RedactionResult {
 	return r.Redact(text, RedactionPointSnapshotText)
 }
 
-// RedactVisionOutput is redaction point 3 (spec L4279): redact secrets
+// RedactVisionOutput is redaction point 3: redact secrets
 // that an LLM may have echoed back in vision/OCR output.
 func (r *Redactor) RedactVisionOutput(text string) RedactionResult {
 	return r.Redact(text, RedactionPointVisionOutput)

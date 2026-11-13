@@ -12,7 +12,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/prompts"
 )
 
-// ai_finder_detail.go (spec L4391-L4393: AI Finder Stage 2 full detail).
+// ai_finder_detail.go (AI Finder Stage 2 full detail).
 //
 // Stage 2 AI element finding sends a page snapshot (AX tree or HTML snippet)
 // to the LLM via the Inference Hub (ss7). Privacy Routing (ss7.7) determines
@@ -29,10 +29,10 @@ type FinderMode string
 
 const (
 	// FinderModeText sends an HTML snippet to the LLM and expects a CSS/XPath
-	// selector back (spec L4393: text mode).
+	// selector back (text mode).
 	FinderModeText FinderMode = "text"
 	// FinderModeVision sends a screenshot to the LLM and expects coordinates
-	// back (spec L4393: vision mode).
+	// back (vision mode).
 	FinderModeVision FinderMode = "vision"
 )
 
@@ -87,7 +87,7 @@ type SelectorVerifier func(context.Context, string) (bool, error)
 
 // AIFinderStage2Config configures the Stage 2 AI Finder.
 type AIFinderStage2Config struct {
-	MaxAttempts     int           // default 3 (spec L4389: max 3 LLM attempts)
+	MaxAttempts     int           // default 3 (max 3 LLM attempts)
 	Mode            FinderMode    // text or vision
 	Timeout         time.Duration // per-attempt LLM timeout
 	CacheConfidence float64       // minimum confidence to cache a selector
@@ -106,7 +106,7 @@ func DefaultAIFinderStage2Config() AIFinderStage2Config {
 }
 
 // AIFinderStage2 is the full Stage 2 AI Finder with Inference Hub + Privacy
-// Routing integration (spec L4393).
+// Routing integration.
 type AIFinderStage2 struct {
 	mu     sync.Mutex
 	hub    InferenceHubLLM
@@ -259,7 +259,7 @@ func (a *AIFinderStage2) findStage2(ctx context.Context, domain, urlPattern, pag
 		}
 		a.mu.Unlock()
 
-		// Vary the formulation on each attempt (spec L4389: varied formulations).
+		// Vary the formulation on each attempt (varied formulations).
 		formulatedIntent := varyFormulation(intent, attempt)
 		attemptCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 		prompt, promptErr := config.PromptExecutor.Execute(attemptCtx, "observe", map[string]string{
@@ -396,7 +396,7 @@ func (a *AIFinderStage2) SetMode(mode FinderMode) {
 
 // varyFormulation produces a varied natural-language formulation for each
 // attempt to help the LLM approach the problem from different angles
-// (spec L4389: max 3 LLM attempts with varied formulations).
+// (max 3 LLM attempts with varied formulations).
 func varyFormulation(intent string, attempt int) string {
 	switch attempt {
 	case 1:

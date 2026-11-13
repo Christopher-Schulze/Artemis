@@ -12,9 +12,9 @@ type noopSubscriber struct{}
 
 func (noopSubscriber) OnEvent(StreamEvent) {}
 
-// BenchmarkTASK2344_BroadcastNoSubscribers measures the Broadcast hot
+// BenchmarkBroadcastNoSubscribers measures the Broadcast hot
 // path with zero subscribers (the common idle case).
-func BenchmarkTASK2344_BroadcastNoSubscribers(b *testing.B) {
+func BenchmarkBroadcastNoSubscribers(b *testing.B) {
 	s := NewStreamingServer(DefaultStreamingConfig)
 	evt := StreamEvent{Type: StreamEventFrame, Data: json.RawMessage(`{}`)}
 	b.ResetTimer()
@@ -23,9 +23,9 @@ func BenchmarkTASK2344_BroadcastNoSubscribers(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_BroadcastOneSubscriber measures the Broadcast hot
+// BenchmarkBroadcastOneSubscriber measures the Broadcast hot
 // path with one subscriber (the typical active case).
-func BenchmarkTASK2344_BroadcastOneSubscriber(b *testing.B) {
+func BenchmarkBroadcastOneSubscriber(b *testing.B) {
 	s := NewStreamingServer(DefaultStreamingConfig)
 	s.Subscribe(noopSubscriber{})
 	evt := StreamEvent{Type: StreamEventFrame, Data: json.RawMessage(`{}`)}
@@ -35,9 +35,9 @@ func BenchmarkTASK2344_BroadcastOneSubscriber(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_BroadcastFiveSubscribers measures the Broadcast
+// BenchmarkBroadcastFiveSubscribers measures the Broadcast
 // hot path with five subscribers (high-fan-out case).
-func BenchmarkTASK2344_BroadcastFiveSubscribers(b *testing.B) {
+func BenchmarkBroadcastFiveSubscribers(b *testing.B) {
 	s := NewStreamingServer(DefaultStreamingConfig)
 	for i := 0; i < 5; i++ {
 		s.Subscribe(noopSubscriber{})
@@ -49,9 +49,9 @@ func BenchmarkTASK2344_BroadcastFiveSubscribers(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_EncodeEvent measures the EncodeEvent hot path
+// BenchmarkEncodeEvent measures the EncodeEvent hot path
 // (JSON serialization of a StreamEvent — called per broadcast).
-func BenchmarkTASK2344_EncodeEvent(b *testing.B) {
+func BenchmarkEncodeEvent(b *testing.B) {
 	evt := StreamEvent{
 		Type:      StreamEventFrame,
 		Data:      json.RawMessage(`{"url":"https://example.com","title":"Test"}`),
@@ -65,9 +65,9 @@ func BenchmarkTASK2344_EncodeEvent(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_DecodeEvent measures the DecodeEvent hot path
+// BenchmarkDecodeEvent measures the DecodeEvent hot path
 // (JSON deserialization of a StreamEvent — called per incoming event).
-func BenchmarkTASK2344_DecodeEvent(b *testing.B) {
+func BenchmarkDecodeEvent(b *testing.B) {
 	raw := []byte(`{"type":"frame","data":{"url":"https://example.com"},"timestamp":1234567890}`)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -77,9 +77,9 @@ func BenchmarkTASK2344_DecodeEvent(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_NewFrameEvent measures the NewFrameEvent hot path
+// BenchmarkNewFrameEvent measures the NewFrameEvent hot path
 // (called per frame event construction).
-func BenchmarkTASK2344_NewFrameEvent(b *testing.B) {
+func BenchmarkNewFrameEvent(b *testing.B) {
 	data := json.RawMessage(`{"url":"https://example.com"}`)
 	meta := FrameMetadata{ScrollX: 0, ScrollY: 0, ViewportWidth: 1920, ViewportHeight: 1080, Scale: 1.0}
 	b.ResetTimer()

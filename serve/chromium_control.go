@@ -11,7 +11,7 @@ import (
 type ChromiumOpenResult struct {
 	PageID   string                      `json:"pageId"`
 	Evidence observe.ObservationEvidence `json:"evidence"`
-	// AdBlock is the Layer 2 adblocker-wall finding (spec L4208), if any.
+	// AdBlock is the Layer 2 adblocker-wall finding, if any.
 	AdBlock *security.AdBlockFinding `json:"adblock,omitempty"`
 }
 

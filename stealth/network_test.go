@@ -7,9 +7,8 @@ import (
 
 // ==================== ConnectionInfo tests ====================
 
-// TestTASK2244_ConnectionInfoString verifies String method
-// (spec L4093).
-func TestTASK2244_ConnectionInfoString(t *testing.T) {
+// TestConnectionInfoString verifies String method.
+func TestConnectionInfoString(t *testing.T) {
 	c := ConnectionInfo{
 		RTT:           50 * time.Millisecond,
 		Downlink:      7.5,
@@ -22,8 +21,8 @@ func TestTASK2244_ConnectionInfoString(t *testing.T) {
 	}
 }
 
-// TestTASK2244_ConnectionInfoIsLive verifies IsLive method.
-func TestTASK2244_ConnectionInfoIsLive(t *testing.T) {
+// TestConnectionInfoIsLive verifies IsLive method.
+func TestConnectionInfoIsLive(t *testing.T) {
 	c := ConnectionInfo{Source: "live"}
 	if !c.IsLive() {
 		t.Error("should be live")
@@ -33,8 +32,8 @@ func TestTASK2244_ConnectionInfoIsLive(t *testing.T) {
 	}
 }
 
-// TestTASK2244_ConnectionInfoIsFallback verifies IsFallback method.
-func TestTASK2244_ConnectionInfoIsFallback(t *testing.T) {
+// TestConnectionInfoIsFallback verifies IsFallback method.
+func TestConnectionInfoIsFallback(t *testing.T) {
 	c := ConnectionInfo{Source: "fallback"}
 	if !c.IsFallback() {
 		t.Error("should be fallback")
@@ -46,9 +45,9 @@ func TestTASK2244_ConnectionInfoIsFallback(t *testing.T) {
 
 // ==================== DeriveEffectiveType tests ====================
 
-// TestTASK2244_DeriveEffectiveType4G verifies 4g derivation
-// (spec L4093: rtt<100ms && downlink>5 -> "4g").
-func TestTASK2244_DeriveEffectiveType4G(t *testing.T) {
+// TestDeriveEffectiveType4G verifies 4g derivation
+// (rtt<100ms && downlink>5 -> "4g").
+func TestDeriveEffectiveType4G(t *testing.T) {
 	cases := []struct {
 		rtt      time.Duration
 		downlink float64
@@ -65,9 +64,9 @@ func TestTASK2244_DeriveEffectiveType4G(t *testing.T) {
 	}
 }
 
-// TestTASK2244_DeriveEffectiveType3G verifies 3g derivation
-// (spec L4093: 3g threshold).
-func TestTASK2244_DeriveEffectiveType3G(t *testing.T) {
+// TestDeriveEffectiveType3G verifies 3g derivation
+// (3g threshold).
+func TestDeriveEffectiveType3G(t *testing.T) {
 	cases := []struct {
 		rtt      time.Duration
 		downlink float64
@@ -84,8 +83,8 @@ func TestTASK2244_DeriveEffectiveType3G(t *testing.T) {
 	}
 }
 
-// TestTASK2244_DeriveEffectiveType2G verifies 2g derivation.
-func TestTASK2244_DeriveEffectiveType2G(t *testing.T) {
+// TestDeriveEffectiveType2G verifies 2g derivation.
+func TestDeriveEffectiveType2G(t *testing.T) {
 	cases := []struct {
 		rtt      time.Duration
 		downlink float64
@@ -102,8 +101,8 @@ func TestTASK2244_DeriveEffectiveType2G(t *testing.T) {
 	}
 }
 
-// TestTASK2244_DeriveEffectiveTypeSlow2G verifies slow-2g derivation.
-func TestTASK2244_DeriveEffectiveTypeSlow2G(t *testing.T) {
+// TestDeriveEffectiveTypeSlow2G verifies slow-2g derivation.
+func TestDeriveEffectiveTypeSlow2G(t *testing.T) {
 	if DeriveEffectiveType(3000*time.Millisecond, 0.0) != "slow-2g" {
 		t.Error("rtt>=3000ms should be slow-2g")
 	}
@@ -112,9 +111,9 @@ func TestTASK2244_DeriveEffectiveTypeSlow2G(t *testing.T) {
 	}
 }
 
-// TestTASK2244_DeriveEffectiveTypeBoundary verifies boundary conditions
-// (spec L4093: rtt<100ms && downlink>5 -> "4g").
-func TestTASK2244_DeriveEffectiveTypeBoundary(t *testing.T) {
+// TestDeriveEffectiveTypeBoundary verifies boundary conditions
+// (rtt<100ms && downlink>5 -> "4g").
+func TestDeriveEffectiveTypeBoundary(t *testing.T) {
 	// rtt=100ms exactly -> not 4g (must be <100)
 	if DeriveEffectiveType(100*time.Millisecond, 10.0) == "4g" {
 		t.Error("rtt=100ms should NOT be 4g (must be <100)")
@@ -127,9 +126,9 @@ func TestTASK2244_DeriveEffectiveTypeBoundary(t *testing.T) {
 
 // ==================== MeasureConnection tests ====================
 
-// TestTASK2244_MeasureConnectionLive verifies live measurement returns
-// a ConnectionInfo (spec L4093: LIVE MEASUREMENT via net.Dial).
-func TestTASK2244_MeasureConnectionLive(t *testing.T) {
+// TestMeasureConnectionLive verifies live measurement returns
+// a ConnectionInfo (LIVE MEASUREMENT via net.Dial).
+func TestMeasureConnectionLive(t *testing.T) {
 	info := MeasureConnection("1.1.1.1:443")
 	// Should either be live or fallback (network may not be available in CI).
 	if info.Source != "live" && info.Source != "fallback" {
@@ -140,9 +139,9 @@ func TestTASK2244_MeasureConnectionLive(t *testing.T) {
 	}
 }
 
-// TestTASK2244_MeasureConnectionFallback verifies fallback when target
-// is unreachable (spec L4093).
-func TestTASK2244_MeasureConnectionFallback(t *testing.T) {
+// TestMeasureConnectionFallback verifies fallback when target
+// is unreachable.
+func TestMeasureConnectionFallback(t *testing.T) {
 	// Use an invalid port on localhost to trigger fast connection refused.
 	info := MeasureConnection("127.0.0.1:1") // port 1 should be refused
 	// Should be fallback (connection refused/failed).
@@ -151,9 +150,9 @@ func TestTASK2244_MeasureConnectionFallback(t *testing.T) {
 	}
 }
 
-// TestTASK2244_MeasureConnectionEmptyTarget verifies empty target uses
-// default (spec L4093: 1.1.1.1:443).
-func TestTASK2244_MeasureConnectionEmptyTarget(t *testing.T) {
+// TestMeasureConnectionEmptyTarget verifies empty target uses
+// default (1.1.1.1:443).
+func TestMeasureConnectionEmptyTarget(t *testing.T) {
 	info := MeasureConnection("")
 	// Should not panic and should return a result.
 	if info.MeasuredAt.IsZero() {
@@ -163,18 +162,16 @@ func TestTASK2244_MeasureConnectionEmptyTarget(t *testing.T) {
 
 // ==================== ConnectionMonitor tests ====================
 
-// TestTASK2244_NewConnectionMonitor verifies creation with defaults
-// (spec L4093).
-func TestTASK2244_NewConnectionMonitor(t *testing.T) {
+// TestNewConnectionMonitor verifies creation with defaults.
+func TestNewConnectionMonitor(t *testing.T) {
 	m := NewConnectionMonitor()
 	if m.IsActive() {
 		t.Error("new monitor should be inactive")
 	}
 }
 
-// TestTASK2244_ConnectionMonitorMeasure verifies Measure updates current
-// (spec L4093).
-func TestTASK2244_ConnectionMonitorMeasure(t *testing.T) {
+// TestConnectionMonitorMeasure verifies Measure updates current.
+func TestConnectionMonitorMeasure(t *testing.T) {
 	m := NewConnectionMonitor()
 	info := m.Measure()
 	if info.MeasuredAt.IsZero() {
@@ -186,9 +183,9 @@ func TestTASK2244_ConnectionMonitorMeasure(t *testing.T) {
 	}
 }
 
-// TestTASK2244_ConnectionMonitorStartStop verifies Start/Stop cycle
-// (spec L4093: Values refreshed every 60s).
-func TestTASK2244_ConnectionMonitorStartStop(t *testing.T) {
+// TestConnectionMonitorStartStop verifies Start/Stop cycle
+// (Values refreshed every 60s).
+func TestConnectionMonitorStartStop(t *testing.T) {
 	m := NewConnectionMonitor()
 	m.SetRefreshInterval(100 * time.Millisecond) // fast for testing
 	m.Start()
@@ -206,40 +203,40 @@ func TestTASK2244_ConnectionMonitorStartStop(t *testing.T) {
 	}
 }
 
-// TestTASK2244_ConnectionMonitorDoubleStart verifies double Start is
+// TestConnectionMonitorDoubleStart verifies double Start is
 // safe (no goroutine leak).
-func TestTASK2244_ConnectionMonitorDoubleStart(t *testing.T) {
+func TestConnectionMonitorDoubleStart(t *testing.T) {
 	m := NewConnectionMonitor()
 	m.Start()
 	m.Start() // should be no-op
 	m.Stop()
 }
 
-// TestTASK2244_ConnectionMonitorStopNotStarted verifies Stop when not
+// TestConnectionMonitorStopNotStarted verifies Stop when not
 // started is safe.
-func TestTASK2244_ConnectionMonitorStopNotStarted(t *testing.T) {
+func TestConnectionMonitorStopNotStarted(t *testing.T) {
 	m := NewConnectionMonitor()
 	m.Stop() // should not panic
 }
 
-// TestTASK2244_ConnectionMonitorSetRefreshInterval verifies setting
-// refresh interval (spec L4093: 60s).
-func TestTASK2244_ConnectionMonitorSetRefreshInterval(t *testing.T) {
+// TestConnectionMonitorSetRefreshInterval verifies setting
+// refresh interval (60s).
+func TestConnectionMonitorSetRefreshInterval(t *testing.T) {
 	m := NewConnectionMonitor()
 	m.SetRefreshInterval(30 * time.Second)
 	// No direct way to verify, but should not panic.
 }
 
-// TestTASK2244_ConnectionMonitorSetMeasureTarget verifies setting
-// measure target (spec L4093: 1.1.1.1:443).
-func TestTASK2244_ConnectionMonitorSetMeasureTarget(t *testing.T) {
+// TestConnectionMonitorSetMeasureTarget verifies setting
+// measure target (1.1.1.1:443).
+func TestConnectionMonitorSetMeasureTarget(t *testing.T) {
 	m := NewConnectionMonitor()
 	m.SetMeasureTarget("8.8.8.8:443")
 	// Should not panic.
 }
 
-// TestTASK2244_ConnectionMonitorNilSafe verifies nil monitor is safe.
-func TestTASK2244_ConnectionMonitorNilSafe(t *testing.T) {
+// TestConnectionMonitorNilSafe verifies nil monitor is safe.
+func TestConnectionMonitorNilSafe(t *testing.T) {
 	var m *ConnectionMonitor
 	m.Start()
 	m.Stop()
@@ -256,9 +253,9 @@ func TestTASK2244_ConnectionMonitorNilSafe(t *testing.T) {
 
 // ==================== estimateDownlink tests ====================
 
-// TestTASK2244_EstimateDownlink verifies downlink estimation from RTT
-// (spec L4093: Downlink estimated from HTTP responses).
-func TestTASK2244_EstimateDownlink(t *testing.T) {
+// TestEstimateDownlink verifies downlink estimation from RTT
+// (Downlink estimated from HTTP responses).
+func TestEstimateDownlink(t *testing.T) {
 	cases := []struct {
 		rtt     time.Duration
 		minDown float64 // minimum expected downlink
@@ -276,11 +273,11 @@ func TestTASK2244_EstimateDownlink(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2244_FullSpecParity verifies full spec parity for L4093
-// (spec L4093: navigator.connection LIVE MEASUREMENT).
-func TestTASK2244_FullSpecParity(t *testing.T) {
+// TestNetworkParity verifies full parity.
+// (navigator.connection LIVE MEASUREMENT).
+func TestNetworkParity(t *testing.T) {
 	// 1. DeriveEffectiveType
 	if DeriveEffectiveType(50*time.Millisecond, 10.0) != "4g" {
 		t.Error("rtt<100ms && downlink>5 should be 4g")

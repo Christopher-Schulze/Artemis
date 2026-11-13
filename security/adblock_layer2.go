@@ -6,7 +6,7 @@ import (
 )
 
 // adblock_layer2.go holds the engine-independent AdBlocker Layer 2 decision
-// logic (spec L4208); the renderless engine and the Chromium session apply
+// logic; the renderless engine and the Chromium session apply
 // it to their pages.
 //   - Case A: an adblocker-wall overlay (notice text plus notice CSS class
 //     or a position:fixed z-index>=9999 layer) is reported for the user to

@@ -7,7 +7,7 @@ import (
 )
 
 // CacheControlPolicy enumerates the browser cache control modes
-// (spec L4028: browser cache control).
+// (browser cache control).
 type CacheControlPolicy string
 
 const (
@@ -22,7 +22,7 @@ const (
 )
 
 // BrowserCacheControl governs per-profile browser cache behavior
-// (spec L4028: cache.go - browser cache control). Each profile gets
+// (cache.go - browser cache control). Each profile gets
 // isolated cache control: max-age, clear, disable, clear-on-exit.
 type BrowserCacheControl struct {
 	ProfileName   string             `json:"profile_name"`
@@ -56,7 +56,7 @@ func NewBrowserCacheControl(profileName string) *BrowserCacheControl {
 	}
 }
 
-// RecordHit records a cache hit (spec L4028: cache metrics).
+// RecordHit records a cache hit (cache metrics).
 func (c *BrowserCacheControl) RecordHit(bytes int64) {
 	if c == nil {
 		return
@@ -67,7 +67,7 @@ func (c *BrowserCacheControl) RecordHit(bytes int64) {
 	c.stats.CurrentBytes += bytes
 }
 
-// RecordMiss records a cache miss (spec L4028: cache metrics).
+// RecordMiss records a cache miss (cache metrics).
 func (c *BrowserCacheControl) RecordMiss() {
 	if c == nil {
 		return
@@ -77,7 +77,7 @@ func (c *BrowserCacheControl) RecordMiss() {
 	c.stats.MissCount++
 }
 
-// RecordEviction records a cache eviction (spec L4028: cache metrics).
+// RecordEviction records a cache eviction (cache metrics).
 func (c *BrowserCacheControl) RecordEviction(bytes int64) {
 	if c == nil {
 		return
@@ -91,7 +91,7 @@ func (c *BrowserCacheControl) RecordEviction(bytes int64) {
 	}
 }
 
-// Clear clears the cache for this profile (spec L4028: clear-cache).
+// Clear clears the cache for this profile (clear-cache).
 func (c *BrowserCacheControl) Clear() {
 	if c == nil {
 		return
@@ -147,7 +147,7 @@ func (c *BrowserCacheControl) SetMaxSize(bytes int64) {
 }
 
 // IsExpired returns true if a cached resource with the given timestamp
-// is expired under the current policy (spec L4028: max-age enforcement).
+// is expired under the current policy (max-age enforcement).
 func (c *BrowserCacheControl) IsExpired(cachedAt time.Time) bool {
 	if c == nil {
 		return true
@@ -167,7 +167,7 @@ func (c *BrowserCacheControl) IsExpired(cachedAt time.Time) bool {
 }
 
 // ShouldEvict returns true if adding bytes would exceed the max size
-// (spec L4028: cache size management).
+// (cache size management).
 func (c *BrowserCacheControl) ShouldEvict(incomingBytes int64) bool {
 	if c == nil {
 		return false
@@ -206,7 +206,7 @@ func (c *BrowserCacheControl) String() string {
 }
 
 // CacheControlManager manages per-profile cache control instances
-// (spec L4028: per-profile cache isolation).
+// (per-profile cache isolation).
 type CacheControlManager struct {
 	mu       sync.RWMutex
 	controls map[string]*BrowserCacheControl

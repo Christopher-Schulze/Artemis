@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ErrorType classifies an error for agent consumption (spec L4265).
+// ErrorType classifies an error for agent consumption.
 type ErrorType string
 
 const (

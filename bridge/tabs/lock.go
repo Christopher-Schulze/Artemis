@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-// lock.go (spec L4021: bridge/tabs/lock.go - per-tab locking).
+// lock.go (bridge/tabs/lock.go - per-tab locking).
 //
 // Multi-tab management: per-tab locking for concurrent access.
 // Ensures only one goroutine can operate on a tab at a time.
 
 // TabLock provides per-tab locking
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 type TabLock struct {
 	mu      sync.Mutex
 	owners  map[string]string // tabID -> owner description
@@ -23,7 +23,7 @@ type TabLock struct {
 }
 
 // NewTabLock creates a new TabLock manager
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func NewTabLock() *TabLock {
 	return &TabLock{
 		owners:  make(map[string]string),
@@ -33,7 +33,7 @@ func NewTabLock() *TabLock {
 }
 
 // Lock acquires a lock for a specific tab
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) Lock(tabID, owner string) {
 	if err := l.LockContext(context.Background(), tabID, owner); err != nil {
 		return
@@ -78,7 +78,7 @@ func (l *TabLock) LockContext(ctx context.Context, tabID, owner string) error {
 }
 
 // Unlock releases the lock for a specific tab
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) Unlock(tabID string) {
 	l.mu.Lock()
 	_, ok := l.owners[tabID]
@@ -95,7 +95,7 @@ func (l *TabLock) Unlock(tabID string) {
 }
 
 // TryLock attempts to acquire a lock without blocking
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) TryLock(tabID, owner string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -118,7 +118,7 @@ func (l *TabLock) LockWithTimeout(tabID, owner string, timeout time.Duration) bo
 }
 
 // Owner returns the current owner of a tab lock
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) Owner(tabID string) string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -126,7 +126,7 @@ func (l *TabLock) Owner(tabID string) string {
 }
 
 // IsLocked reports whether a tab is currently locked
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) IsLocked(tabID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -135,7 +135,7 @@ func (l *TabLock) IsLocked(tabID string) bool {
 }
 
 // Remove removes a tab lock entry (only if not currently locked)
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) Remove(tabID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -150,7 +150,7 @@ func (l *TabLock) Remove(tabID string) bool {
 }
 
 // LockedTabs returns the IDs of all currently locked tabs
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) LockedTabs() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -163,7 +163,7 @@ func (l *TabLock) LockedTabs() []string {
 }
 
 // Count returns the number of currently locked tabs
-// (spec L4021: per-tab locking).
+// (per-tab locking).
 func (l *TabLock) Count() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()

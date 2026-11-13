@@ -204,7 +204,7 @@ func TestDiffAXSnapshotTreesFacade(t *testing.T) {
 }
 
 // TestMyersDiffFastPath verifies the identical-snapshot short-circuit
-// returns 0 without allocating the DP table (spec L4258).
+// returns 0 without allocating the DP table.
 func TestMyersDiffFastPath(t *testing.T) {
 	before := []AXNode{
 		{ID: "e1", Role: "button", Name: "A"},
@@ -246,7 +246,7 @@ func TestMyersDiffRemoval(t *testing.T) {
 }
 
 // TestMyersEditScriptAddRemove verifies the edit script produces the
-// expected equal/add/remove op sequence and summary counts (spec L4258).
+// expected equal/add/remove op sequence and summary counts.
 func TestMyersEditScriptAddRemove(t *testing.T) {
 	before := []AXNode{
 		{ID: "e1", Role: "button", Name: "A"},
@@ -279,7 +279,7 @@ func TestMyersEditScriptAddRemove(t *testing.T) {
 }
 
 // TestMyersEditScriptChange verifies a value change is emitted as
-// DiffOpChange, not as a separate add+remove pair (spec L4258).
+// DiffOpChange, not as a separate add+remove pair.
 func TestMyersEditScriptChange(t *testing.T) {
 	before := []AXNode{{ID: "e1", Role: "textbox", Name: "Search", Value: "old"}}
 	after := []AXNode{{ID: "e1", Role: "textbox", Name: "Search", Value: "new"}}

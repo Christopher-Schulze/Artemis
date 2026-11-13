@@ -8,7 +8,7 @@ import (
 )
 
 // adblock_rules.go is the Adblock Plus network-filter engine for Layer 1
-// (spec L4206: ABP filter syntax). It implements the request-blocking subset
+// (ABP filter syntax). It implements the request-blocking subset
 // of the syntax (anchors `||` `|`, wildcard `*`, separator `^`, exceptions
 // `@@`, regex filters and the options $third-party, $domain/$from,
 // resource types, $match-case and $important) with a token index, so a

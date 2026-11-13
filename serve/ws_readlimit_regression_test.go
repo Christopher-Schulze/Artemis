@@ -11,7 +11,7 @@ import (
 )
 
 // TestWSReadLimitLargePageDump is a deterministic regression test for
-// the WS read limit failure class surfaced by the TASK-2325 smoke
+// the WS read limit failure class surfaced by the smoke
 // matrix (challenge-cloudflare scenario). The old default WS read
 // limit was 32KB, which was too small for real-world HTML dumps from
 // challenge-prone sites like nowsecure.nl. The fix raised the limit

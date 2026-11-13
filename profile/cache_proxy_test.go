@@ -9,9 +9,9 @@ import (
 
 // ==================== cache.go tests ====================
 
-// TestTASK2239_CacheControlCreation verifies NewBrowserCacheControl
-// creates a control with default settings (spec L4028).
-func TestTASK2239_CacheControlCreation(t *testing.T) {
+// TestCacheControlCreation verifies NewBrowserCacheControl
+// creates a control with default settings.
+func TestCacheControlCreation(t *testing.T) {
 	c := NewBrowserCacheControl("test-profile")
 	if c.ProfileName != "test-profile" {
 		t.Errorf("profile name: got %s, want test-profile", c.ProfileName)
@@ -27,9 +27,9 @@ func TestTASK2239_CacheControlCreation(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheRecordHitMiss verifies hit/miss recording
-// (spec L4028: cache metrics).
-func TestTASK2239_CacheRecordHitMiss(t *testing.T) {
+// TestCacheRecordHitMiss verifies hit/miss recording
+// (cache metrics).
+func TestCacheRecordHitMiss(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(100)
 	c.RecordHit(200)
@@ -46,9 +46,9 @@ func TestTASK2239_CacheRecordHitMiss(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheHitRate verifies hit rate calculation
-// (spec L4028: cache metrics).
-func TestTASK2239_CacheHitRate(t *testing.T) {
+// TestCacheHitRate verifies hit rate calculation
+// (cache metrics).
+func TestCacheHitRate(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(100)
 	c.RecordHit(200)
@@ -61,17 +61,17 @@ func TestTASK2239_CacheHitRate(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheHitRateEmpty verifies hit rate is 0 for empty cache.
-func TestTASK2239_CacheHitRateEmpty(t *testing.T) {
+// TestCacheHitRateEmpty verifies hit rate is 0 for empty cache.
+func TestCacheHitRateEmpty(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	if c.HitRate() != 0 {
 		t.Error("empty cache hit rate should be 0")
 	}
 }
 
-// TestTASK2239_CacheClear verifies Clear resets the cache
-// (spec L4028: clear-cache).
-func TestTASK2239_CacheClear(t *testing.T) {
+// TestCacheClear verifies Clear resets the cache
+// (clear-cache).
+func TestCacheClear(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(500)
 	c.Clear()
@@ -87,9 +87,9 @@ func TestTASK2239_CacheClear(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheEviction verifies eviction recording
-// (spec L4028: cache metrics).
-func TestTASK2239_CacheEviction(t *testing.T) {
+// TestCacheEviction verifies eviction recording
+// (cache metrics).
+func TestCacheEviction(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(500)
 	c.RecordEviction(200)
@@ -102,8 +102,8 @@ func TestTASK2239_CacheEviction(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheEvictionNotNegative verifies bytes don't go negative.
-func TestTASK2239_CacheEvictionNotNegative(t *testing.T) {
+// TestCacheEvictionNotNegative verifies bytes don't go negative.
+func TestCacheEvictionNotNegative(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(100)
 	c.RecordEviction(500) // evict more than we have
@@ -116,9 +116,9 @@ func TestTASK2239_CacheEvictionNotNegative(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheIsExpiredMaxAge verifies max-age expiration
-// (spec L4028: max-age enforcement).
-func TestTASK2239_CacheIsExpiredMaxAge(t *testing.T) {
+// TestCacheIsExpiredMaxAge verifies max-age expiration
+// (max-age enforcement).
+func TestCacheIsExpiredMaxAge(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.SetPolicy(CachePolicyMaxAge, 1) // 1 second max age
 	if c.IsExpired(time.Now()) {
@@ -130,9 +130,9 @@ func TestTASK2239_CacheIsExpiredMaxAge(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheIsExpiredDisabled verifies disabled cache expires
-// everything (spec L4028).
-func TestTASK2239_CacheIsExpiredDisabled(t *testing.T) {
+// TestCacheIsExpiredDisabled verifies disabled cache expires
+// everything.
+func TestCacheIsExpiredDisabled(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.SetPolicy(CachePolicyDisabled, 0)
 	if !c.IsExpired(time.Now()) {
@@ -140,9 +140,9 @@ func TestTASK2239_CacheIsExpiredDisabled(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheIsExpiredDefault verifies default policy never
-// expires (spec L4028).
-func TestTASK2239_CacheIsExpiredDefault(t *testing.T) {
+// TestCacheIsExpiredDefault verifies default policy never
+// expires.
+func TestCacheIsExpiredDefault(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.SetPolicy(CachePolicyDefault, 0)
 	if c.IsExpired(time.Now().Add(-100 * time.Hour)) {
@@ -150,9 +150,9 @@ func TestTASK2239_CacheIsExpiredDefault(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheShouldEvict verifies max-size eviction logic
-// (spec L4028: cache size management).
-func TestTASK2239_CacheShouldEvict(t *testing.T) {
+// TestCacheShouldEvict verifies max-size eviction logic
+// (cache size management).
+func TestCacheShouldEvict(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.SetMaxSize(1000)
 	c.RecordHit(800)
@@ -164,9 +164,9 @@ func TestTASK2239_CacheShouldEvict(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheShouldEvictNoMaxSize verifies no max size means
+// TestCacheShouldEvictNoMaxSize verifies no max size means
 // no eviction.
-func TestTASK2239_CacheShouldEvictNoMaxSize(t *testing.T) {
+func TestCacheShouldEvictNoMaxSize(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.RecordHit(999999999)
 	if c.ShouldEvict(999999999) {
@@ -174,8 +174,8 @@ func TestTASK2239_CacheShouldEvictNoMaxSize(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheSetEnabled verifies enabling/disabling cache.
-func TestTASK2239_CacheSetEnabled(t *testing.T) {
+// TestCacheSetEnabled verifies enabling/disabling cache.
+func TestCacheSetEnabled(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	c.SetEnabled(false)
 	if c.Enabled {
@@ -186,8 +186,8 @@ func TestTASK2239_CacheSetEnabled(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheNilSafe verifies nil cache control is safe.
-func TestTASK2239_CacheNilSafe(t *testing.T) {
+// TestCacheNilSafe verifies nil cache control is safe.
+func TestCacheNilSafe(t *testing.T) {
 	var c *BrowserCacheControl
 	c.RecordHit(100)
 	c.RecordMiss()
@@ -203,8 +203,8 @@ func TestTASK2239_CacheNilSafe(t *testing.T) {
 	_ = c.String()
 }
 
-// TestTASK2239_CacheString verifies the String method.
-func TestTASK2239_CacheString(t *testing.T) {
+// TestCacheString verifies the String method.
+func TestCacheString(t *testing.T) {
 	c := NewBrowserCacheControl("p")
 	s := c.String()
 	if s == "" {
@@ -212,9 +212,9 @@ func TestTASK2239_CacheString(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheControlManagerGet verifies the manager creates
-// and returns per-profile controls (spec L4028: per-profile isolation).
-func TestTASK2239_CacheControlManagerGet(t *testing.T) {
+// TestCacheControlManagerGet verifies the manager creates
+// and returns per-profile controls (per-profile isolation).
+func TestCacheControlManagerGet(t *testing.T) {
 	m := NewCacheControlManager()
 	c1 := m.Get("profile1")
 	c2 := m.Get("profile2")
@@ -227,9 +227,9 @@ func TestTASK2239_CacheControlManagerGet(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheControlManagerClearAll verifies ClearAll clears
+// TestCacheControlManagerClearAll verifies ClearAll clears
 // all profiles.
-func TestTASK2239_CacheControlManagerClearAll(t *testing.T) {
+func TestCacheControlManagerClearAll(t *testing.T) {
 	m := NewCacheControlManager()
 	c1 := m.Get("p1")
 	c2 := m.Get("p2")
@@ -244,9 +244,9 @@ func TestTASK2239_CacheControlManagerClearAll(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheControlManagerAllStats verifies AllStats returns
+// TestCacheControlManagerAllStats verifies AllStats returns
 // stats for all profiles.
-func TestTASK2239_CacheControlManagerAllStats(t *testing.T) {
+func TestCacheControlManagerAllStats(t *testing.T) {
 	m := NewCacheControlManager()
 	m.Get("p1").RecordHit(100)
 	m.Get("p2").RecordHit(200)
@@ -262,8 +262,8 @@ func TestTASK2239_CacheControlManagerAllStats(t *testing.T) {
 	}
 }
 
-// TestTASK2239_CacheControlManagerNilSafe verifies nil manager is safe.
-func TestTASK2239_CacheControlManagerNilSafe(t *testing.T) {
+// TestCacheControlManagerNilSafe verifies nil manager is safe.
+func TestCacheControlManagerNilSafe(t *testing.T) {
 	var m *CacheControlManager
 	if m.Get("p") != nil {
 		t.Error("nil manager Get should return nil")
@@ -276,9 +276,8 @@ func TestTASK2239_CacheControlManagerNilSafe(t *testing.T) {
 
 // ==================== proxy_profiles.go tests ====================
 
-// TestTASK2239_GeoModeConstants verifies the geo mode constants
-// (spec L4028).
-func TestTASK2239_GeoModeConstants(t *testing.T) {
+// TestGeoModeConstants verifies the geo mode constants.
+func TestGeoModeConstants(t *testing.T) {
 	if GeoModeExplicitWins != "explicit_wins" {
 		t.Error("explicit_wins constant mismatch")
 	}
@@ -287,9 +286,9 @@ func TestTASK2239_GeoModeConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreLoad verifies loading proxy profiles
-// from JSON (spec L4028).
-func TestTASK2239_ProxyProfileStoreLoad(t *testing.T) {
+// TestProxyProfileStoreLoad verifies loading proxy profiles
+// from JSON.
+func TestProxyProfileStoreLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{
@@ -327,9 +326,9 @@ func TestTASK2239_ProxyProfileStoreLoad(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreCaseInsensitive verifies case-insensitive
-// name lookup (spec L4028).
-func TestTASK2239_ProxyProfileStoreCaseInsensitive(t *testing.T) {
+// TestProxyProfileStoreCaseInsensitive verifies case-insensitive
+// name lookup.
+func TestProxyProfileStoreCaseInsensitive(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"MyProxy": {"server": "http://proxy:8080"}}`
@@ -348,9 +347,9 @@ func TestTASK2239_ProxyProfileStoreCaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreEmptyPath verifies empty path returns
-// empty store (spec L4028).
-func TestTASK2239_ProxyProfileStoreEmptyPath(t *testing.T) {
+// TestProxyProfileStoreEmptyPath verifies empty path returns
+// empty store.
+func TestProxyProfileStoreEmptyPath(t *testing.T) {
 	store, err := LoadProxyProfiles("")
 	if err != nil {
 		t.Fatalf("empty path should not error: %v", err)
@@ -360,9 +359,9 @@ func TestTASK2239_ProxyProfileStoreEmptyPath(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreValidationLat verifies latitude
-// validation (spec L4028: lat∈[-90,90]).
-func TestTASK2239_ProxyProfileStoreValidationLat(t *testing.T) {
+// TestProxyProfileStoreValidationLat verifies latitude
+// validation (lat∈[-90,90]).
+func TestProxyProfileStoreValidationLat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "geolocation": {"latitude": 91, "longitude": 0}}}`
@@ -375,9 +374,9 @@ func TestTASK2239_ProxyProfileStoreValidationLat(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreValidationLong verifies longitude
-// validation (spec L4028: long∈[-180,180]).
-func TestTASK2239_ProxyProfileStoreValidationLong(t *testing.T) {
+// TestProxyProfileStoreValidationLong verifies longitude
+// validation (long∈[-180,180]).
+func TestProxyProfileStoreValidationLong(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "geolocation": {"latitude": 0, "longitude": 181}}}`
@@ -390,9 +389,9 @@ func TestTASK2239_ProxyProfileStoreValidationLong(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreValidationLocale verifies locale
-// validation (spec L4028: BCP47 regex).
-func TestTASK2239_ProxyProfileStoreValidationLocale(t *testing.T) {
+// TestProxyProfileStoreValidationLocale verifies locale
+// validation (BCP47 regex).
+func TestProxyProfileStoreValidationLocale(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": "http://p:80", "locale": "invalid_locale_1234567890123456789012345678901234567890"}}`
@@ -405,9 +404,9 @@ func TestTASK2239_ProxyProfileStoreValidationLocale(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ProxyProfileStoreValidationEmptyServer verifies empty
-// server is rejected (spec L4028).
-func TestTASK2239_ProxyProfileStoreValidationEmptyServer(t *testing.T) {
+// TestProxyProfileStoreValidationEmptyServer verifies empty
+// server is rejected.
+func TestProxyProfileStoreValidationEmptyServer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "proxy-profiles.json")
 	jsonContent := `{"bad": {"server": ""}}`
@@ -420,9 +419,9 @@ func TestTASK2239_ProxyProfileStoreValidationEmptyServer(t *testing.T) {
 	}
 }
 
-// TestTASK2239_GetConfiguredServerProxy verifies the fallback server
-// proxy resolution (spec L4028, research getConfiguredServerProxy).
-func TestTASK2239_GetConfiguredServerProxy(t *testing.T) {
+// TestGetConfiguredServerProxy verifies the fallback server
+// proxy resolution (research getConfiguredServerProxy).
+func TestGetConfiguredServerProxy(t *testing.T) {
 	proxy := GetConfiguredServerProxy(ConfiguredServerProxy{
 		Host: "proxy.example.com",
 		Port: 8080,
@@ -438,17 +437,17 @@ func TestTASK2239_GetConfiguredServerProxy(t *testing.T) {
 	}
 }
 
-// TestTASK2239_GetConfiguredServerProxyEmpty verifies empty config
+// TestGetConfiguredServerProxyEmpty verifies empty config
 // returns nil.
-func TestTASK2239_GetConfiguredServerProxyEmpty(t *testing.T) {
+func TestGetConfiguredServerProxyEmpty(t *testing.T) {
 	if GetConfiguredServerProxy(ConfiguredServerProxy{}) != nil {
 		t.Error("empty config should return nil")
 	}
 }
 
-// TestTASK2239_NormalizeRawProxy verifies raw proxy normalization
-// (spec L4028, research normalizeRawProxy).
-func TestTASK2239_NormalizeRawProxy(t *testing.T) {
+// TestNormalizeRawProxy verifies raw proxy normalization
+// (research normalizeRawProxy).
+func TestNormalizeRawProxy(t *testing.T) {
 	proxy, err := NormalizeRawProxy(RawProxyOverride{
 		Host: "proxy.example.com",
 		Port: 8080,
@@ -464,17 +463,17 @@ func TestTASK2239_NormalizeRawProxy(t *testing.T) {
 	}
 }
 
-// TestTASK2239_NormalizeRawProxyEmpty verifies empty raw proxy errors.
-func TestTASK2239_NormalizeRawProxyEmpty(t *testing.T) {
+// TestNormalizeRawProxyEmpty verifies empty raw proxy errors.
+func TestNormalizeRawProxyEmpty(t *testing.T) {
 	_, err := NormalizeRawProxy(RawProxyOverride{})
 	if err == nil {
 		t.Fatal("empty raw proxy should error")
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyNamedProfile verifies named profile
-// resolution (spec L4028).
-func TestTASK2239_ResolveSessionProxyNamedProfile(t *testing.T) {
+// TestResolveSessionProxyNamedProfile verifies named profile
+// resolution.
+func TestResolveSessionProxyNamedProfile(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -497,9 +496,9 @@ func TestTASK2239_ResolveSessionProxyNamedProfile(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyUnknownProfile verifies unknown
-// profile name errors (spec L4028).
-func TestTASK2239_ResolveSessionProxyUnknownProfile(t *testing.T) {
+// TestResolveSessionProxyUnknownProfile verifies unknown
+// profile name errors.
+func TestResolveSessionProxyUnknownProfile(t *testing.T) {
 	store := NewProxyProfileStore()
 	_, err := ResolveSessionProxy(SessionProfileInput{
 		ProxyProfile: "nonexistent",
@@ -509,9 +508,9 @@ func TestTASK2239_ResolveSessionProxyUnknownProfile(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyFallback verifies fallback to
-// server-default proxy (spec L4028).
-func TestTASK2239_ResolveSessionProxyFallback(t *testing.T) {
+// TestResolveSessionProxyFallback verifies fallback to
+// server-default proxy.
+func TestResolveSessionProxyFallback(t *testing.T) {
 	store := NewProxyProfileStore()
 	fallback := &ResolvedProxyConfig{
 		Source: ProxySourceServerDefault,
@@ -526,9 +525,9 @@ func TestTASK2239_ResolveSessionProxyFallback(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyRawCredentials verifies raw
-// credentials resolution (spec L4028).
-func TestTASK2239_ResolveSessionProxyRawCredentials(t *testing.T) {
+// TestResolveSessionProxyRawCredentials verifies raw
+// credentials resolution.
+func TestResolveSessionProxyRawCredentials(t *testing.T) {
 	store := NewProxyProfileStore()
 	proxy, err := ResolveSessionProxy(SessionProfileInput{
 		RawProxy: &RawProxyOverride{Host: "raw.proxy", Port: 3128},
@@ -544,9 +543,9 @@ func TestTASK2239_ResolveSessionProxyRawCredentials(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyExplicitWins verifies explicit-wins
-// mode overrides proxy-implied geo (spec L4028).
-func TestTASK2239_ResolveSessionProxyExplicitWins(t *testing.T) {
+// TestResolveSessionProxyExplicitWins verifies explicit-wins
+// mode overrides proxy-implied geo.
+func TestResolveSessionProxyExplicitWins(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -565,9 +564,9 @@ func TestTASK2239_ResolveSessionProxyExplicitWins(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyLockedRejectsOverrides verifies
-// proxy-locked mode rejects explicit overrides (spec L4028).
-func TestTASK2239_ResolveSessionProxyLockedRejectsOverrides(t *testing.T) {
+// TestResolveSessionProxyLockedRejectsOverrides verifies
+// proxy-locked mode rejects explicit overrides.
+func TestResolveSessionProxyLockedRejectsOverrides(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -583,9 +582,9 @@ func TestTASK2239_ResolveSessionProxyLockedRejectsOverrides(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyLockedRejectsTimezone verifies
-// proxy-locked mode rejects timezone overrides (spec L4028).
-func TestTASK2239_ResolveSessionProxyLockedRejectsTimezone(t *testing.T) {
+// TestResolveSessionProxyLockedRejectsTimezone verifies
+// proxy-locked mode rejects timezone overrides.
+func TestResolveSessionProxyLockedRejectsTimezone(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -600,9 +599,9 @@ func TestTASK2239_ResolveSessionProxyLockedRejectsTimezone(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyLockedRejectsGeo verifies proxy-locked
-// mode rejects geolocation overrides (spec L4028).
-func TestTASK2239_ResolveSessionProxyLockedRejectsGeo(t *testing.T) {
+// TestResolveSessionProxyLockedRejectsGeo verifies proxy-locked
+// mode rejects geolocation overrides.
+func TestResolveSessionProxyLockedRejectsGeo(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -617,9 +616,9 @@ func TestTASK2239_ResolveSessionProxyLockedRejectsGeo(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ResolveSessionProxyLockedNoOverrides verifies proxy-locked
-// mode works when no explicit overrides are given (spec L4028).
-func TestTASK2239_ResolveSessionProxyLockedNoOverrides(t *testing.T) {
+// TestResolveSessionProxyLockedNoOverrides verifies proxy-locked
+// mode works when no explicit overrides are given.
+func TestResolveSessionProxyLockedNoOverrides(t *testing.T) {
 	store := NewProxyProfileStore()
 	store.profiles["de-proxy"] = ProxyProfileConfig{
 		Server: "http://proxy.de:8080",
@@ -637,9 +636,9 @@ func TestTASK2239_ResolveSessionProxyLockedNoOverrides(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ContextHash verifies context hash is deterministic
-// and differs for different proxies (spec L4028: contextHash).
-func TestTASK2239_ContextHash(t *testing.T) {
+// TestContextHash verifies context hash is deterministic
+// and differs for different proxies (contextHash).
+func TestContextHash(t *testing.T) {
 	proxy1 := &ResolvedProxyConfig{Server: "http://p1:8080"}
 	proxy2 := &ResolvedProxyConfig{Server: "http://p2:8080"}
 	h1 := ContextHash(proxy1, GeoModeExplicitWins)
@@ -656,17 +655,17 @@ func TestTASK2239_ContextHash(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ContextHashNilProxy verifies nil proxy is safe.
-func TestTASK2239_ContextHashNilProxy(t *testing.T) {
+// TestContextHashNilProxy verifies nil proxy is safe.
+func TestContextHashNilProxy(t *testing.T) {
 	h := ContextHash(nil, GeoModeExplicitWins)
 	if len(h) != 8 {
 		t.Errorf("hash length: got %d, want 8", len(h))
 	}
 }
 
-// TestTASK2239_ValidateProxyProfileInputValid verifies valid input
-// passes validation (spec L4028).
-func TestTASK2239_ValidateProxyProfileInputValid(t *testing.T) {
+// TestValidateProxyProfileInputValid verifies valid input
+// passes validation.
+func TestValidateProxyProfileInputValid(t *testing.T) {
 	input := SessionProfileInput{
 		Locale:      "de-DE",
 		Geolocation: &GeolocationConfig{Latitude: 52.52, Longitude: 13.405},
@@ -676,9 +675,9 @@ func TestTASK2239_ValidateProxyProfileInputValid(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ValidateProxyProfileInputInvalidLat verifies invalid
-// latitude fails validation (spec L4028).
-func TestTASK2239_ValidateProxyProfileInputInvalidLat(t *testing.T) {
+// TestValidateProxyProfileInputInvalidLat verifies invalid
+// latitude fails validation.
+func TestValidateProxyProfileInputInvalidLat(t *testing.T) {
 	input := SessionProfileInput{
 		Geolocation: &GeolocationConfig{Latitude: 91, Longitude: 0},
 	}
@@ -687,9 +686,9 @@ func TestTASK2239_ValidateProxyProfileInputInvalidLat(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ValidateProxyProfileInputInvalidLocale verifies invalid
-// locale fails validation (spec L4028: BCP47 regex).
-func TestTASK2239_ValidateProxyProfileInputInvalidLocale(t *testing.T) {
+// TestValidateProxyProfileInputInvalidLocale verifies invalid
+// locale fails validation (BCP47 regex).
+func TestValidateProxyProfileInputInvalidLocale(t *testing.T) {
 	input := SessionProfileInput{
 		Locale: "invalid_locale_too_long_12345678901234567890123456789012345",
 	}
@@ -698,9 +697,9 @@ func TestTASK2239_ValidateProxyProfileInputInvalidLocale(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ValidateProxyProfileInputInvalidPort verifies invalid
-// port fails validation (spec L4028).
-func TestTASK2239_ValidateProxyProfileInputInvalidPort(t *testing.T) {
+// TestValidateProxyProfileInputInvalidPort verifies invalid
+// port fails validation.
+func TestValidateProxyProfileInputInvalidPort(t *testing.T) {
 	input := SessionProfileInput{
 		RawProxy: &RawProxyOverride{Host: "proxy", Port: 99999},
 	}
@@ -709,9 +708,9 @@ func TestTASK2239_ValidateProxyProfileInputInvalidPort(t *testing.T) {
 	}
 }
 
-// TestTASK2239_ValidateProxyProfileInputEmptyHost verifies empty host
-// fails validation (spec L4028).
-func TestTASK2239_ValidateProxyProfileInputEmptyHost(t *testing.T) {
+// TestValidateProxyProfileInputEmptyHost verifies empty host
+// fails validation.
+func TestValidateProxyProfileInputEmptyHost(t *testing.T) {
 	input := SessionProfileInput{
 		RawProxy: &RawProxyOverride{Host: "", Port: 8080},
 	}
@@ -720,9 +719,8 @@ func TestTASK2239_ValidateProxyProfileInputEmptyHost(t *testing.T) {
 	}
 }
 
-// TestTASK2239_FullSpecParity verifies full spec parity for L4028
-// (spec L4028).
-func TestTASK2239_FullSpecParity(t *testing.T) {
+// TestCacheProxyParity verifies full parity.
+func TestCacheProxyParity(t *testing.T) {
 	// 1. Cache control
 	c := NewBrowserCacheControl("test")
 	if !c.Enabled || c.Policy != CachePolicyMaxAge {

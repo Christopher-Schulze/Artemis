@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TracingTransferMode controls how trace events are delivered (spec L4268).
+// TracingTransferMode controls how trace events are delivered.
 type TracingTransferMode string
 
 const (

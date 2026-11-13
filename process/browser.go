@@ -79,10 +79,10 @@ type LaunchConfig struct {
 	resourceSampler                resourceSampler
 	// NetworkPolicy supplies the complete browser egress contract when configured.
 	NetworkPolicy *network.PolicyConfig
-	// AdBlock filters subresource requests (spec L4206); nil installs the
+	// AdBlock filters subresource requests; nil installs the
 	// embedded base blocklist. Blocking is on by default.
 	AdBlock network.RequestFilter
-	// DisableAdBlock turns ad/tracker blocking off (spec L4210 setting).
+	// DisableAdBlock turns ad/tracker blocking off (setting).
 	DisableAdBlock bool
 }
 

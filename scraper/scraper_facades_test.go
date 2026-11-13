@@ -7,9 +7,9 @@ import (
 
 // ==================== parser.go facade tests ====================
 
-// TestTASK2250_ParseReaders verifies ParseReaders alias
-// (spec L4029: parser.go - HTML parser).
-func TestTASK2250_ParseReaders(t *testing.T) {
+// TestParseReaders verifies ParseReaders alias
+// (parser.go - HTML parser).
+func TestParseReaders(t *testing.T) {
 	primary := strings.NewReader("primary data")
 	secondary := strings.NewReader("secondary data")
 	p, s, err := ParseReaders(primary, secondary)
@@ -21,9 +21,9 @@ func TestTASK2250_ParseReaders(t *testing.T) {
 	}
 }
 
-// TestTASK2250_NewParserPool verifies NewParserPool
-// (spec L4029: parser.go - HTML parser).
-func TestTASK2250_NewParserPool(t *testing.T) {
+// TestNewParserPool verifies NewParserPool
+// (parser.go - HTML parser).
+func TestNewParserPool(t *testing.T) {
 	pool := NewParserPool(4)
 	if pool == nil {
 		t.Fatal("pool should not be nil")
@@ -33,9 +33,9 @@ func TestTASK2250_NewParserPool(t *testing.T) {
 	}
 }
 
-// TestTASK2250_NewSnapshotPool verifies NewSnapshotPool
-// (spec L4029: parser.go).
-func TestTASK2250_NewSnapshotPool(t *testing.T) {
+// TestNewSnapshotPool verifies NewSnapshotPool
+// (parser.go).
+func TestNewSnapshotPool(t *testing.T) {
 	pool := NewSnapshotPool(100)
 	if pool == nil {
 		t.Fatal("pool should not be nil")
@@ -47,9 +47,9 @@ func TestTASK2250_NewSnapshotPool(t *testing.T) {
 
 // ==================== static.go facade tests ====================
 
-// TestTASK2250_StaticTypeAliases verifies type aliases
-// (spec L4029: static.go - HTTP-only fetcher).
-func TestTASK2250_StaticTypeAliases(t *testing.T) {
+// TestStaticTypeAliases verifies type aliases
+// (static.go - HTTP-only fetcher).
+func TestStaticTypeAliases(t *testing.T) {
 	var opts StaticHTTPOpts
 	opts.Method = "GET"
 	if opts.Method != "GET" {
@@ -57,9 +57,9 @@ func TestTASK2250_StaticTypeAliases(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ShouldRetryStatic verifies ShouldRetryStatic
-// (spec L4029: static.go - HTTP-only fetcher).
-func TestTASK2250_ShouldRetryStatic(t *testing.T) {
+// TestShouldRetryStatic verifies ShouldRetryStatic
+// (static.go - HTTP-only fetcher).
+func TestShouldRetryStatic(t *testing.T) {
 	if !ShouldRetryStatic(429) {
 		t.Error("429 should retry")
 	}
@@ -71,9 +71,9 @@ func TestTASK2250_ShouldRetryStatic(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ContentTypeAlias verifies ContentType alias
-// (spec L4029: static.go - HTTP-only fetcher).
-func TestTASK2250_ContentTypeAlias(t *testing.T) {
+// TestContentTypeAlias verifies ContentType alias
+// (static.go - HTTP-only fetcher).
+func TestContentTypeAlias(t *testing.T) {
 	ct := ClassifyContentType("text/html; charset=utf-8")
 	if ct == "" {
 		t.Error("content type should not be empty")
@@ -82,9 +82,9 @@ func TestTASK2250_ContentTypeAlias(t *testing.T) {
 
 // ==================== types.go tests ====================
 
-// TestTASK2250_ExtractedPage verifies ExtractedPage type
-// (spec L4029: result types).
-func TestTASK2250_ExtractedPage(t *testing.T) {
+// TestExtractedPage verifies ExtractedPage type
+// (result types).
+func TestExtractedPage(t *testing.T) {
 	page := ExtractedPage{
 		URL:            "https://example.com",
 		Title:          "Example",
@@ -99,18 +99,18 @@ func TestTASK2250_ExtractedPage(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractedPageEmpty verifies IsEmpty
-// (spec L4029: result types).
-func TestTASK2250_ExtractedPageEmpty(t *testing.T) {
+// TestExtractedPageEmpty verifies IsEmpty
+// (result types).
+func TestExtractedPageEmpty(t *testing.T) {
 	page := ExtractedPage{}
 	if !page.IsEmpty() {
 		t.Error("empty page should be empty")
 	}
 }
 
-// TestTASK2250_ExtractedPageHasStructuredData verifies HasStructuredData
-// (spec L4029: result types).
-func TestTASK2250_ExtractedPageHasStructuredData(t *testing.T) {
+// TestExtractedPageHasStructuredData verifies HasStructuredData
+// (result types).
+func TestExtractedPageHasStructuredData(t *testing.T) {
 	page := ExtractedPage{}
 	if page.HasStructuredData() {
 		t.Error("page without structured data should not have it")
@@ -121,9 +121,9 @@ func TestTASK2250_ExtractedPageHasStructuredData(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractedPageString verifies String method
-// (spec L4029: result types).
-func TestTASK2250_ExtractedPageString(t *testing.T) {
+// TestExtractedPageString verifies String method
+// (result types).
+func TestExtractedPageString(t *testing.T) {
 	page := ExtractedPage{URL: "https://example.com", ExtractionMode: "static_fetch"}
 	s := page.String()
 	if s == "" {
@@ -131,9 +131,9 @@ func TestTASK2250_ExtractedPageString(t *testing.T) {
 	}
 }
 
-// TestTASK2250_SourceSnapshot verifies SourceSnapshot type
-// (spec L4029: one SourceSnapshot -> ExtractedPage facade).
-func TestTASK2250_SourceSnapshot(t *testing.T) {
+// TestSourceSnapshot verifies SourceSnapshot type
+// (one SourceSnapshot -> ExtractedPage facade).
+func TestSourceSnapshot(t *testing.T) {
 	snap := SourceSnapshot{
 		URL:  "https://example.com",
 		HTML: "<html></html>",
@@ -148,10 +148,10 @@ func TestTASK2250_SourceSnapshot(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractionModeConstants verifies mode constants
-// (spec L4029: static_fetch, renderless_js, chromium_cdp, stealth,
+// TestExtractionModeConstants verifies mode constants
+// (static_fetch, renderless_js, chromium_cdp, stealth,
 // scrape).
-func TestTASK2250_ExtractionModeConstants(t *testing.T) {
+func TestExtractionModeConstants(t *testing.T) {
 	if ExtractionModeStaticFetch != "static_fetch" {
 		t.Error("static_fetch mismatch")
 	}
@@ -169,10 +169,10 @@ func TestTASK2250_ExtractionModeConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2250_IsValidExtractionMode verifies validation
-// (spec L4029: static_fetch, renderless_js, chromium_cdp, stealth,
+// TestIsValidExtractionMode verifies validation
+// (static_fetch, renderless_js, chromium_cdp, stealth,
 // scrape).
-func TestTASK2250_IsValidExtractionMode(t *testing.T) {
+func TestIsValidExtractionMode(t *testing.T) {
 	if !IsValidExtractionMode("static_fetch") {
 		t.Error("static_fetch should be valid")
 	}
@@ -184,18 +184,18 @@ func TestTASK2250_IsValidExtractionMode(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractedLink verifies ExtractedLink type
-// (spec L4029: result types - links).
-func TestTASK2250_ExtractedLink(t *testing.T) {
+// TestExtractedLink verifies ExtractedLink type
+// (result types - links).
+func TestExtractedLink(t *testing.T) {
 	link := ExtractedLink{Href: "https://example.com", Text: "Example"}
 	if link.Href != "https://example.com" {
 		t.Error("href mismatch")
 	}
 }
 
-// TestTASK2250_ExtractedForm verifies ExtractedForm type
-// (spec L4029: result types - forms).
-func TestTASK2250_ExtractedForm(t *testing.T) {
+// TestExtractedForm verifies ExtractedForm type
+// (result types - forms).
+func TestExtractedForm(t *testing.T) {
 	form := ExtractedForm{
 		Action: "/submit",
 		Method: "POST",
@@ -206,9 +206,9 @@ func TestTASK2250_ExtractedForm(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractedTable verifies ExtractedTable type
-// (spec L4029: result types - tables).
-func TestTASK2250_ExtractedTable(t *testing.T) {
+// TestExtractedTable verifies ExtractedTable type
+// (result types - tables).
+func TestExtractedTable(t *testing.T) {
 	table := ExtractedTable{
 		Headers: []string{"Name", "Value"},
 		Rows:    [][]string{{"a", "1"}, {"b", "2"}},
@@ -221,9 +221,9 @@ func TestTASK2250_ExtractedTable(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractedImage verifies ExtractedImage type
-// (spec L4029: result types - images).
-func TestTASK2250_ExtractedImage(t *testing.T) {
+// TestExtractedImage verifies ExtractedImage type
+// (result types - images).
+func TestExtractedImage(t *testing.T) {
 	img := ExtractedImage{Src: "https://example.com/img.png", Alt: "Logo"}
 	if img.Src != "https://example.com/img.png" {
 		t.Error("src mismatch")
@@ -232,9 +232,9 @@ func TestTASK2250_ExtractedImage(t *testing.T) {
 
 // ==================== translator.go tests ====================
 
-// TestTASK2250_CSSToXPathTag verifies tag selector
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_CSSToXPathTag(t *testing.T) {
+// TestCSSToXPathTag verifies tag selector
+// (CSS -> XPath translation).
+func TestCSSToXPathTag(t *testing.T) {
 	xpath, err := CSSToXPath("div")
 	if err != nil {
 		t.Fatalf("CSSToXPath: %v", err)
@@ -244,9 +244,9 @@ func TestTASK2250_CSSToXPathTag(t *testing.T) {
 	}
 }
 
-// TestTASK2250_CSSToXPathClass verifies class selector
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_CSSToXPathClass(t *testing.T) {
+// TestCSSToXPathClass verifies class selector
+// (CSS -> XPath translation).
+func TestCSSToXPathClass(t *testing.T) {
 	xpath, err := CSSToXPath("div.container")
 	if err != nil {
 		t.Fatalf("CSSToXPath: %v", err)
@@ -256,9 +256,9 @@ func TestTASK2250_CSSToXPathClass(t *testing.T) {
 	}
 }
 
-// TestTASK2250_CSSToXPathID verifies ID selector
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_CSSToXPathID(t *testing.T) {
+// TestCSSToXPathID verifies ID selector
+// (CSS -> XPath translation).
+func TestCSSToXPathID(t *testing.T) {
 	xpath, err := CSSToXPath("div#main")
 	if err != nil {
 		t.Fatalf("CSSToXPath: %v", err)
@@ -268,9 +268,9 @@ func TestTASK2250_CSSToXPathID(t *testing.T) {
 	}
 }
 
-// TestTASK2250_CSSToXPathAttribute verifies attribute selector
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_CSSToXPathAttribute(t *testing.T) {
+// TestCSSToXPathAttribute verifies attribute selector
+// (CSS -> XPath translation).
+func TestCSSToXPathAttribute(t *testing.T) {
 	xpath, err := CSSToXPath("a[href='https://example.com']")
 	if err != nil {
 		t.Fatalf("CSSToXPath: %v", err)
@@ -280,18 +280,18 @@ func TestTASK2250_CSSToXPathAttribute(t *testing.T) {
 	}
 }
 
-// TestTASK2250_CSSToXPathEmpty verifies empty selector errors
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_CSSToXPathEmpty(t *testing.T) {
+// TestCSSToXPathEmpty verifies empty selector errors
+// (CSS -> XPath translation).
+func TestCSSToXPathEmpty(t *testing.T) {
 	_, err := CSSToXPath("")
 	if err == nil {
 		t.Error("empty selector should error")
 	}
 }
 
-// TestTASK2250_IsXPath verifies XPath detection
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_IsXPath(t *testing.T) {
+// TestIsXPath verifies XPath detection
+// (CSS -> XPath translation).
+func TestIsXPath(t *testing.T) {
 	if !IsXPath("//div[@id='main']") {
 		t.Error("//div should be detected as XPath")
 	}
@@ -300,9 +300,9 @@ func TestTASK2250_IsXPath(t *testing.T) {
 	}
 }
 
-// TestTASK2250_IsCSS verifies CSS detection
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_IsCSS(t *testing.T) {
+// TestIsCSS verifies CSS detection
+// (CSS -> XPath translation).
+func TestIsCSS(t *testing.T) {
 	if !IsCSS("div.container") {
 		t.Error("div.container should be detected as CSS")
 	}
@@ -311,9 +311,9 @@ func TestTASK2250_IsCSS(t *testing.T) {
 	}
 }
 
-// TestTASK2250_TranslateSelectorCSS verifies auto-detect CSS
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_TranslateSelectorCSS(t *testing.T) {
+// TestTranslateSelectorCSS verifies auto-detect CSS
+// (CSS -> XPath translation).
+func TestTranslateSelectorCSS(t *testing.T) {
 	xpath, err := TranslateSelector("div#main")
 	if err != nil {
 		t.Fatalf("TranslateSelector: %v", err)
@@ -323,9 +323,9 @@ func TestTASK2250_TranslateSelectorCSS(t *testing.T) {
 	}
 }
 
-// TestTASK2250_TranslateSelectorXPath verifies auto-detect XPath
-// (spec L4029: CSS -> XPath translation).
-func TestTASK2250_TranslateSelectorXPath(t *testing.T) {
+// TestTranslateSelectorXPath verifies auto-detect XPath
+// (CSS -> XPath translation).
+func TestTranslateSelectorXPath(t *testing.T) {
 	input := "//div[@id='main']"
 	xpath, err := TranslateSelector(input)
 	if err != nil {
@@ -336,8 +336,8 @@ func TestTASK2250_TranslateSelectorXPath(t *testing.T) {
 	}
 }
 
-// TestTASK2250_TranslateSelectorEmpty verifies empty selector errors.
-func TestTASK2250_TranslateSelectorEmpty(t *testing.T) {
+// TestTranslateSelectorEmpty verifies empty selector errors.
+func TestTranslateSelectorEmpty(t *testing.T) {
 	_, err := TranslateSelector("")
 	if err == nil {
 		t.Error("empty selector should error")
@@ -346,9 +346,9 @@ func TestTASK2250_TranslateSelectorEmpty(t *testing.T) {
 
 // ==================== structured_extract.go facade tests ====================
 
-// TestTASK2250_StructuredExtractSchemaAlias verifies alias
-// (spec L4029: structured_extract.go - Structured-Extract).
-func TestTASK2250_StructuredExtractSchemaAlias(t *testing.T) {
+// TestStructuredExtractSchemaAlias verifies alias
+// (structured_extract.go - Structured-Extract).
+func TestStructuredExtractSchemaAlias(t *testing.T) {
 	var schema StructuredExtractSchema
 	schema.Kind = "text"
 	if schema.Kind != "text" {
@@ -356,9 +356,9 @@ func TestTASK2250_StructuredExtractSchemaAlias(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractJSONLDFromHTML verifies JSON-LD extraction
-// (spec L4029: structured_extract.go - Structured-Extract).
-func TestTASK2250_ExtractJSONLDFromHTML(t *testing.T) {
+// TestExtractJSONLDFromHTML verifies JSON-LD extraction
+// (structured_extract.go - Structured-Extract).
+func TestExtractJSONLDFromHTML(t *testing.T) {
 	html := `<html><head>
 	<script type="application/ld+json">{"@type":"Product","name":"Test"}</script>
 	</head></html>`
@@ -371,9 +371,9 @@ func TestTASK2250_ExtractJSONLDFromHTML(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractOpenGraphFromHTML verifies OpenGraph extraction
-// (spec L4029: structured_extract.go - Structured-Extract).
-func TestTASK2250_ExtractOpenGraphFromHTML(t *testing.T) {
+// TestExtractOpenGraphFromHTML verifies OpenGraph extraction
+// (structured_extract.go - Structured-Extract).
+func TestExtractOpenGraphFromHTML(t *testing.T) {
 	html := `<html><head>
 	<meta property="og:title" content="Example Page">
 	<meta property="og:url" content="https://example.com">
@@ -384,17 +384,17 @@ func TestTASK2250_ExtractOpenGraphFromHTML(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ScalarSchemaKinds verifies ScalarSchemaKinds re-export
-// (spec L4029: structured_extract.go - scalarKinds).
-func TestTASK2250_ScalarSchemaKinds(t *testing.T) {
+// TestScalarSchemaKinds verifies ScalarSchemaKinds re-export
+// (structured_extract.go - scalarKinds).
+func TestScalarSchemaKinds(t *testing.T) {
 	if !ScalarSchemaKinds["text"] {
 		t.Error("text should be a scalar kind")
 	}
 }
 
-// TestTASK2250_JoinSchemaKinds verifies JoinSchemaKinds re-export
-// (spec L4029: structured_extract.go - joinKinds).
-func TestTASK2250_JoinSchemaKinds(t *testing.T) {
+// TestJoinSchemaKinds verifies JoinSchemaKinds re-export
+// (structured_extract.go - joinKinds).
+func TestJoinSchemaKinds(t *testing.T) {
 	if !JoinSchemaKinds["text"] {
 		t.Error("text should be a join kind")
 	}
@@ -402,9 +402,9 @@ func TestTASK2250_JoinSchemaKinds(t *testing.T) {
 
 // ==================== snapshot_extract.go tests ====================
 
-// TestTASK2250_NewSnapshotExtractor verifies creation
-// (spec L4029: snapshot_extract.go - renderless DOM snapshot).
-func TestTASK2250_NewSnapshotExtractor(t *testing.T) {
+// TestNewSnapshotExtractor verifies creation
+// (snapshot_extract.go - renderless DOM snapshot).
+func TestNewSnapshotExtractor(t *testing.T) {
 	e := NewSnapshotExtractor(ExtractionModeStaticFetch)
 	if e == nil {
 		t.Fatal("extractor should not be nil")
@@ -414,9 +414,9 @@ func TestTASK2250_NewSnapshotExtractor(t *testing.T) {
 	}
 }
 
-// TestTASK2250_SnapshotExtractorExtract verifies extraction
-// (spec L4029: one SourceSnapshot -> ExtractedPage facade).
-func TestTASK2250_SnapshotExtractorExtract(t *testing.T) {
+// TestSnapshotExtractorExtract verifies extraction
+// (one SourceSnapshot -> ExtractedPage facade).
+func TestSnapshotExtractorExtract(t *testing.T) {
 	e := NewSnapshotExtractor(ExtractionModeStaticFetch)
 	snap := SourceSnapshot{
 		URL:  "https://example.com",
@@ -441,9 +441,9 @@ func TestTASK2250_SnapshotExtractorExtract(t *testing.T) {
 	}
 }
 
-// TestTASK2250_SnapshotExtractorEmptyHTML verifies empty HTML errors
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_SnapshotExtractorEmptyHTML(t *testing.T) {
+// TestSnapshotExtractorEmptyHTML verifies empty HTML errors
+// (snapshot_extract.go).
+func TestSnapshotExtractorEmptyHTML(t *testing.T) {
 	e := NewSnapshotExtractor(ExtractionModeStaticFetch)
 	_, err := e.Extract(SourceSnapshot{URL: "https://example.com"})
 	if err == nil {
@@ -451,8 +451,8 @@ func TestTASK2250_SnapshotExtractorEmptyHTML(t *testing.T) {
 	}
 }
 
-// TestTASK2250_SnapshotExtractorNilSafe verifies nil extractor is safe.
-func TestTASK2250_SnapshotExtractorNilSafe(t *testing.T) {
+// TestSnapshotExtractorNilSafe verifies nil extractor is safe.
+func TestSnapshotExtractorNilSafe(t *testing.T) {
 	var e *SnapshotExtractor
 	_, err := e.Extract(SourceSnapshot{HTML: "<html></html>"})
 	if err == nil {
@@ -463,18 +463,18 @@ func TestTASK2250_SnapshotExtractorNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2250_SnapshotExtractorMode verifies Mode
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_SnapshotExtractorMode(t *testing.T) {
+// TestSnapshotExtractorMode verifies Mode
+// (snapshot_extract.go).
+func TestSnapshotExtractorMode(t *testing.T) {
 	e := NewSnapshotExtractor(ExtractionModeChromiumCDP)
 	if e.Mode() != ExtractionModeChromiumCDP {
 		t.Errorf("mode: got %s, want chromium_cdp", e.Mode())
 	}
 }
 
-// TestTASK2250_ExtractTitle verifies title extraction
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_ExtractTitle(t *testing.T) {
+// TestExtractTitle verifies title extraction
+// (snapshot_extract.go).
+func TestExtractTitle(t *testing.T) {
 	html := `<html><head><title>My Title</title></head></html>`
 	title := extractTitle(html)
 	if title != "My Title" {
@@ -482,8 +482,8 @@ func TestTASK2250_ExtractTitle(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractTitleMissing verifies missing title.
-func TestTASK2250_ExtractTitleMissing(t *testing.T) {
+// TestExtractTitleMissing verifies missing title.
+func TestExtractTitleMissing(t *testing.T) {
 	html := `<html><head></head></html>`
 	title := extractTitle(html)
 	if title != "" {
@@ -491,9 +491,9 @@ func TestTASK2250_ExtractTitleMissing(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractText verifies text extraction
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_ExtractText(t *testing.T) {
+// TestExtractText verifies text extraction
+// (snapshot_extract.go).
+func TestExtractText(t *testing.T) {
 	html := `<html><body><p>Hello</p><script>var x=1;</script><p>World</p></body></html>`
 	text := extractText(html)
 	if strings.Contains(text, "var x=1") {
@@ -504,9 +504,9 @@ func TestTASK2250_ExtractText(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractLinks verifies link extraction
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_ExtractLinks(t *testing.T) {
+// TestExtractLinks verifies link extraction
+// (snapshot_extract.go).
+func TestExtractLinks(t *testing.T) {
 	html := `<html><body><a href="https://a.com">A</a><a href="https://b.com">B</a></body></html>`
 	links := extractLinks(html)
 	if len(links) != 2 {
@@ -517,9 +517,9 @@ func TestTASK2250_ExtractLinks(t *testing.T) {
 	}
 }
 
-// TestTASK2250_ExtractImages verifies image extraction
-// (spec L4029: snapshot_extract.go).
-func TestTASK2250_ExtractImages(t *testing.T) {
+// TestExtractImages verifies image extraction
+// (snapshot_extract.go).
+func TestExtractImages(t *testing.T) {
 	html := `<html><body><img src="logo.png" alt="Logo"></body></html>`
 	images := extractImages(html)
 	if len(images) != 1 {
@@ -533,12 +533,12 @@ func TestTASK2250_ExtractImages(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2250_FullSpecParity verifies all 6 spec-mandated files
-// (spec L4029: parser.go, static.go, types.go, translator.go,
+// TestScraperFacadesParity verifies all 6 spec-mandated files
+// (parser.go, static.go, types.go, translator.go,
 // structured_extract.go, snapshot_extract.go).
-func TestTASK2250_FullSpecParity(t *testing.T) {
+func TestScraperFacadesParity(t *testing.T) {
 	// 1. parser.go - HTML parser
 	pool := NewParserPool(4)
 	if pool == nil {

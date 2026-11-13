@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// pipeline.go (spec L4025: solver/pipeline.go - 2-stage pipeline:
+// pipeline.go (solver/pipeline.go - 2-stage pipeline:
 // vision solve -> user fallback).
 //
 // Challenge/CAPTCHA handling: 2-stage pipeline that first attempts
@@ -16,7 +16,7 @@ import (
 // vision solver fails or is unavailable.
 
 // PipelineStage enumerates the pipeline stages
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
+// (2-stage pipeline vision solve -> user fallback).
 type PipelineStage string
 
 const (
@@ -29,7 +29,7 @@ const (
 )
 
 // PipelineResult is the result of the 2-stage pipeline
-// (spec L4025: 2-stage pipeline).
+// (2-stage pipeline).
 type PipelineResult struct {
 	Stage        PipelineStage `json:"stage"`
 	Solved       bool          `json:"solved"`
@@ -41,7 +41,7 @@ type PipelineResult struct {
 }
 
 // UserEscalationHook is invoked when vision solve fails and the
-// pipeline escalates to user fallback (spec L4025: user fallback).
+// pipeline escalates to user fallback (user fallback).
 // The hook receives the challenge info, the screenshot bytes, and the
 // number of failed vision attempts; it returns either a user-provided
 // answer (Solved=true) or an error/timeout (Solved=false). A nil hook
@@ -67,7 +67,7 @@ func (f UserEscalationFunc) Escalate(ctx context.Context, challenge ChallengeInf
 }
 
 // SolverPipeline implements the 2-stage pipeline
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
+// (2-stage pipeline vision solve -> user fallback).
 type SolverPipeline struct {
 	mu           sync.RWMutex
 	visionSolver *VisionSolver
@@ -78,7 +78,7 @@ type SolverPipeline struct {
 }
 
 // PipelineStats tracks pipeline execution statistics
-// (spec L4025: challenge success tracking).
+// (challenge success tracking).
 type PipelineStats struct {
 	VisionAttempts    int `json:"vision_attempts"`
 	VisionSuccesses   int `json:"vision_successes"`
@@ -88,7 +88,7 @@ type PipelineStats struct {
 }
 
 // NewSolverPipeline creates a new 2-stage pipeline
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
+// (2-stage pipeline vision solve -> user fallback).
 // The user escalation hook defaults to nil; install one via
 // SetUserEscalationHook to enable real user fallback.
 func NewSolverPipeline(visionSolver *VisionSolver) *SolverPipeline {
@@ -99,7 +99,7 @@ func NewSolverPipeline(visionSolver *VisionSolver) *SolverPipeline {
 }
 
 // SetUserEscalationHook installs the user-escalation hook invoked when
-// vision solve fails (spec L4025: user fallback). Pass nil to disable
+// vision solve fails (user fallback). Pass nil to disable
 // user escalation (the pipeline will return an explicit error instead
 // of silently faking a result).
 func (p *SolverPipeline) SetUserEscalationHook(hook UserEscalationHook) {
@@ -112,7 +112,7 @@ func (p *SolverPipeline) SetUserEscalationHook(hook UserEscalationHook) {
 }
 
 // SetMetricsStore installs the SQLite metrics store for challenge
-// success tracking (spec L4025: challenge success tracking in SQLite).
+// success tracking (challenge success tracking in SQLite).
 // Pass nil to disable persistence. When set, every Solve call records
 // a row with the domain, challenge type, solved stage, and duration.
 func (p *SolverPipeline) SetMetricsStore(store *MetricsStore) {
@@ -125,7 +125,7 @@ func (p *SolverPipeline) SetMetricsStore(store *MetricsStore) {
 }
 
 // SetMaxAttempts sets the maximum number of vision solve attempts
-// before falling back to user intervention (spec L4025).
+// before falling back to user intervention.
 func (p *SolverPipeline) SetMaxAttempts(n int) {
 	if p == nil {
 		return
@@ -136,7 +136,7 @@ func (p *SolverPipeline) SetMaxAttempts(n int) {
 }
 
 // Solve executes the 2-stage pipeline for a challenge
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
+// (2-stage pipeline vision solve -> user fallback).
 // Stage 1: attempt vision-based solving (up to maxAttempts times).
 // Stage 2: if vision fails, fall back to user intervention.
 func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, screenshot []byte) PipelineResult {
@@ -150,7 +150,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 
 	start := time.Now()
 
-	// Stage 1: Vision solve (spec L4025: vision solve).
+	// Stage 1: Vision solve (vision solve).
 	if p.visionSolver != nil {
 		for attempt := 1; attempt <= p.maxAttempts; attempt++ {
 			p.mu.Lock()
@@ -174,7 +174,7 @@ func (p *SolverPipeline) Solve(ctx context.Context, challenge ChallengeInfo, scr
 		}
 	}
 
-	// Stage 2: User fallback (spec L4025: user fallback).
+	// Stage 2: User fallback (user fallback).
 	p.mu.Lock()
 	p.stats.FallbackAttempts++
 	hook := p.userHook
@@ -259,7 +259,7 @@ func (p *SolverPipeline) recordMetric(ctx context.Context, store *MetricsStore, 
 }
 
 // Stats returns the current pipeline statistics
-// (spec L4025: challenge success tracking).
+// (challenge success tracking).
 func (p *SolverPipeline) Stats() PipelineStats {
 	if p == nil {
 		return PipelineStats{}

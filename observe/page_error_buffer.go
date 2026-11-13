@@ -5,17 +5,17 @@ import (
 	"time"
 )
 
-// page_error_buffer.go (spec L4304: Evidence Capture - page errors stream).
+// page_error_buffer.go (Evidence Capture - page errors stream).
 //
 // Captures CDP Runtime.exceptionThrown events as page error entries with
 // message/name/stack/timestamp. Thread-safe with RWMutex. Supports clear
 // mode per spec. Part of the 3-stream evidence capture (console + network
 // + page errors) for OCSF audit trail (ss6.1) and frontend dashboard.
 //
-// Reference: research/agents/openclaw-main/extensions/browser/src/browser/pw-tools-core.activity.ts:1-68
+// Reference: github.com/openclaw/openclaw/extensions/browser/src/browser/pw-tools-core.activity.ts:1-68
 
 // PageError is a single captured page error entry
-// (spec L4304: message/name/stack/timestamp with clear mode).
+// (message/name/stack/timestamp with clear mode).
 type PageError struct {
 	Message   string    `json:"message"`
 	Name      string    `json:"name,omitempty"`
@@ -27,7 +27,7 @@ type PageError struct {
 const DefaultPageErrorBufferSize = 500
 
 // PageErrorBuffer is a fixed-capacity ring buffer for page errors
-// (spec L4304: message/name/stack/timestamp, clear mode, RWMutex).
+// (message/name/stack/timestamp, clear mode, RWMutex).
 type PageErrorBuffer struct {
 	mu   sync.RWMutex
 	cap  int
@@ -48,7 +48,7 @@ func NewPageErrorBuffer(capacity int) *PageErrorBuffer {
 	}
 }
 
-// Push appends a page error entry to the ring buffer (spec L4304).
+// Push appends a page error entry to the ring buffer.
 // When the buffer is full, the oldest entry is overwritten.
 // If Timestamp is zero, it is set to time.Now().
 func (b *PageErrorBuffer) Push(entry PageError) {
@@ -77,7 +77,7 @@ func (b *PageErrorBuffer) PushError(message, name, stack string) {
 }
 
 // Snapshot returns a copy of all page errors in chronological order
-// (oldest first, newest last) (spec L4304).
+// (oldest first, newest last).
 func (b *PageErrorBuffer) Snapshot() []PageError {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -118,7 +118,7 @@ func (b *PageErrorBuffer) IsFull() bool {
 	return b.full
 }
 
-// Clear removes all entries from the ring buffer (spec L4304: clear mode).
+// Clear removes all entries from the ring buffer (clear mode).
 func (b *PageErrorBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -128,7 +128,7 @@ func (b *PageErrorBuffer) Clear() {
 }
 
 // FindByMessage returns errors whose message contains the given substring
-// (spec L4304: substring filter for diagnostics).
+// (substring filter for diagnostics).
 func (b *PageErrorBuffer) FindByMessage(substr string) []PageError {
 	all := b.Snapshot()
 	var out []PageError

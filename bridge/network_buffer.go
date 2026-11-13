@@ -106,8 +106,7 @@ func (b *NetworkRequestBuffer) Count(pageID string) int {
 	return len(b.requests[pageID])
 }
 
-// FindByURL returns requests whose URL matches the given pattern (spec L4324:
-// URL-based matching backfill). The pattern supports substring matching and
+// FindByURL returns requests whose URL matches the given pattern (// URL-based matching backfill). The pattern supports substring matching and
 // wildcard '*' globs. Returns matches in insertion order.
 func (b *NetworkRequestBuffer) FindByURL(pageID, pattern string) []NetworkRequest {
 	b.mu.RLock()

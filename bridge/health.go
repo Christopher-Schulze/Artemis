@@ -96,7 +96,7 @@ func CheckHealthRecovery(probeFn func() bool, checker *HealthChecker, attempts i
 	return last, fmt.Errorf("bridge health: recovery failed after %d probes", attempts)
 }
 
-// --- 4-step CheckHealth flow (spec L4599) ---
+// --- 4-step CheckHealth flow ---
 
 // HealthStep identifies one of the 4 probe steps.
 type HealthStep string
@@ -134,7 +134,7 @@ func (r *CheckHealthResult) FailedStep() *StepResult {
 	return nil
 }
 
-// HealthProbes abstracts the 4 probe steps for testability (spec L4599).
+// HealthProbes abstracts the 4 probe steps for testability.
 // Each probe returns (ok, reason). Production wires these to real
 // process.Signal / CDP / screenshot / Runtime.evaluate calls.
 type HealthProbes interface {
@@ -151,8 +151,8 @@ type HealthProbes interface {
 // CheckHealthBudget is the total time budget for the 4-step flow (spec: 3s).
 const CheckHealthBudget = 3 * time.Second
 
-// CheckHealth runs the 4-step probe flow in sequence within a 3s budget
-// (spec L4599). Any failure -> UNHEALTHY. Steps run in order so that the
+// CheckHealth runs the 4-step probe flow in sequence within a 3s budget.
+// Any failure -> UNHEALTHY. Steps run in order so that the
 // cheapest checks (process, CDP) short-circuit before expensive ones
 // (render, DOM).
 func CheckHealth(ctx context.Context, probes HealthProbes) CheckHealthResult {
@@ -203,7 +203,7 @@ func CheckHealth(ctx context.Context, probes HealthProbes) CheckHealthResult {
 	return result
 }
 
-// --- Recovery path (spec L4599) ---
+// --- Recovery path ---
 
 // RecoveryAction abstracts one recovery step. Production wires these to
 // real Browser.close / SIGTERM / SIGKILL / lockfile deletion / relaunch.
@@ -232,7 +232,7 @@ type RecoveryResult struct {
 // RecoveryBudget is the total time budget for recovery (spec: Browser.close 2s + SIGTERM 2s + SIGKILL + reap + relaunch + re-probe).
 const RecoveryBudget = 15 * time.Second
 
-// Recover executes the bounded recovery sequence (spec L4599):
+// Recover executes the bounded recovery sequence:
 // Browser.close -> 2s -> SIGTERM -> 2s -> SIGKILL + reap -> delete lockfiles
 // -> relaunch -> profile/storage restore -> single re-probe.
 func Recover(ctx context.Context, action RecoveryAction, probes HealthProbes) RecoveryResult {
@@ -282,7 +282,7 @@ func Recover(ctx context.Context, action RecoveryAction, probes HealthProbes) Re
 	return result
 }
 
-// --- Piggyback probe (spec L4599) ---
+// --- Piggyback probe ---
 
 // PiggybackBudget is the time budget for the piggyback micro-probe (spec: 500ms).
 const PiggybackBudget = 500 * time.Millisecond
@@ -296,7 +296,7 @@ type PiggybackResult struct {
 }
 
 // PiggybackProbe runs a Target.getTargets micro-check with a 500ms budget,
-// batched into the CDP stream (spec L4599). On micro-fail, the caller must
+// batched into the CDP stream. On micro-fail, the caller must
 // run full CheckHealth + recovery.
 func PiggybackProbe(ctx context.Context, probes HealthProbes, tool string) PiggybackResult {
 	budgetCtx, cancel := context.WithTimeout(ctx, PiggybackBudget)
@@ -311,7 +311,7 @@ func PiggybackProbe(ctx context.Context, probes HealthProbes, tool string) Piggy
 	}
 }
 
-// --- Metrics (spec L4599) ---
+// --- Metrics ---
 
 // HealthMetrics tracks the spec-required counters/histograms.
 type HealthMetrics struct {
@@ -390,7 +390,7 @@ func (m *HealthMetrics) RecordRecovery(result RecoveryResult) {
 	}
 }
 
-// --- Circuit breaker (spec L4599: breaker open 60s) ---
+// --- Circuit breaker (breaker open 60s) ---
 
 // CircuitBreaker implements the 60s open window after recovery failure.
 type CircuitBreaker struct {
@@ -449,13 +449,13 @@ func (b *CircuitBreaker) RecordFailure() {
 	}
 }
 
-// --- Lockfile cleanup helper (spec L4599) ---
+// --- Lockfile cleanup helper ---
 
 // ChromiumLockfiles are the lockfiles to delete during recovery.
 var ChromiumLockfiles = []string{"SingletonLock", "SingletonSocket", "SingletonCookie"}
 
 // DeleteChromiumLockfiles removes SingletonLock/SingletonSocket/SingletonCookie
-// from the given user-data-dir (spec L4599).
+// from the given user-data-dir.
 func DeleteChromiumLockfiles(dataDir string) error {
 	if dataDir == "" {
 		return fmt.Errorf("bridge health: empty data dir")

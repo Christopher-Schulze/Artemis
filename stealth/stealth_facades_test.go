@@ -6,27 +6,27 @@ import (
 
 // ==================== launch.go facade tests ====================
 
-// TestTASK2245_LaunchConfigAlias verifies LaunchConfig aliases LaunchFlags
-// (spec L4023: launch.go - Chrome launch flags).
-func TestTASK2245_LaunchConfigAlias(t *testing.T) {
+// TestLaunchConfigAlias verifies LaunchConfig aliases LaunchFlags
+// (launch.go - Chrome launch flags).
+func TestLaunchConfigAlias(t *testing.T) {
 	cfg := DefaultLaunchConfig()
 	if len(cfg.Args) == 0 {
 		t.Error("default launch config should have args")
 	}
 }
 
-// TestTASK2245_StealthLaunchConfig verifies StealthLaunchConfig
-// (spec L4023: launch.go - Chrome launch flags).
-func TestTASK2245_StealthLaunchConfig(t *testing.T) {
+// TestStealthLaunchConfig verifies StealthLaunchConfig
+// (launch.go - Chrome launch flags).
+func TestStealthLaunchConfig(t *testing.T) {
 	cfg := StealthLaunchConfig(StealthStealth)
 	if !cfg.HasStealthArg() {
 		t.Error("stealth config should have stealth args")
 	}
 }
 
-// TestTASK2245_STEALTH_ARGS verifies STEALTH_ARGS is populated
-// (spec L4023: launch.go - Chrome launch flags).
-func TestTASK2245_STEALTH_ARGS(t *testing.T) {
+// TestSTEALTH_ARGS verifies STEALTH_ARGS is populated
+// (launch.go - Chrome launch flags).
+func TestSTEALTH_ARGS(t *testing.T) {
 	if len(STEALTH_ARGS) == 0 {
 		t.Error("STEALTH_ARGS should not be empty")
 	}
@@ -34,9 +34,9 @@ func TestTASK2245_STEALTH_ARGS(t *testing.T) {
 
 // ==================== emulation.go tests ====================
 
-// TestTASK2245_DefaultDesktopEmulation verifies desktop emulation
-// (spec L4023: emulation.go - device/screen emulation).
-func TestTASK2245_DefaultDesktopEmulation(t *testing.T) {
+// TestDefaultDesktopEmulation verifies desktop emulation
+// (emulation.go - device/screen emulation).
+func TestDefaultDesktopEmulation(t *testing.T) {
 	e := DefaultDesktopEmulation()
 	if e.Width != 1920 || e.Height != 1080 {
 		t.Errorf("desktop: got %dx%d, want 1920x1080", e.Width, e.Height)
@@ -49,9 +49,9 @@ func TestTASK2245_DefaultDesktopEmulation(t *testing.T) {
 	}
 }
 
-// TestTASK2245_DefaultMobileEmulation verifies mobile emulation
-// (spec L4023: emulation.go - device/screen emulation).
-func TestTASK2245_DefaultMobileEmulation(t *testing.T) {
+// TestDefaultMobileEmulation verifies mobile emulation
+// (emulation.go - device/screen emulation).
+func TestDefaultMobileEmulation(t *testing.T) {
 	e := DefaultMobileEmulation()
 	if e.Width != 390 || e.Height != 844 {
 		t.Errorf("mobile: got %dx%d, want 390x844", e.Width, e.Height)
@@ -64,9 +64,9 @@ func TestTASK2245_DefaultMobileEmulation(t *testing.T) {
 	}
 }
 
-// TestTASK2245_EmulationManagerSetGet verifies SetEmulation/Current
-// (spec L4023: emulation.go).
-func TestTASK2245_EmulationManagerSetGet(t *testing.T) {
+// TestEmulationManagerSetGet verifies SetEmulation/Current
+// (emulation.go).
+func TestEmulationManagerSetGet(t *testing.T) {
 	m := NewEmulationManager()
 	custom := DeviceEmulation{Width: 1280, Height: 720, DeviceScaleFactor: 1.5}
 	m.SetEmulation(custom, "custom")
@@ -78,9 +78,9 @@ func TestTASK2245_EmulationManagerSetGet(t *testing.T) {
 	}
 }
 
-// TestTASK2245_EmulationManagerIsMobile verifies IsMobile
-// (spec L4023: emulation.go).
-func TestTASK2245_EmulationManagerIsMobile(t *testing.T) {
+// TestEmulationManagerIsMobile verifies IsMobile
+// (emulation.go).
+func TestEmulationManagerIsMobile(t *testing.T) {
 	m := NewEmulationManager()
 	if m.IsMobile() {
 		t.Error("desktop should not be mobile")
@@ -91,9 +91,9 @@ func TestTASK2245_EmulationManagerIsMobile(t *testing.T) {
 	}
 }
 
-// TestTASK2245_EmulationValidate verifies validation
-// (spec L4023: viewport{width∈[320,3840], height∈[240,2160]}).
-func TestTASK2245_EmulationValidate(t *testing.T) {
+// TestEmulationValidate verifies validation
+// (viewport{width∈[320,3840], height∈[240,2160]}).
+func TestEmulationValidate(t *testing.T) {
 	valid := DefaultDesktopEmulation()
 	if err := valid.Validate(); err != nil {
 		t.Errorf("valid emulation: %v", err)
@@ -104,17 +104,17 @@ func TestTASK2245_EmulationValidate(t *testing.T) {
 	}
 }
 
-// TestTASK2245_EmulationValidateWidthTooLarge verifies width > 3840
+// TestEmulationValidateWidthTooLarge verifies width > 3840
 // fails.
-func TestTASK2245_EmulationValidateWidthTooLarge(t *testing.T) {
+func TestEmulationValidateWidthTooLarge(t *testing.T) {
 	e := DeviceEmulation{Width: 5000, Height: 1080}
 	if err := e.Validate(); err == nil {
 		t.Error("width > 3840 should fail")
 	}
 }
 
-// TestTASK2245_EmulationNilSafe verifies nil EmulationManager is safe.
-func TestTASK2245_EmulationNilSafe(t *testing.T) {
+// TestEmulationNilSafe verifies nil EmulationManager is safe.
+func TestEmulationNilSafe(t *testing.T) {
 	var m *EmulationManager
 	m.SetEmulation(DefaultDesktopEmulation(), "test")
 	if m.Current().Width != 1920 {
@@ -130,9 +130,9 @@ func TestTASK2245_EmulationNilSafe(t *testing.T) {
 
 // ==================== ua.go tests ====================
 
-// TestTASK2245_DefaultUAInfo verifies default UA info
-// (spec L4023: ua.go - UA mgmt + version coherence).
-func TestTASK2245_DefaultUAInfo(t *testing.T) {
+// TestDefaultUAInfo verifies default UA info
+// (ua.go - UA mgmt + version coherence).
+func TestDefaultUAInfo(t *testing.T) {
 	ua := DefaultUAInfo()
 	if ua.Browser != "chrome" {
 		t.Errorf("browser: got %s, want chrome", ua.Browser)
@@ -142,9 +142,9 @@ func TestTASK2245_DefaultUAInfo(t *testing.T) {
 	}
 }
 
-// TestTASK2245_UAManagerSetGet verifies SetUA/Current
-// (spec L4023: ua.go).
-func TestTASK2245_UAManagerSetGet(t *testing.T) {
+// TestUAManagerSetGet verifies SetUA/Current
+// (ua.go).
+func TestUAManagerSetGet(t *testing.T) {
 	m := NewUAManager()
 	custom := UAInfo{
 		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -161,18 +161,18 @@ func TestTASK2245_UAManagerSetGet(t *testing.T) {
 	}
 }
 
-// TestTASK2245_UACheckCoherence verifies coherence check
-// (spec L4023: version coherence).
-func TestTASK2245_UACheckCoherence(t *testing.T) {
+// TestUACheckCoherence verifies coherence check
+// (version coherence).
+func TestUACheckCoherence(t *testing.T) {
 	ua := DefaultUAInfo()
 	if !ua.IsCoherent() {
 		t.Error("default UA should be coherent")
 	}
 }
 
-// TestTASK2245_UACheckCoherenceMismatch verifies mismatched version
-// fails coherence (spec L4023: version coherence).
-func TestTASK2245_UACheckCoherenceMismatch(t *testing.T) {
+// TestUACheckCoherenceMismatch verifies mismatched version
+// fails coherence (version coherence).
+func TestUACheckCoherenceMismatch(t *testing.T) {
 	ua := UAInfo{
 		UserAgent: "Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36",
 		Version:   "125", // mismatch
@@ -182,17 +182,17 @@ func TestTASK2245_UACheckCoherenceMismatch(t *testing.T) {
 	}
 }
 
-// TestTASK2245_UACheckCoherenceEmpty verifies empty UA fails.
-func TestTASK2245_UACheckCoherenceEmpty(t *testing.T) {
+// TestUACheckCoherenceEmpty verifies empty UA fails.
+func TestUACheckCoherenceEmpty(t *testing.T) {
 	ua := UAInfo{}
 	if ua.IsCoherent() {
 		t.Error("empty UA should NOT be coherent")
 	}
 }
 
-// TestTASK2245_ParseChromeVersion verifies Chrome version parsing
-// (spec L4023: version coherence).
-func TestTASK2245_ParseChromeVersion(t *testing.T) {
+// TestParseChromeVersion verifies Chrome version parsing
+// (version coherence).
+func TestParseChromeVersion(t *testing.T) {
 	ua := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 	v := ParseChromeVersion(ua)
 	if v != "126" {
@@ -200,16 +200,16 @@ func TestTASK2245_ParseChromeVersion(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ParseChromeVersionNotFound verifies no Chrome in UA.
-func TestTASK2245_ParseChromeVersionNotFound(t *testing.T) {
+// TestParseChromeVersionNotFound verifies no Chrome in UA.
+func TestParseChromeVersionNotFound(t *testing.T) {
 	v := ParseChromeVersion("Mozilla/5.0 Firefox/120.0")
 	if v != "" {
 		t.Errorf("non-Chrome UA: got %s, want empty", v)
 	}
 }
 
-// TestTASK2245_UANilSafe verifies nil UAManager is safe.
-func TestTASK2245_UANilSafe(t *testing.T) {
+// TestUANilSafe verifies nil UAManager is safe.
+func TestUANilSafe(t *testing.T) {
 	var m *UAManager
 	m.SetUA(DefaultUAInfo())
 	if m.UserAgent() == "" {
@@ -222,18 +222,18 @@ func TestTASK2245_UANilSafe(t *testing.T) {
 
 // ==================== worker.go facade tests ====================
 
-// TestTASK2245_NewWorkerTracker verifies NewWorkerTracker
-// (spec L4023: worker.go - web worker stealth parity).
-func TestTASK2245_NewWorkerTracker(t *testing.T) {
+// TestNewWorkerTracker verifies NewWorkerTracker
+// (worker.go - web worker stealth parity).
+func TestNewWorkerTracker(t *testing.T) {
 	tracker := NewWorkerTracker()
 	if tracker == nil {
 		t.Fatal("tracker should not be nil")
 	}
 }
 
-// TestTASK2245_WorkerTargetAlias verifies WorkerTarget alias
-// (spec L4023: worker.go).
-func TestTASK2245_WorkerTargetAlias(t *testing.T) {
+// TestWorkerTargetAlias verifies WorkerTarget alias
+// (worker.go).
+func TestWorkerTargetAlias(t *testing.T) {
 	var w WorkerTarget
 	w.TargetID = "test"
 	if w.TargetID != "test" {
@@ -243,9 +243,9 @@ func TestTASK2245_WorkerTargetAlias(t *testing.T) {
 
 // ==================== fingerprint.go tests ====================
 
-// TestTASK2245_DefaultFingerprintConfig verifies default config
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
-func TestTASK2245_DefaultFingerprintConfig(t *testing.T) {
+// TestDefaultFingerprintConfig verifies default config
+// (fingerprint.go - browser fingerprint spoofing).
+func TestDefaultFingerprintConfig(t *testing.T) {
 	c := DefaultFingerprintConfig()
 	if !c.CanvasNoise {
 		t.Error("canvas noise should be enabled by default")
@@ -258,9 +258,9 @@ func TestTASK2245_DefaultFingerprintConfig(t *testing.T) {
 	}
 }
 
-// TestTASK2245_FingerprintManagerSetGet verifies SetConfig/Current
-// (spec L4023: fingerprint.go).
-func TestTASK2245_FingerprintManagerSetGet(t *testing.T) {
+// TestFingerprintManagerSetGet verifies SetConfig/Current
+// (fingerprint.go).
+func TestFingerprintManagerSetGet(t *testing.T) {
 	m := NewFingerprintManager()
 	custom := FingerprintConfig{CanvasNoise: false, HardwareConcurrency: 4, DeviceMemory: 4}
 	m.SetConfig(custom)
@@ -272,9 +272,9 @@ func TestTASK2245_FingerprintManagerSetGet(t *testing.T) {
 	}
 }
 
-// TestTASK2245_FingerprintIsCanvasNoiseEnabled verifies IsCanvasNoiseEnabled
-// (spec L4023: fingerprint.go).
-func TestTASK2245_FingerprintIsCanvasNoiseEnabled(t *testing.T) {
+// TestFingerprintIsCanvasNoiseEnabled verifies IsCanvasNoiseEnabled
+// (fingerprint.go).
+func TestFingerprintIsCanvasNoiseEnabled(t *testing.T) {
 	m := NewFingerprintManager()
 	if !m.IsCanvasNoiseEnabled() {
 		t.Error("canvas noise should be enabled by default")
@@ -285,9 +285,9 @@ func TestTASK2245_FingerprintIsCanvasNoiseEnabled(t *testing.T) {
 	}
 }
 
-// TestTASK2245_FingerprintValidate verifies validation
-// (spec L4023: fingerprint.go).
-func TestTASK2245_FingerprintValidate(t *testing.T) {
+// TestFingerprintValidate verifies validation
+// (fingerprint.go).
+func TestFingerprintValidate(t *testing.T) {
 	valid := DefaultFingerprintConfig()
 	if err := valid.Validate(); err != nil {
 		t.Errorf("valid config: %v", err)
@@ -298,8 +298,8 @@ func TestTASK2245_FingerprintValidate(t *testing.T) {
 	}
 }
 
-// TestTASK2245_FingerprintNilSafe verifies nil FingerprintManager is safe.
-func TestTASK2245_FingerprintNilSafe(t *testing.T) {
+// TestFingerprintNilSafe verifies nil FingerprintManager is safe.
+func TestFingerprintNilSafe(t *testing.T) {
 	var m *FingerprintManager
 	m.SetConfig(DefaultFingerprintConfig())
 	if !m.IsCanvasNoiseEnabled() {
@@ -312,9 +312,9 @@ func TestTASK2245_FingerprintNilSafe(t *testing.T) {
 
 // ==================== popup.go tests ====================
 
-// TestTASK2245_NewPopupGuard verifies creation with defaults
-// (spec L4023: popup.go - popup guard).
-func TestTASK2245_NewPopupGuard(t *testing.T) {
+// TestNewPopupGuard verifies creation with defaults
+// (popup.go - popup guard).
+func TestNewPopupGuard(t *testing.T) {
 	g := NewPopupGuard()
 	if g.Policy() != PopupPolicyBlock {
 		t.Error("default policy should be block")
@@ -324,9 +324,9 @@ func TestTASK2245_NewPopupGuard(t *testing.T) {
 	}
 }
 
-// TestTASK2245_PopupGuardSetPolicy verifies SetPolicy
-// (spec L4023: popup.go - popup guard).
-func TestTASK2245_PopupGuardSetPolicy(t *testing.T) {
+// TestPopupGuardSetPolicy verifies SetPolicy
+// (popup.go - popup guard).
+func TestPopupGuardSetPolicy(t *testing.T) {
 	g := NewPopupGuard()
 	g.SetPolicy(PopupPolicyAllow)
 	if g.ShouldBlock() {
@@ -338,9 +338,9 @@ func TestTASK2245_PopupGuardSetPolicy(t *testing.T) {
 	}
 }
 
-// TestTASK2245_PopupGuardRecordCount verifies RecordPopup/Count
-// (spec L4023: popup.go - popup guard).
-func TestTASK2245_PopupGuardRecordCount(t *testing.T) {
+// TestPopupGuardRecordCount verifies RecordPopup/Count
+// (popup.go - popup guard).
+func TestPopupGuardRecordCount(t *testing.T) {
 	g := NewPopupGuard()
 	g.RecordPopup()
 	g.RecordPopup()
@@ -350,8 +350,8 @@ func TestTASK2245_PopupGuardRecordCount(t *testing.T) {
 	}
 }
 
-// TestTASK2245_PopupGuardNilSafe verifies nil PopupGuard is safe.
-func TestTASK2245_PopupGuardNilSafe(t *testing.T) {
+// TestPopupGuardNilSafe verifies nil PopupGuard is safe.
+func TestPopupGuardNilSafe(t *testing.T) {
 	var g *PopupGuard
 	g.SetPolicy(PopupPolicyAllow)
 	if !g.ShouldBlock() {
@@ -367,9 +367,9 @@ func TestTASK2245_PopupGuardNilSafe(t *testing.T) {
 
 // ==================== geo_presets.go tests ====================
 
-// TestTASK2245_BuiltinGeoPresets verifies 8 built-in presets
-// (spec L4023: 8 built-in region-presets).
-func TestTASK2245_BuiltinGeoPresets(t *testing.T) {
+// TestBuiltinGeoPresets verifies 8 built-in presets
+// (8 built-in region-presets).
+func TestBuiltinGeoPresets(t *testing.T) {
 	presets := BuiltinGeoPresets()
 	expected := []string{"us-east", "us-west", "japan", "uk", "germany", "vietnam", "singapore", "australia"}
 	if len(presets) != len(expected) {
@@ -382,9 +382,9 @@ func TestTASK2245_BuiltinGeoPresets(t *testing.T) {
 	}
 }
 
-// TestTASK2245_BuiltinGeoPresetsValues verifies preset values
-// (spec L4023: {locale BCP47, timezoneId IANA, geolocation}).
-func TestTASK2245_BuiltinGeoPresetsValues(t *testing.T) {
+// TestBuiltinGeoPresetsValues verifies preset values
+// ({locale BCP47, timezoneId IANA, geolocation}).
+func TestBuiltinGeoPresetsValues(t *testing.T) {
 	presets := BuiltinGeoPresets()
 	de := presets["germany"]
 	if de.Locale != "de-DE" {
@@ -398,9 +398,9 @@ func TestTASK2245_BuiltinGeoPresetsValues(t *testing.T) {
 	}
 }
 
-// TestTASK2245_GeoPresetManagerResolve verifies ResolvePreset
-// (spec L4023: case-insensitive lookup).
-func TestTASK2245_GeoPresetManagerResolve(t *testing.T) {
+// TestGeoPresetManagerResolve verifies ResolvePreset
+// (case-insensitive lookup).
+func TestGeoPresetManagerResolve(t *testing.T) {
 	m := NewGeoPresetManager()
 	// Case-insensitive lookup
 	p, ok := m.ResolvePreset("Germany")
@@ -412,8 +412,8 @@ func TestTASK2245_GeoPresetManagerResolve(t *testing.T) {
 	}
 }
 
-// TestTASK2245_GeoPresetManagerResolveNotFound verifies not found.
-func TestTASK2245_GeoPresetManagerResolveNotFound(t *testing.T) {
+// TestGeoPresetManagerResolveNotFound verifies not found.
+func TestGeoPresetManagerResolveNotFound(t *testing.T) {
 	m := NewGeoPresetManager()
 	_, ok := m.ResolvePreset("nonexistent")
 	if ok {
@@ -421,9 +421,9 @@ func TestTASK2245_GeoPresetManagerResolveNotFound(t *testing.T) {
 	}
 }
 
-// TestTASK2245_GeoPresetManagerCustomOverride verifies custom overrides
-// built-in (spec L4023: custom overrides built-in same-name).
-func TestTASK2245_GeoPresetManagerCustomOverride(t *testing.T) {
+// TestGeoPresetManagerCustomOverride verifies custom overrides
+// built-in (custom overrides built-in same-name).
+func TestGeoPresetManagerCustomOverride(t *testing.T) {
 	m := NewGeoPresetManager()
 	custom := map[string]GeoPresetConfig{
 		"germany": {
@@ -442,8 +442,8 @@ func TestTASK2245_GeoPresetManagerCustomOverride(t *testing.T) {
 	}
 }
 
-// TestTASK2245_GeoPresetManagerListPresets verifies ListPresets.
-func TestTASK2245_GeoPresetManagerListPresets(t *testing.T) {
+// TestGeoPresetManagerListPresets verifies ListPresets.
+func TestGeoPresetManagerListPresets(t *testing.T) {
 	m := NewGeoPresetManager()
 	names := m.ListPresets()
 	if len(names) != 8 {
@@ -451,9 +451,9 @@ func TestTASK2245_GeoPresetManagerListPresets(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ValidatePresetValid verifies valid preset passes
-// (spec L4023: BCP47 + IANA + lat/long + viewport validation).
-func TestTASK2245_ValidatePresetValid(t *testing.T) {
+// TestStealthFacadesValidatePresetValid verifies valid preset passes
+// (BCP47 + IANA + lat/long + viewport validation).
+func TestStealthFacadesValidatePresetValid(t *testing.T) {
 	p := GeoPresetConfig{
 		Locale:      "en-US",
 		TimezoneID:  "America/New_York",
@@ -464,9 +464,9 @@ func TestTASK2245_ValidatePresetValid(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ValidatePresetInvalidLocale verifies invalid locale fails
-// (spec L4023: BCP47-locale-regex).
-func TestTASK2245_ValidatePresetInvalidLocale(t *testing.T) {
+// TestStealthFacadesValidatePresetInvalidLocale verifies invalid locale fails
+// (BCP47-locale-regex).
+func TestStealthFacadesValidatePresetInvalidLocale(t *testing.T) {
 	p := GeoPresetConfig{
 		Locale:      "invalid_locale!",
 		TimezoneID:  "America/New_York",
@@ -477,9 +477,9 @@ func TestTASK2245_ValidatePresetInvalidLocale(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ValidatePresetLatOutOfRange verifies lat > 90 fails
-// (spec L4023: lat∈[-90,90]).
-func TestTASK2245_ValidatePresetLatOutOfRange(t *testing.T) {
+// TestStealthFacadesValidatePresetLatOutOfRange verifies lat > 90 fails
+// (lat∈[-90,90]).
+func TestStealthFacadesValidatePresetLatOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
 		Locale:      "en-US",
 		TimezoneID:  "America/New_York",
@@ -490,9 +490,9 @@ func TestTASK2245_ValidatePresetLatOutOfRange(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ValidatePresetLongOutOfRange verifies long > 180 fails
-// (spec L4023: long∈[-180,180]).
-func TestTASK2245_ValidatePresetLongOutOfRange(t *testing.T) {
+// TestStealthFacadesValidatePresetLongOutOfRange verifies long > 180 fails
+// (long∈[-180,180]).
+func TestStealthFacadesValidatePresetLongOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
 		Locale:      "en-US",
 		TimezoneID:  "America/New_York",
@@ -503,9 +503,9 @@ func TestTASK2245_ValidatePresetLongOutOfRange(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ValidatePresetViewportOutOfRange verifies viewport
-// out of range fails (spec L4023: width∈[320,3840], height∈[240,2160]).
-func TestTASK2245_ValidatePresetViewportOutOfRange(t *testing.T) {
+// TestValidatePresetViewportOutOfRange verifies viewport
+// out of range fails (width∈[320,3840], height∈[240,2160]).
+func TestValidatePresetViewportOutOfRange(t *testing.T) {
 	p := GeoPresetConfig{
 		Locale:      "en-US",
 		TimezoneID:  "America/New_York",
@@ -517,9 +517,9 @@ func TestTASK2245_ValidatePresetViewportOutOfRange(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ResolveContextOptions verifies context options
-// resolution (spec L4023: individual-fields-override-preset-defaults).
-func TestTASK2245_ResolveContextOptions(t *testing.T) {
+// TestResolveContextOptions verifies context options
+// resolution (individual-fields-override-preset-defaults).
+func TestResolveContextOptions(t *testing.T) {
 	m := NewGeoPresetManager()
 	opts := ContextOptions{
 		Preset: "germany",
@@ -537,9 +537,9 @@ func TestTASK2245_ResolveContextOptions(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ResolveContextOptionsNotFound verifies not-found preset
+// TestResolveContextOptionsNotFound verifies not-found preset
 // errors.
-func TestTASK2245_ResolveContextOptionsNotFound(t *testing.T) {
+func TestResolveContextOptionsNotFound(t *testing.T) {
 	m := NewGeoPresetManager()
 	_, err := m.ResolveContextOptions(ContextOptions{Preset: "nonexistent"})
 	if err == nil {
@@ -547,9 +547,9 @@ func TestTASK2245_ResolveContextOptionsNotFound(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ContextHash verifies context hash is deterministic
-// (spec L4023: contextHash for session-isolation).
-func TestTASK2245_ContextHash(t *testing.T) {
+// TestContextHash verifies context hash is deterministic
+// (contextHash for session-isolation).
+func TestContextHash(t *testing.T) {
 	opts := ContextOptions{Preset: "germany", Locale: "de-DE"}
 	h1 := ContextHash(opts)
 	h2 := ContextHash(opts)
@@ -561,9 +561,9 @@ func TestTASK2245_ContextHash(t *testing.T) {
 	}
 }
 
-// TestTASK2245_ContextHashDifferent verifies different options produce
-// different hashes (spec L4023: session-isolation).
-func TestTASK2245_ContextHashDifferent(t *testing.T) {
+// TestContextHashDifferent verifies different options produce
+// different hashes (session-isolation).
+func TestContextHashDifferent(t *testing.T) {
 	h1 := ContextHash(ContextOptions{Preset: "germany"})
 	h2 := ContextHash(ContextOptions{Preset: "japan"})
 	if h1 == h2 {
@@ -571,11 +571,11 @@ func TestTASK2245_ContextHashDifferent(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2245_FullSpecParity verifies all 7 spec-mandated files exist
-// and have the spec-mandated functionality (spec L4023).
-func TestTASK2245_FullSpecParity(t *testing.T) {
+// TestStealthFacadesParity verifies all 7 spec-mandated files exist
+// and have the spec-mandated functionality.
+func TestStealthFacadesParity(t *testing.T) {
 	// 1. launch.go - Chrome launch flags
 	cfg := DefaultLaunchConfig()
 	if len(cfg.Args) == 0 {

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// DialogEventType identifies the kind of buffered dialog event (spec L4321).
+// DialogEventType identifies the kind of buffered dialog event.
 type DialogEventType string
 
 const (
@@ -34,7 +34,7 @@ type FileChooserEvent struct {
 	Timestamp time.Time
 }
 
-// DialogQueueConfig controls dialog/file-chooser queuing (spec L4321).
+// DialogQueueConfig controls dialog/file-chooser queuing.
 type DialogQueueConfig struct {
 	Enabled      bool
 	MaxQueueSize int
@@ -55,7 +55,7 @@ type DialogQueueStats struct {
 }
 
 // DialogQueue buffers async dialog and file-chooser events for later agent
-// processing so no events are lost (spec L4321). Events are returned in FIFO
+// processing so no events are lost. Events are returned in FIFO
 // order. The queue is thread-safe.
 type DialogQueue struct {
 	mu     sync.Mutex

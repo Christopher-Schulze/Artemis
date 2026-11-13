@@ -32,7 +32,7 @@ type FrameMetadata struct {
 	Timestamp      int64   `json:"timestamp"`
 }
 
-// StreamEvent is a single server-pushed streaming event (spec L4267).
+// StreamEvent is a single server-pushed streaming event.
 type StreamEvent struct {
 	Type          StreamEventType `json:"type"`
 	Data          json.RawMessage `json:"data,omitempty"`
@@ -115,7 +115,7 @@ func (s *StreamingServer) GetSubscriberCount() int {
 // without holding the lock so a slow subscriber cannot block others; each
 // delivery happens in its own goroutine.
 //
-// Optimization (TASK-2344): fast-path the common cases of 0 and 1
+// Optimization: fast-path the common cases of 0 and 1
 // subscriber to avoid goroutine spawn + WaitGroup overhead. The 0-
 // subscriber path still counts the broadcast attempt but skips the
 // timestamp computation and slice allocation.

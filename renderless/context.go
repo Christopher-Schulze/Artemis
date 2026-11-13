@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// context.go (spec L4022: renderless/context.go - context pool/warm
+// context.go (renderless/context.go - context pool/warm
 // pool).
 //
 // In-process no-render JS browser path: context pool for managing
@@ -15,7 +15,7 @@ import (
 // overhead for script execution.
 
 // ContextPool manages a pool of warm runtime contexts
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 type ContextPool struct {
 	mu        sync.Mutex
 	available []*RuntimeContext
@@ -26,7 +26,7 @@ type ContextPool struct {
 }
 
 // NewContextPool creates a new context pool
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func NewContextPool(maxSize int) *ContextPool {
 	if maxSize <= 0 {
 		maxSize = 4
@@ -40,7 +40,7 @@ func NewContextPool(maxSize int) *ContextPool {
 }
 
 // Acquire gets a context from the pool or creates a new one
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) Acquire() *RuntimeContext {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -61,7 +61,7 @@ func (p *ContextPool) Acquire() *RuntimeContext {
 }
 
 // Release returns a context to the pool
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) Release(ctx *RuntimeContext) {
 	if ctx == nil {
 		return
@@ -75,7 +75,7 @@ func (p *ContextPool) Release(ctx *RuntimeContext) {
 }
 
 // Available returns the number of available contexts
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) Available() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -83,7 +83,7 @@ func (p *ContextPool) Available() int {
 }
 
 // InUse returns the number of contexts currently in use
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) InUse() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -91,7 +91,7 @@ func (p *ContextPool) InUse() int {
 }
 
 // MaxSize returns the maximum pool size
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) MaxSize() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -99,7 +99,7 @@ func (p *ContextPool) MaxSize() int {
 }
 
 // Close closes all contexts in the pool
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -114,7 +114,7 @@ func (p *ContextPool) Close() {
 }
 
 // Warm pre-warms the pool with the specified number of contexts
-// (spec L4022: context pool/warm pool).
+// (context pool/warm pool).
 func (p *ContextPool) Warm(count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

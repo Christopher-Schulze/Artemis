@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// network.go (spec L4024: observe/network.go - network ring buffer +
+// network.go (observe/network.go - network ring buffer +
 // subscriber pattern).
 //
 // This file is the spec-mandated facade for the network ring buffer
@@ -15,11 +15,11 @@ import (
 // Page observation: network ring buffer + subscriber pattern.
 
 // NetworkSubscriber is a callback that receives network events
-// (spec L4024: network.go - subscriber pattern).
+// (network.go - subscriber pattern).
 type NetworkSubscriber func(ev NetworkEvent)
 
 // NetworkMonitor combines a ring buffer with a subscriber pattern
-// (spec L4024: network.go - network ring buffer + subscriber pattern).
+// (network.go - network ring buffer + subscriber pattern).
 type NetworkMonitor struct {
 	mu          sync.RWMutex
 	buffer      *NetworkRingBuffer
@@ -27,7 +27,7 @@ type NetworkMonitor struct {
 }
 
 // NewNetworkMonitor creates a new NetworkMonitor with the given
-// ring buffer capacity (spec L4024: network.go).
+// ring buffer capacity (network.go).
 func NewNetworkMonitor(capacity int) *NetworkMonitor {
 	return &NetworkMonitor{
 		buffer: NewNetworkRingBuffer(capacity),
@@ -35,7 +35,7 @@ func NewNetworkMonitor(capacity int) *NetworkMonitor {
 }
 
 // Push adds a network event to the ring buffer and notifies all
-// subscribers (spec L4024: network.go - network ring buffer +
+// subscribers (network.go - network ring buffer +
 // subscriber pattern).
 func (m *NetworkMonitor) Push(ev NetworkEvent) {
 	if m == nil {
@@ -53,7 +53,7 @@ func (m *NetworkMonitor) Push(ev NetworkEvent) {
 }
 
 // Subscribe adds a subscriber that receives all future network events
-// (spec L4024: network.go - subscriber pattern).
+// (network.go - subscriber pattern).
 func (m *NetworkMonitor) Subscribe(sub NetworkSubscriber) {
 	if m == nil || sub == nil {
 		return
@@ -64,7 +64,7 @@ func (m *NetworkMonitor) Subscribe(sub NetworkSubscriber) {
 }
 
 // Snapshot returns a copy of the current ring buffer contents
-// (spec L4024: network.go - network ring buffer).
+// (network.go - network ring buffer).
 func (m *NetworkMonitor) Snapshot() []NetworkEvent {
 	if m == nil {
 		return nil
@@ -74,8 +74,7 @@ func (m *NetworkMonitor) Snapshot() []NetworkEvent {
 	return m.buffer.Snapshot()
 }
 
-// Len returns the number of events in the ring buffer
-// (spec L4024).
+// Len returns the number of events in the ring buffer.
 func (m *NetworkMonitor) Len() int {
 	if m == nil {
 		return 0
@@ -94,7 +93,7 @@ func (m *NetworkMonitor) Clear() {
 }
 
 // SubscriberCount returns the number of active subscribers
-// (spec L4024: subscriber pattern).
+// (subscriber pattern).
 func (m *NetworkMonitor) SubscriberCount() int {
 	if m == nil {
 		return 0

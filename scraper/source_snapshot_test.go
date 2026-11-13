@@ -3,7 +3,7 @@ package scraper
 import "testing"
 
 func TestSourceSnapshotHasOutputContractFields(t *testing.T) {
-	// Verify the spec L3990 output contract fields exist on SourceSnapshot.
+	// Verify the output contract fields exist on SourceSnapshot.
 	s := SourceSnapshot{
 		URL:                  "https://example.com",
 		HTML:                 "<html></html>",

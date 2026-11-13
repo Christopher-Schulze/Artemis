@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// geo_presets.go (spec L4023: stealth/geo_presets.go - Geo-Presets-System).
+// geo_presets.go (stealth/geo_presets.go - Geo-Presets-System).
 //
 // Anti-detection: Geo-Presets-System with 8 built-in region-presets
 // {us-east, us-west, japan, uk, germany, vietnam, singapore, australia}
@@ -21,11 +21,11 @@ import (
 // (BCP47-locale-regex, IANA timezone, lat/long ranges, viewport
 // ranges), contextHash for session-isolation.
 //
-// Refs: research/neueskram/camofox-browser-main/src/utils/presets.ts
+// Refs: github.com/redf0x1/camofox-browser/src/utils/presets.ts
 // (BUILT_IN_PRESETS + resolveContextOptions + contextHash pattern).
 
 // GeoPresetConfig is a geo-preset configuration
-// (spec L4023: geo_presets.go - Geo-Presets-System).
+// (geo_presets.go - Geo-Presets-System).
 type GeoPresetConfig struct {
 	Locale      string    `json:"locale"`             // BCP47 locale (e.g. "en-US")
 	TimezoneID  string    `json:"timezoneId"`         // IANA timezone (e.g. "America/New_York")
@@ -34,23 +34,23 @@ type GeoPresetConfig struct {
 }
 
 // GeoCoord is a geographic coordinate
-// (spec L4023: geolocation:{latitude,longitude}).
+// (geolocation:{latitude,longitude}).
 type GeoCoord struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 }
 
 // Viewport is a viewport dimension
-// (spec L4023: viewport{width∈[320,3840], height∈[240,2160] integer}).
+// (viewport{width∈[320,3840], height∈[240,2160] integer}).
 type Viewport struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
 }
 
 // BuiltinGeoPresets returns the 8 built-in region-presets
-// (spec L4023: 8 built-in region-presets {us-east, us-west, japan, uk,
+// (8 built-in region-presets {us-east, us-west, japan, uk,
 // germany, vietnam, singapore, australia}).
-// Adapted from research/neueskram/camofox-browser-main/src/utils/presets.ts
+// Adapted from github.com/redf0x1/camofox-browser/src/utils/presets.ts
 // BUILT_IN_PRESETS.
 func BuiltinGeoPresets() map[string]GeoPresetConfig {
 	return map[string]GeoPresetConfig{
@@ -98,7 +98,7 @@ func BuiltinGeoPresets() map[string]GeoPresetConfig {
 }
 
 // GeoPresetManager manages geo-presets with custom overrides
-// (spec L4023: Operator-overridable custom overrides built-in
+// (Operator-overridable custom overrides built-in
 // same-name, case-insensitive lookup).
 type GeoPresetManager struct {
 	mu      sync.RWMutex
@@ -107,7 +107,7 @@ type GeoPresetManager struct {
 }
 
 // NewGeoPresetManager creates a new GeoPresetManager with built-in
-// presets (spec L4023).
+// presets.
 func NewGeoPresetManager() *GeoPresetManager {
 	return &GeoPresetManager{
 		builtin: BuiltinGeoPresets(),
@@ -130,7 +130,7 @@ func (m *GeoPresetManager) LoadCustomPresets(presets map[string]GeoPresetConfig)
 }
 
 // ResolvePreset resolves a preset by name with case-insensitive lookup
-// (spec L4023: case-insensitive lookup, custom overrides built-in).
+// (case-insensitive lookup, custom overrides built-in).
 func (m *GeoPresetManager) ResolvePreset(name string) (GeoPresetConfig, bool) {
 	if m == nil {
 		return GeoPresetConfig{}, false
@@ -138,7 +138,7 @@ func (m *GeoPresetManager) ResolvePreset(name string) (GeoPresetConfig, bool) {
 	key := strings.ToLower(strings.TrimSpace(name))
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	// Custom overrides built-in (spec L4023).
+	// Custom overrides built-in.
 	if p, ok := m.custom[key]; ok {
 		return p, true
 	}
@@ -148,8 +148,7 @@ func (m *GeoPresetManager) ResolvePreset(name string) (GeoPresetConfig, bool) {
 	return GeoPresetConfig{}, false
 }
 
-// ListPresets returns all preset names (builtin + custom)
-// (spec L4023).
+// ListPresets returns all preset names (builtin + custom).
 func (m *GeoPresetManager) ListPresets() []string {
 	if m == nil {
 		return nil
@@ -174,11 +173,11 @@ func (m *GeoPresetManager) ListPresets() []string {
 }
 
 // bcp47Regex is the BCP47 locale validation regex
-// (spec L4023: ^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$ max-35-chars).
+// (^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$ max-35-chars).
 var bcp47Regex = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 
 // ValidatePreset validates a geo-preset configuration
-// (spec L4023: BCP47-locale-regex + IANA-check + lat∈[-90,90]/
+// (BCP47-locale-regex + IANA-check + lat∈[-90,90]/
 // long∈[-180,180] + viewport{width∈[320,3840], height∈[240,2160]}).
 func ValidatePreset(p GeoPresetConfig) error {
 	// Validate locale (BCP47).
@@ -212,7 +211,7 @@ func ValidatePreset(p GeoPresetConfig) error {
 }
 
 // ContextOptions is the per-session preset parameter
-// (spec L4023: BrowserAction.ContextOptions{preset?, locale?,
+// (BrowserAction.ContextOptions{preset?, locale?,
 // timezoneId?, geolocation?, viewport?}).
 type ContextOptions struct {
 	Preset      string    `json:"preset,omitempty"`
@@ -224,8 +223,8 @@ type ContextOptions struct {
 
 // ResolveContextOptions resolves ContextOptions with priority:
 // individual-fields-override-preset-defaults
-// (spec L4023: priority individual-fields-override-preset-defaults).
-// Adapted from research/neueskram/camofox-browser-main/src/utils/presets.ts
+// (priority individual-fields-override-preset-defaults).
+// Adapted from github.com/redf0x1/camofox-browser/src/utils/presets.ts
 // resolveContextOptions.
 func (m *GeoPresetManager) ResolveContextOptions(opts ContextOptions) (GeoPresetConfig, error) {
 	if m == nil {
@@ -240,7 +239,7 @@ func (m *GeoPresetManager) ResolveContextOptions(opts ContextOptions) (GeoPreset
 		}
 		result = p
 	}
-	// Individual fields override preset defaults (spec L4023).
+	// Individual fields override preset defaults.
 	if opts.Locale != "" {
 		result.Locale = opts.Locale
 	}
@@ -261,7 +260,7 @@ func (m *GeoPresetManager) ResolveContextOptions(opts ContextOptions) (GeoPreset
 }
 
 // ContextHash computes a session-isolation hash for ContextOptions
-// (spec L4023: contextHash(opts)=sha256(canonical_json){:8}).
+// (contextHash(opts)=sha256(canonical_json){:8}).
 // Uses SHA-256 over canonical JSON with sorted keys for deterministic
 // session-isolation across different presets per-user.
 func ContextHash(opts ContextOptions) string {

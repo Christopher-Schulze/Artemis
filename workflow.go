@@ -17,8 +17,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
-// workflow.go executes reusable verified browser workflows (spec L4551-L4563
-// Workflow Capture Recorder replay, L4375-L4394) on a session-owned Chromium
+// workflow.go executes reusable verified browser workflows (Workflow Capture Recorder replay) on a session-owned Chromium
 // page. A versioned definition is validated and authorized before any effect;
 // shadow mode resolves targets without dispatching; execution resolves every
 // target uniquely against the current snapshot, dispatches through the

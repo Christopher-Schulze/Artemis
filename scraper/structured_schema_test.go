@@ -6,9 +6,9 @@ import (
 
 // ==================== SchemaKind tests ====================
 
-// TestTASK2240_SchemaKindConstants verifies the kind constants
-// (spec L4029: kind=text|html|attr|url|number|object|list).
-func TestTASK2240_SchemaKindConstants(t *testing.T) {
+// TestSchemaKindConstants verifies the kind constants
+// (kind=text|html|attr|url|number|object|list).
+func TestSchemaKindConstants(t *testing.T) {
 	if KindText != "text" {
 		t.Error("KindText mismatch")
 	}
@@ -32,9 +32,9 @@ func TestTASK2240_SchemaKindConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ScalarKinds verifies the scalar kinds set
-// (spec L4029, research scalarKinds).
-func TestTASK2240_ScalarKinds(t *testing.T) {
+// TestScalarKinds verifies the scalar kinds set
+// (research scalarKinds).
+func TestScalarKinds(t *testing.T) {
 	scalars := []SchemaKind{KindText, KindHTML, KindAttr, KindURL, KindNumber}
 	for _, k := range scalars {
 		if !ScalarKinds[k] {
@@ -49,9 +49,9 @@ func TestTASK2240_ScalarKinds(t *testing.T) {
 	}
 }
 
-// TestTASK2240_JoinKinds verifies the join kinds set
-// (spec L4029, research joinKinds).
-func TestTASK2240_JoinKinds(t *testing.T) {
+// TestJoinKinds verifies the join kinds set
+// (research joinKinds).
+func TestJoinKinds(t *testing.T) {
 	joinable := []SchemaKind{KindText, KindAttr, KindURL}
 	for _, k := range joinable {
 		if !JoinKinds[k] {
@@ -68,9 +68,9 @@ func TestTASK2240_JoinKinds(t *testing.T) {
 
 // ==================== backward compat tests ====================
 
-// TestTASK2240_BackwardCompatFields verifies the old Fields-based
+// TestBackwardCompatFields verifies the old Fields-based
 // API still works (backward compat with thin schema).
-func TestTASK2240_BackwardCompatFields(t *testing.T) {
+func TestBackwardCompatFields(t *testing.T) {
 	s := &StructuredSchema{Fields: []string{"title", "price"}}
 	req := s.Required()
 	if len(req) != 2 {
@@ -81,18 +81,18 @@ func TestTASK2240_BackwardCompatFields(t *testing.T) {
 	}
 }
 
-// TestTASK2240_BackwardCompatEmptyFields verifies empty Fields returns
+// TestBackwardCompatEmptyFields verifies empty Fields returns
 // empty required list.
-func TestTASK2240_BackwardCompatEmptyFields(t *testing.T) {
+func TestBackwardCompatEmptyFields(t *testing.T) {
 	s := &StructuredSchema{Fields: []string{}}
 	if len(s.Required()) != 0 {
 		t.Error("empty Fields should return empty required")
 	}
 }
 
-// TestTASK2240_RequiredFromFieldsMap verifies Required() collects
+// TestRequiredFromFieldsMap verifies Required() collects
 // from FieldsMap when Fields is empty.
-func TestTASK2240_RequiredFromFieldsMap(t *testing.T) {
+func TestRequiredFromFieldsMap(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".root",
@@ -109,9 +109,9 @@ func TestTASK2240_RequiredFromFieldsMap(t *testing.T) {
 
 // ==================== validation tests ====================
 
-// TestTASK2240_ValidateValidScalar verifies a valid scalar schema
-// passes validation (spec L4029).
-func TestTASK2240_ValidateValidScalar(t *testing.T) {
+// TestValidateValidScalar verifies a valid scalar schema
+// passes validation.
+func TestValidateValidScalar(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:       KindText,
 		Selector:   ".title",
@@ -122,9 +122,9 @@ func TestTASK2240_ValidateValidScalar(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateValidObject verifies a valid object schema
-// with recursive fields passes validation (spec L4029).
-func TestTASK2240_ValidateValidObject(t *testing.T) {
+// TestValidateValidObject verifies a valid object schema
+// with recursive fields passes validation.
+func TestValidateValidObject(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".product",
@@ -138,9 +138,9 @@ func TestTASK2240_ValidateValidObject(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateValidList verifies a valid list schema
-// with item schema passes validation (spec L4029).
-func TestTASK2240_ValidateValidList(t *testing.T) {
+// TestValidateValidList verifies a valid list schema
+// with item schema passes validation.
+func TestValidateValidList(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindList,
 		Selector: ".items",
@@ -157,9 +157,9 @@ func TestTASK2240_ValidateValidList(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateUnknownKind verifies unknown kind is rejected
-// (spec L4029: rejects unknown-kind).
-func TestTASK2240_ValidateUnknownKind(t *testing.T) {
+// TestValidateUnknownKind verifies unknown kind is rejected
+// (rejects unknown-kind).
+func TestValidateUnknownKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     SchemaKind("unknown"),
 		Selector: ".x",
@@ -169,9 +169,8 @@ func TestTASK2240_ValidateUnknownKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateEmptyKind verifies empty kind is rejected
-// (spec L4029).
-func TestTASK2240_ValidateEmptyKind(t *testing.T) {
+// TestValidateEmptyKind verifies empty kind is rejected.
+func TestValidateEmptyKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     "",
 		Selector: ".x",
@@ -181,9 +180,9 @@ func TestTASK2240_ValidateEmptyKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateMissingSelector verifies missing selector is
-// rejected (spec L4029: missing-required-selector).
-func TestTASK2240_ValidateMissingSelector(t *testing.T) {
+// TestValidateMissingSelector verifies missing selector is
+// rejected (missing-required-selector).
+func TestValidateMissingSelector(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: "",
@@ -193,9 +192,9 @@ func TestTASK2240_ValidateMissingSelector(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateWhitespaceSelector verifies whitespace-only
-// selector is rejected (spec L4029).
-func TestTASK2240_ValidateWhitespaceSelector(t *testing.T) {
+// TestValidateWhitespaceSelector verifies whitespace-only
+// selector is rejected.
+func TestValidateWhitespaceSelector(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: "   ",
@@ -205,9 +204,9 @@ func TestTASK2240_ValidateWhitespaceSelector(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateAttrOnNonAttrKind verifies attr is rejected
-// on non-attr kind (spec L4029: invalid-attr-on-non-attr-kind).
-func TestTASK2240_ValidateAttrOnNonAttrKind(t *testing.T) {
+// TestValidateAttrOnNonAttrKind verifies attr is rejected
+// on non-attr kind (invalid-attr-on-non-attr-kind).
+func TestValidateAttrOnNonAttrKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -218,9 +217,9 @@ func TestTASK2240_ValidateAttrOnNonAttrKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateAttrOnURLKind verifies attr is allowed on
-// url kind (spec L4029).
-func TestTASK2240_ValidateAttrOnURLKind(t *testing.T) {
+// TestValidateAttrOnURLKind verifies attr is allowed on
+// url kind.
+func TestValidateAttrOnURLKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindURL,
 		Selector: "a",
@@ -231,9 +230,9 @@ func TestTASK2240_ValidateAttrOnURLKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateAttrRequiredForAttrKind verifies attr is
-// required for attr kind (spec L4029).
-func TestTASK2240_ValidateAttrRequiredForAttrKind(t *testing.T) {
+// TestValidateAttrRequiredForAttrKind verifies attr is
+// required for attr kind.
+func TestValidateAttrRequiredForAttrKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindAttr,
 		Selector: ".x",
@@ -243,9 +242,9 @@ func TestTASK2240_ValidateAttrRequiredForAttrKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateJoinOnNonJoinKind verifies join is rejected
-// on non-join kind (spec L4029, research joinKinds).
-func TestTASK2240_ValidateJoinOnNonJoinKind(t *testing.T) {
+// TestValidateJoinOnNonJoinKind verifies join is rejected
+// on non-join kind (research joinKinds).
+func TestValidateJoinOnNonJoinKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindHTML,
 		Selector: ".x",
@@ -256,9 +255,9 @@ func TestTASK2240_ValidateJoinOnNonJoinKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateJoinOnTextKind verifies join is allowed on
-// text kind (spec L4029).
-func TestTASK2240_ValidateJoinOnTextKind(t *testing.T) {
+// TestValidateJoinOnTextKind verifies join is allowed on
+// text kind.
+func TestValidateJoinOnTextKind(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -269,9 +268,9 @@ func TestTASK2240_ValidateJoinOnTextKind(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateInvalidCoerce verifies invalid coerce value
-// is rejected (spec L4029).
-func TestTASK2240_ValidateInvalidCoerce(t *testing.T) {
+// TestValidateInvalidCoerce verifies invalid coerce value
+// is rejected.
+func TestValidateInvalidCoerce(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -282,8 +281,8 @@ func TestTASK2240_ValidateInvalidCoerce(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateCoerceNumber verifies coerce=number is valid.
-func TestTASK2240_ValidateCoerceNumber(t *testing.T) {
+// TestValidateCoerceNumber verifies coerce=number is valid.
+func TestValidateCoerceNumber(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -294,9 +293,9 @@ func TestTASK2240_ValidateCoerceNumber(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateObjectWithoutFields verifies object kind
-// without FieldsMap is rejected (spec L4029).
-func TestTASK2240_ValidateObjectWithoutFields(t *testing.T) {
+// TestValidateObjectWithoutFields verifies object kind
+// without FieldsMap is rejected.
+func TestValidateObjectWithoutFields(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".x",
@@ -306,9 +305,9 @@ func TestTASK2240_ValidateObjectWithoutFields(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateListWithoutItem verifies list kind without
-// Item is rejected (spec L4029).
-func TestTASK2240_ValidateListWithoutItem(t *testing.T) {
+// TestValidateListWithoutItem verifies list kind without
+// Item is rejected.
+func TestValidateListWithoutItem(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindList,
 		Selector: ".x",
@@ -318,9 +317,9 @@ func TestTASK2240_ValidateListWithoutItem(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateRecursiveObject verifies recursive object
-// fields are validated (spec L4029: recursive).
-func TestTASK2240_ValidateRecursiveObject(t *testing.T) {
+// TestValidateRecursiveObject verifies recursive object
+// fields are validated (recursive).
+func TestValidateRecursiveObject(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".root",
@@ -339,9 +338,9 @@ func TestTASK2240_ValidateRecursiveObject(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateInvalidNestedField verifies invalid nested
-// field is caught (spec L4029: recursive validation).
-func TestTASK2240_ValidateInvalidNestedField(t *testing.T) {
+// TestValidateInvalidNestedField verifies invalid nested
+// field is caught (recursive validation).
+func TestValidateInvalidNestedField(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".root",
@@ -357,8 +356,8 @@ func TestTASK2240_ValidateInvalidNestedField(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateNilSchema verifies nil schema is rejected.
-func TestTASK2240_ValidateNilSchema(t *testing.T) {
+// TestValidateNilSchema verifies nil schema is rejected.
+func TestValidateNilSchema(t *testing.T) {
 	var s *StructuredSchema
 	if err := s.Validate(); err == nil {
 		t.Fatal("nil schema should fail validation")
@@ -367,8 +366,8 @@ func TestTASK2240_ValidateNilSchema(t *testing.T) {
 
 // ==================== IsScalar / IsContainer tests ====================
 
-// TestTASK2240_IsScalar verifies scalar kind detection.
-func TestTASK2240_IsScalar(t *testing.T) {
+// TestIsScalar verifies scalar kind detection.
+func TestIsScalar(t *testing.T) {
 	scalars := []SchemaKind{KindText, KindHTML, KindAttr, KindURL, KindNumber}
 	for _, k := range scalars {
 		s := &StructuredSchema{Kind: k, Selector: ".x"}
@@ -381,8 +380,8 @@ func TestTASK2240_IsScalar(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsContainer verifies container kind detection.
-func TestTASK2240_IsContainer(t *testing.T) {
+// TestIsContainer verifies container kind detection.
+func TestIsContainer(t *testing.T) {
 	containers := []SchemaKind{KindObject, KindList}
 	for _, k := range containers {
 		s := &StructuredSchema{Kind: k, Selector: ".x"}
@@ -395,8 +394,8 @@ func TestTASK2240_IsContainer(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsScalarNilSafe verifies nil schema is safe.
-func TestTASK2240_IsScalarNilSafe(t *testing.T) {
+// TestIsScalarNilSafe verifies nil schema is safe.
+func TestIsScalarNilSafe(t *testing.T) {
 	var s *StructuredSchema
 	if s.IsScalar() {
 		t.Error("nil should not be scalar")
@@ -408,9 +407,9 @@ func TestTASK2240_IsScalarNilSafe(t *testing.T) {
 
 // ==================== Hash tests ====================
 
-// TestTASK2240_HashDeterministic verifies the schema hash is
-// deterministic (spec L4029: cache-key).
-func TestTASK2240_HashDeterministic(t *testing.T) {
+// TestHashDeterministic verifies the schema hash is
+// deterministic (cache-key).
+func TestHashDeterministic(t *testing.T) {
 	s := &StructuredSchema{Kind: KindText, Selector: ".title"}
 	h1 := s.Hash()
 	h2 := s.Hash()
@@ -419,9 +418,9 @@ func TestTASK2240_HashDeterministic(t *testing.T) {
 	}
 }
 
-// TestTASK2240_HashDifferentSchemas verifies different schemas have
-// different hashes (spec L4029: cache-key).
-func TestTASK2240_HashDifferentSchemas(t *testing.T) {
+// TestHashDifferentSchemas verifies different schemas have
+// different hashes (cache-key).
+func TestHashDifferentSchemas(t *testing.T) {
 	s1 := &StructuredSchema{Kind: KindText, Selector: ".title"}
 	s2 := &StructuredSchema{Kind: KindText, Selector: ".price"}
 	if s1.Hash() == s2.Hash() {
@@ -429,8 +428,8 @@ func TestTASK2240_HashDifferentSchemas(t *testing.T) {
 	}
 }
 
-// TestTASK2240_HashLength verifies hash is 16 chars (SHA-256 truncated).
-func TestTASK2240_HashLength(t *testing.T) {
+// TestHashLength verifies hash is 16 chars (SHA-256 truncated).
+func TestHashLength(t *testing.T) {
 	s := &StructuredSchema{Kind: KindText, Selector: ".x"}
 	h := s.Hash()
 	if len(h) != 16 {
@@ -438,8 +437,8 @@ func TestTASK2240_HashLength(t *testing.T) {
 	}
 }
 
-// TestTASK2240_HashNilSafe verifies nil schema hash is empty.
-func TestTASK2240_HashNilSafe(t *testing.T) {
+// TestHashNilSafe verifies nil schema hash is empty.
+func TestHashNilSafe(t *testing.T) {
 	var s *StructuredSchema
 	if s.Hash() != "" {
 		t.Error("nil hash should be empty")
@@ -448,9 +447,9 @@ func TestTASK2240_HashNilSafe(t *testing.T) {
 
 // ==================== ValidateSchema (root) tests ====================
 
-// TestTASK2240_ValidateSchemaRootObject verifies root=object passes
-// (spec L4029, research validateStructuredExtractSchema).
-func TestTASK2240_ValidateSchemaRootObject(t *testing.T) {
+// TestValidateSchemaRootObject verifies root=object passes
+// (research validateStructuredExtractSchema).
+func TestValidateSchemaRootObject(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".root",
@@ -463,9 +462,8 @@ func TestTASK2240_ValidateSchemaRootObject(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateSchemaRootList verifies root=list passes
-// (spec L4029).
-func TestTASK2240_ValidateSchemaRootList(t *testing.T) {
+// TestValidateSchemaRootList verifies root=list passes.
+func TestValidateSchemaRootList(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindList,
 		Selector: ".items",
@@ -476,9 +474,9 @@ func TestTASK2240_ValidateSchemaRootList(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateSchemaRootScalar verifies root=scalar is
-// rejected (spec L4029: root must be object or list).
-func TestTASK2240_ValidateSchemaRootScalar(t *testing.T) {
+// TestValidateSchemaRootScalar verifies root=scalar is
+// rejected (root must be object or list).
+func TestValidateSchemaRootScalar(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -488,8 +486,8 @@ func TestTASK2240_ValidateSchemaRootScalar(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ValidateSchemaNil verifies nil root is rejected.
-func TestTASK2240_ValidateSchemaNil(t *testing.T) {
+// TestValidateSchemaNil verifies nil root is rejected.
+func TestValidateSchemaNil(t *testing.T) {
 	if err := ValidateSchema(nil); err == nil {
 		t.Fatal("nil root should fail ValidateSchema")
 	}
@@ -497,9 +495,9 @@ func TestTASK2240_ValidateSchemaNil(t *testing.T) {
 
 // ==================== CompileSchema tests ====================
 
-// TestTASK2240_CompileSchemaValid verifies CompileSchema returns a
-// hash for a valid schema (spec L4029: cache-key).
-func TestTASK2240_CompileSchemaValid(t *testing.T) {
+// TestCompileSchemaValid verifies CompileSchema returns a
+// hash for a valid schema (cache-key).
+func TestCompileSchemaValid(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindObject,
 		Selector: ".root",
@@ -516,9 +514,9 @@ func TestTASK2240_CompileSchemaValid(t *testing.T) {
 	}
 }
 
-// TestTASK2240_CompileSchemaInvalid verifies CompileSchema returns
+// TestCompileSchemaInvalid verifies CompileSchema returns
 // an error for invalid schema.
-func TestTASK2240_CompileSchemaInvalid(t *testing.T) {
+func TestCompileSchemaInvalid(t *testing.T) {
 	s := &StructuredSchema{
 		Kind:     KindText,
 		Selector: ".x",
@@ -531,9 +529,9 @@ func TestTASK2240_CompileSchemaInvalid(t *testing.T) {
 
 // ==================== StructuredExtractResult tests ====================
 
-// TestTASK2240_NewStructuredExtractResult verifies result creation
-// (spec L4029: StructuredExtractResult).
-func TestTASK2240_NewStructuredExtractResult(t *testing.T) {
+// TestNewStructuredExtractResult verifies result creation
+// (StructuredExtractResult).
+func TestNewStructuredExtractResult(t *testing.T) {
 	s := &StructuredSchema{Kind: KindText, Selector: ".x"}
 	r := NewStructuredExtractResult(s, "test value", 5)
 	if r.MatchedCount != 5 {
@@ -550,8 +548,8 @@ func TestTASK2240_NewStructuredExtractResult(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ResultAddError verifies error appending.
-func TestTASK2240_ResultAddError(t *testing.T) {
+// TestResultAddError verifies error appending.
+func TestResultAddError(t *testing.T) {
 	r := &StructuredExtractResult{}
 	r.AddError("error 1")
 	r.AddError("error 2")
@@ -563,16 +561,16 @@ func TestTASK2240_ResultAddError(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ResultNoErrors verifies HasErrors is false for empty.
-func TestTASK2240_ResultNoErrors(t *testing.T) {
+// TestResultNoErrors verifies HasErrors is false for empty.
+func TestResultNoErrors(t *testing.T) {
 	r := &StructuredExtractResult{}
 	if r.HasErrors() {
 		t.Error("HasErrors should be false for empty")
 	}
 }
 
-// TestTASK2240_ResultAddEvidenceRef verifies evidence ref appending.
-func TestTASK2240_ResultAddEvidenceRef(t *testing.T) {
+// TestResultAddEvidenceRef verifies evidence ref appending.
+func TestResultAddEvidenceRef(t *testing.T) {
 	r := &StructuredExtractResult{}
 	r.AddEvidenceRef("ref1")
 	r.AddEvidenceRef("ref2")
@@ -581,8 +579,8 @@ func TestTASK2240_ResultAddEvidenceRef(t *testing.T) {
 	}
 }
 
-// TestTASK2240_ResultNilSafe verifies nil result is safe.
-func TestTASK2240_ResultNilSafe(t *testing.T) {
+// TestResultNilSafe verifies nil result is safe.
+func TestResultNilSafe(t *testing.T) {
 	var r *StructuredExtractResult
 	r.AddError("test")
 	r.AddEvidenceRef("test")
@@ -593,9 +591,9 @@ func TestTASK2240_ResultNilSafe(t *testing.T) {
 
 // ==================== pseudo-class tests ====================
 
-// TestTASK2240_IsSupportedPseudoClassSimple verifies simple pseudo-classes
-// (spec L4029, research isSupportedPseudoClass).
-func TestTASK2240_IsSupportedPseudoClassSimple(t *testing.T) {
+// TestIsSupportedPseudoClassSimple verifies simple pseudo-classes
+// (research isSupportedPseudoClass).
+func TestIsSupportedPseudoClassSimple(t *testing.T) {
 	simple := []string{"hover", "focus", "active", "checked", "disabled"}
 	for _, name := range simple {
 		if !IsSupportedPseudoClass(name, false) {
@@ -604,9 +602,9 @@ func TestTASK2240_IsSupportedPseudoClassSimple(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsSupportedPseudoClassFunctional verifies functional
-// pseudo-classes (spec L4029).
-func TestTASK2240_IsSupportedPseudoClassFunctional(t *testing.T) {
+// TestIsSupportedPseudoClassFunctional verifies functional
+// pseudo-classes.
+func TestIsSupportedPseudoClassFunctional(t *testing.T) {
 	functional := []string{"not", "is", "where", "has", "lang", "dir"}
 	for _, name := range functional {
 		if !IsSupportedPseudoClass(name, true) {
@@ -615,9 +613,9 @@ func TestTASK2240_IsSupportedPseudoClassFunctional(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsSupportedPseudoClassLegacy verifies legacy pseudo-elements
-// (spec L4029, research legacyPseudoElementNames).
-func TestTASK2240_IsSupportedPseudoClassLegacy(t *testing.T) {
+// TestIsSupportedPseudoClassLegacy verifies legacy pseudo-elements
+// (research legacyPseudoElementNames).
+func TestIsSupportedPseudoClassLegacy(t *testing.T) {
 	legacy := []string{"before", "after", "first-letter", "first-line"}
 	for _, name := range legacy {
 		if !IsSupportedPseudoClass(name, false) {
@@ -626,9 +624,9 @@ func TestTASK2240_IsSupportedPseudoClassLegacy(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsSupportedPseudoClassUnsupported verifies unsupported
-// pseudo-classes are rejected (spec L4029).
-func TestTASK2240_IsSupportedPseudoClassUnsupported(t *testing.T) {
+// TestIsSupportedPseudoClassUnsupported verifies unsupported
+// pseudo-classes are rejected.
+func TestIsSupportedPseudoClassUnsupported(t *testing.T) {
 	unsupported := []string{"unknown-pseudo", "fake-class"}
 	for _, name := range unsupported {
 		if IsSupportedPseudoClass(name, false) {
@@ -637,9 +635,9 @@ func TestTASK2240_IsSupportedPseudoClassUnsupported(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsSupportedPseudoClassNthChild verifies nth-child
-// variants are supported (spec L4029).
-func TestTASK2240_IsSupportedPseudoClassNthChild(t *testing.T) {
+// TestIsSupportedPseudoClassNthChild verifies nth-child
+// variants are supported.
+func TestIsSupportedPseudoClassNthChild(t *testing.T) {
 	nthVariants := []string{"nth-child", "nth-last-child", "nth-of-type", "nth-last-of-type"}
 	for _, name := range nthVariants {
 		if !IsSupportedPseudoClass(name, true) {
@@ -648,9 +646,9 @@ func TestTASK2240_IsSupportedPseudoClassNthChild(t *testing.T) {
 	}
 }
 
-// TestTASK2240_IsSupportedPseudoClassCaseInsensitive verifies
-// case-insensitive matching (spec L4029).
-func TestTASK2240_IsSupportedPseudoClassCaseInsensitive(t *testing.T) {
+// TestIsSupportedPseudoClassCaseInsensitive verifies
+// case-insensitive matching.
+func TestIsSupportedPseudoClassCaseInsensitive(t *testing.T) {
 	if !IsSupportedPseudoClass("HOVER", false) {
 		t.Error("HOVER should be supported (case-insensitive)")
 	}
@@ -659,11 +657,10 @@ func TestTASK2240_IsSupportedPseudoClassCaseInsensitive(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2240_FullSpecParity verifies full spec parity for L4029
-// (spec L4029).
-func TestTASK2240_FullSpecParity(t *testing.T) {
+// TestStructuredSchemaParity verifies full parity.
+func TestStructuredSchemaParity(t *testing.T) {
 	// 1. All 7 kinds exist
 	kinds := []SchemaKind{KindText, KindHTML, KindAttr, KindURL, KindNumber, KindObject, KindList}
 	for _, k := range kinds {

@@ -14,7 +14,7 @@ import (
 
 // TestServeStartupAndShutdown verifies that the serve server starts, binds
 // loopback, and shuts down cleanly. This is the clean-install serve startup
-// proof required by TASK-2361.
+// proof.
 func TestServeStartupAndShutdown(t *testing.T) {
 	if defaultServeHost != "127.0.0.1" {
 		t.Fatalf("default serve host = %q, want numeric loopback", defaultServeHost)

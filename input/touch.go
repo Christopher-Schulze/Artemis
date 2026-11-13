@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-// touch.go (spec L4026: input/touch.go - touch events for mobile
+// touch.go (input/touch.go - touch events for mobile
 // emulation).
 //
 // Human-like input: touch events for mobile emulation. Touch events
 // include touch start, move, and end, with multi-touch support.
 
 // TouchPoint is a single touch contact point
-// (spec L4026: touch.go - touch events for mobile emulation).
+// (touch.go - touch events for mobile emulation).
 type TouchPoint struct {
 	ID       int     `json:"id"`       // touch identifier
 	X        float64 `json:"x"`        // x coordinate
@@ -23,7 +23,7 @@ type TouchPoint struct {
 }
 
 // TouchEventType enumerates touch event types
-// (spec L4026: touch.go - touch events for mobile emulation).
+// (touch.go - touch events for mobile emulation).
 type TouchEventType string
 
 const (
@@ -38,7 +38,7 @@ const (
 )
 
 // TouchEvent is a DOM touch event
-// (spec L4026: touch.go - touch events for mobile emulation).
+// (touch.go - touch events for mobile emulation).
 type TouchEvent struct {
 	Type      TouchEventType `json:"type"`
 	Points    []TouchPoint   `json:"points"` // active touch points
@@ -47,14 +47,14 @@ type TouchEvent struct {
 }
 
 // TouchSequence is a sequence of touch events forming a gesture
-// (spec L4026: touch events for mobile emulation).
+// (touch events for mobile emulation).
 type TouchSequence struct {
 	Events   []TouchEvent  `json:"events"`
 	Duration time.Duration `json:"duration"`
 }
 
 // NewTouchPoint creates a new TouchPoint with the given coordinates
-// (spec L4026: touch.go - touch events for mobile emulation).
+// (touch.go - touch events for mobile emulation).
 func NewTouchPoint(id int, x, y float64) TouchPoint {
 	return TouchPoint{
 		ID:       id,
@@ -67,7 +67,7 @@ func NewTouchPoint(id int, x, y float64) TouchPoint {
 }
 
 // Tap creates a simple tap gesture (touchstart + touchend)
-// (spec L4026: touch events for mobile emulation).
+// (touch events for mobile emulation).
 func Tap(point TouchPoint, target string) TouchSequence {
 	now := time.Now()
 	return TouchSequence{
@@ -90,7 +90,7 @@ func Tap(point TouchPoint, target string) TouchSequence {
 }
 
 // Swipe creates a swipe gesture from start to end
-// (spec L4026: touch events for mobile emulation).
+// (touch events for mobile emulation).
 func Swipe(start, end TouchPoint, steps int, target string) TouchSequence {
 	if steps <= 0 {
 		steps = 10
@@ -140,7 +140,7 @@ func Swipe(start, end TouchPoint, steps int, target string) TouchSequence {
 }
 
 // Pinch creates a pinch gesture (two-finger)
-// (spec L4026: touch events for mobile emulation).
+// (touch events for mobile emulation).
 func Pinch(center TouchPoint, startRadius, endRadius float64, steps int, target string) TouchSequence {
 	if steps <= 0 {
 		steps = 10

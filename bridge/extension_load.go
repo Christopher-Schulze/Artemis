@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// ExtensionLoader configures browser extension loading via Chromium flags
-// (spec L4563): --load-extension + --disable-extensions-except, sources
+// ExtensionLoader configures browser extension loading via Chromium flags:
+// --load-extension + --disable-extensions-except, sources
 // from the browser extensions dir (per-profile configurable), explicit
 // allowlist only.
 type ExtensionLoader struct {
@@ -28,8 +28,7 @@ func DefaultExtensionBaseDir() string {
 }
 
 // NewExtensionLoader creates a loader with the default base dir and an
-// explicit allowlist. Empty allowlist means NO extensions load (spec L4563:
-// explicit allowlist only).
+// explicit allowlist. Empty allowlist means NO extensions load (// explicit allowlist only).
 func NewExtensionLoader(allowlist []string) *ExtensionLoader {
 	return &ExtensionLoader{
 		BaseDir:   DefaultExtensionBaseDir(),
@@ -100,7 +99,7 @@ func (l *ExtensionLoader) ResolvedExtensions() ([]string, []error) {
 }
 
 // ChromiumArgs builds the Chromium flags for loading the resolved
-// extensions (spec L4563): --load-extension=<paths> and
+// extensions: --load-extension=<paths> and
 // --disable-extensions-except=<paths>. Returns empty slice when no
 // extensions resolve (allowlist empty or none on disk).
 func (l *ExtensionLoader) ChromiumArgs() ([]string, error) {

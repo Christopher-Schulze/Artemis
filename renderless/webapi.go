@@ -8,16 +8,14 @@ import (
 	"unicode"
 )
 
-// webapi.go (spec L4022: renderless/webapi.go - DOM/WebAPI globals).
+// webapi.go (renderless/webapi.go - DOM/WebAPI globals).
 //
 // In-process no-render JS browser path: DOM/WebAPI globals that
 // simulate the browser's window/document/navigator/fetch APIs for
 // JavaScript execution without a real browser.
-//
-// Ref: research/artemis/webapi/document.go:1-100+
 
 // WebAPIRegistry holds DOM/WebAPI global definitions
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 type WebAPIRegistry struct {
 	mu               sync.RWMutex
 	globals          map[string]WebAPIGlobal
@@ -28,7 +26,7 @@ type WebAPIRegistry struct {
 }
 
 // WebAPIGlobal represents a DOM/WebAPI global
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 type WebAPIGlobal struct {
 	Name            string             `json:"name"`
 	Type            string             `json:"type"` // "function", "object", "constructor"
@@ -39,7 +37,7 @@ type WebAPIGlobal struct {
 }
 
 // NewWebAPIRegistry creates a new WebAPIRegistry with standard globals
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func NewWebAPIRegistry() *WebAPIRegistry {
 	r := &WebAPIRegistry{globals: make(map[string]WebAPIGlobal)}
 	r.observation, r.observationError = currentBindingObservation()
@@ -91,7 +89,7 @@ func webAPIType(name string) string {
 }
 
 // Get retrieves a global by name
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) Get(name string) (WebAPIGlobal, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -100,7 +98,7 @@ func (r *WebAPIRegistry) Get(name string) (WebAPIGlobal, bool) {
 }
 
 // Register registers a new global
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 // Binding presence never supplies an omitted semantic classification.
 func (r *WebAPIRegistry) Register(g WebAPIGlobal) {
 	g = r.observeDefinition(g)
@@ -135,7 +133,7 @@ func webAPIIdentity(name string) string {
 }
 
 // All returns all registered globals
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) All() []WebAPIGlobal {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -148,7 +146,7 @@ func (r *WebAPIRegistry) All() []WebAPIGlobal {
 }
 
 // IsImplemented reports whether a global is implemented
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) IsImplemented(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -157,7 +155,7 @@ func (r *WebAPIRegistry) IsImplemented(name string) bool {
 }
 
 // Count returns the number of registered globals
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -165,7 +163,7 @@ func (r *WebAPIRegistry) Count() int {
 }
 
 // ImplementedCount returns the number of implemented globals
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) ImplementedCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -179,7 +177,7 @@ func (r *WebAPIRegistry) ImplementedCount() int {
 }
 
 // Names returns all global names sorted alphabetically
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -197,7 +195,7 @@ func (r *WebAPIRegistry) String() string {
 }
 
 // FormatGlobals returns a formatted string of all globals
-// (spec L4022: DOM/WebAPI globals).
+// (DOM/WebAPI globals).
 func (r *WebAPIRegistry) FormatGlobals() string {
 	var sb []byte
 	for _, g := range r.All() {

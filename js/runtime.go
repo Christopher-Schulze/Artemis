@@ -1,8 +1,8 @@
 // Package js wraps the V8 JavaScript engine (via rogchap.com/v8go) and
 // the bridge that exposes Artemis DOM types to JS code. Phase 2 covers
 // isolate management, per-page contexts, console capture, and a minimal
-// read-only `document` binding. Mutation, events, Fetch, XHR, etc. land
-// in TASK 004.
+// read-only `document` binding. Mutation, events, Fetch and XHR live in
+// their own files of this package.
 package js
 
 import (
@@ -102,7 +102,7 @@ func (r *Runtime) contextFor(v8ctx *v8.Context) *Context {
 }
 
 // NewRuntime creates a V8 isolate seeded with the embedded startup
-// snapshot (TASK 042). The snapshot bakes the parsed + first-run state
+// snapshot. The snapshot bakes the parsed + first-run state
 // of every BootstrapSource so NewContext only needs to bind native
 // callbacks instead of re-evaluating ~30K lines of JS each time. If the
 // snapshot blob is absent, stale or incompatible at build time (see

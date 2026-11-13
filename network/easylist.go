@@ -16,11 +16,11 @@ func FilterEasyListRules(rules []string) []string {
 }
 
 // BuiltinAdTrackerPatterns is the 40+ built-in ad/tracker domain
-// patterns (spec L4027: ad/tracker blocking 40+ patterns). Covers
+// patterns (ad/tracker blocking 40+ patterns). Covers
 // major ad networks, trackers, analytics, and social widgets.
 //
 // All entries MUST be lowercase; the matcher relies on this and does
-// not re-lowercase them per call (TASK-2344 hot-path optimization).
+// not re-lowercase them per call (hot-path optimization).
 var BuiltinAdTrackerPatterns = []string{
 	// --- Ad networks (20) ---
 	"doubleclick.net",
@@ -89,10 +89,10 @@ var adTrackerPatternSet = func() map[string]struct{} {
 }()
 
 // IsAdTrackerDomain returns true if the domain matches any of the 40+
-// built-in ad/tracker patterns (spec L4027). Matching is suffix-based:
+// built-in ad/tracker patterns. Matching is suffix-based:
 // a domain matches if it equals a pattern or ends with "."+pattern.
 //
-// Implementation (TASK-2344 optimization): instead of a linear scan
+// Implementation (optimization): instead of a linear scan
 // over 48 patterns with a per-call ToLower on each pattern, we walk
 // up the domain labels and do O(1) map lookups. For a domain like
 // "ads.fls.doubleclick.net" we check "ads.fls.doubleclick.net",
@@ -118,7 +118,7 @@ func IsAdTrackerDomain(domain string) bool {
 }
 
 // FilterAdTrackerDomains filters a list of domains, removing any that
-// match the built-in ad/tracker patterns (spec L4027).
+// match the built-in ad/tracker patterns.
 func FilterAdTrackerDomains(domains []string) []string {
 	out := make([]string, 0, len(domains))
 	for _, d := range domains {
@@ -130,7 +130,7 @@ func FilterAdTrackerDomains(domains []string) []string {
 }
 
 // BuiltinAdTrackerPatternCount returns the number of built-in patterns.
-// Must be >= 40 per spec L4027.
+// Must be >= 40.
 func BuiltinAdTrackerPatternCount() int {
 	return len(BuiltinAdTrackerPatterns)
 }

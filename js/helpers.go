@@ -19,7 +19,7 @@ func itoa(u uint32) string {
 
 // jsStringLit produces a JS-safe double-quoted string literal.
 //
-// Optimization (TASK-2344): pre-size the strings.Builder to len(s)+2
+// Optimization: pre-size the strings.Builder to len(s)+2
 // (the minimum output: 2 quotes + input unchanged) to avoid the
 // Builder's internal buffer reallocations.
 func jsStringLit(s string) string {

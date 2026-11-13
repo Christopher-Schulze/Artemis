@@ -56,8 +56,7 @@ func TestWorkerTargetInfo_MarshalJSON(t *testing.T) {
 }
 
 func TestWorkerTargetInfo_MarshalJSON_SafeEscaping(t *testing.T) {
-	// Verify HTML-unsafe characters are safely escaped (spec L4058:
-	// safe JSON marshaling).
+	// Verify HTML-unsafe characters are safely escaped (// safe JSON marshaling).
 	info := WorkerTargetInfo{
 		TargetID:   `<script>alert(1)</script>`,
 		TargetType: "worker",
@@ -216,7 +215,7 @@ func TestWorkerStealthScript_LanguagesArray(t *testing.T) {
 
 func TestWorkerStealthScript_JSONParseSafe(t *testing.T) {
 	// The languages JSON must be a valid JSON string that JSON.parse can
-	// handle (spec L4058: safe JSON marshaling).
+	// handle (safe JSON marshaling).
 	script := WorkerStealthScript(Defaults())
 	// Extract the JSON.parse argument by finding the pattern.
 	idx := strings.Index(script, "JSON.parse(")
@@ -407,7 +406,7 @@ func TestFirstLanguage(t *testing.T) {
 
 func TestWorkerStealthScript_ParityWithMainPage(t *testing.T) {
 	// The worker stealth script must apply the same UA as the main page
-	// stealth script (spec L4058: same UA/emulation as main page).
+	// stealth script (same UA/emulation as main page).
 	p := Defaults()
 	mainScript := Script(p)
 	workerScript := WorkerStealthScript(p)
@@ -431,7 +430,7 @@ func TestWorkerStealthScript_ParityWithMainPage(t *testing.T) {
 
 func TestWorkerStealthScript_NoWindowReference(t *testing.T) {
 	// Worker contexts do not have `window` - the script must use
-	// `self.navigator` instead (spec L4058: prevents detection via
+	// `self.navigator` instead (prevents detection via
 	// worker navigator properties).
 	script := WorkerStealthScript(Defaults())
 	if strings.Contains(script, "window.navigator") {

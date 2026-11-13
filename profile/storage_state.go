@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// storage_state.go (spec L4262: Storage State Persistence).
+// storage_state.go (Storage State Persistence).
 //
 // StorageState is the unified JSON container for persisting and restoring a
 // browser profile's storage state across sessions. It bundles cookies,
 // localStorage, sessionStorage, and indexedDB origins into a single
 // exportable/importable document. This is the Go equivalent of Playwright's
 // `storageState` and the Vercel Agent-Browser `auth.rs` storage-state
-// persistence (spec L4262: Storage State Persistence).
+// persistence (Storage State Persistence).
 //
 // JSON schema:
 //
@@ -39,7 +39,7 @@ import (
 // StorageStateVersion is the supported schema version for StorageState.
 const StorageStateVersion = 1
 
-// StorageState is the unified storage-state container (spec L4262).
+// StorageState is the unified storage-state container.
 type StorageState struct {
 	Version    int                  `json:"version"`
 	ExportedAt time.Time            `json:"exported_at"`
@@ -47,8 +47,7 @@ type StorageState struct {
 	Origins    []StorageStateOrigin `json:"origins"`
 }
 
-// StorageStateOrigin bundles all per-origin storage for one origin
-// (spec L4262).
+// StorageStateOrigin bundles all per-origin storage for one origin.
 type StorageStateOrigin struct {
 	Origin         string           `json:"origin"`
 	LocalStorage   []LocalStorageKV `json:"local_storage"`
@@ -64,7 +63,7 @@ type LocalStorageKV struct {
 }
 
 // ExportStorageState builds a StorageState from the cookie store, storage
-// manager, and session-scoped sessionStorage entries (spec L4262). The
+// manager, and session-scoped sessionStorage entries. The
 // returned document is ready to serialize via json.Marshal.
 //
 // Parameters:
@@ -130,7 +129,7 @@ func ExportStorageState(cookies *CookieStore, storage *StorageManager, sessionEn
 }
 
 // ImportStorageState applies a StorageState document to the cookie store and
-// storage manager (spec L4262). Cookies are imported via ImportCookies;
+// storage manager. Cookies are imported via ImportCookies;
 // localStorage entries are added via AddLocalStorage; sessionStorage entries
 // are returned to the caller (the StorageManager does not track sessionStorage
 // directly, so the caller must inject them via CDP).
@@ -177,7 +176,7 @@ func ImportStorageState(state *StorageState, cookies *CookieStore, storage *Stor
 	return allSessionStorage, nil
 }
 
-// SerializeStorageState marshals a StorageState to JSON bytes (spec L4262).
+// SerializeStorageState marshals a StorageState to JSON bytes.
 func SerializeStorageState(state *StorageState) ([]byte, error) {
 	if state == nil {
 		return nil, errors.New("storage state: nil state")
@@ -185,8 +184,8 @@ func SerializeStorageState(state *StorageState) ([]byte, error) {
 	return json.MarshalIndent(state, "", "  ")
 }
 
-// DeserializeStorageState unmarshals a StorageState from JSON bytes
-// (spec L4262). Validates the schema version.
+// DeserializeStorageState unmarshals a StorageState from JSON bytes.
+// Validates the schema version.
 func DeserializeStorageState(data []byte) (*StorageState, error) {
 	var state StorageState
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -198,7 +197,7 @@ func DeserializeStorageState(data []byte) (*StorageState, error) {
 	return &state, nil
 }
 
-// SaveStorageStateFile writes a StorageState to a JSON file (spec L4262).
+// SaveStorageStateFile writes a StorageState to a JSON file.
 // The file is written with 0600 permissions; parent dirs are created with
 // 0700 permissions.
 func SaveStorageStateFile(state *StorageState, path string) (returnErr error) {
@@ -237,7 +236,7 @@ func SaveStorageStateFile(state *StorageState, path string) (returnErr error) {
 	return os.Rename(name, path)
 }
 
-// LoadStorageStateFile reads a StorageState from a JSON file (spec L4262).
+// LoadStorageStateFile reads a StorageState from a JSON file.
 func LoadStorageStateFile(path string) (*StorageState, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {

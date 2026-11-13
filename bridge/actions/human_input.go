@@ -13,7 +13,7 @@ import (
 )
 
 // HumanProfile requests human-like click, type and scroll input executed with
-// real CDP events (spec L4190-L4194). Nil keeps the fast canonical path. A
+// real CDP events. Nil keeps the fast canonical path. A
 // non-zero Seed makes generated paths, offsets and timings reproducible; zero
 // uses the cryptographic source.
 type HumanProfile struct {

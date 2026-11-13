@@ -7,7 +7,7 @@ import (
 	bridgeobserve "github.com/Christopher-Schulze/Artemis/bridge/observe"
 )
 
-// element.go (spec L4019: bridge/cdpops/element.go - element queries +
+// element.go (bridge/cdpops/element.go - element queries +
 // box model).
 //
 // Low-level CDP ops: element queries and box model retrieval.
@@ -15,7 +15,7 @@ import (
 // retrieving their box model (position, size, viewport).
 
 // BoxModel represents an element's box model
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 type BoxModel struct {
 	Content Quad `json:"content"`
 	Padding Quad `json:"padding"`
@@ -26,7 +26,7 @@ type BoxModel struct {
 }
 
 // Quad represents a quadrilateral (4 points)
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 type Quad struct {
 	X1 float64 `json:"x1"`
 	Y1 float64 `json:"y1"`
@@ -79,7 +79,7 @@ const (
 )
 
 // ElementInfo represents a queried DOM element
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 type ElementInfo struct {
 	Ref           string                 `json:"ref"`
 	FrameID       string                 `json:"frameId,omitempty"`
@@ -103,7 +103,7 @@ type ElementInfo struct {
 }
 
 // ElementQuery represents a query for DOM elements
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 type ElementQuery struct {
 	Selector string `json:"selector"` // CSS selector or eN ref
 	FrameID  string `json:"frameId,omitempty"`
@@ -111,7 +111,7 @@ type ElementQuery struct {
 }
 
 // QueryResult is the result of an element query
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 type QueryResult struct {
 	Elements []ElementInfo `json:"elements"`
 	Total    int           `json:"total"`
@@ -119,7 +119,7 @@ type QueryResult struct {
 }
 
 // QueryElements queries DOM elements by selector
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func QueryElements(query ElementQuery) QueryResult {
 	if query.Selector == "" {
 		return QueryResult{Error: "element query: empty selector"}
@@ -128,7 +128,7 @@ func QueryElements(query ElementQuery) QueryResult {
 }
 
 // GetBoxModel retrieves the box model for an element
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func GetBoxModel(ref string) (*BoxModel, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("box model: empty ref")
@@ -137,7 +137,7 @@ func GetBoxModel(ref string) (*BoxModel, error) {
 }
 
 // IsElementVisible checks if an element is visible
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func IsElementVisible(box *BoxModel) bool {
 	if box == nil {
 		return false
@@ -146,7 +146,7 @@ func IsElementVisible(box *BoxModel) bool {
 }
 
 // IsElementClickable checks if an element is clickable
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func IsElementClickable(info *ElementInfo) bool {
 	if info == nil {
 		return false
@@ -157,7 +157,7 @@ func IsElementClickable(info *ElementInfo) bool {
 }
 
 // GetElementCenter returns the center point of an element's box model
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func GetElementCenter(box *BoxModel) (float64, float64) {
 	if box == nil {
 		return 0, 0
@@ -169,7 +169,7 @@ func GetElementCenter(box *BoxModel) (float64, float64) {
 }
 
 // FilterVisible filters elements to only visible ones
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func FilterVisible(elements []ElementInfo) []ElementInfo {
 	var result []ElementInfo
 	for _, e := range elements {
@@ -181,7 +181,7 @@ func FilterVisible(elements []ElementInfo) []ElementInfo {
 }
 
 // FindByRef finds an element by its ref in a list
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func FindByRef(elements []ElementInfo, ref string) (*ElementInfo, bool) {
 	for i := range elements {
 		if elements[i].Ref == ref {
@@ -192,7 +192,7 @@ func FindByRef(elements []ElementInfo, ref string) (*ElementInfo, bool) {
 }
 
 // FindByTag finds elements by tag name
-// (spec L4019: element queries + box model).
+// (element queries + box model).
 func FindByTag(elements []ElementInfo, tag string) []ElementInfo {
 	var result []ElementInfo
 	for _, e := range elements {

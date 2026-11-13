@@ -1,6 +1,6 @@
 package bridge
 
-// bridge.go (spec L4018: bridge/bridge.go - CDP Bridge - Chrome
+// bridge.go (bridge/bridge.go - CDP Bridge - Chrome
 // control, Context Hierarchy).
 //
 // This file is the spec-mandated facade for the CDP Bridge.
@@ -13,7 +13,7 @@ package bridge
 // Stealth Injection, Bridge State Machine.
 
 // ContextKind enumerates CDP context hierarchy levels
-// (spec L4018: Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
+// (Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
 type ContextKind string
 
 const (
@@ -26,39 +26,39 @@ const (
 )
 
 // BridgeContextUnit is the public alias for CDPContextUnit
-// (spec L4018: Context Hierarchy).
+// (Context Hierarchy).
 type BridgeContextUnit = CDPContextUnit
 
 // BridgeContextTree is the spec-mandated alias for CDPContextTree
-// (spec L4018: Context Hierarchy).
+// (Context Hierarchy).
 type BridgeContextTree = CDPContextTree
 
 // NewBridgeContextTree creates a new CDP context tree
-// (spec L4018: Context Hierarchy).
+// (Context Hierarchy).
 func NewBridgeContextTree() *BridgeContextTree {
 	return NewCDPContextTree()
 }
 
 // BridgeProvider is the spec-mandated alias for BrowserProvider
-// (spec L4018: Chrome control).
+// (Chrome control).
 type BridgeProvider = BrowserProvider
 
 // BridgeSession is the spec-mandated alias for BrowserSession
-// (spec L4018: Chrome control).
+// (Chrome control).
 type BridgeSession = BrowserSession
 
 // BridgeProviderRegistry is the spec-mandated alias for
-// ProviderRegistry (spec L4018: Chrome Launch).
+// ProviderRegistry (Chrome Launch).
 type BridgeProviderRegistry = ProviderRegistry
 
 // NewBridgeProviderRegistry creates a new provider registry
-// (spec L4018: Chrome Launch).
+// (Chrome Launch).
 func NewBridgeProviderRegistry() *BridgeProviderRegistry {
 	return NewProviderRegistry()
 }
 
 // IsValidContextKind reports whether a context kind is valid
-// (spec L4018: Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
+// (Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
 func IsValidContextKind(kind ContextKind) bool {
 	switch kind {
 	case ContextKindAlloc, ContextKindBrowser, ContextKindTab:
@@ -68,13 +68,13 @@ func IsValidContextKind(kind ContextKind) bool {
 }
 
 // IsParentContext reports whether a context kind can be a parent
-// (spec L4018: Context Hierarchy).
+// (Context Hierarchy).
 func IsParentContext(kind ContextKind) bool {
 	return kind == ContextKindAlloc || kind == ContextKindBrowser
 }
 
 // IsLeafContext reports whether a context kind is a leaf (tab)
-// (spec L4018: Context Hierarchy).
+// (Context Hierarchy).
 func IsLeafContext(kind ContextKind) bool {
 	return kind == ContextKindTab
 }

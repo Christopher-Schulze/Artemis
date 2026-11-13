@@ -41,7 +41,7 @@ func TestCSSCapabilitiesRequireCurrentConformanceInsteadOfDeclaredNames(t *testi
 
 func TestDefaultSupportedReal(t *testing.T) {
 	apis := defaultSupportedReal()
-	// Must include key APIs from spec L3992
+	// Must include key APIs
 	required := []string{
 		"fetch", "XMLHttpRequest", "FormData", "Headers",
 		"URL", "URLSearchParams", "cookie", "localStorage",

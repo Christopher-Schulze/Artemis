@@ -11,17 +11,15 @@ import (
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
-// engine.go (spec L4022: renderless/engine.go - production-backed
+// engine.go (renderless/engine.go - production-backed
 // renderless facade).
 //
 // In-process no-render JS browser path: this package is the public facade for
 // the production engine.Engine network, parser and V8 execution owner. It
 // does not maintain a second synthetic execution engine.
-//
-// Ref: research/artemis/engine/engine.go:1-272
 
 // EngineConfig configures the production-backed renderless facade
-// (spec L4022: renderless engine).
+// (renderless engine).
 type EngineConfig struct {
 	MaxIsolates    int           `json:"maxIsolates"`
 	ScriptTimeout  time.Duration `json:"scriptTimeout"`
@@ -42,7 +40,7 @@ type EngineConfig struct {
 type FetchOptions = artemisengine.FetchOpts
 
 // ApplyDefaults applies default values to the config
-// (spec L4022: production-backed renderless facade).
+// (production-backed renderless facade).
 func (c *EngineConfig) ApplyDefaults() {
 	if c.MaxIsolates <= 0 {
 		c.MaxIsolates = 4
@@ -59,7 +57,7 @@ func (c *EngineConfig) ApplyDefaults() {
 }
 
 // Engine is the renderless facade over the production JS execution engine
-// (spec L4022: renderless engine).
+// (renderless engine).
 type Engine struct {
 	mu      sync.RWMutex
 	cfg     EngineConfig
@@ -68,7 +66,7 @@ type Engine struct {
 }
 
 // NewEngine creates a new production-backed renderless facade
-// (spec L4022: renderless engine).
+// (renderless engine).
 func NewEngine(cfg EngineConfig) (*Engine, error) {
 	cfg.ApplyDefaults()
 	backend, err := artemisengine.New(artemisengine.Config{
@@ -88,7 +86,7 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 }
 
 // Config returns the engine configuration
-// (spec L4022: renderless engine).
+// (renderless engine).
 func (e *Engine) Config() EngineConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -132,7 +130,7 @@ func (e *Engine) FetchWithOptions(ctx context.Context, rawURL string, opts artem
 }
 
 // Close shuts down the engine
-// (spec L4022: renderless engine).
+// (renderless engine).
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	if e.closed {
@@ -149,7 +147,7 @@ func (e *Engine) Close() error {
 }
 
 // IsClosed reports whether the engine is closed
-// (spec L4022: renderless engine).
+// (renderless engine).
 func (e *Engine) IsClosed() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

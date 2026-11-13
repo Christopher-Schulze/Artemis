@@ -7,7 +7,7 @@ import (
 )
 
 // visual_geometry.go binds pixels to page geometry for reference-bound visual
-// grounding (spec L4264 Snapshot Annotations): the top-level visual viewport
+// grounding (Snapshot Annotations): the top-level visual viewport
 // identity a screenshot was taken in, element rectangles in that viewport and
 // the DOM node under a viewport point, descending into owned frames.
 

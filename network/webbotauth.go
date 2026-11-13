@@ -17,7 +17,7 @@ import (
 	httpsig "github.com/remitly-oss/httpsig-go"
 )
 
-// webbotauth.go (TASK-2343, TASK-2988: WebBotAuth - cryptographic good-bot
+// webbotauth.go (WebBotAuth - cryptographic good-bot
 // signature).
 //
 // WebBotAuth is the honest counterpart to the stealth layer: instead of
@@ -76,8 +76,8 @@ type WebBotAuthStats struct {
 	Errors  atomic.Int64
 }
 
-// WebBotAuth signs HTTP requests per the web-bot-auth architecture
-// (TASK-2343). It is safe for concurrent use.
+// WebBotAuth signs HTTP requests per the web-bot-auth architecture.
+// It is safe for concurrent use.
 type WebBotAuth struct {
 	cfg    WebBotAuthConfig
 	stats  WebBotAuthStats
@@ -402,7 +402,7 @@ func VerifyWebBotAuthSignature(req *http.Request, pub ed25519.PublicKey) error {
 
 // WebBotAuthMiddleware is an HTTP transport wrapper that signs every
 // outgoing request with WebBotAuth before dispatching to the underlying
-// transport (TASK-2343). When the signer is disabled, requests pass through
+// transport. When the signer is disabled, requests pass through
 // unchanged.
 type WebBotAuthMiddleware struct {
 	Transport http.RoundTripper

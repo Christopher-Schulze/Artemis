@@ -14,7 +14,7 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
-// static_detail.go (spec L4400: Static fetcher full detail).
+// static_detail.go (Static fetcher full detail).
 //
 // Response encoding from curl_cffi response.encoding fallback utf-8.
 // Cookie persistence via session/client. The static fetcher must:
@@ -24,7 +24,7 @@ import (
 //  3. Decode the body to UTF-8 text for downstream parsing.
 
 // CookieJar is a simple thread-safe cookie store for the static fetcher
-// (spec L4398: cookie persistence via session/client).
+// (cookie persistence via session/client).
 type CookieJar struct {
 	mu      sync.Mutex
 	cookies map[string][]*http.Cookie // keyed by host
@@ -107,7 +107,7 @@ func (j *CookieJar) ToHeader(host string) string {
 }
 
 // StaticDetailFetcher extends StaticFetcher with response encoding detection
-// (charset fallback to UTF-8) and cookie persistence (spec L4400).
+// (charset fallback to UTF-8) and cookie persistence.
 type StaticDetailFetcher struct {
 	client      *network.HTTPClient
 	jar         *CookieJar
@@ -144,7 +144,7 @@ type StaticDetailResult struct {
 }
 
 // FetchDetail performs a static fetch with encoding detection and cookie
-// persistence (spec L4400).
+// persistence.
 func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, opts StaticFetchOpts) (*StaticDetailResult, error) {
 	if err := f.rateLimiter.wait(ctx); err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, op
 		method = http.MethodGet
 	}
 
-	// Inject stored cookies into the request headers (spec L4400: cookie
+	// Inject stored cookies into the request headers (cookie
 	// persistence via session/client).
 	host := extractHost(rawURL)
 	if f.jar != nil && opts.Headers == nil {
@@ -204,8 +204,7 @@ func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, op
 		ct := resp.Headers.Get("Content-Type")
 		charset := extractCharset(ct)
 
-		// If no charset in Content-Type, try <meta> charset detection (spec L4400:
-		// response encoding from curl_cffi response.encoding fallback utf-8).
+		// If no charset in Content-Type, try <meta> charset detection (// response encoding from curl_cffi response.encoding fallback utf-8).
 		encoding := charset
 		if encoding == "" {
 			encoding = detectMetaCharset(resp.Body)
@@ -225,7 +224,7 @@ func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, op
 			encoding = "utf-8"
 		}
 
-		// Persist response cookies (spec L4400: cookie persistence).
+		// Persist response cookies (cookie persistence).
 		if f.jar != nil {
 			respCookies := parseSetCookie(resp.Headers)
 			if len(respCookies) > 0 {
@@ -249,7 +248,7 @@ func (f *StaticDetailFetcher) FetchDetail(ctx context.Context, rawURL string, op
 
 // detectMetaCharset scans the first 1024 bytes of an HTML body for a
 // <meta charset="..."> or <meta http-equiv="Content-Type" content="...; charset=...">
-// declaration (spec L4400: encoding detection fallback).
+// declaration (encoding detection fallback).
 func detectMetaCharset(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -291,7 +290,7 @@ func detectMetaCharset(body []byte) string {
 }
 
 // detectBOM checks for a Byte Order Mark that indicates the encoding
-// (spec L4400: encoding detection fallback).
+// (encoding detection fallback).
 func detectBOM(body []byte) string {
 	if len(body) >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF {
 		return "utf-8"

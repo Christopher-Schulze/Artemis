@@ -17,8 +17,8 @@ import (
 )
 
 // grounded_extract.go is the source-grounded form of deterministic
-// structured extraction (spec L4029 SourceSnapshot -> ExtractedPage,
-// L4375-L4448 Scrapling rebuild). Every schema field yields evidence: the
+// structured extraction (SourceSnapshot -> ExtractedPage,
+// Scrapling rebuild). Every schema field yields evidence: the
 // source it came from, the selector or JSON pointer, the DOM path of the
 // node and a bounded excerpt. Missing, conflicting, truncated, invalid and
 // withheld fields stay distinct; none of them becomes a value. No inference

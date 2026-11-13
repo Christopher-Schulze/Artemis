@@ -17,7 +17,7 @@ import (
 	artemisrouter "github.com/Christopher-Schulze/Artemis/router"
 )
 
-// run.go (TASK-2343: `run --script FILE <url>` CLI subcommand).
+// run.go (`run --script FILE <url>` CLI subcommand).
 //
 // The `run` subcommand loads a user-provided JavaScript file and executes
 // it in the page context after fetching the target URL. This is distinct

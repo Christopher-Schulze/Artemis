@@ -14,7 +14,7 @@ import (
 )
 
 // DiscoveryMethod identifies which Chrome DevTools discovery endpoint was
-// used to locate a debuggable target (spec L4266).
+// used to locate a debuggable target.
 type DiscoveryMethod string
 
 const (

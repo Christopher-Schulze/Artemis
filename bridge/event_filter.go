@@ -1,4 +1,4 @@
-// Package bridge CDP domain enable/disable manager (spec L4495: P1.3 Event Filtering).
+// Package bridge CDP domain enable/disable manager (P1.3 Event Filtering).
 //
 // P1.3 Event Filtering: only activate the CDP domains the current scrape
 // actually needs. Page is always on; Network only when monitoring;

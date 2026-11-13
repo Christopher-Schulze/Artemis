@@ -7,7 +7,7 @@ import (
 )
 
 // TestTextDriftTolerantAssertion is a deterministic regression test
-// for the text-drift failure class surfaced by the TASK-2325 smoke
+// for the text-drift failure class surfaced by the smoke
 // matrix (nav-example scenario). example.com changed its body text
 // from "illustrative examples" to "documentation examples", breaking
 // an exact-match assertion. The fix was to use text_contains with a

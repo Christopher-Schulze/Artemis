@@ -7,9 +7,9 @@ import (
 
 // ==================== snapshot.go facade tests ====================
 
-// TestTASK2246_AXTreeNodeAlias verifies the AXTreeNode alias
-// (spec L4024: snapshot.go - AX tree extraction + diff).
-func TestTASK2246_AXTreeNodeAlias(t *testing.T) {
+// TestAXTreeNodeAlias verifies the AXTreeNode alias
+// (snapshot.go - AX tree extraction + diff).
+func TestAXTreeNodeAlias(t *testing.T) {
 	var node AXTreeNode
 	node.Role = "button"
 	node.Name = "Submit"
@@ -18,9 +18,9 @@ func TestTASK2246_AXTreeNodeAlias(t *testing.T) {
 	}
 }
 
-// TestTASK2246_DiffAXTrees verifies DiffAXTrees
-// (spec L4024: snapshot.go - AX tree extraction + diff).
-func TestTASK2246_DiffAXTrees(t *testing.T) {
+// TestDiffAXTrees verifies DiffAXTrees
+// (snapshot.go - AX tree extraction + diff).
+func TestDiffAXTrees(t *testing.T) {
 	before := []AXTreeNode{{Role: "button", Name: "A"}, {Role: "link", Name: "B"}}
 	after := []AXTreeNode{{Role: "button", Name: "A"}, {Role: "link", Name: "C"}}
 	dist := DiffAXTrees(before, after)
@@ -29,8 +29,8 @@ func TestTASK2246_DiffAXTrees(t *testing.T) {
 	}
 }
 
-// TestTASK2246_DiffAXTreesIdentical verifies identical trees have 0 diff.
-func TestTASK2246_DiffAXTreesIdentical(t *testing.T) {
+// TestDiffAXTreesIdentical verifies identical trees have 0 diff.
+func TestDiffAXTreesIdentical(t *testing.T) {
 	trees := []AXTreeNode{{Role: "button", Name: "A"}}
 	dist := DiffAXTrees(trees, trees)
 	if dist != 0 {
@@ -38,9 +38,9 @@ func TestTASK2246_DiffAXTreesIdentical(t *testing.T) {
 	}
 }
 
-// TestTASK2246_DedupAXSnapshot verifies DedupAXSnapshot
-// (spec L4024: snapshot.go - AX tree extraction + diff).
-func TestTASK2246_DedupAXSnapshot(t *testing.T) {
+// TestDedupAXSnapshot verifies DedupAXSnapshot
+// (snapshot.go - AX tree extraction + diff).
+func TestDedupAXSnapshot(t *testing.T) {
 	nodes := []AXTreeNode{
 		{Role: "button", Name: "A"},
 		{Role: "button", Name: "A"}, // duplicate
@@ -52,9 +52,9 @@ func TestTASK2246_DedupAXSnapshot(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NewAXSnapshotTracker verifies tracker creation
-// (spec L4024: snapshot.go - AX tree extraction + diff).
-func TestTASK2246_NewAXSnapshotTracker(t *testing.T) {
+// TestNewAXSnapshotTracker verifies tracker creation
+// (snapshot.go - AX tree extraction + diff).
+func TestNewAXSnapshotTracker(t *testing.T) {
 	tracker := NewAXSnapshotTracker()
 	if tracker == nil {
 		t.Fatal("tracker should not be nil")
@@ -63,9 +63,9 @@ func TestTASK2246_NewAXSnapshotTracker(t *testing.T) {
 
 // ==================== network.go tests ====================
 
-// TestTASK2246_NewNetworkMonitor verifies creation
-// (spec L4024: network.go - network ring buffer + subscriber pattern).
-func TestTASK2246_NewNetworkMonitor(t *testing.T) {
+// TestNewNetworkMonitor verifies creation
+// (network.go - network ring buffer + subscriber pattern).
+func TestNewNetworkMonitor(t *testing.T) {
 	m := NewNetworkMonitor(100)
 	if m == nil {
 		t.Fatal("monitor should not be nil")
@@ -78,9 +78,9 @@ func TestTASK2246_NewNetworkMonitor(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NetworkMonitorPush verifies Push adds events
-// (spec L4024: network.go - network ring buffer).
-func TestTASK2246_NetworkMonitorPush(t *testing.T) {
+// TestNetworkMonitorPush verifies Push adds events
+// (network.go - network ring buffer).
+func TestNetworkMonitorPush(t *testing.T) {
 	m := NewNetworkMonitor(100)
 	m.Push(NetworkEvent{URL: "https://example.com"})
 	m.Push(NetworkEvent{URL: "https://test.com"})
@@ -89,9 +89,9 @@ func TestTASK2246_NetworkMonitorPush(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NetworkMonitorSubscribe verifies subscriber pattern
-// (spec L4024: network.go - subscriber pattern).
-func TestTASK2246_NetworkMonitorSubscribe(t *testing.T) {
+// TestNetworkMonitorSubscribe verifies subscriber pattern
+// (network.go - subscriber pattern).
+func TestNetworkMonitorSubscribe(t *testing.T) {
 	m := NewNetworkMonitor(100)
 	received := []NetworkEvent{}
 	m.Subscribe(func(ev NetworkEvent) {
@@ -109,9 +109,9 @@ func TestTASK2246_NetworkMonitorSubscribe(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NetworkMonitorSnapshot verifies Snapshot
-// (spec L4024: network.go - network ring buffer).
-func TestTASK2246_NetworkMonitorSnapshot(t *testing.T) {
+// TestNetworkMonitorSnapshot verifies Snapshot
+// (network.go - network ring buffer).
+func TestNetworkMonitorSnapshot(t *testing.T) {
 	m := NewNetworkMonitor(100)
 	m.Push(NetworkEvent{URL: "https://a.com"})
 	m.Push(NetworkEvent{URL: "https://b.com"})
@@ -121,9 +121,9 @@ func TestTASK2246_NetworkMonitorSnapshot(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NetworkMonitorMultipleSubscribers verifies multiple
-// subscribers all receive events (spec L4024: subscriber pattern).
-func TestTASK2246_NetworkMonitorMultipleSubscribers(t *testing.T) {
+// TestNetworkMonitorMultipleSubscribers verifies multiple
+// subscribers all receive events (subscriber pattern).
+func TestNetworkMonitorMultipleSubscribers(t *testing.T) {
 	m := NewNetworkMonitor(100)
 	count1, count2 := 0, 0
 	m.Subscribe(func(ev NetworkEvent) { count1++ })
@@ -134,8 +134,8 @@ func TestTASK2246_NetworkMonitorMultipleSubscribers(t *testing.T) {
 	}
 }
 
-// TestTASK2246_NetworkMonitorNilSafe verifies nil monitor is safe.
-func TestTASK2246_NetworkMonitorNilSafe(t *testing.T) {
+// TestNetworkMonitorNilSafe verifies nil monitor is safe.
+func TestNetworkMonitorNilSafe(t *testing.T) {
 	var m *NetworkMonitor
 	m.Push(NetworkEvent{})
 	m.Subscribe(func(ev NetworkEvent) {})
@@ -152,42 +152,42 @@ func TestTASK2246_NetworkMonitorNilSafe(t *testing.T) {
 
 // ==================== console.go facade tests ====================
 
-// TestTASK2246_NewConsoleCapture verifies creation with default 1000
-// capacity (spec L4024: console log capture ring buffer 1000).
-func TestTASK2246_NewConsoleCapture(t *testing.T) {
+// TestNewConsoleCapture verifies creation with default 1000
+// capacity (console log capture ring buffer 1000).
+func TestNewConsoleCapture(t *testing.T) {
 	c := NewConsoleCapture()
 	if c == nil {
 		t.Fatal("capture should not be nil")
 	}
 }
 
-// TestTASK2246_DefaultConsoleCaptureCapacity verifies default is 1000
-// (spec L4024: ring buffer 1000).
-func TestTASK2246_DefaultConsoleCaptureCapacity(t *testing.T) {
+// TestDefaultConsoleCaptureCapacity verifies default is 1000
+// (ring buffer 1000).
+func TestDefaultConsoleCaptureCapacity(t *testing.T) {
 	if DefaultConsoleCaptureCapacity != 1000 {
 		t.Errorf("default capacity: got %d, want 1000", DefaultConsoleCaptureCapacity)
 	}
 }
 
-// TestTASK2246_NewConsoleCaptureWithCapacity verifies custom capacity.
-func TestTASK2246_NewConsoleCaptureWithCapacity(t *testing.T) {
+// TestNewConsoleCaptureWithCapacity verifies custom capacity.
+func TestNewConsoleCaptureWithCapacity(t *testing.T) {
 	c := NewConsoleCaptureWithCapacity(500)
 	if c == nil {
 		t.Fatal("capture should not be nil")
 	}
 }
 
-// TestTASK2246_NormalizeConsoleLevel verifies level normalization
-// (spec L4024: console.go - console log capture).
-func TestTASK2246_NormalizeConsoleLevel(t *testing.T) {
+// TestNormalizeConsoleLevel verifies level normalization
+// (console.go - console log capture).
+func TestNormalizeConsoleLevel(t *testing.T) {
 	level := NormalizeConsoleLevel("log")
 	if !level.IsValid() {
 		t.Error("log level should be valid")
 	}
 }
 
-// TestTASK2246_ConsoleLogEntryAlias verifies the alias works.
-func TestTASK2246_ConsoleLogEntryAlias(t *testing.T) {
+// TestConsoleLogEntryAlias verifies the alias works.
+func TestConsoleLogEntryAlias(t *testing.T) {
 	var entry ConsoleLogEntry
 	entry.Level = ConsoleLevelInfo
 	if entry.Level != ConsoleLevelInfo {
@@ -197,9 +197,9 @@ func TestTASK2246_ConsoleLogEntryAlias(t *testing.T) {
 
 // ==================== metrics.go tests ====================
 
-// TestTASK2246_NewMetricsCollector verifies creation
-// (spec L4024: metrics.go - performance metrics).
-func TestTASK2246_NewMetricsCollector(t *testing.T) {
+// TestNewMetricsCollector verifies creation
+// (metrics.go - performance metrics).
+func TestNewMetricsCollector(t *testing.T) {
 	c := NewMetricsCollector()
 	if c == nil {
 		t.Fatal("collector should not be nil")
@@ -209,9 +209,9 @@ func TestTASK2246_NewMetricsCollector(t *testing.T) {
 	}
 }
 
-// TestTASK2246_MetricsCollectorSetGet verifies SetMetrics/Current
-// (spec L4024: metrics.go - performance metrics).
-func TestTASK2246_MetricsCollectorSetGet(t *testing.T) {
+// TestMetricsCollectorSetGet verifies SetMetrics/Current
+// (metrics.go - performance metrics).
+func TestMetricsCollectorSetGet(t *testing.T) {
 	c := NewMetricsCollector()
 	metrics := PerformanceMetrics{
 		DOMContentLoaded: 100 * time.Millisecond,
@@ -232,8 +232,8 @@ func TestTASK2246_MetricsCollectorSetGet(t *testing.T) {
 	}
 }
 
-// TestTASK2246_MetricsCollectorUpdatedAt verifies UpdatedAt is set.
-func TestTASK2246_MetricsCollectorUpdatedAt(t *testing.T) {
+// TestMetricsCollectorUpdatedAt verifies UpdatedAt is set.
+func TestMetricsCollectorUpdatedAt(t *testing.T) {
 	c := NewMetricsCollector()
 	if !c.UpdatedAt().IsZero() {
 		t.Error("new collector should have zero UpdatedAt")
@@ -244,8 +244,8 @@ func TestTASK2246_MetricsCollectorUpdatedAt(t *testing.T) {
 	}
 }
 
-// TestTASK2246_MetricsCollectorNilSafe verifies nil collector is safe.
-func TestTASK2246_MetricsCollectorNilSafe(t *testing.T) {
+// TestMetricsCollectorNilSafe verifies nil collector is safe.
+func TestMetricsCollectorNilSafe(t *testing.T) {
 	var c *MetricsCollector
 	c.SetMetrics(PerformanceMetrics{})
 	if !c.IsEmpty() {
@@ -256,8 +256,8 @@ func TestTASK2246_MetricsCollectorNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2246_PerformanceMetricsString verifies String method.
-func TestTASK2246_PerformanceMetricsString(t *testing.T) {
+// TestPerformanceMetricsString verifies String method.
+func TestPerformanceMetricsString(t *testing.T) {
 	m := PerformanceMetrics{RequestCount: 10, TransferSize: 1024}
 	s := m.String()
 	if s == "" {
@@ -267,9 +267,9 @@ func TestTASK2246_PerformanceMetricsString(t *testing.T) {
 
 // ==================== format.go tests ====================
 
-// TestTASK2246_OutputFormatConstants verifies format constants
-// (spec L4024: format.go - output formatters HAR, NDJSON).
-func TestTASK2246_OutputFormatConstants(t *testing.T) {
+// TestOutputFormatConstants verifies format constants
+// (format.go - output formatters HAR, NDJSON).
+func TestOutputFormatConstants(t *testing.T) {
 	if OutputFormatHAR != "har" {
 		t.Error("HAR format mismatch")
 	}
@@ -278,9 +278,9 @@ func TestTASK2246_OutputFormatConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2246_IsSupportedFormat verifies supported format check
-// (spec L4024: format.go - output formatters HAR, NDJSON).
-func TestTASK2246_IsSupportedFormat(t *testing.T) {
+// TestIsSupportedFormat verifies supported format check
+// (format.go - output formatters HAR, NDJSON).
+func TestIsSupportedFormat(t *testing.T) {
 	if !IsSupportedFormat(OutputFormatHAR) {
 		t.Error("HAR should be supported")
 	}
@@ -292,9 +292,9 @@ func TestTASK2246_IsSupportedFormat(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatHAR verifies HAR formatting
-// (spec L4024: format.go - output formatters HAR).
-func TestTASK2246_FormatHAR(t *testing.T) {
+// TestFormatHAR verifies HAR formatting
+// (format.go - output formatters HAR).
+func TestFormatHAR(t *testing.T) {
 	entries := []HAREntry{}
 	data, err := FormatHAR(entries)
 	if err != nil {
@@ -305,9 +305,9 @@ func TestTASK2246_FormatHAR(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatNDJSON verifies NDJSON formatting
-// (spec L4024: format.go - output formatters NDJSON).
-func TestTASK2246_FormatNDJSON(t *testing.T) {
+// TestFormatNDJSON verifies NDJSON formatting
+// (format.go - output formatters NDJSON).
+func TestFormatNDJSON(t *testing.T) {
 	events := []NetworkEvent{
 		{URL: "https://a.com"},
 		{URL: "https://b.com"},
@@ -331,9 +331,9 @@ func TestTASK2246_FormatNDJSON(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatNDJSONEmpty verifies empty events produce empty
+// TestFormatNDJSONEmpty verifies empty events produce empty
 // output.
-func TestTASK2246_FormatNDJSONEmpty(t *testing.T) {
+func TestFormatNDJSONEmpty(t *testing.T) {
 	data, err := FormatNDJSON(nil)
 	if err != nil {
 		t.Fatalf("FormatNDJSON: %v", err)
@@ -343,9 +343,9 @@ func TestTASK2246_FormatNDJSONEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatConsoleNDJSON verifies console NDJSON formatting
-// (spec L4024: format.go - output formatters NDJSON).
-func TestTASK2246_FormatConsoleNDJSON(t *testing.T) {
+// TestFormatConsoleNDJSON verifies console NDJSON formatting
+// (format.go - output formatters NDJSON).
+func TestFormatConsoleNDJSON(t *testing.T) {
 	entries := []ConsoleEntry{
 		{Level: ConsoleLevelInfo, Args: []string{"hello"}},
 	}
@@ -358,9 +358,9 @@ func TestTASK2246_FormatConsoleNDJSON(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatOutputHAR verifies FormatOutput with HAR
-// (spec L4024: format.go - output formatters HAR).
-func TestTASK2246_FormatOutputHAR(t *testing.T) {
+// TestFormatOutputHAR verifies FormatOutput with HAR
+// (format.go - output formatters HAR).
+func TestFormatOutputHAR(t *testing.T) {
 	data, err := FormatOutput(OutputFormatHAR, nil)
 	if err != nil {
 		t.Fatalf("FormatOutput HAR: %v", err)
@@ -370,9 +370,9 @@ func TestTASK2246_FormatOutputHAR(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatOutputNDJSON verifies FormatOutput with NDJSON
-// (spec L4024: format.go - output formatters NDJSON).
-func TestTASK2246_FormatOutputNDJSON(t *testing.T) {
+// TestFormatOutputNDJSON verifies FormatOutput with NDJSON
+// (format.go - output formatters NDJSON).
+func TestFormatOutputNDJSON(t *testing.T) {
 	events := []NetworkEvent{{URL: "https://x.com"}}
 	data, err := FormatOutput(OutputFormatNDJSON, events)
 	if err != nil {
@@ -383,20 +383,20 @@ func TestTASK2246_FormatOutputNDJSON(t *testing.T) {
 	}
 }
 
-// TestTASK2246_FormatOutputUnsupported verifies unsupported format
+// TestFormatOutputUnsupported verifies unsupported format
 // errors.
-func TestTASK2246_FormatOutputUnsupported(t *testing.T) {
+func TestFormatOutputUnsupported(t *testing.T) {
 	_, err := FormatOutput(OutputFormat("xml"), nil)
 	if err == nil {
 		t.Error("unsupported format should error")
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2246_FullSpecParity verifies all 5 spec-mandated files exist
-// and have the spec-mandated functionality (spec L4024).
-func TestTASK2246_FullSpecParity(t *testing.T) {
+// TestObserveFacadesParity verifies all 5 spec-mandated files exist
+// and have the spec-mandated functionality.
+func TestObserveFacadesParity(t *testing.T) {
 	// 1. snapshot.go - AX tree extraction + diff
 	dist := DiffAXTrees([]AXTreeNode{{Role: "a"}}, []AXTreeNode{{Role: "b"}})
 	if dist < 0 {

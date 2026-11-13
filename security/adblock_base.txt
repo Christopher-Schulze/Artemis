@@ -1,5 +1,5 @@
-! Artemis embedded base blocklist (spec L4206 Layer 1).
-! Domains from research/webstack/pinchtab-main/internal/bridge/adblock.go and
+! Artemis embedded base blocklist (Layer 1).
+! Domains from github.com/pinchtab/pinchtab/internal/bridge/adblock.go and
 ! network.BuiltinAdTrackerPatterns. Every rule is $third-party so a vendor's
 ! own site keeps working. Generic path patterns (*pixel.gif*, */tr?*,
 ! */collect?*) are left to EasyList, whose precise variants avoid

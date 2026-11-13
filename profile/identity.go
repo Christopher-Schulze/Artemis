@@ -1,5 +1,5 @@
 // Package profile: identity.go implements Profile-Scoped Persistent
-// Identity (spec L4282): deterministic UUID5 generation so that the same
+// Identity: deterministic UUID5 generation so that the same
 // logical profile name always maps to the same stable UserID across
 // sessions and processes, with a pluggable Persistence layer for
 // durability.
@@ -25,8 +25,8 @@ import (
 // and pinned here so UserIDs are stable across releases.
 var DefaultNamespace = uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8") // DNS namespace per RFC 4122
 
-// ProfileIdentity is the persistent, profile-scoped identity record
-// (spec L4282). UserID is a deterministic UUID5 of (namespace, name).
+// ProfileIdentity is the persistent, profile-scoped identity record.
+// UserID is a deterministic UUID5 of (namespace, name).
 type ProfileIdentity struct {
 	UserID      uuid.UUID `json:"user_id"`
 	Namespace   uuid.UUID `json:"namespace"`
@@ -93,7 +93,7 @@ func (p *InMemoryPersistence) Load(profileName string) (ProfileIdentity, error) 
 }
 
 // IdentityManager creates and persists deterministic ProfileIdentity
-// records (spec L4282). Same profileName always yields the same UserID
+// records. Same profileName always yields the same UserID
 // for a given namespace. It is safe for concurrent use.
 type IdentityManager struct {
 	mu        sync.RWMutex

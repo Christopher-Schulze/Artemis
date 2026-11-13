@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// conformance_test.go (spec L4022: renderless/conformance_test.go -
+// conformance_test.go (renderless/conformance_test.go -
 // conformance tests).
 //
 // In-process no-render JS browser path: conformance tests that
@@ -18,7 +18,7 @@ import (
 // These tests are the spec-mandated conformance test file.
 
 // TestConformanceEngineCreation verifies engine can be created
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceEngineCreation(t *testing.T) {
 	cfg := EngineConfig{MaxIsolates: 2}
 	e, err := NewEngine(cfg)
@@ -35,7 +35,7 @@ func TestConformanceEngineCreation(t *testing.T) {
 }
 
 // TestConformanceEngineDefaults verifies default config
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceEngineDefaults(t *testing.T) {
 	e, err := NewEngine(EngineConfig{})
 	if err != nil {
@@ -52,7 +52,7 @@ func TestConformanceEngineDefaults(t *testing.T) {
 }
 
 // TestConformanceEngineClose verifies engine can be closed
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceEngineClose(t *testing.T) {
 	e, err := NewEngine(EngineConfig{})
 	if err != nil {
@@ -70,7 +70,7 @@ func TestConformanceEngineClose(t *testing.T) {
 }
 
 // TestConformanceContextPool verifies context pool works
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceContextPool(t *testing.T) {
 	pool := NewContextPool(4)
 	ctx := pool.Acquire()
@@ -84,7 +84,7 @@ func TestConformanceContextPool(t *testing.T) {
 }
 
 // TestConformanceWebAPIRegistry verifies WebAPI registry
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceWebAPIRegistry(t *testing.T) {
 	r := NewWebAPIRegistry()
 	if r.Count() == 0 {
@@ -99,7 +99,7 @@ func TestConformanceWebAPIRegistry(t *testing.T) {
 }
 
 // TestConformanceScriptRouter verifies script router
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceScriptRouter(t *testing.T) {
 	r := NewScriptRouter()
 	req := ScriptRequest{Type: ScriptTypeInline, Source: "console.log('hello')"}
@@ -110,7 +110,7 @@ func TestConformanceScriptRouter(t *testing.T) {
 }
 
 // TestConformanceInterceptHandler verifies intercept handler
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceInterceptHandler(t *testing.T) {
 	h := NewInterceptHandler()
 	h.AddRule(InterceptRule{
@@ -127,7 +127,7 @@ func TestConformanceInterceptHandler(t *testing.T) {
 }
 
 // TestConformanceCSSParser verifies CSS parser
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceCSSParser(t *testing.T) {
 	p := NewCSSParser()
 	rules, err := p.Parse("div { color: red; } .class { font-size: 14px; }")
@@ -140,7 +140,7 @@ func TestConformanceCSSParser(t *testing.T) {
 }
 
 // TestConformanceCapabilityProfile verifies capability profile
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceCapabilityProfile(t *testing.T) {
 	cfg := EngineConfig{EnableRobots: true, PrivateIPBlock: true}
 	registry := NewWebAPIRegistry()
@@ -157,7 +157,7 @@ func TestConformanceCapabilityProfile(t *testing.T) {
 }
 
 // TestConformancePage verifies page creation
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformancePage(t *testing.T) {
 	p := NewPage("https://example.com", 200, []byte("<html></html>"))
 	if p.URL != "https://example.com" {
@@ -169,7 +169,7 @@ func TestConformancePage(t *testing.T) {
 }
 
 // TestConformanceFullEngineFlow verifies full engine flow
-// (spec L4022: conformance test).
+// (conformance test).
 func TestConformanceFullEngineFlow(t *testing.T) {
 	// 1. Create engine
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Cookie is one Chromium cookie entry (spec L4577).
+// Cookie is one Chromium cookie entry.
 type Cookie struct {
 	Domain    string    `json:"domain"`
 	Name      string    `json:"name"`
@@ -23,7 +23,7 @@ type Cookie struct {
 	SameSite  string    `json:"same_site"`
 }
 
-// CookieStore manages cookie export/import/cleanup (spec L4577).
+// CookieStore manages cookie export/import/cleanup.
 // In production cookies live in Chromium's Default/Cookies SQLite; this
 // store provides the JSON export/import and cleanup operations that
 // RightsProcessor.FindAllData and Art.17 erasure call.
@@ -64,8 +64,7 @@ func (s *CookieStore) ListCookies(domain string) []Cookie {
 	return out
 }
 
-// ExportCookies serializes all cookies (or domain-filtered) to JSON
-// (spec L4577).
+// ExportCookies serializes all cookies (or domain-filtered) to JSON.
 func (s *CookieStore) ExportCookies(domain string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("cookie store: nil")
@@ -74,8 +73,7 @@ func (s *CookieStore) ExportCookies(domain string) ([]byte, error) {
 	return json.MarshalIndent(cookies, "", "  ")
 }
 
-// ImportCookies parses JSON and replaces cookies for the matching domains
-// (spec L4577).
+// ImportCookies parses JSON and replaces cookies for the matching domains.
 func (s *CookieStore) ImportCookies(data []byte) error {
 	if s == nil {
 		return errors.New("cookie store: nil")
@@ -103,7 +101,7 @@ func (s *CookieStore) ImportCookies(data []byte) error {
 	return nil
 }
 
-// ClearExpired removes cookies whose ExpiresAt is in the past (spec L4577).
+// ClearExpired removes cookies whose ExpiresAt is in the past.
 func (s *CookieStore) ClearExpired() int {
 	if s == nil {
 		return 0
@@ -121,7 +119,7 @@ func (s *CookieStore) ClearExpired() int {
 	return removed
 }
 
-// ClearDomain removes all cookies for a domain (spec L4577: Art.17 calls
+// ClearDomain removes all cookies for a domain (Art.17 calls
 // ClearDomain when no retention block exists).
 func (s *CookieStore) ClearDomain(domain string) int {
 	if s == nil {
@@ -139,7 +137,7 @@ func (s *CookieStore) ClearDomain(domain string) int {
 	return removed
 }
 
-// ClearAll removes all cookies (spec L4577).
+// ClearAll removes all cookies.
 func (s *CookieStore) ClearAll() int {
 	if s == nil {
 		return 0

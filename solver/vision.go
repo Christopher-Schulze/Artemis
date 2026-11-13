@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// vision.go (spec L4025: solver/vision.go - LLM vision solve:
+// vision.go (solver/vision.go - LLM vision solve:
 // screenshot -> Qwen3.6 -> instruction -> execute).
 //
 // Challenge/CAPTCHA handling: vision-based solving using LLM vision
@@ -17,7 +17,7 @@ import (
 // and executes it to solve the challenge.
 
 // VisionResult is the result of an LLM vision solve attempt
-// (spec L4025: LLM vision solve).
+// (LLM vision solve).
 type VisionResult struct {
 	Solved      bool          `json:"solved"`
 	Answer      string        `json:"answer,omitempty"`
@@ -28,7 +28,7 @@ type VisionResult struct {
 }
 
 // VisionSolver implements LLM vision-based challenge solving
-// (spec L4025: LLM vision solve screenshot -> Qwen3.6 -> instruction
+// (LLM vision solve screenshot -> Qwen3.6 -> instruction
 // -> execute).
 type VisionSolver struct {
 	mu    sync.RWMutex
@@ -38,7 +38,7 @@ type VisionSolver struct {
 }
 
 // VisionStats tracks vision solver statistics
-// (spec L4025: challenge success tracking).
+// (challenge success tracking).
 type VisionStats struct {
 	TotalAttempts int           `json:"total_attempts"`
 	Successes     int           `json:"successes"`
@@ -47,11 +47,11 @@ type VisionStats struct {
 }
 
 // DefaultVisionModel is the default LLM vision model
-// (spec L4025: Qwen3.6).
+// (Qwen3.6).
 const DefaultVisionModel = "qwen3.6-vision"
 
 // NewVisionSolver creates a new VisionSolver with the given Inference Hub
-// (spec L4025: LLM vision solve).
+// (LLM vision solve).
 func NewVisionSolver(hub InferenceHub) *VisionSolver {
 	return &VisionSolver{
 		hub:   hub,
@@ -60,7 +60,7 @@ func NewVisionSolver(hub InferenceHub) *VisionSolver {
 }
 
 // SetModel sets the LLM vision model to use
-// (spec L4025: Qwen3.6 -> instruction -> execute).
+// (Qwen3.6 -> instruction -> execute).
 func (v *VisionSolver) SetModel(model string) {
 	if v == nil {
 		return
@@ -70,8 +70,7 @@ func (v *VisionSolver) SetModel(model string) {
 	v.model = model
 }
 
-// Model returns the current vision model
-// (spec L4025).
+// Model returns the current vision model.
 func (v *VisionSolver) Model() string {
 	if v == nil {
 		return DefaultVisionModel
@@ -82,7 +81,7 @@ func (v *VisionSolver) Model() string {
 }
 
 // Solve attempts to solve a challenge using LLM vision
-// (spec L4025: screenshot -> Qwen3.6 -> instruction -> execute).
+// (screenshot -> Qwen3.6 -> instruction -> execute).
 // The screenshot is sent to the LLM vision model, which returns an
 // instruction that is executed to solve the challenge.
 func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, screenshot []byte) (VisionResult, error) {
@@ -103,7 +102,7 @@ func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, scree
 	v.mu.Unlock()
 
 	// Send screenshot to LLM vision model via Inference Hub
-	// (spec L4025: screenshot -> Qwen3.6 -> instruction -> execute).
+	// (screenshot -> Qwen3.6 -> instruction -> execute).
 	req := InferenceHubRequest{
 		ChallengeType: string(challenge.Type),
 		ImageData:     encodeScreenshot(screenshot),
@@ -161,7 +160,7 @@ func (v *VisionSolver) Solve(ctx context.Context, challenge ChallengeInfo, scree
 }
 
 // encodeScreenshot encodes screenshot bytes to a standard base64 string
-// for the Inference Hub request (spec L4025: screenshot -> LLM).
+// for the Inference Hub request (screenshot -> LLM).
 func encodeScreenshot(screenshot []byte) string {
 	if len(screenshot) == 0 {
 		return ""
@@ -170,13 +169,13 @@ func encodeScreenshot(screenshot []byte) string {
 }
 
 // buildVisionPrompt builds the prompt for the LLM vision model
-// (spec L4025: screenshot -> Qwen3.6 -> instruction).
+// (screenshot -> Qwen3.6 -> instruction).
 func buildVisionPrompt(challenge ChallengeInfo) string {
 	return fmt.Sprintf("Solve this %s challenge. Provide the action needed to solve it.", challenge.Type)
 }
 
 // Stats returns the current vision solver statistics
-// (spec L4025: challenge success tracking).
+// (challenge success tracking).
 func (v *VisionSolver) Stats() VisionStats {
 	if v == nil {
 		return VisionStats{}
@@ -187,7 +186,7 @@ func (v *VisionSolver) Stats() VisionStats {
 }
 
 // IsAvailable reports whether the vision solver is available
-// (spec L4025: LLM vision solve).
+// (LLM vision solve).
 func (v *VisionSolver) IsAvailable() bool {
 	if v == nil {
 		return false

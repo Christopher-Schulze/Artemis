@@ -7,7 +7,7 @@ import (
 )
 
 // JSToggleConfig controls whether arbitrary JavaScript evaluation is
-// permitted for a browser profile (spec L4308). The restrictive default is
+// permitted for a browser profile. The restrictive default is
 // EvaluateEnabled=false: an agent cannot execute arbitrary JS unless the
 // profile explicitly opts in.
 type JSToggleConfig struct {

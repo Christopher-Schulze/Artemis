@@ -11,13 +11,13 @@ import (
 
 // ==================== mock InferenceHub for tests ====================
 
-type task2247MockHub struct {
+type visionMockHub struct {
 	response InferenceHubResponse
 	err      error
 	called   bool
 }
 
-func (m *task2247MockHub) SolveCAPTCHA(ctx context.Context, req InferenceHubRequest) (InferenceHubResponse, error) {
+func (m *visionMockHub) SolveCAPTCHA(ctx context.Context, req InferenceHubRequest) (InferenceHubResponse, error) {
 	m.called = true
 	if m.err != nil {
 		return InferenceHubResponse{}, m.err
@@ -27,9 +27,9 @@ func (m *task2247MockHub) SolveCAPTCHA(ctx context.Context, req InferenceHubRequ
 
 // ==================== pipeline.go tests ====================
 
-// TestTASK2247_PipelineStageConstants verifies stage constants
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
-func TestTASK2247_PipelineStageConstants(t *testing.T) {
+// TestPipelineStageConstants verifies stage constants
+// (2-stage pipeline vision solve -> user fallback).
+func TestPipelineStageConstants(t *testing.T) {
 	if PipelineStageVision != "vision" {
 		t.Error("vision stage mismatch")
 	}
@@ -41,9 +41,9 @@ func TestTASK2247_PipelineStageConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2247_NewSolverPipeline verifies creation
-// (spec L4025: 2-stage pipeline).
-func TestTASK2247_NewSolverPipeline(t *testing.T) {
+// TestNewSolverPipeline verifies creation
+// (2-stage pipeline).
+func TestNewSolverPipeline(t *testing.T) {
 	v := NewVisionSolver(nil)
 	p := NewSolverPipeline(v)
 	if p == nil {
@@ -51,10 +51,10 @@ func TestTASK2247_NewSolverPipeline(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineSolveVisionSuccess verifies vision solve
-// success (spec L4025: vision solve).
-func TestTASK2247_PipelineSolveVisionSuccess(t *testing.T) {
-	hub := &task2247MockHub{
+// TestPipelineSolveVisionSuccess verifies vision solve
+// success (vision solve).
+func TestPipelineSolveVisionSuccess(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{
 			Solved: true,
 			Answer: "click button",
@@ -80,10 +80,10 @@ func TestTASK2247_PipelineSolveVisionSuccess(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineSolveVisionFailFallback verifies vision fail
-// -> user fallback (spec L4025: vision solve -> user fallback).
-func TestTASK2247_PipelineSolveVisionFailFallback(t *testing.T) {
-	hub := &task2247MockHub{
+// TestPipelineSolveVisionFailFallback verifies vision fail
+// -> user fallback (vision solve -> user fallback).
+func TestPipelineSolveVisionFailFallback(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{
 			Solved: false,
 			Error:  "cannot solve",
@@ -105,9 +105,9 @@ func TestTASK2247_PipelineSolveVisionFailFallback(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineSolveNoVisionSolver verifies nil vision solver
-// -> direct fallback (spec L4025: user fallback).
-func TestTASK2247_PipelineSolveNoVisionSolver(t *testing.T) {
+// TestPipelineSolveNoVisionSolver verifies nil vision solver
+// -> direct fallback (user fallback).
+func TestPipelineSolveNoVisionSolver(t *testing.T) {
 	p := NewSolverPipeline(nil)
 	result := p.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
 	if result.Solved {
@@ -118,10 +118,10 @@ func TestTASK2247_PipelineSolveNoVisionSolver(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineSolveEmptyScreenshot verifies empty screenshot
+// TestPipelineSolveEmptyScreenshot verifies empty screenshot
 // -> fallback.
-func TestTASK2247_PipelineSolveEmptyScreenshot(t *testing.T) {
-	hub := &task2247MockHub{
+func TestPipelineSolveEmptyScreenshot(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true},
 	}
 	v := NewVisionSolver(hub)
@@ -137,18 +137,17 @@ func TestTASK2247_PipelineSolveEmptyScreenshot(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineSetMaxAttempts verifies SetMaxAttempts
-// (spec L4025).
-func TestTASK2247_PipelineSetMaxAttempts(t *testing.T) {
+// TestPipelineSetMaxAttempts verifies SetMaxAttempts.
+func TestPipelineSetMaxAttempts(t *testing.T) {
 	p := NewSolverPipeline(nil)
 	p.SetMaxAttempts(5)
 	// No direct way to verify, but should not panic.
 }
 
-// TestTASK2247_PipelineStats verifies stats tracking
-// (spec L4025: challenge success tracking).
-func TestTASK2247_PipelineStats(t *testing.T) {
-	hub := &task2247MockHub{
+// TestPipelineStats verifies stats tracking
+// (challenge success tracking).
+func TestPipelineStats(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "solve", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -165,9 +164,9 @@ func TestTASK2247_PipelineStats(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineStatsFallback verifies fallback stats.
-func TestTASK2247_PipelineStatsFallback(t *testing.T) {
-	hub := &task2247MockHub{
+// TestPipelineStatsFallback verifies fallback stats.
+func TestPipelineStatsFallback(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -182,8 +181,8 @@ func TestTASK2247_PipelineStatsFallback(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineNilSafe verifies nil pipeline is safe.
-func TestTASK2247_PipelineNilSafe(t *testing.T) {
+// TestPipelineNilSafe verifies nil pipeline is safe.
+func TestPipelineNilSafe(t *testing.T) {
 	var p *SolverPipeline
 	result := p.Solve(context.Background(), ChallengeInfo{}, nil)
 	if result.Solved {
@@ -195,8 +194,8 @@ func TestTASK2247_PipelineNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2247_PipelineResultString verifies String method.
-func TestTASK2247_PipelineResultString(t *testing.T) {
+// TestPipelineResultString verifies String method.
+func TestPipelineResultString(t *testing.T) {
 	r := PipelineResult{Stage: PipelineStageVision, Solved: true, Attempts: 1}
 	s := r.String()
 	if s == "" {
@@ -206,17 +205,17 @@ func TestTASK2247_PipelineResultString(t *testing.T) {
 
 // ==================== vision.go tests ====================
 
-// TestTASK2247_DefaultVisionModel verifies default model
-// (spec L4025: Qwen3.6).
-func TestTASK2247_DefaultVisionModel(t *testing.T) {
+// TestDefaultVisionModel verifies default model
+// (Qwen3.6).
+func TestDefaultVisionModel(t *testing.T) {
 	if DefaultVisionModel != "qwen3.6-vision" {
 		t.Errorf("default model: got %s, want qwen3.6-vision", DefaultVisionModel)
 	}
 }
 
-// TestTASK2247_NewVisionSolver verifies creation
-// (spec L4025: LLM vision solve).
-func TestTASK2247_NewVisionSolver(t *testing.T) {
+// TestNewVisionSolver verifies creation
+// (LLM vision solve).
+func TestNewVisionSolver(t *testing.T) {
 	v := NewVisionSolver(nil)
 	if v == nil {
 		t.Fatal("solver should not be nil")
@@ -226,9 +225,9 @@ func TestTASK2247_NewVisionSolver(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSetModel verifies SetModel
-// (spec L4025: Qwen3.6 -> instruction -> execute).
-func TestTASK2247_VisionSetModel(t *testing.T) {
+// TestVisionSetModel verifies SetModel
+// (Qwen3.6 -> instruction -> execute).
+func TestVisionSetModel(t *testing.T) {
 	v := NewVisionSolver(nil)
 	v.SetModel("custom-model")
 	if v.Model() != "custom-model" {
@@ -236,10 +235,10 @@ func TestTASK2247_VisionSetModel(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSolveSuccess verifies successful vision solve
-// (spec L4025: screenshot -> Qwen3.6 -> instruction -> execute).
-func TestTASK2247_VisionSolveSuccess(t *testing.T) {
-	hub := &task2247MockHub{
+// TestVisionSolveSuccess verifies successful vision solve
+// (screenshot -> Qwen3.6 -> instruction -> execute).
+func TestVisionSolveSuccess(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{
 			Solved: true,
 			Answer: "click the checkbox",
@@ -263,10 +262,10 @@ func TestTASK2247_VisionSolveSuccess(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSolveFail verifies failed vision solve
-// (spec L4025: LLM vision solve).
-func TestTASK2247_VisionSolveFail(t *testing.T) {
-	hub := &task2247MockHub{
+// TestVisionSolveFail verifies failed vision solve
+// (LLM vision solve).
+func TestVisionSolveFail(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{
 			Solved: false,
 			Error:  "cannot solve this challenge",
@@ -286,9 +285,9 @@ func TestTASK2247_VisionSolveFail(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSolveNoHub verifies no hub -> error
-// (spec L4025: LLM vision solve).
-func TestTASK2247_VisionSolveNoHub(t *testing.T) {
+// TestVisionSolveNoHub verifies no hub -> error
+// (LLM vision solve).
+func TestVisionSolveNoHub(t *testing.T) {
 	v := NewVisionSolver(nil)
 	_, err := v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
 	if err == nil {
@@ -296,10 +295,10 @@ func TestTASK2247_VisionSolveNoHub(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSolveEmptyScreenshot verifies empty screenshot
-// -> error (spec L4025: screenshot -> LLM).
-func TestTASK2247_VisionSolveEmptyScreenshot(t *testing.T) {
-	hub := &task2247MockHub{response: InferenceHubResponse{Solved: true}}
+// TestVisionSolveEmptyScreenshot verifies empty screenshot
+// -> error (screenshot -> LLM).
+func TestVisionSolveEmptyScreenshot(t *testing.T) {
+	hub := &visionMockHub{response: InferenceHubResponse{Solved: true}}
 	v := NewVisionSolver(hub)
 	_, err := v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, nil)
 	if err == nil {
@@ -307,9 +306,9 @@ func TestTASK2247_VisionSolveEmptyScreenshot(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionSolveHubError verifies hub error propagation.
-func TestTASK2247_VisionSolveHubError(t *testing.T) {
-	hub := &task2247MockHub{err: context.DeadlineExceeded}
+// TestVisionSolveHubError verifies hub error propagation.
+func TestVisionSolveHubError(t *testing.T) {
+	hub := &visionMockHub{err: context.DeadlineExceeded}
 	v := NewVisionSolver(hub)
 	_, err := v.Solve(context.Background(), ChallengeInfo{Type: TypeGeneric}, []byte("screenshot"))
 	if err == nil {
@@ -317,24 +316,24 @@ func TestTASK2247_VisionSolveHubError(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionIsAvailable verifies IsAvailable
-// (spec L4025: LLM vision solve).
-func TestTASK2247_VisionIsAvailable(t *testing.T) {
+// TestVisionIsAvailable verifies IsAvailable
+// (LLM vision solve).
+func TestVisionIsAvailable(t *testing.T) {
 	v := NewVisionSolver(nil)
 	if v.IsAvailable() {
 		t.Error("nil hub should not be available")
 	}
-	hub := &task2247MockHub{}
+	hub := &visionMockHub{}
 	v2 := NewVisionSolver(hub)
 	if !v2.IsAvailable() {
 		t.Error("with hub should be available")
 	}
 }
 
-// TestTASK2247_VisionStats verifies stats tracking
-// (spec L4025: challenge success tracking).
-func TestTASK2247_VisionStats(t *testing.T) {
-	hub := &task2247MockHub{
+// TestVisionStats verifies stats tracking
+// (challenge success tracking).
+func TestVisionStats(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "solve", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -351,8 +350,8 @@ func TestTASK2247_VisionStats(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionNilSafe verifies nil solver is safe.
-func TestTASK2247_VisionNilSafe(t *testing.T) {
+// TestVisionNilSafe verifies nil solver is safe.
+func TestVisionNilSafe(t *testing.T) {
 	var v *VisionSolver
 	v.SetModel("test")
 	if v.Model() != DefaultVisionModel {
@@ -366,8 +365,8 @@ func TestTASK2247_VisionNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2247_VisionResultString verifies String method.
-func TestTASK2247_VisionResultString(t *testing.T) {
+// TestVisionResultString verifies String method.
+func TestVisionResultString(t *testing.T) {
 	r := VisionResult{Solved: true, Model: "test", Duration: 10 * time.Millisecond}
 	s := r.String()
 	if s == "" {
@@ -375,13 +374,13 @@ func TestTASK2247_VisionResultString(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2247_FullSpecParity verifies full spec parity for L4025
-// (spec L4025: 2-stage pipeline vision solve -> user fallback).
-func TestTASK2247_FullSpecParity(t *testing.T) {
+// TestPipelineVisionParity verifies full parity.
+// (2-stage pipeline vision solve -> user fallback).
+func TestPipelineVisionParity(t *testing.T) {
 	// 1. Vision solver exists
-	hub := &task2247MockHub{
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "click", Model: "qwen3.6-vision", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -408,7 +407,7 @@ func TestTASK2247_FullSpecParity(t *testing.T) {
 	}
 
 	// 5. Pipeline fallback when vision fails
-	hub2 := &task2247MockHub{
+	hub2 := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail", Local: true},
 	}
 	v2 := NewVisionSolver(hub2)
@@ -428,13 +427,13 @@ func TestTASK2247_FullSpecParity(t *testing.T) {
 	}
 }
 
-// ==================== TASK-2344 user escalation hook tests ====================
+// ==================== user escalation hook tests ====================
 
-// TestTASK2344_UserEscalationNilHookExplicitError verifies that a nil
+// TestUserEscalationNilHookExplicitError verifies that a nil
 // user-escalation hook produces an explicit error, not a silent fake
-// result (spec L4025: user fallback must be real, not faked).
-func TestTASK2344_UserEscalationNilHookExplicitError(t *testing.T) {
-	hub := &task2247MockHub{
+// result (user fallback must be real, not faked).
+func TestUserEscalationNilHookExplicitError(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -459,11 +458,11 @@ func TestTASK2344_UserEscalationNilHookExplicitError(t *testing.T) {
 	}
 }
 
-// TestTASK2344_UserEscalationHookSolved verifies that a user-escalation
+// TestUserEscalationHookSolved verifies that a user-escalation
 // hook that returns Solved=true produces a solved pipeline result with
-// the user-provided answer (spec L4025: user fallback).
-func TestTASK2344_UserEscalationHookSolved(t *testing.T) {
-	hub := &task2247MockHub{
+// the user-provided answer (user fallback).
+func TestUserEscalationHookSolved(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -497,11 +496,11 @@ func TestTASK2344_UserEscalationHookSolved(t *testing.T) {
 	}
 }
 
-// TestTASK2344_UserEscalationHookUnsolved verifies that a user-escalation
+// TestUserEscalationHookUnsolved verifies that a user-escalation
 // hook that returns Solved=false produces an unsolved result with the
-// reason (spec L4025: user fallback).
-func TestTASK2344_UserEscalationHookUnsolved(t *testing.T) {
-	hub := &task2247MockHub{
+// reason (user fallback).
+func TestUserEscalationHookUnsolved(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -523,11 +522,11 @@ func TestTASK2344_UserEscalationHookUnsolved(t *testing.T) {
 	}
 }
 
-// TestTASK2344_UserEscalationHookError verifies that a user-escalation
+// TestUserEscalationHookError verifies that a user-escalation
 // hook that returns an error produces an unsolved result with the error
-// message (spec L4025: user fallback).
-func TestTASK2344_UserEscalationHookError(t *testing.T) {
-	hub := &task2247MockHub{
+// message (user fallback).
+func TestUserEscalationHookError(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -549,10 +548,10 @@ func TestTASK2344_UserEscalationHookError(t *testing.T) {
 	}
 }
 
-// TestTASK2344_UserEscalationDefaultReason verifies that an unsolved
+// TestUserEscalationDefaultReason verifies that an unsolved
 // hook result with empty reason gets a default reason message.
-func TestTASK2344_UserEscalationDefaultReason(t *testing.T) {
-	hub := &task2247MockHub{
+func TestUserEscalationDefaultReason(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -571,16 +570,16 @@ func TestTASK2344_UserEscalationDefaultReason(t *testing.T) {
 	}
 }
 
-// TestTASK2344_SetUserEscalationHookNilReceiver verifies nil-receiver safety.
-func TestTASK2344_SetUserEscalationHookNilReceiver(t *testing.T) {
+// TestSetUserEscalationHookNilReceiver verifies nil-receiver safety.
+func TestSetUserEscalationHookNilReceiver(t *testing.T) {
 	var p *SolverPipeline
 	p.SetUserEscalationHook(nil) // must not panic
 }
 
-// TestTASK2344_MetricsStoreVisionSolved verifies that a vision-solved
+// TestMetricsStoreVisionSolved verifies that a vision-solved
 // challenge records a metric row with stage_solved=0 (vision).
-func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
-	hub := &task2247MockHub{
+func TestMetricsStoreVisionSolved(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -617,11 +616,11 @@ func TestTASK2344_MetricsStoreVisionSolved(t *testing.T) {
 	}
 }
 
-// TestTASK2344_MetricsStoreUserFallbackSolved verifies that a
+// TestMetricsStoreUserFallbackSolved verifies that a
 // user-fallback-solved challenge records a metric row with
 // stage_solved=1 (user_fallback).
-func TestTASK2344_MetricsStoreUserFallbackSolved(t *testing.T) {
-	hub := &task2247MockHub{
+func TestMetricsStoreUserFallbackSolved(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -661,10 +660,10 @@ func TestTASK2344_MetricsStoreUserFallbackSolved(t *testing.T) {
 	}
 }
 
-// TestTASK2344_MetricsStoreNotSolved verifies that an unsolved
+// TestMetricsStoreNotSolved verifies that an unsolved
 // challenge records a metric row with stage_solved=NULL (not solved).
-func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
-	hub := &task2247MockHub{
+func TestMetricsStoreNotSolved(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -701,10 +700,10 @@ func TestTASK2344_MetricsStoreNotSolved(t *testing.T) {
 	}
 }
 
-// TestTASK2344_MetricsStoreNilStoreNoPanic verifies that a nil metrics
+// TestMetricsStoreNilStoreNoPanic verifies that a nil metrics
 // store does not cause a panic.
-func TestTASK2344_MetricsStoreNilStoreNoPanic(t *testing.T) {
-	hub := &task2247MockHub{
+func TestMetricsStoreNilStoreNoPanic(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -718,10 +717,10 @@ func TestTASK2344_MetricsStoreNilStoreNoPanic(t *testing.T) {
 	}
 }
 
-// TestTASK2344_MetricsStoreDefaultDomain verifies that an empty domain
+// TestMetricsStoreDefaultDomain verifies that an empty domain
 // is recorded as "unknown".
-func TestTASK2344_MetricsStoreDefaultDomain(t *testing.T) {
-	hub := &task2247MockHub{
+func TestMetricsStoreDefaultDomain(t *testing.T) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)

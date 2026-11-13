@@ -7,18 +7,18 @@ import (
 
 // ==================== netguard.go tests ====================
 
-// TestTASK2249_NewNetGuard verifies creation
-// (spec L4027: SSRF prevention).
-func TestTASK2249_NewNetGuard(t *testing.T) {
+// TestNewNetGuard verifies creation
+// (SSRF prevention).
+func TestNewNetGuard(t *testing.T) {
 	n := NewNetGuard()
 	if n == nil {
 		t.Fatal("netguard should not be nil")
 	}
 }
 
-// TestTASK2249_IsPrivateIP10 verifies 10.x.x.x is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIP10(t *testing.T) {
+// TestIsPrivateIP10 verifies 10.x.x.x is private
+// (private IP blocking).
+func TestIsPrivateIP10(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("10.0.0.1")) {
 		t.Error("10.0.0.1 should be private")
 	}
@@ -27,9 +27,9 @@ func TestTASK2249_IsPrivateIP10(t *testing.T) {
 	}
 }
 
-// TestTASK2249_IsPrivateIP172 verifies 172.16-31.x.x is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIP172(t *testing.T) {
+// TestIsPrivateIP172 verifies 172.16-31.x.x is private
+// (private IP blocking).
+func TestIsPrivateIP172(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("172.16.0.1")) {
 		t.Error("172.16.0.1 should be private")
 	}
@@ -42,9 +42,9 @@ func TestTASK2249_IsPrivateIP172(t *testing.T) {
 	}
 }
 
-// TestTASK2249_IsPrivateIP192 verifies 192.168.x.x is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIP192(t *testing.T) {
+// TestIsPrivateIP192 verifies 192.168.x.x is private
+// (private IP blocking).
+func TestIsPrivateIP192(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("192.168.0.1")) {
 		t.Error("192.168.0.1 should be private")
 	}
@@ -53,25 +53,25 @@ func TestTASK2249_IsPrivateIP192(t *testing.T) {
 	}
 }
 
-// TestTASK2249_IsPrivateIPLoopback verifies 127.x.x.x is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIPLoopback(t *testing.T) {
+// TestIsPrivateIPLoopback verifies 127.x.x.x is private
+// (private IP blocking).
+func TestIsPrivateIPLoopback(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("127.0.0.1")) {
 		t.Error("127.0.0.1 should be private")
 	}
 }
 
-// TestTASK2249_IsPrivateIPLinkLocal verifies 169.254.x.x is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIPLinkLocal(t *testing.T) {
+// TestIsPrivateIPLinkLocal verifies 169.254.x.x is private
+// (private IP blocking).
+func TestIsPrivateIPLinkLocal(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("169.254.0.1")) {
 		t.Error("169.254.0.1 should be private (link-local)")
 	}
 }
 
-// TestTASK2249_IsPrivateIPPublic verifies public IPs are NOT private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIPPublic(t *testing.T) {
+// TestIsPrivateIPPublic verifies public IPs are NOT private
+// (private IP blocking).
+func TestIsPrivateIPPublic(t *testing.T) {
 	if IsPrivateIP(net.ParseIP("8.8.8.8")) {
 		t.Error("8.8.8.8 should NOT be private")
 	}
@@ -80,32 +80,32 @@ func TestTASK2249_IsPrivateIPPublic(t *testing.T) {
 	}
 }
 
-// TestTASK2249_IsPrivateIPIPv6Loopback verifies ::1 is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIPIPv6Loopback(t *testing.T) {
+// TestIsPrivateIPIPv6Loopback verifies ::1 is private
+// (private IP blocking).
+func TestIsPrivateIPIPv6Loopback(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("::1")) {
 		t.Error("::1 should be private (IPv6 loopback)")
 	}
 }
 
-// TestTASK2249_IsPrivateIPIPv6ULA verifies fc00:: is private
-// (spec L4027: private IP blocking).
-func TestTASK2249_IsPrivateIPIPv6ULA(t *testing.T) {
+// TestIsPrivateIPIPv6ULA verifies fc00:: is private
+// (private IP blocking).
+func TestIsPrivateIPIPv6ULA(t *testing.T) {
 	if !IsPrivateIP(net.ParseIP("fc00::1")) {
 		t.Error("fc00::1 should be private (IPv6 ULA)")
 	}
 }
 
-// TestTASK2249_IsPrivateIPNil verifies nil IP is safe.
-func TestTASK2249_IsPrivateIPNil(t *testing.T) {
+// TestIsPrivateIPNil verifies nil IP is safe.
+func TestIsPrivateIPNil(t *testing.T) {
 	if IsPrivateIP(nil) {
 		t.Error("nil IP should not be private")
 	}
 }
 
-// TestTASK2249_NetGuardCheckURLPrivate verifies private URL is blocked
-// (spec L4027: SSRF prevention).
-func TestTASK2249_NetGuardCheckURLPrivate(t *testing.T) {
+// TestNetGuardCheckURLPrivate verifies private URL is blocked
+// (SSRF prevention).
+func TestNetGuardCheckURLPrivate(t *testing.T) {
 	n := NewNetGuard()
 	err := n.CheckURL("http://10.0.0.1/admin")
 	if err == nil {
@@ -113,9 +113,9 @@ func TestTASK2249_NetGuardCheckURLPrivate(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardCheckURLPublic verifies public URL is allowed
-// (spec L4027: SSRF prevention).
-func TestTASK2249_NetGuardCheckURLPublic(t *testing.T) {
+// TestNetGuardCheckURLPublic verifies public URL is allowed
+// (SSRF prevention).
+func TestNetGuardCheckURLPublic(t *testing.T) {
 	n := NewNetGuard()
 	err := n.CheckURL("http://example.com/page")
 	if err != nil {
@@ -123,8 +123,8 @@ func TestTASK2249_NetGuardCheckURLPublic(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardCheckURLLoopback verifies loopback is blocked.
-func TestTASK2249_NetGuardCheckURLLoopback(t *testing.T) {
+// TestNetGuardCheckURLLoopback verifies loopback is blocked.
+func TestNetGuardCheckURLLoopback(t *testing.T) {
 	n := NewNetGuard()
 	err := n.CheckURL("http://127.0.0.1:8080/api")
 	if err == nil {
@@ -132,9 +132,9 @@ func TestTASK2249_NetGuardCheckURLLoopback(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardAllow verifies allow list overrides private IP
-// (spec L4027: SSRF prevention).
-func TestTASK2249_NetGuardAllow(t *testing.T) {
+// TestNetGuardAllow verifies allow list overrides private IP
+// (SSRF prevention).
+func TestNetGuardAllow(t *testing.T) {
 	n := NewNetGuard()
 	n.Allow("10.0.0.1")
 	err := n.CheckURL("http://10.0.0.1/admin")
@@ -143,8 +143,8 @@ func TestTASK2249_NetGuardAllow(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardBlock verifies explicit block.
-func TestTASK2249_NetGuardBlock(t *testing.T) {
+// TestNetGuardBlock verifies explicit block.
+func TestNetGuardBlock(t *testing.T) {
 	n := NewNetGuard()
 	n.Block("evil.com")
 	err := n.CheckURL("http://evil.com/page")
@@ -153,8 +153,8 @@ func TestTASK2249_NetGuardBlock(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardCheckURLInvalid verifies invalid URL errors.
-func TestTASK2249_NetGuardCheckURLInvalid(t *testing.T) {
+// TestNetGuardCheckURLInvalid verifies invalid URL errors.
+func TestNetGuardCheckURLInvalid(t *testing.T) {
 	n := NewNetGuard()
 	err := n.CheckURL("://invalid")
 	if err == nil {
@@ -162,8 +162,8 @@ func TestTASK2249_NetGuardCheckURLInvalid(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardIsBlockedIsAllowed verifies convenience methods.
-func TestTASK2249_NetGuardIsBlockedIsAllowed(t *testing.T) {
+// TestNetGuardIsBlockedIsAllowed verifies convenience methods.
+func TestNetGuardIsBlockedIsAllowed(t *testing.T) {
 	n := NewNetGuard()
 	if !n.IsBlocked("http://10.0.0.1/") {
 		t.Error("private IP should be blocked")
@@ -173,8 +173,8 @@ func TestTASK2249_NetGuardIsBlockedIsAllowed(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NetGuardNilSafe verifies nil guard is safe.
-func TestTASK2249_NetGuardNilSafe(t *testing.T) {
+// TestNetGuardNilSafe verifies nil guard is safe.
+func TestNetGuardNilSafe(t *testing.T) {
 	var n *NetGuard
 	n.Allow("test")
 	n.Block("test")
@@ -188,9 +188,9 @@ func TestTASK2249_NetGuardNilSafe(t *testing.T) {
 
 // ==================== adblock.go tests ====================
 
-// TestTASK2249_NewAdBlocker verifies creation
-// (spec L4027: ad/tracker blocking 40+ patterns).
-func TestTASK2249_NewAdBlocker(t *testing.T) {
+// TestNewAdBlocker verifies creation
+// (ad/tracker blocking 40+ patterns).
+func TestNewAdBlocker(t *testing.T) {
 	a := NewAdBlocker()
 	if a == nil {
 		t.Fatal("adblocker should not be nil")
@@ -200,18 +200,18 @@ func TestTASK2249_NewAdBlocker(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerPatternCount verifies 40+ patterns
-// (spec L4027: 40+ patterns).
-func TestTASK2249_AdBlockerPatternCount(t *testing.T) {
+// TestAdBlockerPatternCount verifies 40+ patterns
+// (40+ patterns).
+func TestAdBlockerPatternCount(t *testing.T) {
 	a := NewAdBlocker()
 	if a.PatternCount() < 40 {
 		t.Errorf("pattern count: got %d, want >= 40", a.PatternCount())
 	}
 }
 
-// TestTASK2249_AdBlockerCheckAd verifies ad domain is blocked
-// (spec L4027: ad/tracker blocking).
-func TestTASK2249_AdBlockerCheckAd(t *testing.T) {
+// TestAdBlockerCheckAd verifies ad domain is blocked
+// (ad/tracker blocking).
+func TestAdBlockerCheckAd(t *testing.T) {
 	a := NewAdBlocker()
 	result := a.Check("ads.doubleclick.net")
 	if !result.Blocked {
@@ -222,9 +222,9 @@ func TestTASK2249_AdBlockerCheckAd(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerCheckTracker verifies tracker domain is blocked
-// (spec L4027: ad/tracker blocking).
-func TestTASK2249_AdBlockerCheckTracker(t *testing.T) {
+// TestAdBlockerCheckTracker verifies tracker domain is blocked
+// (ad/tracker blocking).
+func TestAdBlockerCheckTracker(t *testing.T) {
 	a := NewAdBlocker()
 	result := a.Check("www.hotjar.com")
 	if !result.Blocked {
@@ -235,9 +235,9 @@ func TestTASK2249_AdBlockerCheckTracker(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerCheckClean verifies clean domain is not blocked
-// (spec L4027: ad/tracker blocking).
-func TestTASK2249_AdBlockerCheckClean(t *testing.T) {
+// TestAdBlockerCheckClean verifies clean domain is not blocked
+// (ad/tracker blocking).
+func TestAdBlockerCheckClean(t *testing.T) {
 	a := NewAdBlocker()
 	result := a.Check("example.com")
 	if result.Blocked {
@@ -245,9 +245,8 @@ func TestTASK2249_AdBlockerCheckClean(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerDisable verifies disable
-// (spec L4027).
-func TestTASK2249_AdBlockerDisable(t *testing.T) {
+// TestAdBlockerDisable verifies disable.
+func TestAdBlockerDisable(t *testing.T) {
 	a := NewAdBlocker()
 	a.Disable()
 	if a.IsEnabled() {
@@ -260,8 +259,8 @@ func TestTASK2249_AdBlockerDisable(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerEnable verifies enable.
-func TestTASK2249_AdBlockerEnable(t *testing.T) {
+// TestAdBlockerEnable verifies enable.
+func TestAdBlockerEnable(t *testing.T) {
 	a := NewAdBlocker()
 	a.Disable()
 	a.Enable()
@@ -270,9 +269,9 @@ func TestTASK2249_AdBlockerEnable(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerAddPattern verifies custom pattern
-// (spec L4027: ad/tracker blocking).
-func TestTASK2249_AdBlockerAddPattern(t *testing.T) {
+// TestAdBlockerAddPattern verifies custom pattern
+// (ad/tracker blocking).
+func TestAdBlockerAddPattern(t *testing.T) {
 	a := NewAdBlocker()
 	a.AddPattern("evil-ads.com")
 	result := a.Check("tracker.evil-ads.com")
@@ -281,8 +280,8 @@ func TestTASK2249_AdBlockerAddPattern(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerIsBlocked verifies convenience method.
-func TestTASK2249_AdBlockerIsBlocked(t *testing.T) {
+// TestAdBlockerIsBlocked verifies convenience method.
+func TestAdBlockerIsBlocked(t *testing.T) {
 	a := NewAdBlocker()
 	if !a.IsBlocked("ads.doubleclick.net") {
 		t.Error("doubleclick should be blocked")
@@ -292,8 +291,8 @@ func TestTASK2249_AdBlockerIsBlocked(t *testing.T) {
 	}
 }
 
-// TestTASK2249_AdBlockerNilSafe verifies nil blocker is safe.
-func TestTASK2249_AdBlockerNilSafe(t *testing.T) {
+// TestAdBlockerNilSafe verifies nil blocker is safe.
+func TestAdBlockerNilSafe(t *testing.T) {
 	var a *AdBlocker
 	a.Enable()
 	a.Disable()
@@ -311,9 +310,9 @@ func TestTASK2249_AdBlockerNilSafe(t *testing.T) {
 
 // ==================== policy.go tests ====================
 
-// TestTASK2249_NewNavigationPolicy verifies creation with default-deny
-// (spec L4027: navigation policy domain allowlist).
-func TestTASK2249_NewNavigationPolicy(t *testing.T) {
+// TestNewNavigationPolicy verifies creation with default-deny
+// (navigation policy domain allowlist).
+func TestNewNavigationPolicy(t *testing.T) {
 	p := NewNavigationPolicy()
 	if p == nil {
 		t.Fatal("policy should not be nil")
@@ -324,17 +323,17 @@ func TestTASK2249_NewNavigationPolicy(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NewNavigationPolicyDefaultAllow verifies default-allow.
-func TestTASK2249_NewNavigationPolicyDefaultAllow(t *testing.T) {
+// TestNewNavigationPolicyDefaultAllow verifies default-allow.
+func TestNewNavigationPolicyDefaultAllow(t *testing.T) {
 	p := NewNavigationPolicyDefaultAllow()
 	if !p.IsAllowed("example.com") {
 		t.Error("default-allow should allow unlisted domain")
 	}
 }
 
-// TestTASK2249_NavigationPolicyAllow verifies allow list
-// (spec L4027: navigation policy domain allowlist).
-func TestTASK2249_NavigationPolicyAllow(t *testing.T) {
+// TestNavigationPolicyAllow verifies allow list
+// (navigation policy domain allowlist).
+func TestNavigationPolicyAllow(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("example.com")
 	if !p.IsAllowed("example.com") {
@@ -345,9 +344,9 @@ func TestTASK2249_NavigationPolicyAllow(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyBlock verifies block list
-// (spec L4027: navigation policy).
-func TestTASK2249_NavigationPolicyBlock(t *testing.T) {
+// TestNavigationPolicyBlock verifies block list
+// (navigation policy).
+func TestNavigationPolicyBlock(t *testing.T) {
 	p := NewNavigationPolicyDefaultAllow()
 	p.Block("evil.com")
 	if p.IsAllowed("evil.com") {
@@ -358,9 +357,9 @@ func TestTASK2249_NavigationPolicyBlock(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyBlockOverridesAllow verifies block
-// priority over allow (spec L4027: navigation policy).
-func TestTASK2249_NavigationPolicyBlockOverridesAllow(t *testing.T) {
+// TestNavigationPolicyBlockOverridesAllow verifies block
+// priority over allow (navigation policy).
+func TestNavigationPolicyBlockOverridesAllow(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("example.com")
 	p.Block("example.com")
@@ -369,9 +368,9 @@ func TestTASK2249_NavigationPolicyBlockOverridesAllow(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyCheckURL verifies URL check
-// (spec L4027: navigation policy domain allowlist).
-func TestTASK2249_NavigationPolicyCheckURL(t *testing.T) {
+// TestNavigationPolicyCheckURL verifies URL check
+// (navigation policy domain allowlist).
+func TestNavigationPolicyCheckURL(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("example.com")
 	err := p.CheckURL("https://example.com/page?q=1")
@@ -384,9 +383,9 @@ func TestTASK2249_NavigationPolicyCheckURL(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyCheckURLCaseInsensitive verifies
-// case-insensitive domain matching (spec L4027).
-func TestTASK2249_NavigationPolicyCheckURLCaseInsensitive(t *testing.T) {
+// TestNavigationPolicyCheckURLCaseInsensitive verifies
+// case-insensitive domain matching.
+func TestNavigationPolicyCheckURLCaseInsensitive(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("Example.COM")
 	if !p.IsAllowed("example.com") {
@@ -394,8 +393,8 @@ func TestTASK2249_NavigationPolicyCheckURLCaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicySetDefaultAllow verifies SetDefaultAllow.
-func TestTASK2249_NavigationPolicySetDefaultAllow(t *testing.T) {
+// TestNavigationPolicySetDefaultAllow verifies SetDefaultAllow.
+func TestNavigationPolicySetDefaultAllow(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.SetDefaultAllow(true)
 	if !p.IsAllowed("unlisted.com") {
@@ -403,8 +402,8 @@ func TestTASK2249_NavigationPolicySetDefaultAllow(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyAllowList verifies AllowList.
-func TestTASK2249_NavigationPolicyAllowList(t *testing.T) {
+// TestNavigationPolicyAllowList verifies AllowList.
+func TestNavigationPolicyAllowList(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("a.com")
 	p.Allow("b.com")
@@ -414,8 +413,8 @@ func TestTASK2249_NavigationPolicyAllowList(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyBlockList verifies BlockList.
-func TestTASK2249_NavigationPolicyBlockList(t *testing.T) {
+// TestNavigationPolicyBlockList verifies BlockList.
+func TestNavigationPolicyBlockList(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Block("a.com")
 	p.Block("b.com")
@@ -425,8 +424,8 @@ func TestTASK2249_NavigationPolicyBlockList(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyAllowCount verifies AllowCount.
-func TestTASK2249_NavigationPolicyAllowCount(t *testing.T) {
+// TestNavigationPolicyAllowCount verifies AllowCount.
+func TestNavigationPolicyAllowCount(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Allow("a.com")
 	p.Allow("b.com")
@@ -435,8 +434,8 @@ func TestTASK2249_NavigationPolicyAllowCount(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyBlockCount verifies BlockCount.
-func TestTASK2249_NavigationPolicyBlockCount(t *testing.T) {
+// TestNavigationPolicyBlockCount verifies BlockCount.
+func TestNavigationPolicyBlockCount(t *testing.T) {
 	p := NewNavigationPolicy()
 	p.Block("a.com")
 	if p.BlockCount() != 1 {
@@ -444,8 +443,8 @@ func TestTASK2249_NavigationPolicyBlockCount(t *testing.T) {
 	}
 }
 
-// TestTASK2249_NavigationPolicyNilSafe verifies nil policy is safe.
-func TestTASK2249_NavigationPolicyNilSafe(t *testing.T) {
+// TestNavigationPolicyNilSafe verifies nil policy is safe.
+func TestNavigationPolicyNilSafe(t *testing.T) {
 	var p *NavigationPolicy
 	p.Allow("test")
 	p.Block("test")
@@ -458,11 +457,11 @@ func TestTASK2249_NavigationPolicyNilSafe(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2249_FullSpecParity verifies full spec parity for L4027
-// (spec L4027: SSRF prevention, ad/tracker blocking, navigation policy).
-func TestTASK2249_FullSpecParity(t *testing.T) {
+// TestNetguardAdblockPolicyParity verifies full parity.
+// (SSRF prevention, ad/tracker blocking, navigation policy).
+func TestNetguardAdblockPolicyParity(t *testing.T) {
 	// 1. SSRF prevention (netguard)
 	n := NewNetGuard()
 	if !n.IsBlocked("http://10.0.0.1/") {

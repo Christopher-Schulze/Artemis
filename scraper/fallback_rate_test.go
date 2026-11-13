@@ -5,8 +5,8 @@ import (
 )
 
 // TestFallbackRateMatrix measures the escalation/fallback rate across
-// a representative page-type matrix. This is the baseline measurement
-// for TASK-2337 Sub-Task 2: "measure fallback-rate delta".
+// a representative page-type matrix. This is the baseline for the
+// fallback-rate delta.
 //
 // Page types:
 //   - content: server-rendered article pages (should stay static)

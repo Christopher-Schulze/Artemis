@@ -159,7 +159,7 @@ func rebindPooledStorage(c *Context, globalName string, s *memStorage) error {
 // into a JS expression. Tiny manual encoder; only handles the chars
 // we actually emit (URLs).
 //
-// Optimization (TASK-2344): pre-allocate the buffer to len(s)+2 (the
+// Optimization: pre-allocate the buffer to len(s)+2 (the
 // minimum possible output: 2 quote chars + the input unchanged) to
 // avoid reallocations. Worst case (every char escaped) is 6x expansion,
 // but URLs rarely contain escaped chars, so the pre-allocation is

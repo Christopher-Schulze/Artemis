@@ -117,7 +117,7 @@ func TestChromiumLayer2VerifiesWhitelistsAndReloadsBrokenSite(t *testing.T) {
 }
 
 // TestAdBlockLayer3ReducesTrafficAndSnapshotNodes is the measured proof for
-// the Layer 3 performance statement (spec L4210): the same page observed with
+// the Layer 3 performance statement: the same page observed with
 // and without blocking.
 func TestAdBlockLayer3ReducesTrafficAndSnapshotNodes(t *testing.T) {
 	measure := func(disable bool) (requests int64, nodes int, network int) {

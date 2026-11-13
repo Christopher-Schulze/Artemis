@@ -166,7 +166,7 @@ func TestStorageManager_PurgeAll_MissingDir(t *testing.T) {
 }
 
 func TestStorageKind_Constants(t *testing.T) {
-	// Ensure all 5 storage kinds are distinct (spec L4577).
+	// Ensure all 5 storage kinds are distinct.
 	kinds := []StorageKind{
 		StorageCookies,
 		StorageLocalStorage,

@@ -1,6 +1,6 @@
 package network
 
-// header_gen.go (spec L4369: Browserforge Header Generation).
+// header_gen.go (Browserforge Header Generation).
 //
 // Scrapling uses browserforge.headers.HeaderGenerator with
 // chrome/chromium version 145 to produce realistic, internally
@@ -16,7 +16,7 @@ import (
 )
 
 // HeaderGenerator produces realistic Chrome 145 request headers
-// for a given browser/OS/device combination (spec L4369).
+// for a given browser/OS/device combination.
 type HeaderGenerator struct {
 	// BrowserName is the browser family. Defaults to "chrome".
 	BrowserName string
@@ -30,7 +30,7 @@ type HeaderGenerator struct {
 }
 
 // DefaultHeaderGenerator returns a Chrome 145 desktop header
-// generator (spec L4369: chromium_version=145, chrome_version=145).
+// generator (chromium_version=145, chrome_version=145).
 func DefaultHeaderGenerator() HeaderGenerator {
 	return HeaderGenerator{
 		BrowserName:    "chrome",
@@ -55,7 +55,7 @@ func platformLabel(os string) string {
 }
 
 // userAgentForOS builds a Chrome 145 User-Agent string for the given
-// OS (spec L4369). The strings mirror real Chrome 145 desktop UAs.
+// OS. The strings mirror real Chrome 145 desktop UAs.
 func (h HeaderGenerator) userAgentForOS(os string) string {
 	ver := h.browserVersionString()
 	switch os {
@@ -120,7 +120,7 @@ func (h HeaderGenerator) resolveOS() string {
 }
 
 // GenerateForOS generates a consistent Chrome 145 header set for a
-// specific OS (spec L4369). The OS must be "windows", "macos", or
+// specific OS. The OS must be "windows", "macos", or
 // "linux"; any other value falls back to windows.
 func (h HeaderGenerator) GenerateForOS(os string) map[string]string {
 	platform := platformLabel(os)
@@ -143,14 +143,14 @@ func (h HeaderGenerator) GenerateForOS(os string) map[string]string {
 }
 
 // Generate returns a consistent Chrome 145 header set for the
-// generator's configured OS (spec L4369). When OS is empty ("all"),
+// generator's configured OS. When OS is empty ("all"),
 // windows is used as the deterministic default.
 func (h HeaderGenerator) Generate() map[string]string {
 	return h.GenerateForOS(h.resolveOS())
 }
 
 // AllHeaders returns the generated header set as an http.Header,
-// suitable for direct use on an http.Request (spec L4369).
+// suitable for direct use on an http.Request.
 func (h HeaderGenerator) AllHeaders() http.Header {
 	hh := make(http.Header, 12)
 	for k, v := range h.Generate() {

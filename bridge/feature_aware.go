@@ -6,8 +6,7 @@ import (
 	"sync"
 )
 
-// BrowserFeature identifies a capability the browser bridge may expose
-// (spec L4284).
+// BrowserFeature identifies a capability the browser bridge may expose.
 type BrowserFeature string
 
 const (

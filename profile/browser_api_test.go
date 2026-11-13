@@ -11,15 +11,15 @@ import (
 	"testing"
 )
 
-// TASK-1599: REST API for browser profiles/sessions/cookies/storage/settings (spec L4601)
+// REST API for browser profiles/sessions/cookies/storage/settings
 //
-// Spec L4601: REST API: GET/POST /api/browser/profiles,
+// REST API: GET/POST /api/browser/profiles,
 // GET/DELETE /api/browser/profiles/:name, POST .../login,
 // GET/DELETE .../cookies, POST .../cookies/export, GET .../storage,
 // GET/POST /api/browser/sessions, DELETE /api/browser/sessions/:id,
 // GET/PUT /api/browser/settings.
 
-func TestTASK1599_NewBrowserAPI(t *testing.T) {
+func TestNewBrowserAPI(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	if api == nil {
 		t.Fatal("expected non-nil BrowserAPI")
@@ -29,7 +29,7 @@ func TestTASK1599_NewBrowserAPI(t *testing.T) {
 	}
 }
 
-func TestTASK1599_DefaultBrowserSettings(t *testing.T) {
+func TestDefaultBrowserSettings(t *testing.T) {
 	s := DefaultBrowserSettings()
 	if !s.Headless {
 		t.Error("expected headless=true by default")
@@ -42,7 +42,7 @@ func TestTASK1599_DefaultBrowserSettings(t *testing.T) {
 	}
 }
 
-func TestTASK1599_RoutesReturnsHandler(t *testing.T) {
+func TestRoutesReturnsHandler(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	h := api.Routes()
 	if h == nil {
@@ -50,7 +50,7 @@ func TestTASK1599_RoutesReturnsHandler(t *testing.T) {
 	}
 }
 
-func TestTASK1599_GetProfiles(t *testing.T) {
+func TestGetProfiles(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
@@ -61,7 +61,7 @@ func TestTASK1599_GetProfiles(t *testing.T) {
 	}
 }
 
-func TestTASK1599_PostProfile(t *testing.T) {
+func TestPostProfile(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	body := `{"name":"test","owner_user_ref":"user1"}`
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/browser/profiles", strings.NewReader(body))
@@ -72,7 +72,7 @@ func TestTASK1599_PostProfile(t *testing.T) {
 	_ = w.Code
 }
 
-func TestTASK1599_GetSettings(t *testing.T) {
+func TestGetSettings(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/browser/settings", nil)
 	w := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestTASK1599_GetSettings(t *testing.T) {
 	}
 }
 
-func TestTASK1599_PutSettings(t *testing.T) {
+func TestPutSettings(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	body := `{"headless":false,"download_dir":"/tmp","user_agent":"test","viewport_width":1920,"viewport_height":1080}`
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/browser/settings", strings.NewReader(body))
@@ -110,7 +110,7 @@ func TestTASK1599_PutSettings(t *testing.T) {
 	}
 }
 
-func TestTASK1599_GetSessions(t *testing.T) {
+func TestGetSessions(t *testing.T) {
 	runtime, err := NewRuntimeManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestTASK1599_GetSessions(t *testing.T) {
 	}
 }
 
-func TestTASK1599_PostSessions(t *testing.T) {
+func TestPostSessions(t *testing.T) {
 	runtime, err := NewRuntimeManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestTASK1599_PostSessions(t *testing.T) {
 	}
 }
 
-func TestTASK1599_DeleteSessionByID(t *testing.T) {
+func TestDeleteSessionByID(t *testing.T) {
 	runtime, err := NewRuntimeManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestBrowserAPILoginExecutesSessionManager(t *testing.T) {
 	}
 }
 
-func TestTASK1599_MethodNotAllowed(t *testing.T) {
+func TestMethodNotAllowed(t *testing.T) {
 	api := NewBrowserAPI(nil, nil, nil, nil)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/browser/profiles", nil)
 	req.Header.Set("X-Artemis-Owner", "user1")
@@ -197,7 +197,7 @@ func TestTASK1599_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestTASK1599_FullSpecParity(t *testing.T) {
+func TestBrowserAPIParity(t *testing.T) {
 	runtime, err := NewRuntimeManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

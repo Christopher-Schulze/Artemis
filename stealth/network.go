@@ -10,7 +10,7 @@ import (
 )
 
 // ConnectionInfo is the navigator.connection API response
-// (spec L4093: navigator.connection LIVE MEASUREMENT).
+// (navigator.connection LIVE MEASUREMENT).
 type ConnectionInfo struct {
 	RTT           time.Duration `json:"rtt"`           // round-trip time
 	Downlink      float64       `json:"downlink"`      // Mbps estimated from HTTP responses
@@ -20,7 +20,7 @@ type ConnectionInfo struct {
 }
 
 // ConnectionMonitor implements the navigator.connection LIVE MEASUREMENT
-// (spec L4093: LIVE MEASUREMENT via net.Dial("tcp", "1.1.1.1:443")
+// (LIVE MEASUREMENT via net.Dial("tcp", "1.1.1.1:443")
 // -> real RTT. Downlink estimated from HTTP responses. effectiveType
 // derived: rtt<100ms && downlink>5 -> "4g". Values refreshed every 60s.
 // Activation: StealthStealth (Patch 16)).
@@ -34,15 +34,14 @@ type ConnectionMonitor struct {
 }
 
 // DefaultMeasureTarget is the default target for RTT measurement
-// (spec L4093: net.Dial("tcp", "1.1.1.1:443")).
+// (net.Dial("tcp", "1.1.1.1:443")).
 const DefaultMeasureTarget = "1.1.1.1:443"
 
 // DefaultRefreshInterval is the default refresh interval
-// (spec L4093: Values refreshed every 60s).
+// (Values refreshed every 60s).
 const DefaultRefreshInterval = 60 * time.Second
 
-// NewConnectionMonitor creates a new ConnectionMonitor
-// (spec L4093).
+// NewConnectionMonitor creates a new ConnectionMonitor.
 func NewConnectionMonitor() *ConnectionMonitor {
 	return &ConnectionMonitor{
 		refreshInterval: DefaultRefreshInterval,
@@ -51,7 +50,7 @@ func NewConnectionMonitor() *ConnectionMonitor {
 }
 
 // MeasureConnection performs a LIVE MEASUREMENT of the network
-// connection (spec L4093: LIVE MEASUREMENT via net.Dial("tcp",
+// connection (LIVE MEASUREMENT via net.Dial("tcp",
 // "1.1.1.1:443") -> real RTT).
 func MeasureConnection(target string) ConnectionInfo {
 	if target == "" {
@@ -89,7 +88,7 @@ func MeasureConnection(target string) ConnectionInfo {
 }
 
 // estimateDownlink estimates downlink speed from RTT
-// (spec L4093: Downlink estimated from HTTP responses).
+// (Downlink estimated from HTTP responses).
 // This is a rough heuristic: lower RTT generally correlates with
 // higher bandwidth.
 func estimateDownlink(rtt time.Duration) float64 {
@@ -113,7 +112,7 @@ func estimateDownlink(rtt time.Duration) float64 {
 }
 
 // DeriveEffectiveType derives the effective connection type from RTT
-// and downlink (spec L4093: effectiveType derived: rtt<100ms &&
+// and downlink (effectiveType derived: rtt<100ms &&
 // downlink>5 -> "4g").
 func DeriveEffectiveType(rtt time.Duration, downlink float64) string {
 	rttMs := rtt.Milliseconds()
@@ -133,8 +132,7 @@ func DeriveEffectiveType(rtt time.Duration, downlink float64) string {
 	return "slow-2g"
 }
 
-// Measure performs a single measurement and updates the current info
-// (spec L4093).
+// Measure performs a single measurement and updates the current info.
 func (m *ConnectionMonitor) Measure() ConnectionInfo {
 	if m == nil {
 		return ConnectionInfo{}
@@ -146,8 +144,7 @@ func (m *ConnectionMonitor) Measure() ConnectionInfo {
 	return info
 }
 
-// Current returns the current connection info
-// (spec L4093).
+// Current returns the current connection info.
 func (m *ConnectionMonitor) Current() ConnectionInfo {
 	if m == nil {
 		return ConnectionInfo{}
@@ -158,7 +155,7 @@ func (m *ConnectionMonitor) Current() ConnectionInfo {
 }
 
 // Start begins the periodic measurement goroutine
-// (spec L4093: Values refreshed every 60s. Activation: StealthStealth
+// (Values refreshed every 60s. Activation: StealthStealth
 // (Patch 16)).
 func (m *ConnectionMonitor) Start() {
 	if m == nil {
@@ -204,7 +201,7 @@ func (m *ConnectionMonitor) IsActive() bool {
 }
 
 // SetRefreshInterval sets the refresh interval
-// (spec L4093: Values refreshed every 60s).
+// (Values refreshed every 60s).
 func (m *ConnectionMonitor) SetRefreshInterval(d time.Duration) {
 	if m == nil {
 		return
@@ -215,7 +212,7 @@ func (m *ConnectionMonitor) SetRefreshInterval(d time.Duration) {
 }
 
 // SetMeasureTarget sets the target for RTT measurement
-// (spec L4093: net.Dial("tcp", "1.1.1.1:443")).
+// (net.Dial("tcp", "1.1.1.1:443")).
 func (m *ConnectionMonitor) SetMeasureTarget(target string) {
 	if m == nil {
 		return
@@ -226,7 +223,7 @@ func (m *ConnectionMonitor) SetMeasureTarget(target string) {
 }
 
 // refreshLoop periodically measures the connection
-// (spec L4093: Values refreshed every 60s).
+// (Values refreshed every 60s).
 func (m *ConnectionMonitor) refreshLoop() {
 	ticker := time.NewTicker(m.refreshInterval)
 	defer ticker.Stop()

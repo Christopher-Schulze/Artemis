@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// TraceRecordConfig configures a Playwright-style trace recording session
-// (spec L4309). Screenshots and snapshots default to true; sources default
+// TraceRecordConfig configures a Playwright-style trace recording session.
+// Screenshots and snapshots default to true; sources default
 // to false per spec.
 type TraceRecordConfig struct {
 	Screenshots bool

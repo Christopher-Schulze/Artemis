@@ -63,12 +63,12 @@ type FetchOpts struct {
 	// block until pending fetches settle.
 	AsyncFetch bool
 	// Crawl marks this fetch as crawler traffic (sitemap-driven or bulk
-	// crawling). Spec L4416: crawls respect robots.txt by default, including
+	// crawling). Crawls respect robots.txt by default, including
 	// every redirect hop, unless Config.IgnoreRobotsForCrawls is set.
 	// Ordinary agent fetches behave like a user's browser.
 	Crawl bool
 	// AdBlockBypass loads this page without ad/tracker blocking; Layer 2
-	// uses it for the verification reload (spec L4208 Case B).
+	// uses it for the verification reload (Case B).
 	AdBlockBypass bool
 }
 

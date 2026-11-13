@@ -5,7 +5,7 @@ import (
 )
 
 // AXNode is a simplified accessibility tree node for diffing.
-// Extended per spec L4182: compact A11yNode with ref IDs (e5, e6...)
+// Extended: compact A11yNode with ref IDs (e5, e6...)
 // + backend DOM node IDs, interactive roles, pierce support.
 type AXNode struct {
 	ID            string   `json:"id"` // ref ID (e5, e6...)
@@ -22,19 +22,19 @@ type AXNode struct {
 }
 
 // AXSnapshotConfig controls AX tree snapshot extraction
-// (spec L4182: Accessibility.getFullAXTree with pierce:true).
+// (Accessibility.getFullAXTree with pierce:true).
 type AXSnapshotConfig struct {
-	// Pierce penetrates iframes and Shadow DOM (spec L4182).
+	// Pierce penetrates iframes and Shadow DOM.
 	Pierce bool `json:"pierce"`
 	// MaxDepth limits the tree depth (0 = unlimited). Controls
-	// response token size (spec L4184: depth limiting configurable).
+	// response token size (depth limiting configurable).
 	MaxDepth int `json:"maxDepth,omitempty"`
 	// FilterByRole filters to only the given roles (empty = all).
 	FilterByRole []string `json:"filterByRole,omitempty"`
 	// FilterByVisibility filters to only visible nodes when true.
 	FilterByVisibility bool `json:"filterByVisibility,omitempty"`
 	// BackendNodeFilter extracts only nodes matching the given
-	// backend DOM node IDs (spec L4184: optional scoped subtree).
+	// backend DOM node IDs (optional scoped subtree).
 	BackendNodeFilter []int64 `json:"backendNodeFilter,omitempty"`
 }
 
@@ -47,7 +47,7 @@ func DefaultAXSnapshotConfig() AXSnapshotConfig {
 	}
 }
 
-// InteractiveAXRoles are the interactive roles per spec L4182.
+// InteractiveAXRoles are the interactive roles.
 var InteractiveAXRoles = map[string]bool{
 	"button":   true,
 	"link":     true,
@@ -61,13 +61,13 @@ var InteractiveAXRoles = map[string]bool{
 }
 
 // IsInteractiveRole reports whether a role is interactive
-// (spec L4182: interactive roles).
+// (interactive roles).
 func IsInteractiveRole(role string) bool {
 	return InteractiveAXRoles[role]
 }
 
 // FilterAXSnapshot filters an AX snapshot by depth, role, and visibility
-// (spec L4182: filter by depth/role/visibility).
+// (filter by depth/role/visibility).
 func FilterAXSnapshot(nodes []AXNode, cfg AXSnapshotConfig) []AXNode {
 	out := make([]AXNode, 0, len(nodes))
 	roleFilter := make(map[string]bool, len(cfg.FilterByRole))
@@ -97,7 +97,7 @@ func FilterAXSnapshot(nodes []AXNode, cfg AXSnapshotConfig) []AXNode {
 }
 
 // MergeAXFrames merges AX trees from multiple frames into a single
-// tree (spec L4182: multi-frame merge). Nodes from child frames are
+// tree (multi-frame merge). Nodes from child frames are
 // appended after the parent frame's nodes.
 func MergeAXFrames(frames [][]AXNode) []AXNode {
 	total := 0
@@ -112,14 +112,14 @@ func MergeAXFrames(frames [][]AXNode) []AXNode {
 }
 
 // DedupKey returns the dedup key for an AX node
-// (spec L4182: dedup via (role:name:nodeId) key).
+// (dedup via (role:name:nodeId) key).
 func DedupKey(n AXNode) string {
 	return n.Role + ":" + n.Name + ":" + n.ID
 }
 
 // MyersDiff returns edit script length between two node slices (Myers-like LCS distance).
 // Fast-path short-circuit: when before and after are identical (same length and
-// pairwise equal), returns 0 without allocating the DP table (spec L4258).
+// pairwise equal), returns 0 without allocating the DP table.
 func MyersDiff(before, after []AXNode) int {
 	if len(before) == len(after) {
 		identical := true
@@ -156,7 +156,7 @@ func MyersDiff(before, after []AXNode) int {
 	return n + m - 2*lcs
 }
 
-// DiffOpType labels a single edit-script operation (spec L4258).
+// DiffOpType labels a single edit-script operation.
 type DiffOpType string
 
 const (
@@ -167,7 +167,7 @@ const (
 )
 
 // DiffOp is a single operation in the unified edit script
-// (spec L4258: additions/removals/unchanged/changed).
+// (additions/removals/unchanged/changed).
 type DiffOp struct {
 	Type   DiffOpType `json:"type"`
 	Before *AXNode    `json:"before,omitempty"` // for remove/change
@@ -176,7 +176,7 @@ type DiffOp struct {
 
 // MyersEditScript returns the full edit script (sequence of equal/add/remove/
 // change ops) between before and after, plus a summary of additions, removals,
-// unchanged, and changed counts (spec L4258).
+// unchanged, and changed counts.
 //
 // The edit script is derived from the LCS backtrace of the DP table. Nodes
 // present in both sequences with the same (ID, Role) but differing Value/
@@ -253,7 +253,7 @@ func MyersEditScript(before, after []AXNode) ([]DiffOp, MyersDiffSummary) {
 }
 
 // MyersDiffSummary counts the four operation kinds in an edit script
-// (spec L4258: additions/removals/unchanged/changed).
+// (additions/removals/unchanged/changed).
 type MyersDiffSummary struct {
 	Additions int `json:"additions"`
 	Removals  int `json:"removals"`
@@ -262,7 +262,7 @@ type MyersDiffSummary struct {
 }
 
 // FormatNode returns a compact single-line representation of an AXNode for
-// unified diff output (spec L4258: unified diff with 3-line context).
+// unified diff output (unified diff with 3-line context).
 func FormatNode(n AXNode) string {
 	if n.Name != "" {
 		return n.Role + ":" + n.Name + " [" + n.ID + "]"
@@ -271,7 +271,7 @@ func FormatNode(n AXNode) string {
 }
 
 // UnifiedDiff produces a unified-diff-style string with the given context
-// line count around each change hunk (spec L4258: unified diff with 3-line
+// line count around each change hunk (unified diff with 3-line
 // context). Lines are prefixed with ' ' (equal), '+' (add), '-' (remove),
 // '~' (change before), '|' (change after). Hunk headers "@@ -a,b +c,d @@"
 // separate non-adjacent change regions.
@@ -369,7 +369,7 @@ func DedupRoleSnapshot(nodes []AXNode) []AXNode {
 }
 
 // AXDiffSnapshot is the result of comparing two AX snapshots
-// (spec L4184: DiffSnapshot: added, changed, removed).
+// (DiffSnapshot: added, changed, removed).
 type AXDiffSnapshot struct {
 	Added   []AXNode `json:"added"`
 	Changed []AXNode `json:"changed"`
@@ -378,7 +378,7 @@ type AXDiffSnapshot struct {
 
 // DiffAXSnapshots compares prev/curr by (role:name:nodeId) and
 // returns added, changed (value/focus/disabled), and removed nodes
-// (spec L4184: Compare prev/curr, return added/changed/removed).
+// (Compare prev/curr, return added/changed/removed).
 // Agent processes only CHANGES.
 func DiffAXSnapshots(prev, curr []AXNode) AXDiffSnapshot {
 	prevMap := make(map[string]AXNode, len(prev))

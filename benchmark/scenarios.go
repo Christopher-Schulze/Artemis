@@ -1,5 +1,5 @@
-// Package benchmark implements the Artemis head-to-head benchmark harness
-// (TASK-2338). The harness runs Artemis and a competitor engine across a
+// Package benchmark implements the Artemis head-to-head benchmark harness.
+// The harness runs Artemis and a competitor engine across a
 // versioned scenario matrix, records per-scenario wall time / memory /
 // allocations into a scorecard. A comparison requires validated equivalent
 // outcomes and does not assume either engine wins.

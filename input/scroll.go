@@ -6,21 +6,21 @@ import (
 )
 
 // ScrollStrategy enumerates the scroll strategies
-// (spec L4095: infinite scroll -> direct scrollTo, no infinite scroll
+// (infinite scroll -> direct scrollTo, no infinite scroll
 // -> easeInOut curve).
 type ScrollStrategy string
 
 const (
 	// ScrollStrategyDirect uses direct scrollTo() for infinite-scroll
-	// pages (spec L4095: Infinite scroll -> direct scrollTo()).
+	// pages (Infinite scroll -> direct scrollTo()).
 	ScrollStrategyDirect ScrollStrategy = "direct"
 	// ScrollStrategyEased uses easeInOut curve for normal pages
-	// (spec L4095: No infinite scroll -> easeInOut curve).
+	// (No infinite scroll -> easeInOut curve).
 	ScrollStrategyEased ScrollStrategy = "eased"
 )
 
 // ScrollDetectionResult is the result of infinite scroll detection
-// (spec L4095: detect IntersectionObserver/scroll-listeners).
+// (detect IntersectionObserver/scroll-listeners).
 type ScrollDetectionResult struct {
 	HasIntersectionObserver bool
 	HasScrollListeners      bool
@@ -30,7 +30,7 @@ type ScrollDetectionResult struct {
 
 // DetectInfiniteScroll detects whether a page has infinite scroll
 // behavior by checking for IntersectionObserver or scroll event
-// listeners (spec L4095: Before scroll: detect
+// listeners (Before scroll: detect
 // IntersectionObserver/scroll-listeners).
 //
 // hasIntersectionObserver: true if the page has IntersectionObserver
@@ -61,7 +61,7 @@ func DetectInfiniteScroll(hasIntersectionObserver, hasScrollListeners bool) Scro
 }
 
 // ScrollResult is the result of a scroll operation
-// (spec L4095: Scroll Simulation).
+// (Scroll Simulation).
 type ScrollResult struct {
 	Strategy   ScrollStrategy
 	Distance   float64
@@ -73,7 +73,7 @@ type ScrollResult struct {
 }
 
 // ExecuteScroll performs a scroll operation using the appropriate
-// strategy (spec L4095: Infinite scroll -> direct scrollTo(), no
+// strategy (Infinite scroll -> direct scrollTo(), no
 // infinite scroll -> easeInOut curve). Activation: StealthStealth
 // (Patch 24).
 //
@@ -82,7 +82,7 @@ type ScrollResult struct {
 // detection: the result of DetectInfiniteScroll.
 func ExecuteScroll(distance float64, steps int, detection ScrollDetectionResult) ScrollResult {
 	if detection.IsInfiniteScroll {
-		// Infinite scroll -> direct scrollTo() (spec L4095).
+		// Infinite scroll -> direct scrollTo().
 		return ScrollResult{
 			Strategy:   ScrollStrategyDirect,
 			Distance:   distance,
@@ -93,7 +93,7 @@ func ExecuteScroll(distance float64, steps int, detection ScrollDetectionResult)
 			Reason:     detection.Reason,
 		}
 	}
-	// No infinite scroll -> easeInOut curve (spec L4095).
+	// No infinite scroll -> easeInOut curve.
 	if steps <= 0 {
 		steps = 10 // default steps
 	}
@@ -112,7 +112,7 @@ func ExecuteScroll(distance float64, steps int, detection ScrollDetectionResult)
 }
 
 // Scroll performs the full scroll workflow: detect infinite scroll,
-// then execute with the appropriate strategy (spec L4095).
+// then execute with the appropriate strategy.
 //
 // distance: total scroll distance in pixels.
 // steps: number of scroll increments (for eased strategy).

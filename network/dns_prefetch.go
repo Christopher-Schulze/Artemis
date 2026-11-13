@@ -23,8 +23,8 @@ const (
 	DNSResolverDoH    DNSResolverMode = "doh"
 )
 
-// DNSPrefetchCache is the bounded L1 memory + optional L2 SQLite DNS cache
-// (spec L4512). It implements Resolver, so a Policy validates and dials the
+// DNSPrefetchCache is the bounded L1 memory + optional L2 SQLite DNS cache.
+// It implements Resolver, so a Policy validates and dials the
 // same cached answer: admission and connection stay consistent.
 type DNSPrefetchCache struct {
 	mu       sync.RWMutex
@@ -35,7 +35,7 @@ type DNSPrefetchCache struct {
 	resolver func(ctx context.Context, host string) ([]net.IP, error)
 }
 
-// maxDNSCacheEntries bounds both cache levels (spec L4512: max 50K entries).
+// maxDNSCacheEntries bounds both cache levels (max 50K entries).
 const maxDNSCacheEntries = 50_000
 
 // dnsCachePruneInterval amortizes L2 expiry/size pruning over inserts.

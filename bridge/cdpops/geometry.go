@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-// geometry.go (spec L4019: bridge/cdpops/geometry.go - coordinate
+// geometry.go (bridge/cdpops/geometry.go - coordinate
 // transforms).
 //
 // Low-level CDP ops: coordinate transforms between CSS pixels,
@@ -13,14 +13,14 @@ import (
 // scroll offsets, and element-relative positioning.
 
 // Point represents a 2D coordinate
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 type Point struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 }
 
 // Rect represents a rectangle
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 type Rect struct {
 	X      float64 `json:"x"`
 	Y      float64 `json:"y"`
@@ -29,7 +29,7 @@ type Rect struct {
 }
 
 // Viewport represents the browser viewport
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 type Viewport struct {
 	X      float64 `json:"x"`
 	Y      float64 `json:"y"`
@@ -39,7 +39,7 @@ type Viewport struct {
 }
 
 // CSSToDevicePixels converts CSS pixels to device pixels
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func CSSToDevicePixels(p Point, scale float64) Point {
 	if scale <= 0 {
 		scale = 1
@@ -48,7 +48,7 @@ func CSSToDevicePixels(p Point, scale float64) Point {
 }
 
 // DeviceToCSSPixels converts device pixels to CSS pixels
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func DeviceToCSSPixels(p Point, scale float64) Point {
 	if scale <= 0 {
 		scale = 1
@@ -57,26 +57,26 @@ func DeviceToCSSPixels(p Point, scale float64) Point {
 }
 
 // ApplyScrollOffset applies scroll offset to a point
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func ApplyScrollOffset(p Point, scrollX, scrollY float64) Point {
 	return Point{X: p.X + scrollX, Y: p.Y + scrollY}
 }
 
 // RemoveScrollOffset removes scroll offset from a point
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func RemoveScrollOffset(p Point, scrollX, scrollY float64) Point {
 	return Point{X: p.X - scrollX, Y: p.Y - scrollY}
 }
 
 // PointInRect checks if a point is inside a rectangle
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func PointInRect(p Point, r Rect) bool {
 	return p.X >= r.X && p.X <= r.X+r.Width &&
 		p.Y >= r.Y && p.Y <= r.Y+r.Height
 }
 
 // RectCenter returns the center point of a rectangle
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func RectCenter(r Rect) Point {
 	return Point{
 		X: r.X + r.Width/2,
@@ -85,7 +85,7 @@ func RectCenter(r Rect) Point {
 }
 
 // Distance calculates the Euclidean distance between two points
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func Distance(a, b Point) float64 {
 	dx := a.X - b.X
 	dy := a.Y - b.Y
@@ -93,7 +93,7 @@ func Distance(a, b Point) float64 {
 }
 
 // Midpoint calculates the midpoint between two points
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func Midpoint(a, b Point) Point {
 	return Point{
 		X: (a.X + b.X) / 2,
@@ -102,7 +102,7 @@ func Midpoint(a, b Point) Point {
 }
 
 // Lerp linearly interpolates between two points
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func Lerp(a, b Point, t float64) Point {
 	return Point{
 		X: a.X + (b.X-a.X)*t,
@@ -111,7 +111,7 @@ func Lerp(a, b Point, t float64) Point {
 }
 
 // ClampPoint clamps a point to viewport bounds
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func ClampPoint(p Point, vp Viewport) Point {
 	result := p
 	if result.X < vp.X {
@@ -130,7 +130,7 @@ func ClampPoint(p Point, vp Viewport) Point {
 }
 
 // QuadToRect converts a Quad to a bounding Rect
-// (spec L4019: coordinate transforms).
+// (coordinate transforms).
 func QuadToRect(q Quad) Rect {
 	minX := minFloat(q.X1, q.X2, q.X3, q.X4)
 	maxX := maxFloat(q.X1, q.X2, q.X3, q.X4)

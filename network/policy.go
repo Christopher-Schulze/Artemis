@@ -257,7 +257,7 @@ func (p *Policy) ValidateRequest(ctx context.Context, rawURL, method, contentTyp
 }
 
 // ValidateProxiedRequest admits a request that an upstream proxy resolves and
-// connects. Spec L4148: with a proxy, DNS must come from the proxy, so hostname
+// connects. With a proxy, DNS must come from the proxy, so hostname
 // targets are never resolved locally. Methods, bodies, schemes, ports, domains,
 // blocked names and literal addresses are still enforced fail-closed.
 func (p *Policy) ValidateProxiedRequest(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {

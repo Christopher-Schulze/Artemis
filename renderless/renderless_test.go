@@ -55,9 +55,9 @@ func renderlessFixture(t *testing.T, body string) (*Engine, *httptest.Server) {
 
 // ==================== engine.go tests ====================
 
-// TestTASK2255_NewEngine verifies engine creation
-// (spec L4022: V8/v8go isolate snapshot engine).
-func TestTASK2255_NewEngine(t *testing.T) {
+// TestNewEngine verifies engine creation
+// (V8/v8go isolate snapshot engine).
+func TestNewEngine(t *testing.T) {
 	e, err := NewEngine(EngineConfig{MaxIsolates: 2})
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
@@ -68,9 +68,9 @@ func TestTASK2255_NewEngine(t *testing.T) {
 	defer closeRenderlessTestResource(t, "engine", e.Close)
 }
 
-// TestTASK2255_EngineConfigDefaults verifies defaults
-// (spec L4022: V8/v8go isolate snapshot engine).
-func TestTASK2255_EngineConfigDefaults(t *testing.T) {
+// TestEngineConfigDefaults verifies defaults
+// (V8/v8go isolate snapshot engine).
+func TestEngineConfigDefaults(t *testing.T) {
 	cfg := EngineConfig{}
 	cfg.ApplyDefaults()
 	if cfg.MaxIsolates != 4 {
@@ -81,9 +81,9 @@ func TestTASK2255_EngineConfigDefaults(t *testing.T) {
 	}
 }
 
-// TestTASK2255_EngineFetch verifies fetch
-// (spec L4022: V8/v8go isolate snapshot engine).
-func TestTASK2255_EngineFetch(t *testing.T) {
+// TestEngineFetch verifies fetch
+// (V8/v8go isolate snapshot engine).
+func TestEngineFetch(t *testing.T) {
 	e, server := renderlessFixture(t, "<!doctype html><title>fixture</title><p>real</p>")
 	page, err := e.Fetch(context.Background(), server.URL)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestTASK2255_EngineFetch(t *testing.T) {
 	}
 }
 
-func TestTASK2569_EngineFetchExecutesAgainstProductionPage(t *testing.T) {
+func TestEngineFetchExecutesAgainstProductionPage(t *testing.T) {
 	e, server := renderlessFixture(t, "<!doctype html><body><p id='value'>before</p><script>document.getElementById('value').textContent = 'after'</script></body>")
 	page, err := e.FetchWithOptions(context.Background(), server.URL, FetchOptions{RunScripts: true})
 	if err != nil {
@@ -110,8 +110,8 @@ func TestTASK2569_EngineFetchExecutesAgainstProductionPage(t *testing.T) {
 	}
 }
 
-// TestTASK2255_EngineFetchEmpty verifies empty URL fails.
-func TestTASK2255_EngineFetchEmpty(t *testing.T) {
+// TestEngineFetchEmpty verifies empty URL fails.
+func TestEngineFetchEmpty(t *testing.T) {
 	e, err := NewEngine(EngineConfig{})
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
@@ -123,8 +123,8 @@ func TestTASK2255_EngineFetchEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2255_EngineClose verifies close.
-func TestTASK2255_EngineClose(t *testing.T) {
+// TestEngineClose verifies close.
+func TestEngineClose(t *testing.T) {
 	e, err := NewEngine(EngineConfig{})
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
@@ -143,9 +143,9 @@ func TestTASK2255_EngineClose(t *testing.T) {
 
 // ==================== runtime.go tests ====================
 
-// TestTASK2255_RuntimeContext verifies context creation
-// (spec L4022: runtime context management).
-func TestTASK2255_RuntimeContext(t *testing.T) {
+// TestRuntimeContext verifies context creation
+// (runtime context management).
+func TestRuntimeContext(t *testing.T) {
 	ctx := NewRuntimeContext("ctx-1", 1)
 	if ctx.ID() != "ctx-1" {
 		t.Error("ID mismatch")
@@ -155,9 +155,9 @@ func TestTASK2255_RuntimeContext(t *testing.T) {
 	}
 }
 
-// TestTASK2255_RuntimeContextGlobals verifies global management
-// (spec L4022: runtime context management).
-func TestTASK2255_RuntimeContextGlobals(t *testing.T) {
+// TestRuntimeContextGlobals verifies global management
+// (runtime context management).
+func TestRuntimeContextGlobals(t *testing.T) {
 	ctx := NewRuntimeContext("ctx-1", 1)
 	ctx.SetGlobal("foo", "bar")
 	val, ok := ctx.GetGlobal("foo")
@@ -170,8 +170,8 @@ func TestTASK2255_RuntimeContextGlobals(t *testing.T) {
 	}
 }
 
-// TestTASK2255_RuntimeContextClose verifies close.
-func TestTASK2255_RuntimeContextClose(t *testing.T) {
+// TestRuntimeContextClose verifies close.
+func TestRuntimeContextClose(t *testing.T) {
 	ctx := NewRuntimeContext("ctx-1", 1)
 	ctx.Close()
 	if !ctx.IsClosed() {
@@ -181,9 +181,9 @@ func TestTASK2255_RuntimeContextClose(t *testing.T) {
 
 // ==================== context.go tests ====================
 
-// TestTASK2255_ContextPoolAcquireRelease verifies pool operations
-// (spec L4022: context pool/warm pool).
-func TestTASK2255_ContextPoolAcquireRelease(t *testing.T) {
+// TestContextPoolAcquireRelease verifies pool operations
+// (context pool/warm pool).
+func TestContextPoolAcquireRelease(t *testing.T) {
 	pool := NewContextPool(4)
 	ctx := pool.Acquire()
 	if ctx == nil {
@@ -198,9 +198,9 @@ func TestTASK2255_ContextPoolAcquireRelease(t *testing.T) {
 	}
 }
 
-// TestTASK2255_ContextPoolWarm verifies warming
-// (spec L4022: context pool/warm pool).
-func TestTASK2255_ContextPoolWarm(t *testing.T) {
+// TestContextPoolWarm verifies warming
+// (context pool/warm pool).
+func TestContextPoolWarm(t *testing.T) {
 	pool := NewContextPool(4)
 	pool.Warm(2)
 	if pool.Available() != 2 {
@@ -208,8 +208,8 @@ func TestTASK2255_ContextPoolWarm(t *testing.T) {
 	}
 }
 
-// TestTASK2255_ContextPoolMaxSize verifies max size limit.
-func TestTASK2255_ContextPoolMaxSize(t *testing.T) {
+// TestContextPoolMaxSize verifies max size limit.
+func TestContextPoolMaxSize(t *testing.T) {
 	pool := NewContextPool(2)
 	pool.Warm(2)
 	ctx := pool.Acquire()
@@ -230,8 +230,8 @@ func TestTASK2255_ContextPoolMaxSize(t *testing.T) {
 	pool.Release(ctx2)
 }
 
-// TestTASK2255_ContextPoolClose verifies close.
-func TestTASK2255_ContextPoolClose(t *testing.T) {
+// TestContextPoolClose verifies close.
+func TestContextPoolClose(t *testing.T) {
 	pool := NewContextPool(4)
 	pool.Warm(2)
 	pool.Close()
@@ -242,9 +242,9 @@ func TestTASK2255_ContextPoolClose(t *testing.T) {
 
 // ==================== pool.go tests ====================
 
-// TestTASK2255_IsolatePool verifies isolate pool
-// (spec L4022: context pool management).
-func TestTASK2255_IsolatePool(t *testing.T) {
+// TestIsolatePool verifies isolate pool
+// (context pool management).
+func TestIsolatePool(t *testing.T) {
 	p := NewIsolatePool(2)
 	id1, err := p.Acquire()
 	if err != nil {
@@ -259,8 +259,8 @@ func TestTASK2255_IsolatePool(t *testing.T) {
 	}
 }
 
-// TestTASK2255_IsolatePoolExhausted verifies exhaustion.
-func TestTASK2255_IsolatePoolExhausted(t *testing.T) {
+// TestIsolatePoolExhausted verifies exhaustion.
+func TestIsolatePoolExhausted(t *testing.T) {
 	p := NewIsolatePool(1)
 	if _, err := p.Acquire(); err != nil {
 		t.Fatalf("first Acquire: %v", err)
@@ -273,9 +273,9 @@ func TestTASK2255_IsolatePoolExhausted(t *testing.T) {
 
 // ==================== webapi.go tests ====================
 
-// TestTASK2255_WebAPIRegistry verifies registry
-// (spec L4022: DOM/WebAPI globals).
-func TestTASK2255_WebAPIRegistry(t *testing.T) {
+// TestWebAPIRegistry verifies registry
+// (DOM/WebAPI globals).
+func TestWebAPIRegistry(t *testing.T) {
 	r := NewWebAPIRegistry()
 	if r.Count() == 0 {
 		t.Error("registry should have standard globals")
@@ -285,8 +285,8 @@ func TestTASK2255_WebAPIRegistry(t *testing.T) {
 	}
 }
 
-// TestTASK2255_WebAPIRegistryRegister verifies registration.
-func TestTASK2255_WebAPIRegistryRegister(t *testing.T) {
+// TestWebAPIRegistryRegister verifies registration.
+func TestWebAPIRegistryRegister(t *testing.T) {
 	r := NewWebAPIRegistry()
 	r.Register(WebAPIGlobal{Name: "fetch", Type: "function", Implemented: true})
 	if !r.IsImplemented("fetch") {
@@ -294,7 +294,7 @@ func TestTASK2255_WebAPIRegistryRegister(t *testing.T) {
 	}
 }
 
-func TestTASK2569_WebAPIRegistryPreservesGlobalKinds(t *testing.T) {
+func TestWebAPIRegistryPreservesGlobalKinds(t *testing.T) {
 	r := NewWebAPIRegistry()
 	for _, test := range []struct {
 		name string
@@ -311,8 +311,8 @@ func TestTASK2569_WebAPIRegistryPreservesGlobalKinds(t *testing.T) {
 	}
 }
 
-// TestTASK2255_WebAPIRegistryNames verifies names.
-func TestTASK2255_WebAPIRegistryNames(t *testing.T) {
+// TestWebAPIRegistryNames verifies names.
+func TestWebAPIRegistryNames(t *testing.T) {
 	r := NewWebAPIRegistry()
 	names := r.Names()
 	if len(names) == 0 {
@@ -320,8 +320,8 @@ func TestTASK2255_WebAPIRegistryNames(t *testing.T) {
 	}
 }
 
-// TestTASK2255_WebAPIRegistryFormatGlobals verifies format.
-func TestTASK2255_WebAPIRegistryFormatGlobals(t *testing.T) {
+// TestWebAPIRegistryFormatGlobals verifies format.
+func TestWebAPIRegistryFormatGlobals(t *testing.T) {
 	r := NewWebAPIRegistry()
 	s := r.FormatGlobals()
 	if s == "" {
@@ -331,9 +331,9 @@ func TestTASK2255_WebAPIRegistryFormatGlobals(t *testing.T) {
 
 // ==================== page.go tests ====================
 
-// TestTASK2255_Page verifies page creation
-// (spec L4022: shared Page extraction surface).
-func TestTASK2255_Page(t *testing.T) {
+// TestPage verifies page creation
+// (shared Page extraction surface).
+func TestPage(t *testing.T) {
 	p := NewPage("https://example.com", 200, []byte("hello"))
 	if p.URL != "https://example.com" {
 		t.Error("URL mismatch")
@@ -343,9 +343,9 @@ func TestTASK2255_Page(t *testing.T) {
 	}
 }
 
-// TestTASK2255_PageStatusChecks verifies status checks
-// (spec L4022: shared Page extraction surface).
-func TestTASK2255_PageStatusChecks(t *testing.T) {
+// TestPageStatusChecks verifies status checks
+// (shared Page extraction surface).
+func TestPageStatusChecks(t *testing.T) {
 	p := NewPage("url", 200, nil)
 	if !p.IsSuccess() {
 		t.Error("200 should be success")
@@ -360,9 +360,9 @@ func TestTASK2255_PageStatusChecks(t *testing.T) {
 	}
 }
 
-// TestTASK2255_PageHeaders verifies header management
-// (spec L4022: shared Page extraction surface).
-func TestTASK2255_PageHeaders(t *testing.T) {
+// TestPageHeaders verifies header management
+// (shared Page extraction surface).
+func TestPageHeaders(t *testing.T) {
 	p := NewPage("url", 200, nil)
 	p.SetHeader("Content-Type", "text/html")
 	if p.GetHeader("Content-Type") != "text/html" {
@@ -375,9 +375,9 @@ func TestTASK2255_PageHeaders(t *testing.T) {
 
 // ==================== router.go tests ====================
 
-// TestTASK2255_ScriptRouterInline verifies inline execution
-// (spec L4022: inline+external script execution).
-func TestTASK2255_ScriptRouterInline(t *testing.T) {
+// TestScriptRouterInline verifies inline execution
+// (inline+external script execution).
+func TestScriptRouterInline(t *testing.T) {
 	r := NewScriptRouter()
 	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: "code"})
 	if result.Success || result.Error == "" {
@@ -385,9 +385,9 @@ func TestTASK2255_ScriptRouterInline(t *testing.T) {
 	}
 }
 
-// TestTASK2255_ScriptRouterExternal verifies external execution
-// (spec L4022: inline+external script execution).
-func TestTASK2255_ScriptRouterExternal(t *testing.T) {
+// TestScriptRouterExternal verifies external execution
+// (inline+external script execution).
+func TestScriptRouterExternal(t *testing.T) {
 	r := NewScriptRouter()
 	result := r.Execute(ScriptRequest{Type: ScriptTypeExternal, Source: "https://example.com/script.js"})
 	if result.Success || result.Error == "" {
@@ -395,7 +395,7 @@ func TestTASK2255_ScriptRouterExternal(t *testing.T) {
 	}
 }
 
-func TestTASK2569_ScriptRouterAllowsCallerBackedHandler(t *testing.T) {
+func TestScriptRouterAllowsCallerBackedHandler(t *testing.T) {
 	r := NewScriptRouter()
 	r.RegisterHandler(ScriptTypeInline, func(req ScriptRequest) ScriptResult {
 		return ScriptResult{Success: true, Output: req.Source}
@@ -406,7 +406,7 @@ func TestTASK2569_ScriptRouterAllowsCallerBackedHandler(t *testing.T) {
 	}
 }
 
-func TestTASK2569_ScriptRouterNilHandlerFailsClosed(t *testing.T) {
+func TestScriptRouterNilHandlerFailsClosed(t *testing.T) {
 	r := NewScriptRouter()
 	r.RegisterHandler(ScriptTypeInline, nil)
 	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: "real"})
@@ -415,8 +415,8 @@ func TestTASK2569_ScriptRouterNilHandlerFailsClosed(t *testing.T) {
 	}
 }
 
-// TestTASK2255_ScriptRouterEmptySource verifies empty source fails.
-func TestTASK2255_ScriptRouterEmptySource(t *testing.T) {
+// TestScriptRouterEmptySource verifies empty source fails.
+func TestScriptRouterEmptySource(t *testing.T) {
 	r := NewScriptRouter()
 	result := r.Execute(ScriptRequest{Type: ScriptTypeInline, Source: ""})
 	if result.Success {
@@ -424,8 +424,8 @@ func TestTASK2255_ScriptRouterEmptySource(t *testing.T) {
 	}
 }
 
-// TestTASK2255_IsValidScriptType verifies validation.
-func TestTASK2255_IsValidScriptType(t *testing.T) {
+// TestIsValidScriptType verifies validation.
+func TestIsValidScriptType(t *testing.T) {
 	if !IsValidScriptType(ScriptTypeInline) {
 		t.Error("inline should be valid")
 	}
@@ -436,9 +436,9 @@ func TestTASK2255_IsValidScriptType(t *testing.T) {
 
 // ==================== intercept.go tests ====================
 
-// TestTASK2255_InterceptHandlerContinue verifies continue
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
-func TestTASK2255_InterceptHandlerContinue(t *testing.T) {
+// TestInterceptHandlerContinue verifies continue
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
+func TestInterceptHandlerContinue(t *testing.T) {
 	h := NewInterceptHandler()
 	_, action, err := h.Intercept(InterceptedRequest{URL: "https://example.com"})
 	if err != nil {
@@ -449,9 +449,9 @@ func TestTASK2255_InterceptHandlerContinue(t *testing.T) {
 	}
 }
 
-// TestTASK2255_InterceptHandlerBlock verifies block
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
-func TestTASK2255_InterceptHandlerBlock(t *testing.T) {
+// TestInterceptHandlerBlock verifies block
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
+func TestInterceptHandlerBlock(t *testing.T) {
 	h := NewInterceptHandler()
 	h.AddRule(InterceptRule{Pattern: "blocked.com", Action: InterceptActionBlock})
 	_, _, err := h.Intercept(InterceptedRequest{URL: "https://blocked.com"})
@@ -460,9 +460,9 @@ func TestTASK2255_InterceptHandlerBlock(t *testing.T) {
 	}
 }
 
-// TestTASK2255_InterceptHandlerMock verifies mock
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
-func TestTASK2255_InterceptHandlerMock(t *testing.T) {
+// TestInterceptHandlerMock verifies mock
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
+func TestInterceptHandlerMock(t *testing.T) {
 	h := NewInterceptHandler()
 	h.AddRule(InterceptRule{
 		Pattern:  "api.example.com",
@@ -481,9 +481,9 @@ func TestTASK2255_InterceptHandlerMock(t *testing.T) {
 	}
 }
 
-// TestTASK2255_InterceptHandlerCache verifies cache
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
-func TestTASK2255_InterceptHandlerCache(t *testing.T) {
+// TestInterceptHandlerCache verifies cache
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
+func TestInterceptHandlerCache(t *testing.T) {
 	h := NewInterceptHandler()
 	h.StoreCache("https://example.com", NewMockResponse(200, "cached"), 1*time.Hour)
 	if h.CacheCount() != 1 {
@@ -495,8 +495,8 @@ func TestTASK2255_InterceptHandlerCache(t *testing.T) {
 	}
 }
 
-// TestTASK2255_IsValidInterceptAction verifies validation.
-func TestTASK2255_IsValidInterceptAction(t *testing.T) {
+// TestIsValidInterceptAction verifies validation.
+func TestIsValidInterceptAction(t *testing.T) {
 	if !IsValidInterceptAction(InterceptActionContinue) {
 		t.Error("continue should be valid")
 	}
@@ -507,9 +507,9 @@ func TestTASK2255_IsValidInterceptAction(t *testing.T) {
 
 // ==================== css.go tests ====================
 
-// TestTASK2255_CSSParser verifies CSS parsing
-// (spec L4022: CSS parse/cascade/computed style).
-func TestTASK2255_CSSParser(t *testing.T) {
+// TestCSSParser verifies CSS parsing
+// (CSS parse/cascade/computed style).
+func TestCSSParser(t *testing.T) {
 	p := NewCSSParser()
 	rules, err := p.Parse("div { color: red; } .class { font-size: 14px; }")
 	if err != nil {
@@ -523,8 +523,8 @@ func TestTASK2255_CSSParser(t *testing.T) {
 	}
 }
 
-// TestTASK2255_CSSParserEmpty verifies empty CSS.
-func TestTASK2255_CSSParserEmpty(t *testing.T) {
+// TestCSSParserEmpty verifies empty CSS.
+func TestCSSParserEmpty(t *testing.T) {
 	p := NewCSSParser()
 	rules, err := p.Parse("")
 	if err != nil {
@@ -535,9 +535,9 @@ func TestTASK2255_CSSParserEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2255_ComputedStyle verifies computed style
-// (spec L4022: CSS parse/cascade/computed style).
-func TestTASK2255_ComputedStyle(t *testing.T) {
+// TestComputedStyle verifies computed style
+// (CSS parse/cascade/computed style).
+func TestComputedStyle(t *testing.T) {
 	rules, err := NewCSSParser().Parse(`div{color:red}.class{color:blue}.class-other{color:green}`)
 	if err != nil {
 		t.Fatal(err)
@@ -559,9 +559,9 @@ func TestTASK2255_ComputedStyle(t *testing.T) {
 
 // ==================== capabilities.go tests ====================
 
-// TestTASK2255_CapabilityProfile verifies profile generation
-// (spec L4022: generated RenderlessCapabilityProfile).
-func TestTASK2255_CapabilityProfile(t *testing.T) {
+// TestCapabilityProfile verifies profile generation
+// (generated RenderlessCapabilityProfile).
+func TestCapabilityProfile(t *testing.T) {
 	cfg := EngineConfig{EnableRobots: true}
 	registry := NewWebAPIRegistry()
 	profile := GenerateCapabilityProfile(cfg, registry)
@@ -573,9 +573,9 @@ func TestTASK2255_CapabilityProfile(t *testing.T) {
 	}
 }
 
-// TestTASK2255_CapabilityProfileSupports verifies support checks
-// (spec L4022: generated RenderlessCapabilityProfile).
-func TestTASK2255_CapabilityProfileSupports(t *testing.T) {
+// TestCapabilityProfileSupports verifies support checks
+// (generated RenderlessCapabilityProfile).
+func TestCapabilityProfileSupports(t *testing.T) {
 	profile := RenderlessCapabilityProfile{
 		WebAPIs:     []string{"fetch", "document"},
 		CSSSupport:  []string{"selectors"},
@@ -592,8 +592,8 @@ func TestTASK2255_CapabilityProfileSupports(t *testing.T) {
 	}
 }
 
-// TestTASK2255_CapabilityProfileIsCapable verifies capability check.
-func TestTASK2255_CapabilityProfileIsCapable(t *testing.T) {
+// TestCapabilityProfileIsCapable verifies capability check.
+func TestCapabilityProfileIsCapable(t *testing.T) {
 	registry := NewWebAPIRegistry()
 	profile := GenerateCapabilityProfile(EngineConfig{}, registry)
 	if !profile.IsCapable() {
@@ -601,8 +601,8 @@ func TestTASK2255_CapabilityProfileIsCapable(t *testing.T) {
 	}
 }
 
-// TestTASK2255_CapabilityProfileMissingWebAPIs verifies missing check.
-func TestTASK2255_CapabilityProfileMissingWebAPIs(t *testing.T) {
+// TestCapabilityProfileMissingWebAPIs verifies missing check.
+func TestCapabilityProfileMissingWebAPIs(t *testing.T) {
 	profile := RenderlessCapabilityProfile{WebAPIs: []string{"fetch"}}
 	missing := profile.MissingWebAPIs([]string{"fetch", "nonexistent"})
 	if len(missing) != 1 {
@@ -610,13 +610,13 @@ func TestTASK2255_CapabilityProfileMissingWebAPIs(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2255_FullSpecParity verifies all 11 spec-mandated files
-// (spec L4022: engine.go, runtime.go, context.go, pool.go, webapi.go,
+// TestRenderlessParity verifies all 11 spec-mandated files
+// (engine.go, runtime.go, context.go, pool.go, webapi.go,
 // page.go, router.go, intercept.go, css.go, capabilities.go,
 // conformance_test.go).
-func TestTASK2255_FullSpecParity(t *testing.T) {
+func TestRenderlessParity(t *testing.T) {
 	// 1. engine.go
 	e, err := NewEngine(EngineConfig{})
 	if err != nil {

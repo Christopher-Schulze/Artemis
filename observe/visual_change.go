@@ -4,8 +4,7 @@ import (
 	"image"
 )
 
-// visual_change.go measures how much of a screenshot changed (spec L4264,
-// reference-bound visual grounding). The comparison samples a bounded grid,
+// visual_change.go measures how much of a screenshot changed (// reference-bound visual grounding). The comparison samples a bounded grid,
 // so its cost and output stay fixed regardless of image size. It complements
 // and never replaces the semantic AX snapshot diff.
 

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// intercept.go (spec L4022: renderless/intercept.go - fetch/XHR
+// intercept.go (renderless/intercept.go - fetch/XHR
 // bridge + OnRequest mock/intercept/cache hook).
 //
 // In-process no-render JS browser path: fetch/XHR bridge with
@@ -16,7 +16,7 @@ import (
 // from the JS runtime and routes them through configurable handlers.
 
 // InterceptAction enumerates actions for intercepted requests
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptAction string
 
 const (
@@ -27,7 +27,7 @@ const (
 )
 
 // InterceptedRequest represents an intercepted network request
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptedRequest struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method"`
@@ -36,7 +36,7 @@ type InterceptedRequest struct {
 }
 
 // InterceptedResponse represents a mocked response
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptedResponse struct {
 	StatusCode int               `json:"statusCode"`
 	Headers    map[string]string `json:"headers"`
@@ -44,7 +44,7 @@ type InterceptedResponse struct {
 }
 
 // InterceptRule defines a rule for intercepting requests
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptRule struct {
 	Pattern  string               `json:"pattern"` // URL pattern to match
 	Action   InterceptAction      `json:"action"`
@@ -53,7 +53,7 @@ type InterceptRule struct {
 }
 
 // InterceptHandler manages request interception
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 type InterceptHandler struct {
 	mu            sync.RWMutex
 	rules         []InterceptRule
@@ -68,7 +68,7 @@ type cacheEntry struct {
 }
 
 // NewInterceptHandler creates a new InterceptHandler
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func NewInterceptHandler() *InterceptHandler {
 	return &InterceptHandler{
 		cache:         make(map[string]*cacheEntry),
@@ -77,7 +77,7 @@ func NewInterceptHandler() *InterceptHandler {
 }
 
 // AddRule adds an interception rule
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) AddRule(rule InterceptRule) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -88,7 +88,7 @@ func (h *InterceptHandler) AddRule(rule InterceptRule) {
 }
 
 // Intercept processes an intercepted request
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) Intercept(req InterceptedRequest) (*InterceptedResponse, InterceptAction, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -116,7 +116,7 @@ func (h *InterceptHandler) Intercept(req InterceptedRequest) (*InterceptedRespon
 }
 
 // StoreCache stores a response in the cache
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) StoreCache(url string, resp *InterceptedResponse, maxAge time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -128,7 +128,7 @@ func (h *InterceptHandler) StoreCache(url string, resp *InterceptedResponse, max
 }
 
 // ClearCache clears the response cache
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) ClearCache() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -138,7 +138,7 @@ func (h *InterceptHandler) ClearCache() int {
 }
 
 // RuleCount returns the number of interception rules
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) RuleCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -146,7 +146,7 @@ func (h *InterceptHandler) RuleCount() int {
 }
 
 // CacheCount returns the number of cached responses
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (h *InterceptHandler) CacheCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -154,7 +154,7 @@ func (h *InterceptHandler) CacheCount() int {
 }
 
 // IsValidInterceptAction reports whether an action is valid
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func IsValidInterceptAction(a InterceptAction) bool {
 	switch a {
 	case InterceptActionContinue, InterceptActionMock, InterceptActionBlock, InterceptActionCache:
@@ -172,7 +172,7 @@ func matchURL(url, pattern string) bool {
 }
 
 // NewMockResponse creates a new mock response
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func NewMockResponse(status int, body string) *InterceptedResponse {
 	return &InterceptedResponse{
 		StatusCode: status,
@@ -182,7 +182,7 @@ func NewMockResponse(status int, body string) *InterceptedResponse {
 }
 
 // ToHTTPResponse converts an InterceptedResponse to an http.Response
-// (spec L4022: fetch/XHR bridge + OnRequest mock/intercept/cache).
+// (fetch/XHR bridge + OnRequest mock/intercept/cache).
 func (r *InterceptedResponse) ToHTTPResponse() *http.Response {
 	header := make(http.Header)
 	for k, v := range r.Headers {

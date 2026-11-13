@@ -10,7 +10,7 @@ import (
 )
 
 // TrustUntrusted is the only trust value for page-derived content: spec
-// L4202 allows a policy downgrade of scanning, never removal of the label.
+// Policy allows a downgrade of scanning, never removal of the label.
 const TrustUntrusted = "untrusted"
 
 // ErrContentBlocked is returned when IDPI policy blocks page-derived content
@@ -18,7 +18,7 @@ const TrustUntrusted = "untrusted"
 var ErrContentBlocked = errors.New("idpi: page-derived content blocked by policy")
 
 // ContentTrust labels page-derived output with its origin, producing source
-// and IDPI verdict (spec L4202). TaintRefs carry the matched injection
+// and IDPI verdict. TaintRefs carry the matched injection
 // phrases so downstream consumers keep the taint.
 type ContentTrust struct {
 	Origin           string     `json:"origin"`

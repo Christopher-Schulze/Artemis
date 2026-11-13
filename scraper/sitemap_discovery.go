@@ -15,7 +15,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
-// SitemapLimits bounds recursive sitemap discovery (spec L4416). Zero values
+// SitemapLimits bounds recursive sitemap discovery. Zero values
 // select the sitemap-protocol defaults.
 type SitemapLimits struct {
 	MaxDepth    int   // sitemap-index nesting, default 3

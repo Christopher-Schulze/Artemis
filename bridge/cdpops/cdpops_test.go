@@ -36,7 +36,7 @@ func (c *cdpopsTestCaller) Call(_ context.Context, method string, _ any, result 
 
 func newCDPOpsTestCaller() *cdpopsTestCaller { return &cdpopsTestCaller{} }
 
-func TestTASK2568_CDPPrimitivesRequireProtocolAndCaller(t *testing.T) {
+func TestCDPPrimitivesRequireProtocolAndCaller(t *testing.T) {
 	noCaller := NewNavigator()
 	if result := noCaller.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"}); result.Success {
 		t.Fatal("navigator reported success without a CDP caller")
@@ -57,7 +57,7 @@ func TestTASK2568_CDPPrimitivesRequireProtocolAndCaller(t *testing.T) {
 	}
 }
 
-func TestTASK2568_CDPFailureCannotBecomeSuccessOrHistory(t *testing.T) {
+func TestCDPFailureCannotBecomeSuccessOrHistory(t *testing.T) {
 	navigator := NewNavigator(&cdpopsTestCaller{failMethod: "Page.navigate"})
 	if result := navigator.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"}); result.Success {
 		t.Fatal("navigation converted a CDP failure into success")
@@ -74,44 +74,44 @@ func TestTASK2568_CDPFailureCannotBecomeSuccessOrHistory(t *testing.T) {
 
 // ==================== element.go tests ====================
 
-// TestTASK2256_QueryElementsEmpty verifies empty selector
-// (spec L4019: element queries + box model).
-func TestTASK2256_QueryElementsEmpty(t *testing.T) {
+// TestQueryElementsEmpty verifies empty selector
+// (element queries + box model).
+func TestQueryElementsEmpty(t *testing.T) {
 	result := QueryElements(ElementQuery{Selector: ""})
 	if result.Error == "" {
 		t.Error("empty selector should error")
 	}
 }
 
-// TestTASK2256_QueryElementsValid verifies valid query
-// (spec L4019: element queries + box model).
-func TestTASK2256_QueryElementsValid(t *testing.T) {
+// TestQueryElementsValid verifies valid query
+// (element queries + box model).
+func TestQueryElementsValid(t *testing.T) {
 	result := QueryElements(ElementQuery{Selector: "div"})
 	if result.Error == "" {
 		t.Error("legacy query without a CDP caller must fail explicitly")
 	}
 }
 
-// TestTASK2256_GetBoxModel verifies box model retrieval
-// (spec L4019: element queries + box model).
-func TestTASK2256_GetBoxModel(t *testing.T) {
+// TestGetBoxModel verifies box model retrieval
+// (element queries + box model).
+func TestGetBoxModel(t *testing.T) {
 	box, err := GetBoxModel("e5")
 	if err == nil || box != nil {
 		t.Fatal("legacy fixed geometry must not be returned")
 	}
 }
 
-// TestTASK2256_GetBoxModelEmpty verifies empty ref.
-func TestTASK2256_GetBoxModelEmpty(t *testing.T) {
+// TestGetBoxModelEmpty verifies empty ref.
+func TestGetBoxModelEmpty(t *testing.T) {
 	_, err := GetBoxModel("")
 	if err == nil {
 		t.Error("empty ref should error")
 	}
 }
 
-// TestTASK2256_IsElementVisible verifies visibility check
-// (spec L4019: element queries + box model).
-func TestTASK2256_IsElementVisible(t *testing.T) {
+// TestIsElementVisible verifies visibility check
+// (element queries + box model).
+func TestIsElementVisible(t *testing.T) {
 	if !IsElementVisible(&BoxModel{Width: 100, Height: 100}) {
 		t.Error("100x100 should be visible")
 	}
@@ -123,9 +123,9 @@ func TestTASK2256_IsElementVisible(t *testing.T) {
 	}
 }
 
-// TestTASK2256_IsElementClickable verifies clickability check
-// (spec L4019: element queries + box model).
-func TestTASK2256_IsElementClickable(t *testing.T) {
+// TestIsElementClickable verifies clickability check
+// (element queries + box model).
+func TestIsElementClickable(t *testing.T) {
 	info := &ElementInfo{
 		Attachment:    ElementAttached,
 		Layout:        ElementLayoutPresent,
@@ -144,18 +144,18 @@ func TestTASK2256_IsElementClickable(t *testing.T) {
 	}
 }
 
-// TestTASK2256_GetElementCenter verifies center calculation
-// (spec L4019: element queries + box model).
-func TestTASK2256_GetElementCenter(t *testing.T) {
+// TestGetElementCenter verifies center calculation
+// (element queries + box model).
+func TestGetElementCenter(t *testing.T) {
 	x, y := GetElementCenter(&BoxModel{Width: 100, Height: 200})
 	if x != 50 || y != 100 {
 		t.Errorf("center: got (%f,%f), want (50,100)", x, y)
 	}
 }
 
-// TestTASK2256_FilterVisible verifies filtering
-// (spec L4019: element queries + box model).
-func TestTASK2256_FilterVisible(t *testing.T) {
+// TestFilterVisible verifies filtering
+// (element queries + box model).
+func TestFilterVisible(t *testing.T) {
 	elements := []ElementInfo{
 		{Ref: "e1", Visible: true},
 		{Ref: "e2", Visible: false},
@@ -167,9 +167,9 @@ func TestTASK2256_FilterVisible(t *testing.T) {
 	}
 }
 
-// TestTASK2256_FindByRef verifies ref search
-// (spec L4019: element queries + box model).
-func TestTASK2256_FindByRef(t *testing.T) {
+// TestFindByRef verifies ref search
+// (element queries + box model).
+func TestFindByRef(t *testing.T) {
 	elements := []ElementInfo{
 		{Ref: "e1", TagName: "div"},
 		{Ref: "e2", TagName: "span"},
@@ -184,9 +184,9 @@ func TestTASK2256_FindByRef(t *testing.T) {
 	}
 }
 
-// TestTASK2256_FindByTag verifies tag search
-// (spec L4019: element queries + box model).
-func TestTASK2256_FindByTag(t *testing.T) {
+// TestFindByTag verifies tag search
+// (element queries + box model).
+func TestFindByTag(t *testing.T) {
 	elements := []ElementInfo{
 		{Ref: "e1", TagName: "div"},
 		{Ref: "e2", TagName: "DIV"},
@@ -200,53 +200,53 @@ func TestTASK2256_FindByTag(t *testing.T) {
 
 // ==================== geometry.go tests ====================
 
-// TestTASK2256_CSSToDevicePixels verifies CSS to device conversion
-// (spec L4019: coordinate transforms).
-func TestTASK2256_CSSToDevicePixels(t *testing.T) {
+// TestCSSToDevicePixels verifies CSS to device conversion
+// (coordinate transforms).
+func TestCSSToDevicePixels(t *testing.T) {
 	p := CSSToDevicePixels(Point{X: 100, Y: 200}, 2.0)
 	if p.X != 200 || p.Y != 400 {
 		t.Errorf("got (%f,%f), want (200,400)", p.X, p.Y)
 	}
 }
 
-// TestTASK2256_DeviceToCSSPixels verifies device to CSS conversion
-// (spec L4019: coordinate transforms).
-func TestTASK2256_DeviceToCSSPixels(t *testing.T) {
+// TestDeviceToCSSPixels verifies device to CSS conversion
+// (coordinate transforms).
+func TestDeviceToCSSPixels(t *testing.T) {
 	p := DeviceToCSSPixels(Point{X: 200, Y: 400}, 2.0)
 	if p.X != 100 || p.Y != 200 {
 		t.Errorf("got (%f,%f), want (100,200)", p.X, p.Y)
 	}
 }
 
-// TestTASK2256_CSSToDevicePixelsZeroScale verifies zero scale default.
-func TestTASK2256_CSSToDevicePixelsZeroScale(t *testing.T) {
+// TestCSSToDevicePixelsZeroScale verifies zero scale default.
+func TestCSSToDevicePixelsZeroScale(t *testing.T) {
 	p := CSSToDevicePixels(Point{X: 100, Y: 200}, 0)
 	if p.X != 100 || p.Y != 200 {
 		t.Error("zero scale should default to 1")
 	}
 }
 
-// TestTASK2256_ApplyScrollOffset verifies scroll offset
-// (spec L4019: coordinate transforms).
-func TestTASK2256_ApplyScrollOffset(t *testing.T) {
+// TestApplyScrollOffset verifies scroll offset
+// (coordinate transforms).
+func TestApplyScrollOffset(t *testing.T) {
 	p := ApplyScrollOffset(Point{X: 10, Y: 20}, 100, 200)
 	if p.X != 110 || p.Y != 220 {
 		t.Errorf("got (%f,%f), want (110,220)", p.X, p.Y)
 	}
 }
 
-// TestTASK2256_RemoveScrollOffset verifies scroll removal
-// (spec L4019: coordinate transforms).
-func TestTASK2256_RemoveScrollOffset(t *testing.T) {
+// TestRemoveScrollOffset verifies scroll removal
+// (coordinate transforms).
+func TestRemoveScrollOffset(t *testing.T) {
 	p := RemoveScrollOffset(Point{X: 110, Y: 220}, 100, 200)
 	if p.X != 10 || p.Y != 20 {
 		t.Errorf("got (%f,%f), want (10,20)", p.X, p.Y)
 	}
 }
 
-// TestTASK2256_PointInRect verifies point-in-rect check
-// (spec L4019: coordinate transforms).
-func TestTASK2256_PointInRect(t *testing.T) {
+// TestPointInRect verifies point-in-rect check
+// (coordinate transforms).
+func TestPointInRect(t *testing.T) {
 	r := Rect{X: 10, Y: 10, Width: 100, Height: 100}
 	if !PointInRect(Point{X: 50, Y: 50}, r) {
 		t.Error("50,50 should be in rect")
@@ -256,45 +256,45 @@ func TestTASK2256_PointInRect(t *testing.T) {
 	}
 }
 
-// TestTASK2256_RectCenter verifies center calculation
-// (spec L4019: coordinate transforms).
-func TestTASK2256_RectCenter(t *testing.T) {
+// TestRectCenter verifies center calculation
+// (coordinate transforms).
+func TestRectCenter(t *testing.T) {
 	c := RectCenter(Rect{X: 0, Y: 0, Width: 100, Height: 200})
 	if c.X != 50 || c.Y != 100 {
 		t.Errorf("got (%f,%f), want (50,100)", c.X, c.Y)
 	}
 }
 
-// TestTASK2256_Distance verifies distance calculation
-// (spec L4019: coordinate transforms).
-func TestTASK2256_Distance(t *testing.T) {
+// TestDistance verifies distance calculation
+// (coordinate transforms).
+func TestDistance(t *testing.T) {
 	d := Distance(Point{X: 0, Y: 0}, Point{X: 3, Y: 4})
 	if d != 5 {
 		t.Errorf("distance: got %f, want 5", d)
 	}
 }
 
-// TestTASK2256_Midpoint verifies midpoint
-// (spec L4019: coordinate transforms).
-func TestTASK2256_Midpoint(t *testing.T) {
+// TestMidpoint verifies midpoint
+// (coordinate transforms).
+func TestMidpoint(t *testing.T) {
 	m := Midpoint(Point{X: 0, Y: 0}, Point{X: 100, Y: 200})
 	if m.X != 50 || m.Y != 100 {
 		t.Errorf("got (%f,%f), want (50,100)", m.X, m.Y)
 	}
 }
 
-// TestTASK2256_Lerp verifies interpolation
-// (spec L4019: coordinate transforms).
-func TestTASK2256_Lerp(t *testing.T) {
+// TestLerp verifies interpolation
+// (coordinate transforms).
+func TestLerp(t *testing.T) {
 	p := Lerp(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 0.5)
 	if p.X != 50 || p.Y != 50 {
 		t.Errorf("got (%f,%f), want (50,50)", p.X, p.Y)
 	}
 }
 
-// TestTASK2256_ClampPoint verifies clamping
-// (spec L4019: coordinate transforms).
-func TestTASK2256_ClampPoint(t *testing.T) {
+// TestClampPoint verifies clamping
+// (coordinate transforms).
+func TestClampPoint(t *testing.T) {
 	vp := Viewport{X: 0, Y: 0, Width: 100, Height: 100}
 	p := ClampPoint(Point{X: 150, Y: 150}, vp)
 	if p.X != 100 || p.Y != 100 {
@@ -302,9 +302,9 @@ func TestTASK2256_ClampPoint(t *testing.T) {
 	}
 }
 
-// TestTASK2256_QuadToRect verifies quad to rect conversion
-// (spec L4019: coordinate transforms).
-func TestTASK2256_QuadToRect(t *testing.T) {
+// TestQuadToRect verifies quad to rect conversion
+// (coordinate transforms).
+func TestQuadToRect(t *testing.T) {
 	q := Quad{0, 0, 100, 0, 100, 100, 0, 100}
 	r := QuadToRect(q)
 	if r.Width != 100 || r.Height != 100 {
@@ -314,9 +314,9 @@ func TestTASK2256_QuadToRect(t *testing.T) {
 
 // ==================== navigation.go tests ====================
 
-// TestTASK2256_NavigatorNavigate verifies navigation
-// (spec L4019: page navigation + wait).
-func TestTASK2256_NavigatorNavigate(t *testing.T) {
+// TestNavigatorNavigate verifies navigation
+// (page navigation + wait).
+func TestNavigatorNavigate(t *testing.T) {
 	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.Navigate(context.Background(), NavigationRequest{
 		URL:       "https://example.com",
@@ -334,8 +334,8 @@ func TestTASK2256_NavigatorNavigate(t *testing.T) {
 	}
 }
 
-// TestTASK2256_NavigatorNavigateEmpty verifies empty URL fails.
-func TestTASK2256_NavigatorNavigateEmpty(t *testing.T) {
+// TestNavigatorNavigateEmpty verifies empty URL fails.
+func TestNavigatorNavigateEmpty(t *testing.T) {
 	n := NewNavigator()
 	result := n.Navigate(context.Background(), NavigationRequest{URL: ""})
 	if result.Success {
@@ -343,9 +343,9 @@ func TestTASK2256_NavigatorNavigateEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2256_NavigatorWaitForLoad verifies wait
-// (spec L4019: page navigation + wait).
-func TestTASK2256_NavigatorWaitForLoad(t *testing.T) {
+// TestNavigatorWaitForLoad verifies wait
+// (page navigation + wait).
+func TestNavigatorWaitForLoad(t *testing.T) {
 	n := NewNavigator(newCDPOpsTestCaller())
 	n.Navigate(context.Background(), NavigationRequest{URL: "https://example.com"})
 	err := n.WaitForLoad(context.Background(), WaitLoad, 1*time.Second)
@@ -354,9 +354,9 @@ func TestTASK2256_NavigatorWaitForLoad(t *testing.T) {
 	}
 }
 
-// TestTASK2256_NavigatorGoBack verifies back navigation
-// (spec L4019: page navigation + wait).
-func TestTASK2256_NavigatorGoBack(t *testing.T) {
+// TestNavigatorGoBack verifies back navigation
+// (page navigation + wait).
+func TestNavigatorGoBack(t *testing.T) {
 	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.GoBack(context.Background())
 	if !result.Success {
@@ -364,9 +364,9 @@ func TestTASK2256_NavigatorGoBack(t *testing.T) {
 	}
 }
 
-// TestTASK2256_NavigatorGoForward verifies forward navigation
-// (spec L4019: page navigation + wait).
-func TestTASK2256_NavigatorGoForward(t *testing.T) {
+// TestNavigatorGoForward verifies forward navigation
+// (page navigation + wait).
+func TestNavigatorGoForward(t *testing.T) {
 	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.GoForward(context.Background())
 	if !result.Success {
@@ -374,9 +374,9 @@ func TestTASK2256_NavigatorGoForward(t *testing.T) {
 	}
 }
 
-// TestTASK2256_NavigatorReload verifies reload
-// (spec L4019: page navigation + wait).
-func TestTASK2256_NavigatorReload(t *testing.T) {
+// TestNavigatorReload verifies reload
+// (page navigation + wait).
+func TestNavigatorReload(t *testing.T) {
 	n := NewNavigator(newCDPOpsTestCaller())
 	result := n.Reload(context.Background())
 	if !result.Success {
@@ -384,8 +384,8 @@ func TestTASK2256_NavigatorReload(t *testing.T) {
 	}
 }
 
-// TestTASK2256_IsValidWaitCondition verifies validation.
-func TestTASK2256_IsValidWaitCondition(t *testing.T) {
+// TestIsValidWaitCondition verifies validation.
+func TestIsValidWaitCondition(t *testing.T) {
 	if !IsValidWaitCondition(WaitLoad) {
 		t.Error("load should be valid")
 	}
@@ -394,8 +394,8 @@ func TestTASK2256_IsValidWaitCondition(t *testing.T) {
 	}
 }
 
-// TestTASK2256_IsValidNavigationState verifies validation.
-func TestTASK2256_IsValidNavigationState(t *testing.T) {
+// TestIsValidNavigationState verifies validation.
+func TestIsValidNavigationState(t *testing.T) {
 	if !IsValidNavigationState(NavigationStateComplete) {
 		t.Error("complete should be valid")
 	}
@@ -406,9 +406,9 @@ func TestTASK2256_IsValidNavigationState(t *testing.T) {
 
 // ==================== pointer.go tests ====================
 
-// TestTASK2256_PointerClick verifies click
-// (spec L4019: mouse/touch events).
-func TestTASK2256_PointerClick(t *testing.T) {
+// TestPointerClick verifies click
+// (mouse/touch events).
+func TestPointerClick(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.Click(100, 200, MouseButtonLeft)
 	if err != nil {
@@ -419,9 +419,9 @@ func TestTASK2256_PointerClick(t *testing.T) {
 	}
 }
 
-// TestTASK2256_PointerDoubleClick verifies double-click
-// (spec L4019: mouse/touch events).
-func TestTASK2256_PointerDoubleClick(t *testing.T) {
+// TestPointerDoubleClick verifies double-click
+// (mouse/touch events).
+func TestPointerDoubleClick(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.DoubleClick(100, 200)
 	if err != nil {
@@ -429,9 +429,9 @@ func TestTASK2256_PointerDoubleClick(t *testing.T) {
 	}
 }
 
-// TestTASK2256_PointerMouseMove verifies mouse move
-// (spec L4019: mouse/touch events).
-func TestTASK2256_PointerMouseMove(t *testing.T) {
+// TestPointerMouseMove verifies mouse move
+// (mouse/touch events).
+func TestPointerMouseMove(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.MouseMove(100, 200)
 	if err != nil {
@@ -439,9 +439,9 @@ func TestTASK2256_PointerMouseMove(t *testing.T) {
 	}
 }
 
-// TestTASK2256_PointerTouchTap verifies touch tap
-// (spec L4019: mouse/touch events).
-func TestTASK2256_PointerTouchTap(t *testing.T) {
+// TestPointerTouchTap verifies touch tap
+// (mouse/touch events).
+func TestPointerTouchTap(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.TouchTap(100, 200)
 	if err != nil {
@@ -452,8 +452,8 @@ func TestTASK2256_PointerTouchTap(t *testing.T) {
 	}
 }
 
-// TestTASK2256_PointerInvalidButton verifies invalid button.
-func TestTASK2256_PointerInvalidButton(t *testing.T) {
+// TestPointerInvalidButton verifies invalid button.
+func TestPointerInvalidButton(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	err := d.DispatchMouse(MouseEvent{Button: MouseButton("invalid")})
 	if err == nil {
@@ -461,8 +461,8 @@ func TestTASK2256_PointerInvalidButton(t *testing.T) {
 	}
 }
 
-// TestTASK2256_PointerClear verifies clear.
-func TestTASK2256_PointerClear(t *testing.T) {
+// TestPointerClear verifies clear.
+func TestPointerClear(t *testing.T) {
 	d := NewPointerDispatcher(newCDPOpsTestCaller())
 	if err := d.Click(100, 200, MouseButtonLeft); err != nil {
 		t.Fatalf("Click: %v", err)
@@ -476,8 +476,8 @@ func TestTASK2256_PointerClear(t *testing.T) {
 	}
 }
 
-// TestTASK2256_IsValidMouseButton verifies validation.
-func TestTASK2256_IsValidMouseButton(t *testing.T) {
+// TestIsValidMouseButton verifies validation.
+func TestIsValidMouseButton(t *testing.T) {
 	if !IsValidMouseButton(MouseButtonLeft) {
 		t.Error("left should be valid")
 	}
@@ -486,9 +486,9 @@ func TestTASK2256_IsValidMouseButton(t *testing.T) {
 	}
 }
 
-// TestTASK2256_GenerateBezierPath verifies path generation
-// (spec L4019: mouse/touch events).
-func TestTASK2256_GenerateBezierPath(t *testing.T) {
+// TestGenerateBezierPath verifies path generation
+// (mouse/touch events).
+func TestGenerateBezierPath(t *testing.T) {
 	path := GenerateBezierPath(Point{X: 0, Y: 0}, Point{X: 100, Y: 100}, 10)
 	if len(path) != 11 {
 		t.Errorf("path length: got %d, want 11", len(path))
@@ -503,9 +503,9 @@ func TestTASK2256_GenerateBezierPath(t *testing.T) {
 	}
 }
 
-// TestTASK2256_AddJitter verifies jitter
-// (spec L4019: mouse/touch events).
-func TestTASK2256_AddJitter(t *testing.T) {
+// TestAddJitter verifies jitter
+// (mouse/touch events).
+func TestAddJitter(t *testing.T) {
 	p := AddJitter(Point{X: 100, Y: 100}, 5)
 	// Should return a different point (with jitter)
 	if p.X == 100 && p.Y == 100 {
@@ -518,11 +518,11 @@ func TestTASK2256_AddJitter(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2256_FullSpecParity verifies all 4 spec-mandated files
-// (spec L4019: element.go, geometry.go, navigation.go, pointer.go).
-func TestTASK2256_FullSpecParity(t *testing.T) {
+// TestCdpopsParity verifies all 4 spec-mandated files
+// (element.go, geometry.go, navigation.go, pointer.go).
+func TestCdpopsParity(t *testing.T) {
 	// 1. element.go - element queries + box model
 	box := &BoxModel{Width: 100, Height: 50}
 	if !IsElementVisible(box) {

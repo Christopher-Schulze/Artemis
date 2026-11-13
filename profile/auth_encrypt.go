@@ -1,5 +1,5 @@
-// Package profile: auth_encrypt.go implements Auth Profile Encryption
-// (spec L4260): AES-256-GCM authenticated encryption of sensitive auth
+// Package profile: auth_encrypt.go implements Auth Profile Encryption:
+// AES-256-GCM authenticated encryption of sensitive auth
 // profile material with a pluggable SecretProvider/keychain abstraction.
 //
 // The encryptor is intentionally decoupled from any concrete OS keychain:
@@ -28,7 +28,7 @@ const AlgorithmAES256GCM = "AES-256-GCM"
 // keyIDSize is the number of hex chars used to fingerprint a derived key.
 const keyIDSize = 16
 
-// AuthEncryptConfig configures the AuthEncryptor (spec L4260).
+// AuthEncryptConfig configures the AuthEncryptor.
 type AuthEncryptConfig struct {
 	// Enabled gates encryption. When false, Encrypt returns plaintext
 	// wrapped in an EncryptedProfile with Algorithm="" and no ciphertext,
@@ -109,7 +109,7 @@ func (p *KeychainProvider) KeyID() string {
 }
 
 // EncryptedProfile is the sealed payload produced by AuthEncryptor.Encrypt
-// and consumed by Decrypt (spec L4260).
+// and consumed by Decrypt.
 type EncryptedProfile struct {
 	Nonce      []byte `json:"nonce"`
 	Ciphertext []byte `json:"ciphertext"`
@@ -130,7 +130,7 @@ type AuthEncryptStats struct {
 }
 
 // AuthEncryptor performs AES-256-GCM encrypt/decrypt of auth profile
-// material (spec L4260). It is safe for concurrent use.
+// material. It is safe for concurrent use.
 type AuthEncryptor struct {
 	cfg  AuthEncryptConfig
 	mu   sync.RWMutex

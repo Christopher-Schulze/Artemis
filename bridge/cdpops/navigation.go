@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// navigation.go (spec L4019: bridge/cdpops/navigation.go - page
+// navigation.go (bridge/cdpops/navigation.go - page
 // navigation + wait).
 //
 // Low-level CDP ops: page navigation and wait operations.
@@ -16,7 +16,7 @@ import (
 // and tracking navigation state.
 
 // NavigationState enumerates page navigation states
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 type NavigationState string
 
 const (
@@ -28,7 +28,7 @@ const (
 )
 
 // NavigationRequest represents a navigation request
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 type NavigationRequest struct {
 	URL       string        `json:"url"`
 	WaitUntil WaitCondition `json:"waitUntil"`
@@ -37,7 +37,7 @@ type NavigationRequest struct {
 }
 
 // NavigationResult is the result of a navigation
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 type NavigationResult struct {
 	Success    bool            `json:"success"`
 	URL        string          `json:"url"`
@@ -62,7 +62,7 @@ type NavigatorCaller interface {
 }
 
 // WaitCondition enumerates page load wait conditions
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 type WaitCondition string
 
 const (
@@ -90,7 +90,7 @@ type LifecycleWatcher interface {
 var ErrLifecycleEventsRequired = errors.New("wait: network idle conditions require Page.lifecycleEvent support")
 
 // Navigator manages page navigation
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 type Navigator struct {
 	mu         sync.RWMutex
 	state      NavigationState
@@ -103,7 +103,7 @@ type Navigator struct {
 }
 
 // NewNavigator creates a new Navigator
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func NewNavigator(callers ...Caller) *Navigator {
 	var caller Caller
 	if len(callers) > 0 {
@@ -171,7 +171,7 @@ func waitLifecycle(ctx context.Context, events <-chan LifecycleEvent, name, fram
 }
 
 // Navigate navigates to a URL
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) NavigationResult {
 	start := time.Now()
 	if ctx == nil {
@@ -251,7 +251,7 @@ func (n *Navigator) Navigate(ctx context.Context, req NavigationRequest) Navigat
 }
 
 // WaitForLoad waits for the page to reach the specified condition
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) WaitForLoad(ctx context.Context, condition WaitCondition, timeout time.Duration) error {
 	if ctx == nil {
 		return errors.New("wait: context required")
@@ -310,7 +310,7 @@ func (n *Navigator) waitCurrentDocumentLifecycle(ctx context.Context, condition 
 }
 
 // State returns the current navigation state
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) State() NavigationState {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -318,7 +318,7 @@ func (n *Navigator) State() NavigationState {
 }
 
 // CurrentURL returns the current URL
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) CurrentURL() string {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -326,19 +326,19 @@ func (n *Navigator) CurrentURL() string {
 }
 
 // GoBack navigates back in history
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) GoBack(ctx context.Context, authorize ...func(context.Context, string) error) NavigationResult {
 	return n.navigateHistory(ctx, -1, authorize...)
 }
 
 // GoForward navigates forward in history
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) GoForward(ctx context.Context, authorize ...func(context.Context, string) error) NavigationResult {
 	return n.navigateHistory(ctx, 1, authorize...)
 }
 
 // Reload reloads the current page
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func (n *Navigator) Reload(ctx context.Context) NavigationResult {
 	start := time.Now()
 	if ctx == nil {
@@ -484,7 +484,7 @@ func (n *Navigator) setError(err error) {
 }
 
 // IsValidWaitCondition reports whether a wait condition is valid
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func IsValidWaitCondition(wc WaitCondition) bool {
 	switch wc {
 	case WaitLoad, WaitDOMContentLoaded, WaitNetworkIdle, WaitNetworkAlmostIdle:
@@ -494,7 +494,7 @@ func IsValidWaitCondition(wc WaitCondition) bool {
 }
 
 // IsValidNavigationState reports whether a navigation state is valid
-// (spec L4019: page navigation + wait).
+// (page navigation + wait).
 func IsValidNavigationState(s NavigationState) bool {
 	switch s {
 	case NavigationStateIdle, NavigationStateLoading, NavigationStateComplete, NavigationStateError, NavigationStateAborted:

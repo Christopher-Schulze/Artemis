@@ -1,6 +1,6 @@
 // Package provenance guards the artemis module against reintroduction
 // of derivation-attributing references to other projects. The first
-// guard (TASK-2331) forbids the string "lightpanda" anywhere in the
+// guard forbids the string "lightpanda" anywhere in the
 // tracked artemis tree except under benchmark/, where Lightpanda is
 // treated as a competing binary that Artemis benchmarks against.
 package provenance
@@ -57,8 +57,8 @@ func trackedFiles(t *testing.T, root string) []string {
 }
 
 // isExcluded returns true for paths that are allowed to contain the
-// guarded name. benchmark/ is where competing binaries are referenced
-// (TASK-2338). third_party/ is vendored external code we don't own.
+// guarded name. benchmark/ is where competing binaries are referenced.
+// third_party/ is vendored external code we don't own.
 // The provenance test file itself is excluded so the guard's own
 // source (which mentions the name in comments and the negative
 // subtest) doesn't trip the scan.
@@ -110,8 +110,8 @@ func scanForName(t *testing.T, absPath, name string) string {
 // or third_party/. This includes binary files like js/snapshot.bin,
 // where the name was previously baked in by the V8 snapshot tool.
 //
-// The name is reintroduced ONLY under benchmark/ by TASK-2338 as a
-// competitor binary reference; this guard excludes benchmark/ for
+// The name appears ONLY under benchmark/ as a competitor binary
+// reference; this guard excludes benchmark/ for
 // exactly that reason.
 func TestNoLightpandaOutsideBenchmark(t *testing.T) {
 	root := moduleRoot(t)
@@ -143,8 +143,7 @@ func TestNoLightpandaOutsideBenchmark(t *testing.T) {
 // scanner catches it. The file is removed in t.Cleanup so the repo
 // is never left dirty.
 //
-// This is the negative check required by the TASK-2331 acceptance
-// criteria: "provably fails when a 'lightpanda' string is present
+// This negative check proves that the guard "provably fails when a 'lightpanda' string is present
 // outside benchmark/".
 func TestNoLightpandaOutsideBenchmarkCanFail(t *testing.T) {
 	root := moduleRoot(t)

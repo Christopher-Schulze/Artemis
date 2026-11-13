@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// audit.go (spec L4249: OCSF audit ss6.1 browser action logging).
+// audit.go (OCSF audit ss6.1 browser action logging).
 //
 // Browser actions are logged as OCSF (Open Cybersecurity Schema
 // Framework) events (ss6.1). This hook captures browser navigation,
@@ -15,7 +15,7 @@ import (
 // events.
 
 // OCSFEvent represents an OCSF-formatted audit event for a browser
-// action (spec L4249, ss6.1).
+// action (ss6.1).
 type OCSFEvent struct {
 	Timestamp time.Time         `json:"timestamp"`
 	Action    string            `json:"action"`
@@ -32,7 +32,7 @@ type OCSFAuditLogger interface {
 	LogOCSFEvent(ctx context.Context, event OCSFEvent) error
 }
 
-// AuditHook logs browser actions as OCSF events (ss6.1) (spec L4249).
+// AuditHook logs browser actions as OCSF events (ss6.1).
 type AuditHook struct {
 	mu      sync.RWMutex
 	logger  OCSFAuditLogger
@@ -83,7 +83,7 @@ func (h *AuditHook) ResetStats() {
 	h.stats = AuditHookStats{}
 }
 
-// LogAction logs a browser action as an OCSF event (spec L4249).
+// LogAction logs a browser action as an OCSF event.
 func (h *AuditHook) LogAction(ctx context.Context, action, targetURL, actor, result string, durationMs int64, metadata map[string]string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

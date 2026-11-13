@@ -213,7 +213,7 @@ type RuntimeConfig struct {
 	ImageMetrics func(bridge.ImageMetricEvent)
 	ImageCPU     func(context.Context) (bridge.ImageCPUConfig, error)
 	// TabRecycle tunes idle and memory-pressure recycling of the tabs this
-	// runtime opens (spec L4482, L4522); zero fields take the spec defaults.
+	// runtime opens; zero fields take the spec defaults.
 	TabRecycle artemistabs.RecyclePolicy
 	// DisableTabRecycle turns pool tab recycling off.
 	DisableTabRecycle bool

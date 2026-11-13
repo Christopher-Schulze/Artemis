@@ -373,7 +373,7 @@ type PageOpenResult struct {
 	URL    string `json:"url"`
 	Status int    `json:"status"`
 	Title  string `json:"title"`
-	// AdBlock is the Layer 2 adblocker-wall finding (spec L4208), if any.
+	// AdBlock is the Layer 2 adblocker-wall finding, if any.
 	AdBlock *security.AdBlockFinding `json:"adblock,omitempty"`
 }
 

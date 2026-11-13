@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// InactivityConfig controls session inactivity cleanup (spec L4281).
+// InactivityConfig controls session inactivity cleanup.
 type InactivityConfig struct {
 	IdleTimeout   time.Duration
 	CheckInterval time.Duration

@@ -153,7 +153,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cookie jar: %w", err)
 	}
-	// Spec L4148: with an upstream proxy, target DNS comes from the proxy.
+	// With an upstream proxy, target DNS comes from the proxy.
 	validateTarget := policy.ValidateRequest
 	if proxyURL != nil {
 		validateTarget = policy.ValidateProxiedRequest
@@ -195,7 +195,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (*HTTPClient, error) {
 }
 
 // validateTarget admits a target; with an upstream proxy DNS stays with the
-// proxy (spec L4148), otherwise the policy resolves and checks every address.
+// proxy, otherwise the policy resolves and checks every address.
 func (c *HTTPClient) validateTarget(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind TargetKind, sessionID string) error {
 	if c.proxyURL != nil {
 		return c.cfg.Policy.ValidateProxiedRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)

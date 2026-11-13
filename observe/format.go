@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// format.go (spec L4024: observe/format.go - output formatters HAR,
+// format.go (observe/format.go - output formatters HAR,
 // NDJSON).
 //
 // This file is the spec-mandated facade for output formatters.
@@ -15,7 +15,7 @@ import (
 // Page observation: output formatters (HAR, NDJSON).
 
 // OutputFormat enumerates the output format types
-// (spec L4024: format.go - output formatters HAR, NDJSON).
+// (format.go - output formatters HAR, NDJSON).
 type OutputFormat string
 
 const (
@@ -26,11 +26,11 @@ const (
 )
 
 // HARLog is the spec-mandated re-export of HARLog from har_export.go
-// (spec L4024: format.go - output formatters HAR).
+// (format.go - output formatters HAR).
 type HARLogAlias = HARLog
 
 // FormatHAR formats network events as a complete HAR document
-// (spec L4024: format.go - output formatters HAR).
+// (format.go - output formatters HAR).
 func FormatHAR(entries []HAREntry) ([]byte, error) {
 	document := HARDocument{Log: HARLog{
 		Version: HARVersion,
@@ -44,7 +44,7 @@ func FormatHAR(entries []HAREntry) ([]byte, error) {
 }
 
 // FormatNDJSON formats events as newline-delimited JSON
-// (spec L4024: format.go - output formatters NDJSON).
+// (format.go - output formatters NDJSON).
 func FormatNDJSON(events []NetworkEvent) ([]byte, error) {
 	result := make([]byte, 0, len(events)*256)
 	for _, ev := range events {
@@ -59,7 +59,7 @@ func FormatNDJSON(events []NetworkEvent) ([]byte, error) {
 }
 
 // FormatConsoleNDJSON formats console entries as newline-delimited JSON
-// (spec L4024: format.go - output formatters NDJSON).
+// (format.go - output formatters NDJSON).
 func FormatConsoleNDJSON(entries []ConsoleEntry) ([]byte, error) {
 	result := make([]byte, 0, len(entries)*128)
 	for _, entry := range entries {
@@ -74,7 +74,7 @@ func FormatConsoleNDJSON(entries []ConsoleEntry) ([]byte, error) {
 }
 
 // FormatOutput formats data in the specified output format
-// (spec L4024: format.go - output formatters HAR, NDJSON).
+// (format.go - output formatters HAR, NDJSON).
 // The HAR path converts every supplied event through the exporter, so
 // the emitted log carries one entry per event.
 func FormatOutput(format OutputFormat, events []NetworkEvent) ([]byte, error) {
@@ -89,7 +89,7 @@ func FormatOutput(format OutputFormat, events []NetworkEvent) ([]byte, error) {
 }
 
 // IsSupportedFormat reports whether the format is supported
-// (spec L4024: format.go - output formatters HAR, NDJSON).
+// (format.go - output formatters HAR, NDJSON).
 func IsSupportedFormat(format OutputFormat) bool {
 	return format == OutputFormatHAR || format == OutputFormatNDJSON
 }

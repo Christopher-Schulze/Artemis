@@ -8,7 +8,7 @@ import (
 )
 
 // RecoveryActionType is the action an agent should take for a matched error
-// pattern (spec L4285). Named RecoveryActionType to avoid colliding with the
+// pattern. Named RecoveryActionType to avoid colliding with the
 // RecoveryAction interface in health.go.
 type RecoveryActionType string
 

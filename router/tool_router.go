@@ -10,7 +10,7 @@ import (
 )
 
 // AgentBrowserIntent is the caller's engine intent, resolved by the
-// BrowserToolRouter before the direct BrowserExecutionRouter (docs/spec.md:L3992).
+// BrowserToolRouter before the direct BrowserExecutionRouter.
 type AgentBrowserIntent string
 
 const (

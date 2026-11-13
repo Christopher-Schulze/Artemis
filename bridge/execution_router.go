@@ -33,7 +33,7 @@ const (
 )
 
 // RouterSignals carries the input signals from which the router
-// selects an execution mode (spec L3990 route rules).
+// selects an execution mode (route rules).
 type RouterSignals struct {
 	// ContentType is the HTTP Content-Type header.
 	ContentType string
@@ -111,7 +111,7 @@ type FullExecutionRouter struct{}
 func NewFullExecutionRouter() *FullExecutionRouter { return &FullExecutionRouter{} }
 
 // Route selects an execution mode from the given signals.
-// Route rules (spec L3990):
+// Route rules:
 //   - public no-JS/HTML/API/RSS -> static_fetch
 //   - simple script execution, API-backed DOM mutation, cookies, forms,
 //     JSON-LD/OpenGraph/Twitter/semantic, no layout/pixel/gesture -> renderless_js
@@ -177,8 +177,7 @@ func (r *FullExecutionRouter) Route(s RouterSignals) RouterDecision {
 	return RouterDecision{Mode: ModeStaticFetch, Reason: "default_static"}
 }
 
-// EscalateMode implements fail-closed-upward escalation (spec L3990:
-// "Fallback is fail-closed upward, never silent"). On any failure in
+// EscalateMode implements fail-closed-upward escalation (// "Fallback is fail-closed upward, never silent"). On any failure in
 // a lower mode, escalate to the next higher mode. The escalation
 // order is: static_fetch -> renderless_js -> chromium_cdp -> stealth.
 // scrape is a meta-mode and is not in the escalation chain.
@@ -199,7 +198,7 @@ func (r *FullExecutionRouter) EscalateMode(current ExecutionRouterMode, fallback
 	}
 }
 
-// EscalateReasons enumerates the reasons for escalation per spec L3990:
+// EscalateReasons enumerates the reasons for escalation:
 // "unsupported WebAPI, script timeout, module/worker/layout-query
 // reliance, auth/profile requirement, policy denial or extraction
 // confidence below threshold".
@@ -215,7 +214,7 @@ const (
 )
 
 // ShouldEscalateMode reports whether the given reason warrants
-// escalation from renderless_js to chromium_cdp (spec L3990).
+// escalation from renderless_js to chromium_cdp.
 func ShouldEscalateMode(reason EscalateReason) bool {
 	switch reason {
 	case EscalateUnsupportedWebAPI,
@@ -283,7 +282,7 @@ func WithDecision(ctx context.Context, d RouterDecision) context.Context {
 }
 
 // FallbackEvent is an OCSF browser.execution_mode_escalated event
-// (spec L3990: "emit OCSF browser.execution_mode_escalated").
+// ("emit OCSF browser.execution_mode_escalated").
 type FallbackEvent struct {
 	EventType           string              `json:"eventType"` // always "browser.execution_mode_escalated"
 	FromMode            ExecutionRouterMode `json:"fromMode"`
@@ -311,7 +310,7 @@ func (e FallbackEvent) String() string {
 }
 
 // FormatFallbackReason formats a fallback reason string for the
-// SourceSnapshot.FallbackReason field (spec L3990: "with fallback_reason").
+// SourceSnapshot.FallbackReason field ("with fallback_reason").
 func FormatFallbackReason(reason EscalateReason, detail string) string {
 	if detail == "" {
 		return string(reason)

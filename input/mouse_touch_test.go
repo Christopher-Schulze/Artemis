@@ -7,9 +7,9 @@ import (
 
 // ==================== mouse.go tests ====================
 
-// TestTASK2248_MousePointString verifies String method
-// (spec L4026: mouse.go - Bezier curve movement).
-func TestTASK2248_MousePointString(t *testing.T) {
+// TestMousePointString verifies String method
+// (mouse.go - Bezier curve movement).
+func TestMousePointString(t *testing.T) {
 	p := MousePoint{X: 100, Y: 200}
 	s := p.String()
 	if s == "" {
@@ -17,9 +17,9 @@ func TestTASK2248_MousePointString(t *testing.T) {
 	}
 }
 
-// TestTASK2248_MousePointDistance verifies Distance method
-// (spec L4026: mouse.go).
-func TestTASK2248_MousePointDistance(t *testing.T) {
+// TestMousePointDistance verifies Distance method
+// (mouse.go).
+func TestMousePointDistance(t *testing.T) {
 	p1 := MousePoint{X: 0, Y: 0}
 	p2 := MousePoint{X: 3, Y: 4}
 	d := p1.Distance(p2)
@@ -28,9 +28,9 @@ func TestTASK2248_MousePointDistance(t *testing.T) {
 	}
 }
 
-// TestTASK2248_BezierCurve verifies Bezier curve computation
-// (spec L4026: Bezier curve movement).
-func TestTASK2248_BezierCurve(t *testing.T) {
+// TestBezierCurve verifies Bezier curve computation
+// (Bezier curve movement).
+func TestBezierCurve(t *testing.T) {
 	p0 := MousePoint{X: 0, Y: 0}
 	p1 := MousePoint{X: 50, Y: 100}
 	p2 := MousePoint{X: 100, Y: 0}
@@ -46,9 +46,9 @@ func TestTASK2248_BezierCurve(t *testing.T) {
 	}
 }
 
-// TestTASK2248_BezierCurveMidpoint verifies midpoint
-// (spec L4026: Bezier curve movement).
-func TestTASK2248_BezierCurveMidpoint(t *testing.T) {
+// TestBezierCurveMidpoint verifies midpoint
+// (Bezier curve movement).
+func TestBezierCurveMidpoint(t *testing.T) {
 	p0 := MousePoint{X: 0, Y: 0}
 	p1 := MousePoint{X: 50, Y: 50}
 	p2 := MousePoint{X: 100, Y: 0}
@@ -61,9 +61,9 @@ func TestTASK2248_BezierCurveMidpoint(t *testing.T) {
 	}
 }
 
-// TestTASK2248_DefaultMouseMoveConfig verifies default config
-// (spec L4026: Bezier curve movement + jitter).
-func TestTASK2248_DefaultMouseMoveConfig(t *testing.T) {
+// TestDefaultMouseMoveConfig verifies default config
+// (Bezier curve movement + jitter).
+func TestDefaultMouseMoveConfig(t *testing.T) {
 	cfg := DefaultMouseMoveConfig()
 	if cfg.Steps <= 0 {
 		t.Error("steps should be positive")
@@ -73,9 +73,9 @@ func TestTASK2248_DefaultMouseMoveConfig(t *testing.T) {
 	}
 }
 
-// TestTASK2248_GenerateMousePath verifies path generation
-// (spec L4026: Bezier curve movement + jitter).
-func TestTASK2248_GenerateMousePath(t *testing.T) {
+// TestGenerateMousePath verifies path generation
+// (Bezier curve movement + jitter).
+func TestGenerateMousePath(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 100, Y: 100}
 	cfg := DefaultMouseMoveConfig()
@@ -94,9 +94,9 @@ func TestTASK2248_GenerateMousePath(t *testing.T) {
 	}
 }
 
-// TestTASK2248_GenerateMousePathNoJitter verifies path without jitter
-// (spec L4026: Bezier curve movement).
-func TestTASK2248_GenerateMousePathNoJitter(t *testing.T) {
+// TestGenerateMousePathNoJitter verifies path without jitter
+// (Bezier curve movement).
+func TestGenerateMousePathNoJitter(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 100, Y: 0}
 	cfg := MouseMoveConfig{Steps: 10, Jitter: 0, CurveBias: 0.5}
@@ -107,9 +107,9 @@ func TestTASK2248_GenerateMousePathNoJitter(t *testing.T) {
 	}
 }
 
-// TestTASK2248_GenerateMousePathDuration verifies duration is within
-// range (spec L4026: human-like timing).
-func TestTASK2248_GenerateMousePathDuration(t *testing.T) {
+// TestGenerateMousePathDuration verifies duration is within
+// range (human-like timing).
+func TestGenerateMousePathDuration(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 500, Y: 500}
 	cfg := DefaultMouseMoveConfig()
@@ -122,9 +122,9 @@ func TestTASK2248_GenerateMousePathDuration(t *testing.T) {
 	}
 }
 
-// TestTASK2248_MoveMouse verifies the convenience function
-// (spec L4026: Bezier curve movement + jitter).
-func TestTASK2248_MoveMouse(t *testing.T) {
+// TestMoveMouse verifies the convenience function
+// (Bezier curve movement + jitter).
+func TestMoveMouse(t *testing.T) {
 	start := MousePoint{X: 0, Y: 0}
 	end := MousePoint{X: 200, Y: 200}
 	path := MoveMouse(start, end)
@@ -136,9 +136,9 @@ func TestTASK2248_MoveMouse(t *testing.T) {
 	}
 }
 
-// TestTASK2248_MousePathStartEnd verifies Start/End methods
-// (spec L4026: mouse.go).
-func TestTASK2248_MousePathStartEnd(t *testing.T) {
+// TestMousePathStartEnd verifies Start/End methods
+// (mouse.go).
+func TestMousePathStartEnd(t *testing.T) {
 	path := MousePath{
 		Points: []MousePoint{{X: 10, Y: 20}, {X: 50, Y: 60}, {X: 100, Y: 200}},
 	}
@@ -150,16 +150,16 @@ func TestTASK2248_MousePathStartEnd(t *testing.T) {
 	}
 }
 
-// TestTASK2248_MousePathStartEndEmpty verifies empty path is safe.
-func TestTASK2248_MousePathStartEndEmpty(t *testing.T) {
+// TestMousePathStartEndEmpty verifies empty path is safe.
+func TestMousePathStartEndEmpty(t *testing.T) {
 	path := MousePath{}
 	if path.Start().X != 0 || path.End().X != 0 {
 		t.Error("empty path should return zero points")
 	}
 }
 
-// TestTASK2248_MousePathString verifies String method.
-func TestTASK2248_MousePathString(t *testing.T) {
+// TestMousePathString verifies String method.
+func TestMousePathString(t *testing.T) {
 	path := MousePath{Points: []MousePoint{{X: 1, Y: 2}}, Duration: 100 * time.Millisecond}
 	s := path.String()
 	if s == "" {
@@ -167,9 +167,9 @@ func TestTASK2248_MousePathString(t *testing.T) {
 	}
 }
 
-// TestTASK2248_NewMouseClick verifies click creation
-// (spec L4026: human-like input).
-func TestTASK2248_NewMouseClick(t *testing.T) {
+// TestNewMouseClick verifies click creation
+// (human-like input).
+func TestNewMouseClick(t *testing.T) {
 	click := NewMouseClick(MousePoint{X: 50, Y: 50}, "left")
 	if click.Button != "left" {
 		t.Errorf("button: got %s, want left", click.Button)
@@ -181,9 +181,9 @@ func TestTASK2248_NewMouseClick(t *testing.T) {
 
 // ==================== touch.go tests ====================
 
-// TestTASK2248_TouchEventTypeConstants verifies event type constants
-// (spec L4026: touch.go - touch events for mobile emulation).
-func TestTASK2248_TouchEventTypeConstants(t *testing.T) {
+// TestTouchEventTypeConstants verifies event type constants
+// (touch.go - touch events for mobile emulation).
+func TestTouchEventTypeConstants(t *testing.T) {
 	if TouchEventStart != "touchstart" {
 		t.Error("touchstart mismatch")
 	}
@@ -198,9 +198,9 @@ func TestTASK2248_TouchEventTypeConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2248_NewTouchPoint verifies touch point creation
-// (spec L4026: touch.go - touch events for mobile emulation).
-func TestTASK2248_NewTouchPoint(t *testing.T) {
+// TestNewTouchPoint verifies touch point creation
+// (touch.go - touch events for mobile emulation).
+func TestNewTouchPoint(t *testing.T) {
 	p := NewTouchPoint(1, 100, 200)
 	if p.ID != 1 {
 		t.Errorf("id: got %d, want 1", p.ID)
@@ -213,9 +213,9 @@ func TestTASK2248_NewTouchPoint(t *testing.T) {
 	}
 }
 
-// TestTASK2248_Tap verifies tap gesture
-// (spec L4026: touch events for mobile emulation).
-func TestTASK2248_Tap(t *testing.T) {
+// TestTap verifies tap gesture
+// (touch events for mobile emulation).
+func TestTap(t *testing.T) {
 	point := NewTouchPoint(1, 50, 50)
 	seq := Tap(point, "button")
 	if len(seq.Events) != 2 {
@@ -232,9 +232,9 @@ func TestTASK2248_Tap(t *testing.T) {
 	}
 }
 
-// TestTASK2248_Swipe verifies swipe gesture
-// (spec L4026: touch events for mobile emulation).
-func TestTASK2248_Swipe(t *testing.T) {
+// TestSwipe verifies swipe gesture
+// (touch events for mobile emulation).
+func TestSwipe(t *testing.T) {
 	start := NewTouchPoint(1, 0, 100)
 	end := NewTouchPoint(1, 200, 100)
 	seq := Swipe(start, end, 10, "container")
@@ -250,8 +250,8 @@ func TestTASK2248_Swipe(t *testing.T) {
 	}
 }
 
-// TestTASK2248_SwipeDefaultSteps verifies default steps when steps<=0.
-func TestTASK2248_SwipeDefaultSteps(t *testing.T) {
+// TestSwipeDefaultSteps verifies default steps when steps<=0.
+func TestSwipeDefaultSteps(t *testing.T) {
 	start := NewTouchPoint(1, 0, 0)
 	end := NewTouchPoint(1, 100, 0)
 	seq := Swipe(start, end, 0, "target")
@@ -261,9 +261,9 @@ func TestTASK2248_SwipeDefaultSteps(t *testing.T) {
 	}
 }
 
-// TestTASK2248_Pinch verifies pinch gesture (multi-touch)
-// (spec L4026: touch events for mobile emulation).
-func TestTASK2248_Pinch(t *testing.T) {
+// TestPinch verifies pinch gesture (multi-touch)
+// (touch events for mobile emulation).
+func TestPinch(t *testing.T) {
 	center := NewTouchPoint(0, 100, 100)
 	seq := Pinch(center, 50, 100, 5, "image")
 	// 1 touchstart + 5 touchmove + 1 touchend = 7
@@ -281,8 +281,8 @@ func TestTASK2248_Pinch(t *testing.T) {
 	}
 }
 
-// TestTASK2248_TouchSequenceIsMultiTouch verifies IsMultiTouch.
-func TestTASK2248_TouchSequenceIsMultiTouch(t *testing.T) {
+// TestTouchSequenceIsMultiTouch verifies IsMultiTouch.
+func TestTouchSequenceIsMultiTouch(t *testing.T) {
 	// Single-touch sequence
 	tap := Tap(NewTouchPoint(1, 0, 0), "target")
 	if tap.IsMultiTouch() {
@@ -295,8 +295,8 @@ func TestTASK2248_TouchSequenceIsMultiTouch(t *testing.T) {
 	}
 }
 
-// TestTASK2248_TouchSequenceEventCount verifies EventCount.
-func TestTASK2248_TouchSequenceEventCount(t *testing.T) {
+// TestTouchSequenceEventCount verifies EventCount.
+func TestTouchSequenceEventCount(t *testing.T) {
 	seq := Swipe(NewTouchPoint(1, 0, 0), NewTouchPoint(1, 100, 0), 10, "target")
 	if seq.EventCount(TouchEventStart) != 1 {
 		t.Error("should have 1 touchstart")
@@ -309,8 +309,8 @@ func TestTASK2248_TouchSequenceEventCount(t *testing.T) {
 	}
 }
 
-// TestTASK2248_TouchPointString verifies String method.
-func TestTASK2248_TouchPointString(t *testing.T) {
+// TestTouchPointString verifies String method.
+func TestTouchPointString(t *testing.T) {
 	p := NewTouchPoint(1, 50, 75)
 	s := p.String()
 	if s == "" {
@@ -318,8 +318,8 @@ func TestTASK2248_TouchPointString(t *testing.T) {
 	}
 }
 
-// TestTASK2248_TouchEventString verifies String method.
-func TestTASK2248_TouchEventString(t *testing.T) {
+// TestTouchEventString verifies String method.
+func TestTouchEventString(t *testing.T) {
 	e := TouchEvent{Type: TouchEventStart, Points: []TouchPoint{NewTouchPoint(1, 0, 0)}, Target: "btn"}
 	s := e.String()
 	if s == "" {
@@ -327,8 +327,8 @@ func TestTASK2248_TouchEventString(t *testing.T) {
 	}
 }
 
-// TestTASK2248_TouchSequenceString verifies String method.
-func TestTASK2248_TouchSequenceString(t *testing.T) {
+// TestTouchSequenceString verifies String method.
+func TestTouchSequenceString(t *testing.T) {
 	seq := Tap(NewTouchPoint(1, 0, 0), "target")
 	s := seq.String()
 	if s == "" {
@@ -336,11 +336,11 @@ func TestTASK2248_TouchSequenceString(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2248_FullSpecParity verifies full spec parity for L4026
-// (spec L4026: Bezier curve movement + jitter, touch events).
-func TestTASK2248_FullSpecParity(t *testing.T) {
+// TestMouseTouchParity verifies full parity.
+// (Bezier curve movement + jitter, touch events).
+func TestMouseTouchParity(t *testing.T) {
 	// 1. Bezier curve
 	p0 := MousePoint{X: 0, Y: 0}
 	p1 := MousePoint{X: 50, Y: 50}

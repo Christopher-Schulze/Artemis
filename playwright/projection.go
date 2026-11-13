@@ -11,7 +11,7 @@ const (
 	AvailabilityUnavailable Availability = "unavailable"
 )
 
-// Limits are the spec defaults of the lane (docs/spec.md:L2760).
+// Limits are the spec defaults of the lane.
 type Limits struct {
 	DefaultTTLSeconds       int   `json:"default_ttl_seconds"`
 	MaxTTLSeconds           int   `json:"max_ttl_seconds"`

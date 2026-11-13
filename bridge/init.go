@@ -9,7 +9,7 @@ import (
 	browserprocess "github.com/Christopher-Schulze/Artemis/process"
 )
 
-// init.go (spec L4018: bridge/init.go - Bridge initialization and
+// init.go (bridge/init.go - Bridge initialization and
 // lifecycle).
 //
 // This file provides the spec-mandated bridge initialization and
@@ -17,7 +17,7 @@ import (
 // and accepts only a validated target-script contract for stealth.
 
 // BridgeInitConfig configures bridge initialization
-// (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
+// (Lifecycle, Chrome Launch + Stealth Injection).
 type BridgeInitConfig struct {
 	ProviderName         string                              `json:"providerName"`
 	Headless             bool                                `json:"headless"`
@@ -31,7 +31,7 @@ type BridgeInitConfig struct {
 }
 
 // BridgeInitializer manages bridge initialization and lifecycle
-// (spec L4018: Lifecycle, Chrome Launch + Stealth Injection).
+// (Lifecycle, Chrome Launch + Stealth Injection).
 type BridgeInitializer struct {
 	mu       sync.Mutex
 	config   BridgeInitConfig
@@ -43,7 +43,7 @@ type BridgeInitializer struct {
 }
 
 // NewBridgeInitializer creates a new BridgeInitializer
-// (spec L4018: Lifecycle).
+// (Lifecycle).
 func NewBridgeInitializer(config BridgeInitConfig) *BridgeInitializer {
 	config.ApplyDefaults()
 	return &BridgeInitializer{
@@ -110,7 +110,7 @@ func (bi *BridgeInitializer) Start(ctx context.Context) error {
 }
 
 // Stop shuts down the bridge
-// (spec L4018: Lifecycle).
+// (Lifecycle).
 func (bi *BridgeInitializer) Stop() error {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
@@ -143,7 +143,7 @@ func (bi *BridgeInitializer) Stop() error {
 }
 
 // IsStarted reports whether the bridge is started
-// (spec L4018: Lifecycle).
+// (Lifecycle).
 func (bi *BridgeInitializer) IsStarted() bool {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
@@ -151,7 +151,7 @@ func (bi *BridgeInitializer) IsStarted() bool {
 }
 
 // Config returns the initialization config
-// (spec L4018: Lifecycle).
+// (Lifecycle).
 func (bi *BridgeInitializer) Config() BridgeInitConfig {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
@@ -159,7 +159,7 @@ func (bi *BridgeInitializer) Config() BridgeInitConfig {
 }
 
 // Registry returns the provider registry
-// (spec L4018: Chrome Launch).
+// (Chrome Launch).
 func (bi *BridgeInitializer) Registry() *BridgeProviderRegistry {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
@@ -167,7 +167,7 @@ func (bi *BridgeInitializer) Registry() *BridgeProviderRegistry {
 }
 
 // ApplyDefaults applies default values to the init config
-// (spec L4018: Lifecycle).
+// (Lifecycle).
 func (c *BridgeInitConfig) ApplyDefaults() {
 	if c.ProviderName == "" {
 		c.ProviderName = "local-chrome"

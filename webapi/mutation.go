@@ -215,7 +215,7 @@ func CreateTextNode(text string) *Node {
 // GetElementById returns the first element descendant of n with the
 // given id, or nil if none is found.
 //
-// Optimization (TASK-2344): inline the id attribute lookup to avoid
+// Optimization: inline the id attribute lookup to avoid
 // the Attr() method call overhead. The HTML parser lowercases attribute
 // keys, so a direct "id" == comparison is correct.
 func GetElementById(n *Node, id string) *Node {
@@ -268,7 +268,7 @@ func GetElementsByTagName(n *Node, tag string) []*Node {
 // GetElementsByClassName returns all element descendants of n whose
 // class attribute contains class (whitespace-separated, case-sensitive).
 //
-// Optimization (TASK-2344): inline the class-attribute lookup to avoid
+// Optimization: inline the class-attribute lookup to avoid
 // the Attr() method call overhead (which does two loops for the
 // EqualFold fallback). The HTML parser lowercases attribute keys, so
 // a direct "class" == comparison is safe and avoids strings.EqualFold

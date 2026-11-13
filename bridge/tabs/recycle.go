@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// recycle.go returns idle pool tabs to about:blank (spec L4482 P0b.6 Tab Pool
+// recycle.go returns idle pool tabs to about:blank (P0b.6 Tab Pool
 // Cap: idle >5 min recycles, HeapAlloc above 70% of GOMEMLIMIT recycles the
-// oldest, checked every 30 s; L4522 P5.2: about:blank instead of close,
+// oldest, checked every 30 s; about:blank instead of close,
 // clearing cookies and localStorage while the browser keeps DNS, TLS and
 // HTTP/2 state). Only tabs this registry created are recyclable: session
 // pages opened elsewhere in the same browser context are never touched, and

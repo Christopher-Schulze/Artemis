@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// idpi.go (spec L4202: IDPI - Indirect Prompt Injection Defense).
+// idpi.go (IDPI - Indirect Prompt Injection Defense).
 //
 // 3-layer defense against indirect prompt injection from untrusted web
 // content:
@@ -25,7 +25,7 @@ import (
 // Default action is taint+fence (not block) unless policy/tool
 // authority would consume untrusted text as instructions.
 
-// IDPIConfig configures the 3-layer IDPI defense (spec L4202).
+// IDPIConfig configures the 3-layer IDPI defense.
 type IDPIConfig struct {
 	// Enabled controls whether IDPI checking is active.
 	Enabled bool `json:"enabled"`
@@ -42,16 +42,14 @@ type IDPIConfig struct {
 	// <untrusted_web_content> delimiter (Layer 3).
 	WrapContent bool `json:"wrap_content"`
 	// BlockOnInjection controls whether injection detection blocks
-	// (true) or taints+fences (false). Default is false (taint+fence)
-	// per spec L4202.
+	// (true) or taints+fences (false). Default is false (taint+fence).
 	BlockOnInjection bool `json:"block_on_injection"`
 	// PolicyDowngradeAllowlist enables policy-downgrade to trust-label
 	// for allowlisted domains (instead of full trust).
 	PolicyDowngradeAllowlist bool `json:"policy_downgrade_allowlist"`
 }
 
-// DefaultIDPIConfig returns a config with safe defaults (spec L4202:
-// default-on, taint+fence not block, content wrapping enabled). Domain block
+// DefaultIDPIConfig returns a config with safe defaults (// default-on, taint+fence not block, content wrapping enabled). Domain block
 // and allow lists are operator configuration and start empty: no origin is
 // trusted by default.
 func DefaultIDPIConfig() IDPIConfig {
@@ -87,8 +85,7 @@ const (
 	IDPIThreatUntrustedContent  IDPIThreat = "untrusted_content"
 )
 
-// CheckResult is the result of an IDPI check (spec L4202:
-// {Threat, Blocked, TaintRefs, Reason}).
+// CheckResult is the result of an IDPI check (// {Threat, Blocked, TaintRefs, Reason}).
 type CheckResult struct {
 	Threat    IDPIThreat `json:"threat"`
 	Blocked   bool       `json:"blocked"`
@@ -103,8 +100,7 @@ type CheckResult struct {
 	TrustLabel string `json:"trust_label,omitempty"`
 }
 
-// IDPIMetrics tracks the 4 spec-mandated metrics (spec L4202:
-// browser idpi metrics {scanned_total,tainted_total,blocked_total,
+// IDPIMetrics tracks the 4 spec-mandated metrics (// browser idpi metrics {scanned_total,tainted_total,blocked_total,
 // policy_downgraded_total}).
 type IDPIMetrics struct {
 	ScannedTotal          int `json:"scanned_total"`
@@ -113,7 +109,7 @@ type IDPIMetrics struct {
 	PolicyDowngradedTotal int `json:"policy_downgraded_total"`
 }
 
-// IDPIChecker implements the 3-layer IDPI defense (spec L4202).
+// IDPIChecker implements the 3-layer IDPI defense.
 type IDPIChecker struct {
 	mu      sync.RWMutex
 	config  IDPIConfig
@@ -154,7 +150,7 @@ func (c *IDPIChecker) ResetMetrics() {
 }
 
 // Check evaluates content from a domain through the 3-layer IDPI
-// defense (spec L4202).
+// defense.
 //
 // Layer 1: domain whitelisting (blocklist -> block, allowlist -> trust)
 // Layer 2: content scanning for injection phrases
@@ -252,7 +248,7 @@ func isDomainInList(domain string, list []string) bool {
 }
 
 // scanForInjection scans content for injection phrases and returns
-// the matched phrases as taint references (spec L4202: Layer 2).
+// the matched phrases as taint references (Layer 2).
 func scanForInjection(content string, phrases []string) []string {
 	lower := strings.ToLower(content)
 	var refs []string
@@ -267,7 +263,7 @@ func scanForInjection(content string, phrases []string) []string {
 // fenceTagPattern finds fence tags a page may embed to fake a boundary.
 var fenceTagPattern = regexp.MustCompile(`(?i)<\s*(/?)\s*untrusted_web_content`)
 
-// wrapUntrusted fences content for a model (spec L4202 Layer 3). Every fence
+// wrapUntrusted fences content for a model (Layer 3). Every fence
 // carries a fresh 128-bit boundary id plus the content origin and source, so
 // a page cannot close it: an embedded closing tag (ASCII or a Unicode
 // look-alike) lacks the id. ASCII fence tags inside the content are also

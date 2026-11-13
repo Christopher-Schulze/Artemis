@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// workflow_capture.go (spec L4561: Workflow Capture Recorder).
+// workflow_capture.go (Workflow Capture Recorder).
 //
 // WorkflowCaptureRecorder stores owner-supplied AX snapshots, selectors,
 // action traces and actual optional pixels for guided workflow capture
@@ -25,9 +25,9 @@ import (
 // action evidence supplied by its owner. RecordContext can obtain actual
 // fallback pixels through that owner's cancellable browser callback.
 //
-// Reference: research/agents/openclaw-main/extensions/browser/src/browser/pw-tools-core.activity.ts
+// Reference: github.com/openclaw/openclaw/extensions/browser/src/browser/pw-tools-core.activity.ts
 
-// WorkflowCaptureConfig controls the recorder (spec L4561).
+// WorkflowCaptureConfig controls the recorder.
 type WorkflowCaptureConfig struct {
 	// Enabled gates recording. When false, Record returns an error.
 	Enabled bool
@@ -58,7 +58,7 @@ func DefaultWorkflowCaptureConfig() WorkflowCaptureConfig {
 	}
 }
 
-// SelectorKind identifies the selector strategy (spec L4561).
+// SelectorKind identifies the selector strategy.
 type SelectorKind string
 
 const (
@@ -68,15 +68,15 @@ const (
 	SelectorUCS   SelectorKind = "ucs"
 )
 
-// CapturedSelector is a stable selector for an action target (spec L4561).
+// CapturedSelector is a stable selector for an action target.
 type CapturedSelector struct {
 	Kind       SelectorKind `json:"kind"`
 	Value      string       `json:"value"`
 	Confidence float64      `json:"confidence"`
 }
 
-// CapturedAXSnapshot is a compact AX snapshot taken before/after an action
-// (spec L4561). It reuses AXNode from ax_diff.go.
+// CapturedAXSnapshot is a compact AX snapshot taken before/after an action.
+// It reuses AXNode from ax_diff.go.
 type CapturedAXSnapshot struct {
 	Timestamp time.Time `json:"timestamp"`
 	NodeCount int       `json:"node_count"`
@@ -85,7 +85,7 @@ type CapturedAXSnapshot struct {
 	Nodes []AXNode `json:"nodes,omitempty"`
 }
 
-// CapturedScreenshot is a fallback screenshot reference (spec L4561).
+// CapturedScreenshot is a fallback screenshot reference.
 type CapturedScreenshot struct {
 	Path      string    `json:"path,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
@@ -94,7 +94,7 @@ type CapturedScreenshot struct {
 	DataB64 string `json:"data_b64,omitempty"`
 }
 
-// CapturedToolCall is the tool-call trace for an action (spec L4561).
+// CapturedToolCall is the tool-call trace for an action.
 type CapturedToolCall struct {
 	Tool       string `json:"tool"`
 	ArgsJSON   string `json:"args_json"`
@@ -103,7 +103,7 @@ type CapturedToolCall struct {
 	DurationMs int64  `json:"duration_ms"`
 }
 
-// ActionCapture is a single recorded browser action (spec L4561).
+// ActionCapture is a single recorded browser action.
 type ActionCapture struct {
 	Index            int                 `json:"index"`
 	ToolCall         CapturedToolCall    `json:"tool_call"`
@@ -116,7 +116,7 @@ type ActionCapture struct {
 	IsDestructive    bool                `json:"is_destructive"`
 }
 
-// WorkflowRecording is a complete recorded workflow session (spec L4561).
+// WorkflowRecording is a complete recorded workflow session.
 type WorkflowRecording struct {
 	ID              string          `json:"id"`
 	OperatorID      string          `json:"operator_id"`
@@ -127,7 +127,7 @@ type WorkflowRecording struct {
 	TotalDurationMs int64           `json:"total_duration_ms"`
 }
 
-// WorkflowCaptureStats tracks recorder counters (spec L4561).
+// WorkflowCaptureStats tracks recorder counters.
 type WorkflowCaptureStats struct {
 	Total       atomic.Int64
 	Recorded    atomic.Int64
@@ -137,8 +137,8 @@ type WorkflowCaptureStats struct {
 	SavedToFile atomic.Int64
 }
 
-// WorkflowCaptureRecorder records browser actions into a WorkflowRecording
-// (spec L4561). It is safe for concurrent use.
+// WorkflowCaptureRecorder records browser actions into a WorkflowRecording.
+// It is safe for concurrent use.
 type WorkflowCaptureRecorder struct {
 	mu            sync.Mutex
 	cfg           WorkflowCaptureConfig
@@ -187,7 +187,7 @@ func (r *WorkflowCaptureRecorder) SetNow(fn func() time.Time) {
 	r.now = fn
 }
 
-// Record adds a single action to the recording (spec L4561). Returns an
+// Record adds a single action to the recording. Returns an
 // error if the recorder is disabled or the action cap is reached. The
 // action's Index is assigned automatically.
 func (r *WorkflowCaptureRecorder) Record(action ActionCapture) error {
@@ -318,7 +318,7 @@ func (r *WorkflowCaptureRecorder) RecordContext(ctx context.Context, action Acti
 	return nil
 }
 
-// Stop finalizes the recording and returns it (spec L4561).
+// Stop finalizes the recording and returns it.
 func (r *WorkflowCaptureRecorder) Stop() *WorkflowRecording {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -350,7 +350,7 @@ func (r *WorkflowCaptureRecorder) Stats() (total, recorded, screenshots, destruc
 		r.stats.SavedToFile.Load()
 }
 
-// SaveToFile serializes the recording to a JSON file (spec L4561). The
+// SaveToFile serializes the recording to a JSON file. The
 // recording must be stopped first (or Stop is called implicitly). Parent
 // directories are created with 0700 permissions; the file is written 0600.
 func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
@@ -379,7 +379,7 @@ func (r *WorkflowCaptureRecorder) SaveToFile(path string) error {
 	return nil
 }
 
-// LoadRecordingFromFile reads a previously saved recording (spec L4561).
+// LoadRecordingFromFile reads a previously saved recording.
 func LoadRecordingFromFile(path string) (*WorkflowRecording, error) {
 	path = filepath.Clean(path)
 	data, err := os.ReadFile(path)
@@ -394,7 +394,7 @@ func LoadRecordingFromFile(path string) (*WorkflowRecording, error) {
 }
 
 // SelectorConfidence calculates the average confidence across all selectors
-// in all actions of a recording (spec L4561).
+// in all actions of a recording.
 func SelectorConfidence(rec *WorkflowRecording) float64 {
 	if rec == nil || len(rec.Actions) == 0 {
 		return 0
@@ -414,7 +414,7 @@ func SelectorConfidence(rec *WorkflowRecording) float64 {
 }
 
 // HasDestructiveActions reports whether the recording contains any
-// destructive actions (spec L4561).
+// destructive actions.
 func HasDestructiveActions(rec *WorkflowRecording) bool {
 	if rec == nil {
 		return false
@@ -442,7 +442,7 @@ func DestructiveStepIndices(rec *WorkflowRecording) []int {
 }
 
 // ContainsCredentialsOrPII scans the recording's tool-call args for known
-// credential/PII literal patterns (spec L4561). Returns true if any action's
+// credential/PII literal patterns. Returns true if any action's
 // args contain a suspicious pattern.
 func ContainsCredentialsOrPII(rec *WorkflowRecording) bool {
 	if rec == nil {
@@ -461,7 +461,7 @@ func ContainsCredentialsOrPII(rec *WorkflowRecording) bool {
 }
 
 // RenderSkillContent produces a draft SKILL.md content string from a
-// recording (spec L4561). This is a compact preview; the full skill draft
+// recording. This is a compact preview; the full skill draft
 // is produced by the the host workflow-capture pipeline.
 func RenderSkillContent(rec *WorkflowRecording) string {
 	if rec == nil {

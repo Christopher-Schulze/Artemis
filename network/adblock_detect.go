@@ -8,7 +8,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Spec L4208: AdBlocker Layer 2 - Detection + Auto-Disable
+// AdBlocker Layer 2 - Detection + Auto-Disable
 // ---------------------------------------------------------------------------
 
 // DetectionType classifies the kind of adblocker wall signal observed.
@@ -358,7 +358,7 @@ func (d *AdBlockDetector) ResetStats() {
 }
 
 // ---------------------------------------------------------------------------
-// Spec L4210: AdBlocker Layer 3 - Performance
+// AdBlocker Layer 3 - Performance
 // ---------------------------------------------------------------------------
 
 // AdBlockPerformanceConfig controls Layer 3 performance measurement.
@@ -416,8 +416,7 @@ func (p *AdBlockPerformance) IsEnabled() bool {
 	return p.config.Enabled
 }
 
-// SetEnabled toggles performance measurement. Layer 3 is disableable per
-// spec L4210.
+// SetEnabled toggles performance measurement. Layer 3 is disableable.
 func (p *AdBlockPerformance) SetEnabled(enabled bool) {
 	p.mu.Lock()
 	p.config.Enabled = enabled

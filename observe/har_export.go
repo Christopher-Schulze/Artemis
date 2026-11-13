@@ -9,17 +9,17 @@ import (
 	"time"
 )
 
-// har_export.go (spec L4263: HAR Export HTTP Archive 1.2).
+// har_export.go (HAR Export HTTP Archive 1.2).
 //
 // Converts captured network events into HAR (HTTP Archive) 1.2 format
 // for export and offline analysis. Thread-safe via RWMutex. Supports
 // optional domain filtering so callers can restrict exports to a set
 // of hosts.
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/observe/snapshot.go
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/observe/snapshot.go
 
 // HARVersion is the HAR specification version produced by this exporter
-// (spec L4263: HAR 1.2).
+// (HAR 1.2).
 const HARVersion = "1.2"
 
 // HARCreatorName is the name reported in the HAR creator field.
@@ -38,7 +38,7 @@ const redactedHeaderValue = "[REDACTED]"
 
 // sensitiveHeaderNames are headers carrying credentials or session tokens.
 // Their values are redacted in every export so a shared archive cannot leak
-// a session (research floor: network_export.go:241-248).
+// a session (pinchtab: network_export.go:241-248).
 var sensitiveHeaderNames = map[string]bool{
 	"cookie":              true,
 	"set-cookie":          true,
@@ -50,13 +50,13 @@ var sensitiveHeaderNames = map[string]bool{
 
 // HARDocument is the top-level object of a HAR file. The archive format
 // requires the log to sit under a single "log" member; emitting a bare
-// HARLog produces a document no HAR consumer can open (spec L4263: HAR 1.2;
-// research floor research/webstack/pinchtab-main/internal/bridge/observe/format_har.go:40-48).
+// HARLog produces a document no HAR consumer can open (HAR 1.2;
+// upstream github.com/pinchtab/pinchtab/internal/bridge/observe/format_har.go:40-48).
 type HARDocument struct {
 	Log HARLog `json:"log"`
 }
 
-// HARLog is the log object of a HAR file (spec L4263).
+// HARLog is the log object of a HAR file.
 type HARLog struct {
 	Version string        `json:"version"`
 	Creator HARCreator    `json:"creator"`
@@ -64,15 +64,13 @@ type HARLog struct {
 	Pages   []interface{} `json:"pages,omitempty"`
 }
 
-// HARCreator identifies the software that produced the HAR
-// (spec L4263).
+// HARCreator identifies the software that produced the HAR.
 type HARCreator struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
-// HAREntry is a single request/response pair in the HAR log
-// (spec L4263).
+// HAREntry is a single request/response pair in the HAR log.
 type HAREntry struct {
 	StartedDateTime string      `json:"startedDateTime"`
 	Time            float64     `json:"time"`
@@ -82,7 +80,7 @@ type HAREntry struct {
 	Cache           struct{}    `json:"cache"`
 }
 
-// HARRequest is the request side of a HAR entry (spec L4263).
+// HARRequest is the request side of a HAR entry.
 type HARRequest struct {
 	Method      string         `json:"method"`
 	URL         string         `json:"url"`
@@ -95,13 +93,13 @@ type HARRequest struct {
 	BodySize    int            `json:"bodySize"`
 }
 
-// HARPostData is the request body section of a HAR entry (spec L4263).
+// HARPostData is the request body section of a HAR entry.
 type HARPostData struct {
 	MimeType string `json:"mimeType"`
 	Text     string `json:"text"`
 }
 
-// HARResponse is the response side of a HAR entry (spec L4263).
+// HARResponse is the response side of a HAR entry.
 type HARResponse struct {
 	Status      int            `json:"status"`
 	StatusText  string         `json:"statusText"`
@@ -113,8 +111,7 @@ type HARResponse struct {
 	BodySize    int            `json:"bodySize"`
 }
 
-// HARContent is the response body content in a HAR entry
-// (spec L4263).
+// HARContent is the response body content in a HAR entry.
 type HARContent struct {
 	Size     int    `json:"size"`
 	MimeType string `json:"mimeType"`
@@ -122,7 +119,7 @@ type HARContent struct {
 }
 
 // HARTimings describes the timing breakdown of a HAR entry
-// (spec L4263: send/wait/receive).
+// (send/wait/receive).
 type HARTimings struct {
 	Send    float64 `json:"send"`
 	Wait    float64 `json:"wait"`
@@ -130,13 +127,13 @@ type HARTimings struct {
 }
 
 // HARNameValue is a generic name/value pair used for headers and
-// query string parameters (spec L4263).
+// query string parameters.
 type HARNameValue struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// HARCookie is a cookie entry in a HAR request (spec L4263).
+// HARCookie is a cookie entry in a HAR request.
 type HARCookie struct {
 	Name     string `json:"name"`
 	Value    string `json:"value"`
@@ -146,8 +143,8 @@ type HARCookie struct {
 	Secure   bool   `json:"secure,omitempty"`
 }
 
-// HARExporter converts network events into HAR 1.2 logs
-// (spec L4263). It is safe for concurrent use.
+// HARExporter converts network events into HAR 1.2 logs.
+// It is safe for concurrent use.
 type HARExporter struct {
 	mu             sync.RWMutex
 	domainFilter   []string
@@ -168,7 +165,7 @@ func NewHARExporter() *HARExporter {
 // SetDomainFilter restricts which hosts are included in exports.
 // When non-empty, only entries whose URL host matches one of the
 // supplied domains (case-insensitive) are emitted. An empty slice
-// disables filtering (spec L4263).
+// disables filtering.
 func (e *HARExporter) SetDomainFilter(domains []string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -193,7 +190,7 @@ func (e *HARExporter) DomainFilter() []string {
 
 // filterEntry reports whether the given entry should be included
 // given the current domain filter. With no filter set, all entries
-// pass (spec L4263).
+// pass.
 func (e *HARExporter) filterEntry(entry HAREntry) bool {
 	e.mu.RLock()
 	filter := e.domainFilter
@@ -223,7 +220,7 @@ func hostFromURL(raw string) string {
 
 // Export builds a HARLog from the supplied entries, applying the
 // current domain filter. The returned log always carries the HAR
-// 1.2 version and the configured creator (spec L4263).
+// 1.2 version and the configured creator.
 func (e *HARExporter) Export(entries []HAREntry) HARLog {
 	e.mu.RLock()
 	creator := e.defaultCreator
@@ -243,8 +240,7 @@ func (e *HARExporter) Export(entries []HAREntry) HARLog {
 }
 
 // ToJSON serializes a HARLog into a complete HAR document, wrapping it in
-// the mandatory "log" member so the output loads in HAR viewers
-// (spec L4263).
+// the mandatory "log" member so the output loads in HAR viewers.
 func (e *HARExporter) ToJSON(log HARLog) ([]byte, error) {
 	return json.Marshal(HARDocument{Log: log})
 }
@@ -254,8 +250,8 @@ func (e *HARExporter) ToJSON(log HARLog) ([]byte, error) {
 // captured event carries is mapped: start time, duration and its
 // timing breakdown, request and response headers, post data and the
 // response MIME type. Credential-bearing headers are redacted so an
-// exported archive cannot leak a session (spec L4263; research floor
-// research/webstack/pinchtab-main/internal/bridge/observe/network_export.go:146-189).
+// exported archive cannot leak a session (pinchtab
+// github.com/pinchtab/pinchtab/internal/bridge/observe/network_export.go:146-189).
 func (e *HARExporter) FromNetworkEvents(events []NetworkEvent) []HAREntry {
 	entries := make([]HAREntry, 0, len(events))
 	for _, ev := range events {
@@ -344,7 +340,7 @@ func harHeaderPairs(headers map[string]string) []HARNameValue {
 // harTimings derives the send/wait/receive breakdown from the measured
 // duration. Without per-phase CDP timing the transfer is modelled as
 // 1ms send plus 1ms receive around the wait, and collapses to pure wait
-// for durations too short to split (research floor: computeTimings).
+// for durations too short to split (pinchtab: computeTimings).
 func harTimings(durationMS float64) HARTimings {
 	if durationMS <= 0 {
 		return HARTimings{}

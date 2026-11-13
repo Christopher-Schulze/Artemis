@@ -8,14 +8,14 @@ import (
 	artemisengine "github.com/Christopher-Schulze/Artemis/engine"
 )
 
-// capabilities.go (spec L4022: renderless/capabilities.go - production
+// capabilities.go (renderless/capabilities.go - production
 // RenderlessCapabilityProfile).
 //
 // In-process no-render JS browser path: RenderlessCapabilityProfile describes
 // which DOM/WebAPI features are available in the production engine.
 
 // CapabilityCategory classifies a WebAPI by its renderless support
-// level (spec L3992: supported_real | synthetic_compatible | unsupported_escalate).
+// level (supported_real | synthetic_compatible | unsupported_escalate).
 type CapabilityCategory string
 
 const (
@@ -31,8 +31,7 @@ const (
 )
 
 // RenderlessCapabilityProfile describes the capabilities of the
-// production-backed renderless engine (spec L4022:
-// RenderlessCapabilityProfile). Uses the 3-category model from
+// production-backed renderless engine (// RenderlessCapabilityProfile). Uses the 3-category model from
 // ss28.3a: supported_real | synthetic_compatible | unsupported_escalate.
 type RenderlessCapabilityProfile struct {
 	ClassificationSourceHash string                      `json:"classificationSourceHash,omitempty"`
@@ -81,7 +80,7 @@ type CSSConformanceObservation struct {
 
 // GenerateCapabilityProfile generates a capability profile from the
 // engine config and WebAPI registry
-// (spec L4022: production-derived RenderlessCapabilityProfile).
+// (production-derived RenderlessCapabilityProfile).
 func GenerateCapabilityProfile(cfg EngineConfig, registry *WebAPIRegistry) RenderlessCapabilityProfile {
 	profile := RenderlessCapabilityProfile{
 		Version: "1.0",
@@ -202,15 +201,14 @@ func defaultSupportedReal() []string {
 
 // Returns the WebAPIs that are synthetic-compatible — they return
 // synthetic values that don't break page scripts but lack real
-// semantics (spec L3992). Escalation required when a task needs
+// semantics. Escalation required when a task needs
 // real semantics from a synthetic-compatible API.
 func defaultStubCompatible() []string {
 	return conformanceNames(CategoryStubCompatible)
 }
 
 // defaultUnsupportedEscalate returns the WebAPIs that are not
-// implemented in renderless and require escalation to chromium_cdp
-// (spec L3992).
+// implemented in renderless and require escalation to chromium_cdp.
 func defaultUnsupportedEscalate() []string {
 	return []string{
 		"CSSStyleSheet", "CSSStyleDeclaration", "getComputedStyle",
@@ -281,7 +279,7 @@ func (p RenderlessCapabilityProfile) CapabilityCategoryName(api string) string {
 }
 
 // SupportsWebAPI reports whether the profile supports a WebAPI
-// (spec L4022: production-derived RenderlessCapabilityProfile).
+// (production-derived RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) SupportsWebAPI(name string) bool {
 	for _, api := range p.WebAPIs {
 		if strings.EqualFold(api, name) {
@@ -292,7 +290,7 @@ func (p RenderlessCapabilityProfile) SupportsWebAPI(name string) bool {
 }
 
 // SupportsCSS reports whether the profile supports a CSS feature
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (generated RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) SupportsCSS(feature string) bool {
 	for _, f := range p.CSSSupport {
 		if strings.EqualFold(f, feature) {
@@ -303,7 +301,7 @@ func (p RenderlessCapabilityProfile) SupportsCSS(feature string) bool {
 }
 
 // SupportsScriptType reports whether the profile supports a script type
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (generated RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) SupportsScriptType(t string) bool {
 	for _, st := range p.ScriptTypes {
 		if strings.EqualFold(st, t) {
@@ -314,7 +312,7 @@ func (p RenderlessCapabilityProfile) SupportsScriptType(t string) bool {
 }
 
 // Summary returns a human-readable summary
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (generated RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) Summary() string {
 	return fmt.Sprintf("RenderlessCapabilityProfile{version:%s apis:%d css:%d scripts:%d fetch:%v xhr:%v}",
 		p.Version, len(p.WebAPIs), len(p.CSSSupport), len(p.ScriptTypes), p.FetchSupport, p.XHRSupport)
@@ -326,13 +324,13 @@ func (p RenderlessCapabilityProfile) String() string {
 }
 
 // IsCapable reports whether the profile meets minimum requirements
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (generated RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) IsCapable() bool {
 	return p.FetchSupport && len(p.WebAPIs) >= 10 && p.DeterministicWait
 }
 
 // MissingWebAPIs returns WebAPIs that are not supported
-// (spec L4022: generated RenderlessCapabilityProfile).
+// (generated RenderlessCapabilityProfile).
 func (p RenderlessCapabilityProfile) MissingWebAPIs(required []string) []string {
 	var missing []string
 	for _, req := range required {

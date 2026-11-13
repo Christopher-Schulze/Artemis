@@ -1,29 +1,29 @@
 package prompts
 
-// summarize.go (spec L4030: prompts/summarize.go - task
+// summarize.go (prompts/summarize.go - task
 // summarization prompt).
 //
 // LLM prompt templates: task summarization prompt that generates the
 // final structured report. This file is the spec-mandated facade for
 // the summarize prompt defined in prompts.go.
 //
-// Ref: research/agents/agentscope-main/examples/agent/browser_agent/
+// Ref: github.com/agentscope-ai/agentscope/examples/agent/browser_agent/
 // build_in_prompt/browser_agent_summarize_task.md:1-20
 
 // SummarizePrompt returns the task summarization prompt
-// (spec L4030: summarize.go - task summarization).
+// (summarize.go - task summarization).
 func SummarizePrompt() string {
 	return summarizeTaskPrompt
 }
 
 // SummarizePromptType returns the PromptType for task summarization
-// (spec L4030: summarize.go).
+// (summarize.go).
 func SummarizePromptType() PromptType {
 	return PromptSummarizeTask
 }
 
 // SummarizePromptTemplate returns the summarize prompt as a
-// PromptTemplate (spec L4030: summarize.go - task summarization).
+// PromptTemplate (summarize.go - task summarization).
 func SummarizePromptTemplate() PromptTemplate {
 	return PromptTemplate{
 		Name:     "summarize_task",

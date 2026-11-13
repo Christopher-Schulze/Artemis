@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// pointer.go (spec L4019: bridge/cdpops/pointer.go - mouse/touch
+// pointer.go (bridge/cdpops/pointer.go - mouse/touch
 // events).
 //
 // Low-level CDP ops: mouse and touch event dispatch via CDP.
 // Provides functions for mouse movement, clicks, and touch events.
 
 // MouseButton enumerates mouse buttons
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 type MouseButton string
 
 const (
@@ -25,7 +25,7 @@ const (
 )
 
 // MouseEvent represents a mouse event
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 type MouseEvent struct {
 	Type       MouseButton `json:"type"`
 	EventType  string      `json:"eventType,omitempty"`
@@ -39,7 +39,7 @@ type MouseEvent struct {
 }
 
 // TouchEvent represents a touch event
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 type TouchEvent struct {
 	Type      string    `json:"type"` // "touchStart", "touchMove", "touchEnd"
 	X         float64   `json:"x"`
@@ -48,7 +48,7 @@ type TouchEvent struct {
 }
 
 // PointerDispatcher dispatches mouse and touch events
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 type PointerDispatcher struct {
 	mu         sync.Mutex
 	eventCount int
@@ -56,7 +56,7 @@ type PointerDispatcher struct {
 }
 
 // NewPointerDispatcher creates a new PointerDispatcher
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func NewPointerDispatcher(callers ...Caller) *PointerDispatcher {
 	var caller Caller
 	if len(callers) > 0 {
@@ -66,7 +66,7 @@ func NewPointerDispatcher(callers ...Caller) *PointerDispatcher {
 }
 
 // DispatchMouse dispatches a mouse event
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) DispatchMouse(event MouseEvent) error {
 	return d.DispatchMouseContext(context.Background(), event)
 }
@@ -112,7 +112,7 @@ func (d *PointerDispatcher) DispatchMouseContext(ctx context.Context, event Mous
 }
 
 // DispatchTouch dispatches a touch event
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) DispatchTouch(event TouchEvent) error {
 	return d.DispatchTouchContext(context.Background(), event)
 }
@@ -143,7 +143,7 @@ func (d *PointerDispatcher) DispatchTouchContext(ctx context.Context, event Touc
 }
 
 // Click dispatches a click at the given coordinates
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) Click(x, y float64, button MouseButton) error {
 	return d.ClickContext(context.Background(), x, y, button)
 }
@@ -158,7 +158,7 @@ func (d *PointerDispatcher) ClickContext(ctx context.Context, x, y float64, butt
 }
 
 // DoubleClick dispatches a double-click
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) DoubleClick(x, y float64) error {
 	return d.DoubleClickContext(context.Background(), x, y)
 }
@@ -175,7 +175,7 @@ func (d *PointerDispatcher) DoubleClickContext(ctx context.Context, x, y float64
 }
 
 // MouseMove dispatches a mouse move
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) MouseMove(x, y float64) error {
 	return d.MouseMoveContext(context.Background(), x, y)
 }
@@ -198,7 +198,7 @@ func (d *PointerDispatcher) TouchTapContext(ctx context.Context, x, y float64) e
 }
 
 // TouchTap dispatches a touch tap (start + end)
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) TouchTap(x, y float64) error {
 	return d.TouchTapContext(context.Background(), x, y)
 }
@@ -227,7 +227,7 @@ func isValidTouchEventType(eventType string) bool {
 }
 
 // EventCount returns the total number of dispatched events
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) EventCount() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -235,7 +235,7 @@ func (d *PointerDispatcher) EventCount() int {
 }
 
 // Clear clears all events
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func (d *PointerDispatcher) Clear() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -245,7 +245,7 @@ func (d *PointerDispatcher) Clear() int {
 }
 
 // IsValidMouseButton reports whether a mouse button is valid
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func IsValidMouseButton(b MouseButton) bool {
 	switch b {
 	case MouseButtonLeft, MouseButtonRight, MouseButtonMiddle:
@@ -255,7 +255,7 @@ func IsValidMouseButton(b MouseButton) bool {
 }
 
 // GenerateBezierPath generates a Bezier curve path from start to end
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func GenerateBezierPath(start, end Point, steps int) []Point {
 	if steps <= 0 {
 		steps = 10
@@ -282,7 +282,7 @@ func GenerateBezierPath(start, end Point, steps int) []Point {
 }
 
 // AddJitter adds random jitter to a point
-// (spec L4019: mouse/touch events).
+// (mouse/touch events).
 func AddJitter(p Point, maxJitter float64) Point {
 	if maxJitter <= 0 {
 		return p

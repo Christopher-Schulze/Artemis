@@ -1,6 +1,6 @@
 // Package prompts provides the 9 AgentScope browser agent prompt templates
 // (spec ss28.11) as Go string constants. Templates are embedded from
-// research/agents/agentscope-main/examples/agent/browser_agent/build_in_prompt/.
+// github.com/agentscope-ai/agentscope/examples/agent/browser_agent/build_in_prompt/.
 package prompts
 
 import "fmt"

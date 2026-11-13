@@ -105,7 +105,7 @@ func (s *pageTargetSource) CloseTarget(ctx context.Context, id string) error {
 }
 
 // RecycleTarget clears the target's origin cookies and storage and navigates
-// it to about:blank (spec L4522); the browser keeps DNS, TLS and HTTP/2
+// it to about:blank; the browser keeps DNS, TLS and HTTP/2
 // state, so reuse costs no new connection setup.
 func (s *pageTargetSource) RecycleTarget(ctx context.Context, id string) error {
 	page, err := s.page(id)

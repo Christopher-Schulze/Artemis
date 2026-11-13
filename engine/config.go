@@ -41,7 +41,7 @@ type Config struct {
 	chromeDefault bool
 	// ProxyURL routes outbound traffic through the given proxy URL.
 	ProxyURL string
-	// DNSCachePath persists the bounded DNS cache (spec L4512 L2) across
+	// DNSCachePath persists the bounded DNS cache (L2) across
 	// restarts. Empty keeps the in-memory L1 cache only.
 	DNSCachePath string
 	// WebBotAuth is the operator-gated Web Bot Auth signer applied to every
@@ -55,12 +55,12 @@ type Config struct {
 	// fetch URLs that the configured UserAgent is not allowed to crawl.
 	ObeyRobots bool
 	// IgnoreRobotsForCrawls opts crawl fetches (FetchOpts.Crawl) out of the
-	// default robots.txt admission (spec L4416 respect_robots_txt=true).
+	// default robots.txt admission (respect_robots_txt=true).
 	IgnoreRobotsForCrawls bool
-	// AdBlock is the shared ad/tracker blocker (spec L4206); nil builds one
+	// AdBlock is the shared ad/tracker blocker; nil builds one
 	// with the embedded base list. Blocking is on by default.
 	AdBlock *security.AdBlocker `json:"-"`
-	// DisableAdBlock turns ad/tracker blocking off (spec L4210 setting).
+	// DisableAdBlock turns ad/tracker blocking off (setting).
 	DisableAdBlock bool
 	// PolicyConfig controls the outbound network security policy. The
 	// zero value denies private/local/metadata/file/data/unsupported

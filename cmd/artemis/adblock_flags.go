@@ -12,7 +12,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
-// adBlockFlags are the ad/tracker blocking settings (spec L4206-L4210).
+// adBlockFlags are the ad/tracker blocking settings.
 // Blocking is on by default; --adblock=false disables it.
 type adBlockFlags struct {
 	enabled   *bool

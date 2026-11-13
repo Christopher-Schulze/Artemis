@@ -236,7 +236,7 @@ func (f *FormActions) SelectOption(ctx context.Context, ref, value string) error
 	return nil
 }
 
-// FillInput types text into a textbox/input field (spec L4323: slider/textbox fill).
+// FillInput types text into a textbox/input field (slider/textbox fill).
 // ref is the semantic ARIA ref for the input element.
 // value is the text to type into the field.
 // The ref must exist in the RefRegistry from the last snapshot.
@@ -261,7 +261,7 @@ func (f *FormActions) FillInput(ctx context.Context, ref, value string) error {
 	return nil
 }
 
-// FillSlider sets the value of a range/slider input (spec L4323: slider fill).
+// FillSlider sets the value of a range/slider input (slider fill).
 // ref is the semantic ARIA ref for the range input element.
 // value is a number between min and max (e.g., 50 for 50% if min=0 max=100).
 // The ref must exist in the RefRegistry from the last snapshot.
@@ -287,7 +287,7 @@ func (f *FormActions) FillSlider(ctx context.Context, ref string, value float64)
 }
 
 // ResolveRef resolves a semantic ARIA ref (e.g., "e5") to a CDP RemoteObject
-// handle (spec L4323: CDP ref resolution). Returns the object handle and
+// handle (CDP ref resolution). Returns the object handle and
 // metadata from the current snapshot's RefRegistry, or an error if the ref
 // is not registered.
 func (f *FormActions) ResolveRef(ctx context.Context, ref string) (RefHandle, error) {
@@ -308,7 +308,7 @@ func (f *FormActions) ResolveRef(ctx context.Context, ref string) (RefHandle, er
 }
 
 // FillSliderFromString is a convenience method that parses the value string
-// and calls FillSlider (spec L4323).
+// and calls FillSlider.
 func (f *FormActions) FillSliderFromString(ctx context.Context, ref, value string) error {
 	v, err := strconv.ParseFloat(value, 64)
 	if err != nil {

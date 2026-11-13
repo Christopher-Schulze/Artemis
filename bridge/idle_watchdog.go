@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// IdleWatchdogConfig controls per-workspace idle monitoring (spec L4322).
+// IdleWatchdogConfig controls per-workspace idle monitoring.
 // A background check runs every CheckIntervalSeconds; workspaces idle for
 // longer than IdleThresholdSeconds are reported and (via AutoStop) marked
 // auto-stopped.
@@ -38,7 +38,7 @@ type IdleWatchdogStats struct {
 }
 
 // IdleWatchdog monitors per-workspace idle time and reports/auto-stops
-// workspaces that exceed the idle threshold (spec L4322). It is thread-safe.
+// workspaces that exceed the idle threshold. It is thread-safe.
 type IdleWatchdog struct {
 	mu         sync.RWMutex
 	config     IdleWatchdogConfig

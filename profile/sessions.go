@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// LoginAttemptResult is the outcome of AutoLogin (spec L4589).
+// LoginAttemptResult is the outcome of AutoLogin.
 type LoginAttemptResult struct {
 	Success      bool
 	Reason       string
@@ -34,7 +34,7 @@ type LoginExecutor interface {
 	MFAFieldVisible(ctx context.Context, cred *StoredCredential) (bool, error)
 }
 
-// SessionHealthResult is the outcome of a session health check (spec L4591).
+// SessionHealthResult is the outcome of a session health check.
 type SessionHealthResult struct {
 	Healthy             bool
 	Reason              string
@@ -45,14 +45,14 @@ type SessionHealthResult struct {
 	CheckedAt           time.Time
 }
 
-// CookieExpiry is one cookie's expiry for monitoring (spec L4591).
+// CookieExpiry is one cookie's expiry for monitoring.
 type CookieExpiry struct {
 	Domain    string
 	Name      string
 	ExpiresAt time.Time
 }
 
-// SessionManager handles auto-login and session health (spec L4589-L4591).
+// SessionManager handles auto-login and session health.
 type SessionManager struct {
 	mu          sync.Mutex
 	creds       *CredentialStore
@@ -78,7 +78,7 @@ func NewSessionManager(creds *CredentialStore, detector LoginFormDetector, execu
 }
 
 // AutoLogin navigates to domain, detects login form, fills+submits,
-// verifies, and handles MFA (spec L4589).
+// verifies, and handles MFA.
 //
 // Pipeline:
 //  1. Detect login form visible.
@@ -168,7 +168,7 @@ func (s *SessionManager) AutoLogin(ctx context.Context, profileName, domain, pur
 }
 
 // CheckSessionHealth performs a HEAD request to the domain and checks for
-// redirect to login, HTTP 401/403, and cookie expiry (spec L4591).
+// redirect to login, HTTP 401/403, and cookie expiry.
 func (s *SessionManager) CheckSessionHealth(ctx context.Context, domain string, cookies []CookieExpiry) (res SessionHealthResult, returnErr error) {
 	if s == nil {
 		return SessionHealthResult{}, errors.New("session: nil manager")
@@ -234,7 +234,7 @@ func (s *SessionManager) CheckSessionHealth(ctx context.Context, domain string, 
 	return res, nil
 }
 
-// shouldWarn applies dedup: max 1 warning per domain per 6h (spec L4591).
+// shouldWarn applies dedup: max 1 warning per domain per 6h.
 func (s *SessionManager) shouldWarn(domain string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

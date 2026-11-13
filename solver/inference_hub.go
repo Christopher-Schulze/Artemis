@@ -7,14 +7,14 @@ import (
 	"sync"
 )
 
-// inference_hub.go (spec L4248: Inference Hub ss7 CAPTCHA fallback).
+// inference_hub.go (Inference Hub ss7 CAPTCHA fallback).
 //
 // CAPTCHA LLM fallback uses the Inference Hub (ss7) instead of external
 // services. This hook connects the CAPTCHA solver to the Inference Hub
 // for LLM-based challenge solving.
 
 // InferenceHubRequest is a request to the Inference Hub for CAPTCHA
-// LLM fallback (spec L4248).
+// LLM fallback.
 type InferenceHubRequest struct {
 	ChallengeType string `json:"challenge_type"`
 	ImageData     string `json:"image_data"`
@@ -39,7 +39,7 @@ type InferenceHub interface {
 }
 
 // InferenceHubHook connects CAPTCHA LLM fallback to the Inference Hub
-// (ss7) instead of external services (spec L4248).
+// (ss7) instead of external services.
 type InferenceHubHook struct {
 	mu    sync.RWMutex
 	hub   InferenceHub
@@ -75,7 +75,7 @@ func (h *InferenceHubHook) ResetStats() {
 }
 
 // Solve routes a CAPTCHA challenge to the Inference Hub (ss7) for
-// LLM-based solving (spec L4248).
+// LLM-based solving.
 func (h *InferenceHubHook) Solve(ctx context.Context, req InferenceHubRequest) (InferenceHubResponse, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -127,7 +127,7 @@ func (h *InferenceHubHook) IsAvailable() bool {
 }
 
 // FormatChallengePrompt creates a prompt for the LLM to solve a
-// CAPTCHA challenge (spec L4248).
+// CAPTCHA challenge.
 func FormatChallengePrompt(challengeType, context string) string {
 	return fmt.Sprintf("Solve this %s CAPTCHA challenge. Context: %s. Provide only the answer.", challengeType, context)
 }

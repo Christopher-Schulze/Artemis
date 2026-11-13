@@ -6,32 +6,30 @@ import (
 	"unicode"
 )
 
-// summarize.go (spec L4278: Task-Aware Snapshot Summarization).
+// summarize.go (Task-Aware Snapshot Summarization).
 //
 // When a captured snapshot exceeds a character threshold (default
 // 8000), the summarizer extracts task-relevant sentences and falls
 // back to truncation when no relevant content is found. Thread-safe
 // via RWMutex and tracks basic stats.
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/observe/snapshot.go
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/observe/snapshot.go
 
 // DefaultSummarizeThreshold is the spec-mandated character threshold
-// above which snapshot content is summarized (spec L4278: >8000
+// above which snapshot content is summarized (>8000
 // chars).
 const DefaultSummarizeThreshold = 8000
 
 // DefaultMaxTokens caps the approximate token budget of a summary.
 // We approximate 1 token ≈ 4 characters for the simple keyword-based
-// summarizer (spec L4278).
+// summarizer.
 const DefaultMaxTokens = 2000
 
 // DefaultFallbackTruncateLen is the character length used by the
-// fallback truncation path when no task-relevant sentences match
-// (spec L4278).
+// fallback truncation path when no task-relevant sentences match.
 const DefaultFallbackTruncateLen = 4000
 
-// SummarizeConfig controls the summarizer's thresholds
-// (spec L4278).
+// SummarizeConfig controls the summarizer's thresholds.
 type SummarizeConfig struct {
 	Threshold        int `json:"threshold"`
 	MaxTokens        int `json:"max_tokens"`
@@ -39,7 +37,7 @@ type SummarizeConfig struct {
 }
 
 // DefaultSummarizeConfig returns the spec-mandated default
-// configuration with Threshold=8000 (spec L4278).
+// configuration with Threshold=8000.
 func DefaultSummarizeConfig() SummarizeConfig {
 	return SummarizeConfig{
 		Threshold:        DefaultSummarizeThreshold,
@@ -48,8 +46,7 @@ func DefaultSummarizeConfig() SummarizeConfig {
 	}
 }
 
-// SummarizationResult captures the outcome of a summarization call
-// (spec L4278).
+// SummarizationResult captures the outcome of a summarization call.
 type SummarizationResult struct {
 	Original         string `json:"original"`
 	Summarized       string `json:"summarized"`
@@ -60,15 +57,15 @@ type SummarizationResult struct {
 }
 
 // SummarizerStats tracks cumulative summarizer activity
-// (spec L4278: stats Total/Summarized/Truncated).
+// (stats Total/Summarized/Truncated).
 type SummarizerStats struct {
 	Total      int `json:"total"`
 	Summarized int `json:"summarized"`
 	Truncated  int `json:"truncated"`
 }
 
-// Summarizer performs task-aware summarization of snapshot content
-// (spec L4278). It is safe for concurrent use.
+// Summarizer performs task-aware summarization of snapshot content.
+// It is safe for concurrent use.
 type Summarizer struct {
 	mu    sync.RWMutex
 	cfg   SummarizeConfig
@@ -91,7 +88,7 @@ func NewSummarizer(cfg SummarizeConfig) *Summarizer {
 }
 
 // NewDefaultSummarizer returns a Summarizer with the default
-// configuration (spec L4278).
+// configuration.
 func NewDefaultSummarizer() *Summarizer {
 	return NewSummarizer(DefaultSummarizeConfig())
 }
@@ -121,7 +118,7 @@ func (s *Summarizer) SetConfig(cfg SummarizeConfig) {
 }
 
 // Stats returns a snapshot of the cumulative stats
-// (spec L4278: Total/Summarized/Truncated).
+// (Total/Summarized/Truncated).
 func (s *Summarizer) Stats() SummarizerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -129,7 +126,7 @@ func (s *Summarizer) Stats() SummarizerStats {
 }
 
 // NeedsSummarization reports whether the content length exceeds the
-// configured threshold (spec L4278).
+// configured threshold.
 func (s *Summarizer) NeedsSummarization(content string) bool {
 	s.mu.RLock()
 	threshold := s.cfg.Threshold
@@ -137,8 +134,8 @@ func (s *Summarizer) NeedsSummarization(content string) bool {
 	return len(content) > threshold
 }
 
-// Summarize returns a task-aware summary of the content
-// (spec L4278). If the content is below the threshold it is returned
+// Summarize returns a task-aware summary of the content.
+// If the content is below the threshold it is returned
 // unchanged with wasSummarized=false. Otherwise the summarizer
 // extracts task-relevant sentences; if none match it falls back to
 // truncation. The second return value reports whether summarization
@@ -180,7 +177,7 @@ func (s *Summarizer) Summarize(content string, task string) (string, bool) {
 }
 
 // SummarizeResult is the same as Summarize but returns a full
-// SummarizationResult with metadata (spec L4278).
+// SummarizationResult with metadata.
 func (s *Summarizer) SummarizeResult(content string, task string) SummarizationResult {
 	out, wasSummarized := s.Summarize(content, task)
 	return SummarizationResult{
@@ -194,7 +191,7 @@ func (s *Summarizer) SummarizeResult(content string, task string) SummarizationR
 }
 
 // TruncateContent truncates content to maxLen characters and appends
-// "..." if truncation occurred (spec L4278: fallback truncation).
+// "..." if truncation occurred (fallback truncation).
 // If maxLen <= 0 the content is returned unchanged. If the content
 // is already shorter than or equal to maxLen it is returned as-is
 // without a suffix.
@@ -216,7 +213,7 @@ func TruncateContent(content string, maxLen int) string {
 // least one task keyword (case-insensitive). Sentences are joined
 // with single spaces. If no sentences match, an empty string is
 // returned so the caller can fall back to truncation
-// (spec L4278: simple keyword matching).
+// (simple keyword matching).
 func (s *Summarizer) ExtractRelevant(content string, task string) string {
 	keywords := extractKeywords(task)
 	if len(keywords) == 0 {

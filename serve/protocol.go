@@ -26,7 +26,7 @@ type Response struct {
 	Value   any    `json:"value,omitempty"`
 	Error   *Err   `json:"error,omitempty"`
 	// Trust labels every page-derived value with its origin, source and
-	// IDPI verdict (spec L4202); absent for non-page results.
+	// IDPI verdict; absent for non-page results.
 	Trust *security.ContentTrust `json:"trust,omitempty"`
 }
 

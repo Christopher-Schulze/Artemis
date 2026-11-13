@@ -5,18 +5,18 @@ import (
 	"testing"
 )
 
-// TestTASK2238_BuiltinAdTrackerPatternCount40Plus verifies there are
-// 40+ built-in ad/tracker patterns (spec L4027: 40+ patterns).
-func TestTASK2238_BuiltinAdTrackerPatternCount40Plus(t *testing.T) {
+// TestBuiltinAdTrackerPatternCount40Plus verifies there are
+// 40+ built-in ad/tracker patterns (40+ patterns).
+func TestBuiltinAdTrackerPatternCount40Plus(t *testing.T) {
 	count := BuiltinAdTrackerPatternCount()
 	if count < 40 {
 		t.Errorf("expected 40+ patterns, got %d", count)
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainAdNetworks verifies major ad network
-// domains are detected (spec L4027).
-func TestTASK2238_IsAdTrackerDomainAdNetworks(t *testing.T) {
+// TestIsAdTrackerDomainAdNetworks verifies major ad network
+// domains are detected.
+func TestIsAdTrackerDomainAdNetworks(t *testing.T) {
 	adDomains := []string{
 		"doubleclick.net",
 		"googlesyndication.com",
@@ -33,9 +33,9 @@ func TestTASK2238_IsAdTrackerDomainAdNetworks(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainTrackers verifies tracker/analytics
-// domains are detected (spec L4027).
-func TestTASK2238_IsAdTrackerDomainTrackers(t *testing.T) {
+// TestIsAdTrackerDomainTrackers verifies tracker/analytics
+// domains are detected.
+func TestIsAdTrackerDomainTrackers(t *testing.T) {
 	trackers := []string{
 		"google-analytics.com",
 		"hotjar.com",
@@ -52,9 +52,9 @@ func TestTASK2238_IsAdTrackerDomainTrackers(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainSocialWidgets verifies social
-// widget/pixel domains are detected (spec L4027).
-func TestTASK2238_IsAdTrackerDomainSocialWidgets(t *testing.T) {
+// TestIsAdTrackerDomainSocialWidgets verifies social
+// widget/pixel domains are detected.
+func TestIsAdTrackerDomainSocialWidgets(t *testing.T) {
 	socials := []string{
 		"connect.facebook.net",
 		"platform.twitter.com",
@@ -69,9 +69,9 @@ func TestTASK2238_IsAdTrackerDomainSocialWidgets(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainSubdomain verifies subdomains of
-// ad/tracker patterns are detected (spec L4027).
-func TestTASK2238_IsAdTrackerDomainSubdomain(t *testing.T) {
+// TestIsAdTrackerDomainSubdomain verifies subdomains of
+// ad/tracker patterns are detected.
+func TestIsAdTrackerDomainSubdomain(t *testing.T) {
 	subdomains := []string{
 		"ads.doubleclick.net",
 		"stats.g.doubleclick.net",
@@ -86,9 +86,9 @@ func TestTASK2238_IsAdTrackerDomainSubdomain(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainCleanDomain verifies non-ad/tracker
-// domains are NOT detected (spec L4027).
-func TestTASK2238_IsAdTrackerDomainCleanDomain(t *testing.T) {
+// TestIsAdTrackerDomainCleanDomain verifies non-ad/tracker
+// domains are NOT detected.
+func TestIsAdTrackerDomainCleanDomain(t *testing.T) {
 	clean := []string{
 		"example.com",
 		"wikipedia.org",
@@ -103,9 +103,9 @@ func TestTASK2238_IsAdTrackerDomainCleanDomain(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainCaseInsensitive verifies matching is
-// case-insensitive (spec L4027).
-func TestTASK2238_IsAdTrackerDomainCaseInsensitive(t *testing.T) {
+// TestIsAdTrackerDomainCaseInsensitive verifies matching is
+// case-insensitive.
+func TestIsAdTrackerDomainCaseInsensitive(t *testing.T) {
 	if !IsAdTrackerDomain("DOUBLECLICK.NET") {
 		t.Error("uppercase ad domain should be detected")
 	}
@@ -114,17 +114,17 @@ func TestTASK2238_IsAdTrackerDomainCaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainEmpty verifies empty domain returns false.
-func TestTASK2238_IsAdTrackerDomainEmpty(t *testing.T) {
+// TestIsAdTrackerDomainEmpty verifies empty domain returns false.
+func TestIsAdTrackerDomainEmpty(t *testing.T) {
 	if IsAdTrackerDomain("") {
 		t.Error("empty domain should not be detected")
 	}
 }
 
-// TestTASK2238_IsAdTrackerDomainSimilarNotMatched verifies similar-
+// TestIsAdTrackerDomainSimilarNotMatched verifies similar-
 // looking domains are NOT matched (e.g. "notdoubleclick.net" is not
 // "doubleclick.net").
-func TestTASK2238_IsAdTrackerDomainSimilarNotMatched(t *testing.T) {
+func TestIsAdTrackerDomainSimilarNotMatched(t *testing.T) {
 	similar := []string{
 		"notdoubleclick.net",
 		"doubleclick.net.evil.com",
@@ -137,9 +137,9 @@ func TestTASK2238_IsAdTrackerDomainSimilarNotMatched(t *testing.T) {
 	}
 }
 
-// TestTASK2238_FilterAdTrackerDomains verifies filtering removes
-// ad/tracker domains from a list (spec L4027).
-func TestTASK2238_FilterAdTrackerDomains(t *testing.T) {
+// TestFilterAdTrackerDomains verifies filtering removes
+// ad/tracker domains from a list.
+func TestFilterAdTrackerDomains(t *testing.T) {
 	domains := []string{
 		"example.com",
 		"doubleclick.net",
@@ -160,9 +160,9 @@ func TestTASK2238_FilterAdTrackerDomains(t *testing.T) {
 	}
 }
 
-// TestTASK2238_FilterAdTrackerDomainsAllAd verifies filtering when all
+// TestFilterAdTrackerDomainsAllAd verifies filtering when all
 // domains are ad/tracker domains.
-func TestTASK2238_FilterAdTrackerDomainsAllAd(t *testing.T) {
+func TestFilterAdTrackerDomainsAllAd(t *testing.T) {
 	domains := []string{"doubleclick.net", "googlesyndication.com", "adnxs.com"}
 	filtered := FilterAdTrackerDomains(domains)
 	if len(filtered) != 0 {
@@ -170,9 +170,9 @@ func TestTASK2238_FilterAdTrackerDomainsAllAd(t *testing.T) {
 	}
 }
 
-// TestTASK2238_FilterAdTrackerDomainsAllClean verifies filtering when
+// TestFilterAdTrackerDomainsAllClean verifies filtering when
 // no domains are ad/tracker domains.
-func TestTASK2238_FilterAdTrackerDomainsAllClean(t *testing.T) {
+func TestFilterAdTrackerDomainsAllClean(t *testing.T) {
 	domains := []string{"example.com", "wikipedia.org", "myapp.com"}
 	filtered := FilterAdTrackerDomains(domains)
 	if len(filtered) != 3 {
@@ -180,17 +180,17 @@ func TestTASK2238_FilterAdTrackerDomainsAllClean(t *testing.T) {
 	}
 }
 
-// TestTASK2238_FilterAdTrackerDomainsEmpty verifies filtering empty list.
-func TestTASK2238_FilterAdTrackerDomainsEmpty(t *testing.T) {
+// TestFilterAdTrackerDomainsEmpty verifies filtering empty list.
+func TestFilterAdTrackerDomainsEmpty(t *testing.T) {
 	filtered := FilterAdTrackerDomains(nil)
 	if len(filtered) != 0 {
 		t.Errorf("empty filter: got %d, want 0", len(filtered))
 	}
 }
 
-// TestTASK2238_BuiltinPatternsNoDuplicates verifies no duplicate
-// patterns in the built-in list (spec L4027: quality).
-func TestTASK2238_BuiltinPatternsNoDuplicates(t *testing.T) {
+// TestBuiltinPatternsNoDuplicates verifies no duplicate
+// patterns in the built-in list (quality).
+func TestBuiltinPatternsNoDuplicates(t *testing.T) {
 	seen := make(map[string]bool)
 	for _, p := range BuiltinAdTrackerPatterns {
 		p = strings.ToLower(p)
@@ -201,9 +201,9 @@ func TestTASK2238_BuiltinPatternsNoDuplicates(t *testing.T) {
 	}
 }
 
-// TestTASK2238_BuiltinPatternsAllNonEmpty verifies all patterns are
-// non-empty (spec L4027: quality).
-func TestTASK2238_BuiltinPatternsAllNonEmpty(t *testing.T) {
+// TestBuiltinPatternsAllNonEmpty verifies all patterns are
+// non-empty (quality).
+func TestBuiltinPatternsAllNonEmpty(t *testing.T) {
 	for i, p := range BuiltinAdTrackerPatterns {
 		if strings.TrimSpace(p) == "" {
 			t.Errorf("pattern at index %d is empty", i)
@@ -211,9 +211,9 @@ func TestTASK2238_BuiltinPatternsAllNonEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2238_BuiltinPatternsAllLowercase verifies all patterns are
-// stored lowercase for consistent matching (spec L4027: quality).
-func TestTASK2238_BuiltinPatternsAllLowercase(t *testing.T) {
+// TestBuiltinPatternsAllLowercase verifies all patterns are
+// stored lowercase for consistent matching (quality).
+func TestBuiltinPatternsAllLowercase(t *testing.T) {
 	for i, p := range BuiltinAdTrackerPatterns {
 		if p != strings.ToLower(p) {
 			t.Errorf("pattern at index %d is not lowercase: %s", i, p)
@@ -221,9 +221,9 @@ func TestTASK2238_BuiltinPatternsAllLowercase(t *testing.T) {
 	}
 }
 
-// TestTASK2238_FullSpecParity verifies the full spec parity for
-// L4027 security surface (spec L4027).
-func TestTASK2238_FullSpecParity(t *testing.T) {
+// TestAdblockPatternsParity verifies full parity of the adblock pattern
+// security surface.
+func TestAdblockPatternsParity(t *testing.T) {
 	// 1. 40+ patterns
 	if BuiltinAdTrackerPatternCount() < 40 {
 		t.Error("must have 40+ patterns")
@@ -266,12 +266,12 @@ func TestTASK2238_FullSpecParity(t *testing.T) {
 	}
 }
 
-// ==================== TASK-2344 label-walk matcher tests ====================
+// ==================== label-walk matcher tests ====================
 
-// TestTASK2344_IsAdTrackerDomainDeepSubdomain verifies the label-walk
+// TestIsAdTrackerDomainDeepSubdomain verifies the label-walk
 // matcher correctly matches a deep subdomain of a builtin pattern
 // (e.g. "a.b.c.doubleclick.net" matches "doubleclick.net").
-func TestTASK2344_IsAdTrackerDomainDeepSubdomain(t *testing.T) {
+func TestIsAdTrackerDomainDeepSubdomain(t *testing.T) {
 	deep := []string{
 		"a.b.c.doubleclick.net",
 		"x.y.z.googlesyndication.com",
@@ -285,11 +285,11 @@ func TestTASK2344_IsAdTrackerDomainDeepSubdomain(t *testing.T) {
 	}
 }
 
-// TestTASK2344_IsAdTrackerDomainLabelWalkNotPrefix verifies the
+// TestIsAdTrackerDomainLabelWalkNotPrefix verifies the
 // label-walk matcher does NOT match a domain that merely has the
 // pattern as a prefix without a dot separator (e.g.
 // "doubleclick.net.evil.com" must NOT match "doubleclick.net").
-func TestTASK2344_IsAdTrackerDomainLabelWalkNotPrefix(t *testing.T) {
+func TestIsAdTrackerDomainLabelWalkNotPrefix(t *testing.T) {
 	// "doubleclick.net.evil.com" — the label walk checks
 	// "doubleclick.net.evil.com", "net.evil.com", "evil.com", "com"
 	// — none of which are in the pattern set, so no match.
@@ -298,9 +298,9 @@ func TestTASK2344_IsAdTrackerDomainLabelWalkNotPrefix(t *testing.T) {
 	}
 }
 
-// TestTASK2344_IsAdTrackerDomainSingleLabel verifies a single-label
+// TestIsAdTrackerDomainSingleLabel verifies a single-label
 // domain (no dots) does not crash and does not match any pattern.
-func TestTASK2344_IsAdTrackerDomainSingleLabel(t *testing.T) {
+func TestIsAdTrackerDomainSingleLabel(t *testing.T) {
 	if IsAdTrackerDomain("localhost") {
 		t.Error("localhost should not match")
 	}
@@ -309,9 +309,9 @@ func TestTASK2344_IsAdTrackerDomainSingleLabel(t *testing.T) {
 	}
 }
 
-// TestTASK2344_IsAdTrackerDomainTrailingDot verifies a domain with a
+// TestIsAdTrackerDomainTrailingDot verifies a domain with a
 // trailing dot does not crash and is handled correctly.
-func TestTASK2344_IsAdTrackerDomainTrailingDot(t *testing.T) {
+func TestIsAdTrackerDomainTrailingDot(t *testing.T) {
 	// Trailing dot: "doubleclick.net." — after ToLower/TrimSpace,
 	// the label walk checks "doubleclick.net." (not in set),
 	// then "net." (not in set), then "" — no match. This is
@@ -322,17 +322,17 @@ func TestTASK2344_IsAdTrackerDomainTrailingDot(t *testing.T) {
 	}
 }
 
-// TestTASK2344_IsAdTrackerDomainWhitespace verifies whitespace is
+// TestIsAdTrackerDomainWhitespace verifies whitespace is
 // trimmed before matching.
-func TestTASK2344_IsAdTrackerDomainWhitespace(t *testing.T) {
+func TestIsAdTrackerDomainWhitespace(t *testing.T) {
 	if !IsAdTrackerDomain("  doubleclick.net  ") {
 		t.Error("whitespace-padded domain should match after trim")
 	}
 }
 
-// TestTASK2344_IsAdTrackerDomainMixedCaseDeepSubdomain verifies
+// TestIsAdTrackerDomainMixedCaseDeepSubdomain verifies
 // case-insensitive matching works for deep subdomains.
-func TestTASK2344_IsAdTrackerDomainMixedCaseDeepSubdomain(t *testing.T) {
+func TestIsAdTrackerDomainMixedCaseDeepSubdomain(t *testing.T) {
 	if !IsAdTrackerDomain("Ads.FLS.DoubleClick.Net") {
 		t.Error("mixed-case deep subdomain should match")
 	}

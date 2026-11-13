@@ -12,7 +12,7 @@ import (
 	browserpolicy "github.com/Christopher-Schulze/Artemis/policy"
 )
 
-// policy.go (spec L4027: security/policy.go - navigation policy:
+// policy.go (security/policy.go - navigation policy:
 // domain allowlist).
 //
 // Browser security: navigation policy with domain allowlist to
@@ -21,7 +21,7 @@ import (
 // automation.
 
 // NavigationPolicy manages the domain allowlist for navigation
-// (spec L4027: navigation policy domain allowlist).
+// (navigation policy domain allowlist).
 type NavigationPolicy struct {
 	mu           sync.RWMutex
 	allowList    map[string]bool // explicitly allowed domains
@@ -32,7 +32,7 @@ type NavigationPolicy struct {
 }
 
 // NewNavigationPolicy creates a new NavigationPolicy with default-deny
-// (spec L4027: navigation policy domain allowlist).
+// (navigation policy domain allowlist).
 func NewNavigationPolicy() *NavigationPolicy {
 	policy := &NavigationPolicy{
 		allowList:    make(map[string]bool),
@@ -44,7 +44,7 @@ func NewNavigationPolicy() *NavigationPolicy {
 }
 
 // NewNavigationPolicyDefaultAllow creates a new NavigationPolicy with
-// default-allow (spec L4027).
+// default-allow.
 func NewNavigationPolicyDefaultAllow() *NavigationPolicy {
 	policy := &NavigationPolicy{
 		allowList:    make(map[string]bool),
@@ -56,7 +56,7 @@ func NewNavigationPolicyDefaultAllow() *NavigationPolicy {
 }
 
 // Allow adds a domain to the allowlist
-// (spec L4027: navigation policy domain allowlist).
+// (navigation policy domain allowlist).
 func (p *NavigationPolicy) Allow(domain string) {
 	if p == nil {
 		return
@@ -67,7 +67,7 @@ func (p *NavigationPolicy) Allow(domain string) {
 }
 
 // Block adds a domain to the blocklist
-// (spec L4027: navigation policy).
+// (navigation policy).
 func (p *NavigationPolicy) Block(domain string) {
 	if p == nil {
 		return
@@ -78,7 +78,7 @@ func (p *NavigationPolicy) Block(domain string) {
 }
 
 // IsAllowed reports whether navigation to a domain is allowed
-// (spec L4027: navigation policy domain allowlist).
+// (navigation policy domain allowlist).
 func (p *NavigationPolicy) IsAllowed(domain string) bool {
 	if p == nil {
 		return false
@@ -90,13 +90,13 @@ func (p *NavigationPolicy) IsAllowed(domain string) bool {
 }
 
 // IsBlocked reports whether navigation to a domain is blocked
-// (spec L4027: navigation policy).
+// (navigation policy).
 func (p *NavigationPolicy) IsBlocked(domain string) bool {
 	return !p.IsAllowed(domain)
 }
 
 // CheckURL checks whether navigation to a URL is allowed
-// (spec L4027: navigation policy domain allowlist).
+// (navigation policy domain allowlist).
 func (p *NavigationPolicy) CheckURL(rawURL string) error {
 	if p == nil {
 		return fmt.Errorf("policy: nil policy")
@@ -110,7 +110,7 @@ func (p *NavigationPolicy) CheckURL(rawURL string) error {
 }
 
 // SetDefaultAllow sets the default policy for unlisted domains
-// (spec L4027: navigation policy).
+// (navigation policy).
 func (p *NavigationPolicy) SetDefaultAllow(allow bool) {
 	if p == nil {
 		return
@@ -121,8 +121,7 @@ func (p *NavigationPolicy) SetDefaultAllow(allow bool) {
 	p.rebuild()
 }
 
-// AllowList returns the list of allowed domains
-// (spec L4027).
+// AllowList returns the list of allowed domains.
 func (p *NavigationPolicy) AllowList() []string {
 	if p == nil {
 		return nil
@@ -137,8 +136,7 @@ func (p *NavigationPolicy) AllowList() []string {
 	return domains
 }
 
-// BlockList returns the list of blocked domains
-// (spec L4027).
+// BlockList returns the list of blocked domains.
 func (p *NavigationPolicy) BlockList() []string {
 	if p == nil {
 		return nil
@@ -153,8 +151,7 @@ func (p *NavigationPolicy) BlockList() []string {
 	return domains
 }
 
-// AllowCount returns the number of allowed domains
-// (spec L4027).
+// AllowCount returns the number of allowed domains.
 func (p *NavigationPolicy) AllowCount() int {
 	if p == nil {
 		return 0
@@ -164,8 +161,7 @@ func (p *NavigationPolicy) AllowCount() int {
 	return len(p.allowList)
 }
 
-// BlockCount returns the number of blocked domains
-// (spec L4027).
+// BlockCount returns the number of blocked domains.
 func (p *NavigationPolicy) BlockCount() int {
 	if p == nil {
 		return 0

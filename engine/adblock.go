@@ -12,7 +12,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
-// AdBlocker returns the engine's ad/tracker blocker (spec L4206), or nil when
+// AdBlocker returns the engine's ad/tracker blocker, or nil when
 // Config.DisableAdBlock is set.
 func (e *Engine) AdBlocker() *security.AdBlocker {
 	return e.adBlock
@@ -39,8 +39,8 @@ func (p *Page) AdBlockedRequests() int64 {
 	return p.adBlocked.Load()
 }
 
-// AdBlockFinding returns the Layer 2 finding recorded when the page loaded
-// (spec L4208), or nil.
+// AdBlockFinding returns the Layer 2 finding recorded when the page loaded,
+// or nil.
 func (p *Page) AdBlockFinding() *security.AdBlockFinding {
 	if p == nil {
 		return nil

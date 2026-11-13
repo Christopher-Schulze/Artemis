@@ -11,7 +11,7 @@ type LaunchFlags struct {
 
 // HARMFUL_ARGS are launch flags that must always be blocked because they
 // enable automation detection or cause browser instability.
-// Ref: research/webstack/Scrapling-main/scrapling/engines/constants.py:L15-L21
+// Ref: github.com/D4Vinci/Scrapling/scrapling/engines/constants.py:L15-L21
 var blockedLaunchFlags = []string{
 	"--enable-automation",
 	"--disable-popup-blocking",
@@ -25,7 +25,7 @@ var blockedLaunchFlags = []string{
 }
 
 // DEFAULT_ARGS are safe default launch flags that speed up Chromium.
-// Ref: research/webstack/Scrapling-main/scrapling/engines/constants.py:L23-L34
+// Ref: github.com/D4Vinci/Scrapling/scrapling/engines/constants.py:L23-L34
 var defaultArgs = []string{
 	"--no-pings",
 	"--no-first-run",
@@ -42,7 +42,7 @@ var defaultArgs = []string{
 
 // STEALTH_ARGS are anti-detection launch flags active in StealthStealth and
 // StealthParanoid modes. Makes the browser faster and less detectable.
-// Ref: research/webstack/Scrapling-main/scrapling/engines/constants.py:L36-L99
+// Ref: github.com/D4Vinci/Scrapling/scrapling/engines/constants.py:L36-L99
 var stealthArgs = []string{
 	"--test-type",
 	"--lang=en-US",

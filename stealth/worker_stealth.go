@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// worker_stealth.go (spec L4058: Worker Thread Stealth Parity).
+// worker_stealth.go (Worker Thread Stealth Parity).
 //
 // When a worker thread (service worker, shared worker, dedicated worker)
 // is attached via target.EventAttachedToTarget, the same UA/emulation
@@ -17,10 +17,10 @@ import (
 // navigator.platform, navigator.webdriver=true in the worker but false
 // in the main page).
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/worker_stealth.go:16-96
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/worker_stealth.go:16-96
 
 // WorkerTargetType is the CDP target type for a worker context
-// (spec L4058: worker contexts).
+// (worker contexts).
 type WorkerTargetType string
 
 const (
@@ -31,7 +31,7 @@ const (
 )
 
 // IsWorkerTarget checks if a CDP target type string indicates a worker
-// context (spec L4058: prevents detection via worker navigator properties).
+// context (prevents detection via worker navigator properties).
 // The CDP target types are "service_worker", "shared_worker", and
 // "worker" (dedicated workers are reported as "worker" in CDP).
 func IsWorkerTarget(targetType string) bool {
@@ -50,8 +50,7 @@ type WorkerTargetInfo struct {
 	URL        string `json:"url,omitempty"`
 }
 
-// MarshalJSON returns safe JSON for worker target info (spec L4058:
-// safe JSON marshaling). Uses json.Marshal which escapes HTML entities
+// MarshalJSON returns safe JSON for worker target info (// safe JSON marshaling). Uses json.Marshal which escapes HTML entities
 // and validates the output is well-formed JSON.
 func (w WorkerTargetInfo) MarshalJSON() ([]byte, error) {
 	type alias WorkerTargetInfo
@@ -59,8 +58,7 @@ func (w WorkerTargetInfo) MarshalJSON() ([]byte, error) {
 }
 
 // WorkerStealthTracker tracks which worker targets have already received
-// stealth patches, preventing duplicate injection (spec L4058:
-// same UA/emulation as main page, applied once per worker).
+// stealth patches, preventing duplicate injection (// same UA/emulation as main page, applied once per worker).
 type WorkerStealthTracker struct {
 	mu      sync.RWMutex
 	applied map[string]struct{}
@@ -111,7 +109,7 @@ func (t *WorkerStealthTracker) Count() int {
 }
 
 // WorkerStealthScript returns the JavaScript stealth patch script for a
-// worker context (spec L4058: same UA/emulation as main page).
+// worker context (same UA/emulation as main page).
 //
 // In a worker context, `self.navigator` is the navigator object (there
 // is no `window`). The script patches:
@@ -166,7 +164,7 @@ func WorkerStealthScript(p Profile) string {
 }
 
 // WorkerStealthHandler processes target.EventAttachedToTarget events
-// and applies stealth patches to worker contexts (spec L4058).
+// and applies stealth patches to worker contexts.
 type WorkerStealthHandler struct {
 	tracker *WorkerStealthTracker
 	profile Profile
@@ -215,7 +213,7 @@ func (h *WorkerStealthHandler) Profile() Profile {
 }
 
 // SafeJSONStringArray marshals a string slice to JSON and validates the
-// output is a JSON array of strings (spec L4058: safe JSON marshaling).
+// output is a JSON array of strings (safe JSON marshaling).
 // Returns the fallback on any error.
 func SafeJSONStringArray(values []string, fallback string) string {
 	data, err := json.Marshal(values)

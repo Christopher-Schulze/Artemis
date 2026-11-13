@@ -10,13 +10,13 @@ import (
 	"sync"
 )
 
-// policy_hook.go (spec L4247: Policy Engine integration ss6).
+// policy_hook.go (Policy Engine integration ss6).
 //
 // Browser requests go through the host policy engine before
 // execution. This hook intercepts browser navigation/action requests
 // and routes them through the Policy Engine for authorization.
 //
-// Reference: research/webstack/agent-browser-main/cli/src/native/policy.rs:1-217
+// Reference: github.com/vercel-labs/agent-browser/cli/src/native/policy.rs:1-217
 
 // PolicyDecision is the Policy Engine's authorization decision.
 type PolicyDecision string
@@ -28,7 +28,7 @@ const (
 )
 
 // PolicyRequest represents a browser request to be evaluated by the
-// Policy Engine (spec L4247).
+// Policy Engine.
 type PolicyRequest struct {
 	URL        string            `json:"url"`
 	Method     string            `json:"method"`
@@ -65,7 +65,7 @@ type PolicyEngine interface {
 }
 
 // PolicyHook routes browser requests through the Policy Engine (ss6)
-// before execution (spec L4247).
+// before execution.
 type PolicyHook struct {
 	mu      sync.RWMutex
 	engine  PolicyEngine
@@ -126,7 +126,7 @@ func (h *PolicyHook) ResetStats() {
 	h.stats = PolicyHookStats{}
 }
 
-// Check routes a browser request through the Policy Engine (spec L4247).
+// Check routes a browser request through the Policy Engine.
 func (h *PolicyHook) Check(ctx context.Context, req PolicyRequest) (PolicyResponse, error) {
 	if h == nil {
 		return PolicyResponse{Decision: PolicyDecisionDeny, Reason: "policy hook required"}, errors.New("policy hook required")

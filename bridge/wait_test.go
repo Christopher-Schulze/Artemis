@@ -283,7 +283,7 @@ func TestWaitForTextNilProvider(t *testing.T) {
 	}
 }
 
-// --- FormActions: FillInput / FillSlider / ResolveRef (L4323) ---
+// --- FormActions: FillInput / FillSlider / ResolveRef ---
 
 func TestFormActionsFillInput(t *testing.T) {
 	session := &BrowserSession{ProviderName: "test", SessionID: "s1"}
@@ -538,7 +538,7 @@ func TestFormActionsNewWithRefs(t *testing.T) {
 	}
 }
 
-// --- NetworkRequestBuffer: URL-based matching (L4324) ---
+// --- NetworkRequestBuffer: URL-based matching ---
 
 func TestNetworkRequestBufferFindByURLSubstring(t *testing.T) {
 	buf := NewNetworkRequestBuffer(100)

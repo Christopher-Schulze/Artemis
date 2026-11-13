@@ -9,7 +9,7 @@ import (
 
 // TestFinderSelectorDriftCSSFailureTextFallback is a deterministic
 // regression test for the selector-drift failure class surfaced by the
-// TASK-2325 smoke matrix. When a site redesign breaks a CSS selector,
+// smoke matrix. When a site redesign breaks a CSS selector,
 // the Finder's text-fallback stage must still locate the element by
 // its visible text content. No live-network dependency: the HTML
 // fixtures are inline.

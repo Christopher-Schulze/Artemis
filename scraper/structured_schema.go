@@ -11,7 +11,7 @@ import (
 )
 
 // SchemaKind enumerates the declarative schema kinds
-// (spec L4029: kind=text|html|attr|url|number|object|list).
+// (kind=text|html|attr|url|number|object|list).
 type SchemaKind string
 
 const (
@@ -24,7 +24,7 @@ const (
 	KindList   SchemaKind = "list"
 )
 
-// ScalarKinds is the set of valid scalar kinds (spec L4029, research
+// ScalarKinds is the set of valid scalar kinds (camofox-browser
 // structured-extractor.ts scalarKinds).
 var ScalarKinds = map[SchemaKind]bool{
 	KindText:   true,
@@ -35,7 +35,7 @@ var ScalarKinds = map[SchemaKind]bool{
 }
 
 // JoinKinds is the set of scalar kinds that support the join option
-// (spec L4029, research structured-extractor.ts joinKinds).
+// (camofox-browser structured-extractor.ts joinKinds).
 var JoinKinds = map[SchemaKind]bool{
 	KindText: true,
 	KindAttr: true,
@@ -43,7 +43,7 @@ var JoinKinds = map[SchemaKind]bool{
 }
 
 // StructuredSchema is the recursive declarative extraction schema
-// (spec L4029: kind=text|html|attr|url|number|object|list). Root must
+// (kind=text|html|attr|url|number|object|list). Root must
 // be object or list. Scalar kinds have selector+required+trim+join+
 // coerce+attr. Object kind has selector+required+fields (recursive).
 // List kind has selector+required+item (recursive).
@@ -98,7 +98,7 @@ func (s *StructuredSchema) Required() []string {
 	return nil
 }
 
-// Validate validates the schema recursively (spec L4029: rejects
+// Validate validates the schema recursively (rejects
 // unknown-kind + missing-required-selector + invalid-attr-on-non-attr-kind
 // + recursive-cycles). Returns an error if the schema is invalid.
 func (s *StructuredSchema) Validate() error {
@@ -191,7 +191,7 @@ func (s *StructuredSchema) IsContainer() bool {
 }
 
 // Hash returns the SHA-256 hash of the canonical JSON representation
-// (spec L4029: xxhash(schema_json) cache-key; we use SHA-256 for
+// (xxhash(schema_json) cache-key; we use SHA-256 for
 // Go-native determinism without external deps).
 func (s *StructuredSchema) Hash() string {
 	if s == nil {
@@ -206,7 +206,7 @@ func (s *StructuredSchema) Hash() string {
 }
 
 // StructuredExtractResult is the extraction result
-// (spec L4029: StructuredExtractResult{matched_count, extracted_value,
+// (StructuredExtractResult{matched_count, extracted_value,
 // errors[], schema_hash, extracted_at, evidence_refs[]}).
 type StructuredExtractResult struct {
 	MatchedCount   int         `json:"matched_count"`
@@ -253,7 +253,7 @@ func (r *StructuredExtractResult) HasErrors() bool {
 }
 
 // ValidateSchema validates a root schema (must be object or list)
-// (spec L4029, research structured-extractor.ts validateStructuredExtractSchema).
+// (camofox-browser structured-extractor.ts validateStructuredExtractSchema).
 func ValidateSchema(schema *StructuredSchema) error {
 	if schema == nil {
 		return fmt.Errorf("schema is nil")
@@ -265,7 +265,7 @@ func ValidateSchema(schema *StructuredSchema) error {
 }
 
 // CompileSchema validates and returns the schema hash, ready for
-// cache-key use (spec L4029: idempotent-cacheable-results with
+// cache-key use (idempotent-cacheable-results with
 // xxhash(schema_json) cache-key).
 func CompileSchema(schema *StructuredSchema) (string, error) {
 	if err := ValidateSchema(schema); err != nil {
@@ -275,7 +275,7 @@ func CompileSchema(schema *StructuredSchema) (string, error) {
 }
 
 // LegacyPseudoElementNames is the whitelist of legacy pseudo-element
-// names allowed in CSS selectors (spec L4029, research
+// names allowed in CSS selectors (camofox-browser
 // structured-extractor.ts legacyPseudoElementNames).
 var LegacyPseudoElementNames = map[string]bool{
 	"before":       true,
@@ -285,7 +285,7 @@ var LegacyPseudoElementNames = map[string]bool{
 }
 
 // SimplePseudoClassNames is the whitelist of simple pseudo-class names
-// allowed in CSS selectors (spec L4029, research
+// allowed in CSS selectors (camofox-browser
 // structured-extractor.ts simplePseudoClassNames).
 var SimplePseudoClassNames = map[string]bool{
 	"active":            true,
@@ -328,7 +328,7 @@ var SimplePseudoClassNames = map[string]bool{
 }
 
 // FunctionalPseudoClassNames is the whitelist of functional pseudo-class
-// names allowed in CSS selectors (spec L4029, research
+// names allowed in CSS selectors (camofox-browser
 // structured-extractor.ts functionalPseudoClassNames).
 var FunctionalPseudoClassNames = map[string]bool{
 	"current":      true,
@@ -347,7 +347,7 @@ var FunctionalPseudoClassNames = map[string]bool{
 }
 
 // IsSupportedPseudoClass checks if a pseudo-class name is supported
-// (spec L4029, research structured-extractor.ts isSupportedPseudoClass).
+// (camofox-browser structured-extractor.ts isSupportedPseudoClass).
 func IsSupportedPseudoClass(name string, hasChildren bool) bool {
 	name = strings.ToLower(name)
 	if LegacyPseudoElementNames[name] {

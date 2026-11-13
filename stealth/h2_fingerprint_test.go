@@ -53,7 +53,7 @@ func TestChromiumH2Settings(t *testing.T) {
 		t.Fatalf("expected 6 settings, got %d", len(frame.Settings))
 	}
 
-	// Verify order matches spec L4099.
+	// Verify the Chromium settings order.
 	expectedOrder := []H2SettingID{
 		H2SettingHeaderTableSize,
 		H2SettingEnablePush,

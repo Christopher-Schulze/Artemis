@@ -5,16 +5,14 @@ import (
 	"sync"
 )
 
-// pool.go (spec L4022: renderless/pool.go - context pool management).
+// pool.go (renderless/pool.go - context pool management).
 //
 // In-process no-render JS browser path: isolate slot accounting on top of
 // context.go's ContextPool. Reusable dump buffers are owned by
 // internal/pool.
-//
-// Ref: research/artemis/internal/pool/pool.go:1-26
 
 // IsolatePool accounts bounded isolate slots by integer ID; it holds no V8
-// isolates and no memory (spec L4022: context pool management).
+// isolates and no memory (context pool management).
 type IsolatePool struct {
 	mu       sync.Mutex
 	isolates []int
@@ -24,7 +22,7 @@ type IsolatePool struct {
 }
 
 // NewIsolatePool creates a new IsolatePool
-// (spec L4022: context pool management).
+// (context pool management).
 func NewIsolatePool(maxSize int) *IsolatePool {
 	if maxSize <= 0 {
 		maxSize = 4
@@ -37,7 +35,7 @@ func NewIsolatePool(maxSize int) *IsolatePool {
 }
 
 // Acquire gets an isolate ID from the pool
-// (spec L4022: context pool management).
+// (context pool management).
 func (p *IsolatePool) Acquire() (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -57,7 +55,7 @@ func (p *IsolatePool) Acquire() (int, error) {
 }
 
 // Release returns an isolate ID to the pool
-// (spec L4022: context pool management).
+// (context pool management).
 func (p *IsolatePool) Release(id int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -66,7 +64,7 @@ func (p *IsolatePool) Release(id int) {
 }
 
 // InUseCount returns the number of isolates in use
-// (spec L4022: context pool management).
+// (context pool management).
 func (p *IsolatePool) InUseCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -74,7 +72,7 @@ func (p *IsolatePool) InUseCount() int {
 }
 
 // AvailableCount returns the number of available isolates
-// (spec L4022: context pool management).
+// (context pool management).
 func (p *IsolatePool) AvailableCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

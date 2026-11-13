@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-// metrics.go (spec L4024: observe/metrics.go - performance metrics).
+// metrics.go (observe/metrics.go - performance metrics).
 //
 // Page observation: performance metrics capture and tracking.
 
 // PerformanceMetrics captures browser performance metrics
-// (spec L4024: metrics.go - performance metrics).
+// (metrics.go - performance metrics).
 type PerformanceMetrics struct {
 	DOMContentLoaded       time.Duration `json:"domContentLoaded"`       // DOMContentLoaded event time
 	LoadEvent              time.Duration `json:"loadEvent"`              // load event time
@@ -28,7 +28,7 @@ type PerformanceMetrics struct {
 }
 
 // MetricsCollector collects performance metrics
-// (spec L4024: metrics.go - performance metrics).
+// (metrics.go - performance metrics).
 type MetricsCollector struct {
 	mu        sync.RWMutex
 	current   PerformanceMetrics
@@ -36,13 +36,13 @@ type MetricsCollector struct {
 }
 
 // NewMetricsCollector creates a new MetricsCollector
-// (spec L4024: metrics.go).
+// (metrics.go).
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{}
 }
 
 // SetMetrics updates the current performance metrics
-// (spec L4024: metrics.go - performance metrics).
+// (metrics.go - performance metrics).
 func (c *MetricsCollector) SetMetrics(m PerformanceMetrics) {
 	if c == nil {
 		return
@@ -53,8 +53,7 @@ func (c *MetricsCollector) SetMetrics(m PerformanceMetrics) {
 	c.updatedAt = time.Now()
 }
 
-// Current returns the current performance metrics
-// (spec L4024).
+// Current returns the current performance metrics.
 func (c *MetricsCollector) Current() PerformanceMetrics {
 	if c == nil {
 		return PerformanceMetrics{}
@@ -64,8 +63,7 @@ func (c *MetricsCollector) Current() PerformanceMetrics {
 	return c.current
 }
 
-// UpdatedAt returns when the metrics were last updated
-// (spec L4024).
+// UpdatedAt returns when the metrics were last updated.
 func (c *MetricsCollector) UpdatedAt() time.Time {
 	if c == nil {
 		return time.Time{}
@@ -76,7 +74,7 @@ func (c *MetricsCollector) UpdatedAt() time.Time {
 }
 
 // IsEmpty reports whether no metrics have been collected
-// (spec L4024: metrics.go).
+// (metrics.go).
 func (c *MetricsCollector) IsEmpty() bool {
 	if c == nil {
 		return true

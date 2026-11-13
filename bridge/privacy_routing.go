@@ -5,14 +5,14 @@ import (
 	"sync"
 )
 
-// privacy_routing.go (spec L4250: privacy routing ss7.7 customer data
+// privacy_routing.go (privacy routing ss7.7 customer data
 // LOCAL inference ONLY for CAPTCHA if URL contains customer data).
 //
 // Customer URLs go through privacy routing (ss7.7). If a URL contains
 // customer data, CAPTCHA solving must use LOCAL inference ONLY (not
 // remote/cloud inference) to prevent customer data leakage.
 
-// PrivacyRoutingConfig configures the privacy routing hook (spec L4250).
+// PrivacyRoutingConfig configures the privacy routing hook.
 type PrivacyRoutingConfig struct {
 	// Enabled controls whether privacy routing is active.
 	Enabled bool `json:"enabled"`
@@ -24,7 +24,7 @@ type PrivacyRoutingConfig struct {
 }
 
 // DefaultPrivacyRoutingConfig returns a config with safe defaults
-// (spec L4250: default-on, customer data patterns).
+// (default-on, customer data patterns).
 func DefaultPrivacyRoutingConfig() PrivacyRoutingConfig {
 	return PrivacyRoutingConfig{
 		Enabled: true,
@@ -63,7 +63,7 @@ type PrivacyRoutingResult struct {
 }
 
 // PrivacyRoutingHook checks URLs for customer data and routes CAPTCHA
-// solving to LOCAL inference only (ss7.7) (spec L4250).
+// solving to LOCAL inference only (ss7.7).
 type PrivacyRoutingHook struct {
 	mu     sync.RWMutex
 	config PrivacyRoutingConfig
@@ -111,7 +111,7 @@ func (h *PrivacyRoutingHook) ResetStats() {
 }
 
 // CheckURL evaluates a URL for customer data and returns the privacy
-// routing decision (spec L4250).
+// routing decision.
 func (h *PrivacyRoutingHook) CheckURL(url string) PrivacyRoutingResult {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -160,7 +160,7 @@ func (h *PrivacyRoutingHook) CheckURL(url string) PrivacyRoutingResult {
 }
 
 // ShouldUseLocalOnly is a convenience method that returns true if the
-// URL requires LOCAL inference only (spec L4250).
+// URL requires LOCAL inference only.
 func (h *PrivacyRoutingHook) ShouldUseLocalOnly(url string) bool {
 	result := h.CheckURL(url)
 	return result.Decision == PrivacyDecisionLocalOnly

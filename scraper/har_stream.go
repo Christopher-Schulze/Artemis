@@ -1,4 +1,4 @@
-// Package scraper HAR streaming writer (spec L4478: P0b.2 HAR Streaming).
+// Package scraper HAR streaming writer (P0b.2 HAR Streaming).
 //
 // P0b.2 HAR Streaming: write HAR entries to an io.Writer (file) as responses
 // arrive rather than buffering the entire archive in memory. Response bodies

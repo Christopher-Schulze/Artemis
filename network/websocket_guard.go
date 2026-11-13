@@ -10,16 +10,16 @@ import (
 	"sync"
 )
 
-// websocket_guard.go (spec L4148: WebSocket Proxy Leak Prevention).
+// websocket_guard.go (WebSocket Proxy Leak Prevention).
 //
 // WebSocket connections can bypass the HTTP proxy and leak the real IP.
 // The fix requires intercepting CDP Network.webSocketCreated events and
 // forcing all WebSocket URLs through proxy validation.
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/observe/network.go:1-527
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/observe/network.go:1-527
 
 // WebSocketGuardConfig configures the WebSocket proxy leak prevention
-// guard (spec L4148: force all WebSocket URLs through proxy validation).
+// guard (force all WebSocket URLs through proxy validation).
 type WebSocketGuardConfig struct {
 	// Enabled controls whether the guard is active.
 	Enabled bool `json:"enabled"`
@@ -44,7 +44,7 @@ type WebSocketGuardConfig struct {
 }
 
 // DefaultWebSocketGuardConfig returns a config with safe defaults
-// (spec L4148: block any WebSocket that would bypass the proxy).
+// (block any WebSocket that would bypass the proxy).
 func DefaultWebSocketGuardConfig() WebSocketGuardConfig {
 	return WebSocketGuardConfig{
 		Enabled:                true,
@@ -56,7 +56,7 @@ func DefaultWebSocketGuardConfig() WebSocketGuardConfig {
 }
 
 // WebSocketEvent represents a CDP Network.webSocketCreated event
-// (spec L4148: intercepting CDP Network.webSocketCreated events).
+// (intercepting CDP Network.webSocketCreated events).
 type WebSocketEvent struct {
 	RequestID  string `json:"request_id"`
 	URL        string `json:"url"`
@@ -87,7 +87,7 @@ type WebSocketDecision struct {
 }
 
 // WebSocketGuard intercepts Network.webSocketCreated events and
-// validates WebSocket URLs through the proxy (spec L4148).
+// validates WebSocket URLs through the proxy.
 type WebSocketGuard struct {
 	mu             sync.RWMutex
 	config         WebSocketGuardConfig
@@ -150,7 +150,7 @@ func (g *WebSocketGuard) Stats() WebSocketGuardStats {
 }
 
 // Evaluate checks a WebSocket creation event against the guard config
-// (spec L4148: validate WebSocket URLs through proxy, block bypass).
+// (validate WebSocket URLs through proxy, block bypass).
 func (g *WebSocketGuard) Evaluate(event WebSocketEvent) WebSocketDecision {
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-// EasyList auto-update (spec L4206). Every feed is downloaded over pinned
+// EasyList auto-update. Every feed is downloaded over pinned
 // HTTPS from its primary source and verified against an independent mirror:
 // both must yield the same SHA-256 over the filter lines (comment headers
 // differ per mirror). A list larger than twice its predecessor is refused.

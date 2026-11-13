@@ -7,14 +7,14 @@ import (
 	"unicode/utf8"
 )
 
-// Spec-mandated defaults (spec L4186: network ring buffer).
+// Spec-mandated defaults (network ring buffer).
 const (
 	// DefaultNetworkRingCapacity is the default per-tab ring buffer size.
 	DefaultNetworkRingCapacity = 100
 	// MaxNetworkRingCapacity is the upper clamp for the ring buffer size.
 	MaxNetworkRingCapacity = 10000
 
-	// Sanitization limits (spec L4186).
+	// Sanitization limits.
 	MaxURLLen         = 8 * 1024  // 8KB
 	MaxPostDataLen    = 64 * 1024 // 64KB
 	MaxHeaderValLen   = 4 * 1024  // 4KB per header value
@@ -22,14 +22,14 @@ const (
 )
 
 // NetworkEvent is one captured network observation.
-// Normalized per spec L4186: URL, method, status, resourceType,
+// Normalized: URL, method, status, resourceType,
 // mimeType, headers (truncated 4KB each), postData (max 64KB),
 // timing (start/end/duration_ms).
 // Headers carries the request headers; ResponseHeaders carries the
 // response headers. They are separate fields because a single map
 // forced the response side to overwrite the request side, which lost
-// half the header evidence for every completed request (research floor
-// research/webstack/pinchtab-main/internal/bridge/observe/network.go:43-44
+// half the header evidence for every completed request (pinchtab
+// github.com/pinchtab/pinchtab/internal/bridge/observe/network.go:43-44
 // keeps the same split).
 type NetworkEvent struct {
 	RequestID       string            `json:"requestId"`
@@ -48,7 +48,7 @@ type NetworkEvent struct {
 }
 
 // NetworkRingBuffer stores the last N network events with O(1)
-// lookup by requestId (spec L4186: circular buffer default 100/tab,
+// lookup by requestId (circular buffer default 100/tab,
 // clamped at 10000, O(1) lookup by requestId).
 type NetworkRingBuffer struct {
 	mu   sync.Mutex
@@ -60,7 +60,7 @@ type NetworkRingBuffer struct {
 }
 
 // NewNetworkRingBuffer creates a ring buffer with the given capacity.
-// Default is 100, clamped at 10000 (spec L4186).
+// Default is 100, clamped at 10000.
 func NewNetworkRingBuffer(capacity int) *NetworkRingBuffer {
 	if capacity <= 0 {
 		capacity = DefaultNetworkRingCapacity
@@ -77,7 +77,7 @@ func NewNetworkRingBuffer(capacity int) *NetworkRingBuffer {
 
 // Push adds a network event to the ring buffer, overwriting the
 // oldest entry if full. Maintains the requestId index for O(1)
-// lookup (spec L4186).
+// lookup.
 func (r *NetworkRingBuffer) Push(ev NetworkEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -133,7 +133,7 @@ func (r *NetworkRingBuffer) Clear() {
 }
 
 // Lookup retrieves an event by requestId in O(1)
-// (spec L4186: O(1) lookup by requestId).
+// (O(1) lookup by requestId).
 func (r *NetworkRingBuffer) Lookup(requestID string) (NetworkEvent, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -152,8 +152,8 @@ func (r *NetworkRingBuffer) Capacity() int {
 }
 
 // sanitizeEvent applies the spec-mandated sanitization limits
-// (spec L4186: URL 8KB, postData 64KB, header value 4KB, header total 32KB).
-// Both header maps are budgeted independently, matching the research floor
+// (URL 8KB, postData 64KB, header value 4KB, header total 32KB).
+// Both header maps are budgeted independently, matching the pinchtab
 // which normalizes request and response headers through the same limits.
 func sanitizeEvent(ev NetworkEvent) NetworkEvent {
 	ev.URL = truncateUTF8(ev.URL, MaxURLLen)
@@ -194,7 +194,7 @@ func sanitizeHeaders(headers map[string]string) map[string]string {
 
 // truncateUTF8 truncates s to at most maxBytes bytes without splitting a
 // rune, so truncated evidence stays valid UTF-8 and survives JSON encoding
-// (research floor: sanitize.TruncateUTF8Bytes).
+// (pinchtab: sanitize.TruncateUTF8Bytes).
 func truncateUTF8(s string, maxBytes int) string {
 	if maxBytes <= 0 {
 		return ""

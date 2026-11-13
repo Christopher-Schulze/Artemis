@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-// scroll.go (spec L4020: bridge/actions/scroll.go - scroll w/
+// scroll.go (bridge/actions/scroll.go - scroll w/
 // easeInOut).
 //
 // High-level actions: scroll with easeInOut easing function for
 // smooth, human-like scrolling.
 
 // ScrollDirection enumerates scroll directions
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 type ScrollDirection string
 
 const (
@@ -24,7 +24,7 @@ const (
 )
 
 // ScrollAction represents a scroll action with easeInOut
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 type ScrollAction struct {
 	Direction ScrollDirection `json:"direction"`
 	Amount    int             `json:"amount"`   // pixels to scroll
@@ -33,7 +33,7 @@ type ScrollAction struct {
 }
 
 // ScrollResult is the result of a scroll action
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 type ScrollResult struct {
 	Success   bool            `json:"success"`
 	Direction ScrollDirection `json:"direction"`
@@ -43,7 +43,7 @@ type ScrollResult struct {
 }
 
 // NewScrollAction creates a new ScrollAction with default easeInOut
-// settings (spec L4020: scroll w/ easeInOut).
+// settings (scroll w/ easeInOut).
 func NewScrollAction(direction ScrollDirection, amount int) ScrollAction {
 	return ScrollAction{
 		Direction: direction,
@@ -54,7 +54,7 @@ func NewScrollAction(direction ScrollDirection, amount int) ScrollAction {
 }
 
 // Execute executes the scroll action with easeInOut
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 func (a ScrollAction) Execute(ctx context.Context) ScrollResult {
 	start := time.Now()
 	if a.Amount <= 0 {
@@ -95,7 +95,7 @@ func (a ScrollAction) ExecuteWith(ctx context.Context, runtime *Runtime) ScrollR
 }
 
 // EaseInOut computes the easeInOut value for a given t (0-1)
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 // Uses the standard easeInOut cubic function.
 func EaseInOut(t float64) float64 {
 	if t < 0.5 {
@@ -105,7 +105,7 @@ func EaseInOut(t float64) float64 {
 }
 
 // ComputeScrollSteps computes the per-step scroll amounts using
-// easeInOut (spec L4020: scroll w/ easeInOut).
+// easeInOut (scroll w/ easeInOut).
 func ComputeScrollSteps(total int, steps int) []int {
 	if steps <= 0 {
 		steps = 1
@@ -127,7 +127,7 @@ func ComputeScrollSteps(total int, steps int) []int {
 }
 
 // IsValidScrollDirection reports whether a direction is valid
-// (spec L4020: scroll w/ easeInOut).
+// (scroll w/ easeInOut).
 func IsValidScrollDirection(d ScrollDirection) bool {
 	switch d {
 	case ScrollUp, ScrollDown, ScrollLeft, ScrollRight:

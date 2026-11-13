@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// netguard.go (spec L4027: security/netguard.go - SSRF prevention:
+// netguard.go (security/netguard.go - SSRF prevention:
 // private IP blocking).
 //
 // Browser security: SSRF (Server-Side Request Forgery) prevention by
@@ -16,20 +16,20 @@ import (
 // resources.
 
 // NetGuard implements SSRF prevention by blocking private IP ranges
-// (spec L4027: SSRF prevention private IP blocking).
+// (SSRF prevention private IP blocking).
 type NetGuard struct {
 	allowList []string // explicitly allowed IPs/domains
 	blockList []string // explicitly blocked IPs/domains
 }
 
 // NewNetGuard creates a new NetGuard with default private IP blocking
-// (spec L4027: SSRF prevention).
+// (SSRF prevention).
 func NewNetGuard() *NetGuard {
 	return &NetGuard{}
 }
 
 // Allow adds an IP or domain to the allow list
-// (spec L4027: SSRF prevention).
+// (SSRF prevention).
 func (n *NetGuard) Allow(host string) {
 	if n == nil {
 		return
@@ -38,7 +38,7 @@ func (n *NetGuard) Allow(host string) {
 }
 
 // Block adds an IP or domain to the block list
-// (spec L4027: SSRF prevention).
+// (SSRF prevention).
 func (n *NetGuard) Block(host string) {
 	if n == nil {
 		return
@@ -47,7 +47,7 @@ func (n *NetGuard) Block(host string) {
 }
 
 // IsPrivateIP reports whether an IP address is in a private/reserved
-// range (spec L4027: private IP blocking).
+// range (private IP blocking).
 // Blocks: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8,
 // 169.254.0.0/16 (link-local), 0.0.0.0/8, 100.64.0.0/10 (CGNAT),
 // 198.18.0.0/15 (benchmark testing), ::1, fc00::/7, fe80::/10.
@@ -91,7 +91,7 @@ func IsPrivateIP(ip net.IP) bool {
 }
 
 // CheckURL checks whether a URL is safe to request
-// (spec L4027: SSRF prevention private IP blocking).
+// (SSRF prevention private IP blocking).
 // Returns an error if the URL points to a private IP or blocked host.
 func (n *NetGuard) CheckURL(rawURL string) error {
 	if n == nil {
@@ -130,7 +130,7 @@ func (n *NetGuard) CheckURL(rawURL string) error {
 }
 
 // IsBlocked reports whether a URL would be blocked
-// (spec L4027: SSRF prevention).
+// (SSRF prevention).
 func (n *NetGuard) IsBlocked(rawURL string) bool {
 	if n == nil {
 		return true
@@ -139,7 +139,7 @@ func (n *NetGuard) IsBlocked(rawURL string) bool {
 }
 
 // IsAllowed reports whether a URL would be allowed
-// (spec L4027: SSRF prevention).
+// (SSRF prevention).
 func (n *NetGuard) IsAllowed(rawURL string) bool {
 	if n == nil {
 		return false

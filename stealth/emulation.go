@@ -5,14 +5,14 @@ import (
 	"sync"
 )
 
-// emulation.go (spec L4023: stealth/emulation.go - device/screen
+// emulation.go (stealth/emulation.go - device/screen
 // emulation).
 //
 // Anti-detection: device/screen emulation for matching real browser
 // viewport dimensions, device scale factor, and touch simulation.
 
 // DeviceEmulation describes device/screen emulation settings
-// (spec L4023: emulation.go - device/screen emulation).
+// (emulation.go - device/screen emulation).
 type DeviceEmulation struct {
 	Width             int     `json:"width"`             // layout viewport width
 	Height            int     `json:"height"`            // layout viewport height
@@ -24,7 +24,7 @@ type DeviceEmulation struct {
 }
 
 // DefaultDesktopEmulation returns the default desktop emulation
-// (spec L4023: emulation.go - device/screen emulation).
+// (emulation.go - device/screen emulation).
 // 1920x1080 viewport, scale factor 1, no touch.
 func DefaultDesktopEmulation() DeviceEmulation {
 	return DeviceEmulation{
@@ -39,7 +39,7 @@ func DefaultDesktopEmulation() DeviceEmulation {
 }
 
 // DefaultMobileEmulation returns the default mobile emulation
-// (spec L4023: emulation.go - device/screen emulation).
+// (emulation.go - device/screen emulation).
 // 390x844 viewport (iPhone 14), scale factor 3, touch enabled.
 func DefaultMobileEmulation() DeviceEmulation {
 	return DeviceEmulation{
@@ -54,7 +54,7 @@ func DefaultMobileEmulation() DeviceEmulation {
 }
 
 // EmulationManager manages device/screen emulation profiles
-// (spec L4023: emulation.go).
+// (emulation.go).
 type EmulationManager struct {
 	mu      sync.RWMutex
 	current DeviceEmulation
@@ -62,7 +62,7 @@ type EmulationManager struct {
 }
 
 // NewEmulationManager creates a new EmulationManager with desktop
-// defaults (spec L4023).
+// defaults.
 func NewEmulationManager() *EmulationManager {
 	return &EmulationManager{
 		current: DefaultDesktopEmulation(),
@@ -71,7 +71,7 @@ func NewEmulationManager() *EmulationManager {
 }
 
 // SetEmulation sets the current device emulation
-// (spec L4023: emulation.go - device/screen emulation).
+// (emulation.go - device/screen emulation).
 func (m *EmulationManager) SetEmulation(e DeviceEmulation, preset string) {
 	if m == nil {
 		return
@@ -82,8 +82,7 @@ func (m *EmulationManager) SetEmulation(e DeviceEmulation, preset string) {
 	m.preset = preset
 }
 
-// Current returns the current device emulation
-// (spec L4023).
+// Current returns the current device emulation.
 func (m *EmulationManager) Current() DeviceEmulation {
 	if m == nil {
 		return DefaultDesktopEmulation()
@@ -93,8 +92,7 @@ func (m *EmulationManager) Current() DeviceEmulation {
 	return m.current
 }
 
-// Preset returns the current preset name
-// (spec L4023).
+// Preset returns the current preset name.
 func (m *EmulationManager) Preset() string {
 	if m == nil {
 		return "desktop"
@@ -104,8 +102,7 @@ func (m *EmulationManager) Preset() string {
 	return m.preset
 }
 
-// IsMobile reports whether the current emulation is mobile
-// (spec L4023).
+// IsMobile reports whether the current emulation is mobile.
 func (m *EmulationManager) IsMobile() bool {
 	if m == nil {
 		return false
@@ -116,7 +113,7 @@ func (m *EmulationManager) IsMobile() bool {
 }
 
 // Validate checks that the emulation settings are valid
-// (spec L4023: viewport{width∈[320,3840], height∈[240,2160] integer}).
+// (viewport{width∈[320,3840], height∈[240,2160] integer}).
 func (e DeviceEmulation) Validate() error {
 	if e.Width < 320 || e.Width > 3840 {
 		return fmt.Errorf("emulation: width %d out of range [320,3840]", e.Width)

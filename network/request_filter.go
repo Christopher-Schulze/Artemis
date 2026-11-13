@@ -8,7 +8,7 @@ import (
 )
 
 // ErrAdBlocked is returned when the configured request filter (ad/tracker
-// blocking, spec L4206) drops a subresource. Callers treat it like a
+// blocking) drops a subresource. Callers treat it like a
 // browser's blocked-by-client load failure, not as a policy violation.
 var ErrAdBlocked = errors.New("network: request blocked by ad/tracker filter")
 

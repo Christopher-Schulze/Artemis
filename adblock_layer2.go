@@ -14,8 +14,7 @@ import (
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
-// adblock_layer2.go applies AdBlocker Layer 2 (spec L4208,
-// security/adblock_layer2.go) to Chromium pages opened through a session and
+// adblock_layer2.go applies AdBlocker Layer 2 (// security/adblock_layer2.go) to Chromium pages opened through a session and
 // exposes the whitelist decision and maintenance path. Renderless pages get
 // Layer 2 inside engine.Fetch. Verification runs only when blocking dropped
 // at least one request of the page.
@@ -28,7 +27,7 @@ func (a *Agent) adBlocker() *security.AdBlocker {
 }
 
 // AdBlockWhitelist lists, adds or removes whitelisted sites: the user
-// decision for Case A and the operator maintenance path (spec L4208).
+// decision for Case A and the operator maintenance path.
 func (a *Agent) AdBlockWhitelist(operation, domain string) ([]string, *TaskError) {
 	blocker := a.adBlocker()
 	if blocker == nil {
@@ -139,7 +138,7 @@ func (s *Session) chromiumAdBlockLayer2(ctx context.Context, page *ownedChromium
 	return recaptured, finding
 }
 
-// ChromiumAdBlockLayer2 applies Layer 2 (spec L4208) to a loaded Chromium
+// ChromiumAdBlockLayer2 applies Layer 2 to a loaded Chromium
 // page. jsErrors counts the page's console errors and uncaught exceptions.
 // Case B is verified in a sibling target without blocking, so the page
 // stays untouched unless the unblocked load proves better; then the site is

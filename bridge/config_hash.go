@@ -10,12 +10,11 @@ import (
 )
 
 // HotBrowserWindow is the 5-minute hot window during which a config hash
-// mismatch reuses the running browser and warns instead of recreating
-// (spec L4310).
+// mismatch reuses the running browser and warns instead of recreating.
 const HotBrowserWindow = 5 * time.Minute
 
 // BrowserBridgeMetadata is the per-bridge metadata stored in the
-// BROWSER_BRIDGES registry (spec L4310).
+// BROWSER_BRIDGES registry.
 type BrowserBridgeMetadata struct {
 	ContainerName string
 	ConfigHash    string

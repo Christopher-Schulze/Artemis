@@ -8,8 +8,8 @@ PKGS          := $(shell go list ./... 2>/dev/null | grep -v '/research/')
 SECURITY_GATE_PKGS := ./network ./bridge ./engine ./download ./process
 
 # snapshot regenerates the V8 startup snapshot and its provenance manifest.
-# Run after touching any snapshot-eligible JS bootstrap source under js/
-# (TASK-2789). The result is embedded into the artemis binary via go:embed
+# Run after touching any snapshot-eligible JS bootstrap source under js/.
+# The result is embedded into the artemis binary via go:embed
 # and must be checked in.
 snapshot:
 	go run $(SNAPSHOT_TOOL)

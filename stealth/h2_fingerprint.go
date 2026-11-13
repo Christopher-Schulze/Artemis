@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// h2_fingerprint.go (spec L4099: HTTP/2 Fingerprint Parity).
+// h2_fingerprint.go (HTTP/2 Fingerprint Parity).
 //
 // Cloudflare + Akamai use H2 SETTINGS frame order for detection. Real
 // browsers send HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT_STREAMS,
@@ -41,7 +41,7 @@ const (
 )
 
 // H2Setting is a single HTTP/2 SETTINGS frame parameter
-// (spec L4099: HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
+// (HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
 // INITIAL_WINDOW, MAX_FRAME, MAX_HEADER).
 type H2Setting struct {
 	ID    H2SettingID `json:"id"`
@@ -71,7 +71,7 @@ func (s H2Setting) String() string {
 }
 
 // H2SettingsFrame is an ordered sequence of H2 SETTINGS parameters
-// (spec L4099: frame order matters for fingerprint parity).
+// (frame order matters for fingerprint parity).
 type H2SettingsFrame struct {
 	Settings []H2Setting `json:"settings"`
 }
@@ -95,7 +95,7 @@ func (f H2SettingsFrame) Names() []string {
 }
 
 // ChromiumH2Settings returns the H2 SETTINGS frame order matching
-// real Chromium builds (spec L4099: HEADER_TABLE_SIZE, ENABLE_PUSH,
+// real Chromium builds (HEADER_TABLE_SIZE, ENABLE_PUSH,
 // MAX_CONCURRENT_STREAMS, INITIAL_WINDOW_SIZE, MAX_FRAME_SIZE,
 // MAX_HEADER_LIST_SIZE).
 //
@@ -117,7 +117,7 @@ func ChromiumH2Settings() H2SettingsFrame {
 }
 
 // ChromiumH2SettingsOrder returns the expected setting ID order
-// for Chromium builds (spec L4099).
+// for Chromium builds.
 func ChromiumH2SettingsOrder() []H2SettingID {
 	return []H2SettingID{
 		H2SettingHeaderTableSize,
@@ -130,7 +130,7 @@ func ChromiumH2SettingsOrder() []H2SettingID {
 }
 
 // ValidateH2Settings checks if a settings frame matches the Chromium
-// H2 SETTINGS frame order (spec L4099: MUST match real Chromium build
+// H2 SETTINGS frame order (MUST match real Chromium build
 // H2 settings frame order).
 //
 // Returns an error describing the first mismatch, or nil if the order
@@ -172,7 +172,7 @@ func ValidateH2SettingsStrict(frame H2SettingsFrame) error {
 }
 
 // H2FingerprintConfig configures the H2 fingerprint for a browser
-// session (spec L4099: utls H2 fingerprint spoofing).
+// session (utls H2 fingerprint spoofing).
 type H2FingerprintConfig struct {
 	// Settings is the ordered H2 SETTINGS frame to send.
 	Settings H2SettingsFrame `json:"settings"`
@@ -188,7 +188,7 @@ type H2FingerprintConfig struct {
 }
 
 // DefaultH2FingerprintConfig returns the Chromium-matching H2
-// fingerprint configuration (spec L4099).
+// fingerprint configuration.
 func DefaultH2FingerprintConfig() H2FingerprintConfig {
 	return H2FingerprintConfig{
 		Settings:      ChromiumH2Settings(),
@@ -199,7 +199,7 @@ func DefaultH2FingerprintConfig() H2FingerprintConfig {
 }
 
 // Validate checks if the H2 fingerprint config matches Chromium's
-// fingerprint (spec L4099: MUST match real Chromium build).
+// fingerprint (MUST match real Chromium build).
 func (c H2FingerprintConfig) Validate() error {
 	if err := ValidateH2Settings(c.Settings); err != nil {
 		return err
@@ -238,7 +238,7 @@ func (c H2FingerprintConfig) FingerprintHash() string {
 }
 
 // IsChromiumFingerprint checks if a config matches the default
-// Chromium H2 fingerprint (spec L4099).
+// Chromium H2 fingerprint.
 func IsChromiumFingerprint(config H2FingerprintConfig) bool {
 	return ValidateH2SettingsStrict(config.Settings) == nil &&
 		config.WindowUpdate == 15663105 &&

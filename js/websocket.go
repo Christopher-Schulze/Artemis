@@ -400,7 +400,7 @@ func (c *Context) webSocketHTTPClient() *http.Client {
 }
 
 // validateWebSocketTarget keeps DNS with the upstream proxy when one routes
-// the handshake (spec L4148); direct connections resolve and check locally.
+// the handshake; direct connections resolve and check locally.
 func (c *Context) validateWebSocketTarget(ctx context.Context, rawURL, method, contentType string, contentLength int64, kind network.TargetKind, sessionID string) error {
 	if c.proxy != nil {
 		return c.policy.ValidateProxiedRequest(ctx, rawURL, method, contentType, contentLength, kind, sessionID)

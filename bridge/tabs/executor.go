@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-// executor.go (spec L4021: bridge/tabs/executor.go - concurrent tab
+// executor.go (bridge/tabs/executor.go - concurrent tab
 // execution).
 //
 // Multi-tab management: concurrent tab execution. Runs actions across
 // multiple tabs in parallel with controlled concurrency.
 
 // TabExecutor manages concurrent execution across multiple tabs
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 type TabExecutor struct {
 	registry      *TabRegistry
 	maxConcurrent int
@@ -23,7 +23,7 @@ type TabExecutor struct {
 }
 
 // TabTask is a task to execute on a specific tab
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 type TabTask struct {
 	TabID   string
 	Action  func(ctx context.Context, tab *Tab) error
@@ -31,7 +31,7 @@ type TabTask struct {
 }
 
 // TabTaskResult is the result of a tab task execution
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 type TabTaskResult struct {
 	TabID    string        `json:"tabId"`
 	Success  bool          `json:"success"`
@@ -40,7 +40,7 @@ type TabTaskResult struct {
 }
 
 // NewTabExecutor creates a new TabExecutor
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 func NewTabExecutor(registry *TabRegistry, maxConcurrent int) *TabExecutor {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 4
@@ -54,7 +54,7 @@ func NewTabExecutor(registry *TabRegistry, maxConcurrent int) *TabExecutor {
 }
 
 // ExecuteTask executes a single task on a tab
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResult {
 	start := time.Now()
 	if ctx == nil {
@@ -106,7 +106,7 @@ func (e *TabExecutor) ExecuteTask(ctx context.Context, task TabTask) TabTaskResu
 }
 
 // ExecuteConcurrent executes multiple tasks concurrently
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 func (e *TabExecutor) ExecuteConcurrent(ctx context.Context, tasks []TabTask) []TabTaskResult {
 	results := make([]TabTaskResult, len(tasks))
 	var workers sync.WaitGroup
@@ -153,7 +153,7 @@ func (e *TabExecutor) Acquire(ctx context.Context, tabID string) (func(), error)
 }
 
 // ExecuteSequential executes tasks one at a time
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 func (e *TabExecutor) ExecuteSequential(ctx context.Context, tasks []TabTask) []TabTaskResult {
 	results := make([]TabTaskResult, len(tasks))
 	for i, task := range tasks {
@@ -175,7 +175,7 @@ func (e *TabExecutor) WaitTabIdle(ctx context.Context, tabID string) error {
 }
 
 // MaxConcurrent returns the max concurrent limit
-// (spec L4021: concurrent tab execution).
+// (concurrent tab execution).
 func (e *TabExecutor) MaxConcurrent() int {
 	return e.maxConcurrent
 }

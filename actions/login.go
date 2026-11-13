@@ -108,14 +108,14 @@ var passwordAutocompleteValues = []string{
 	"current-password", "new-password", "current", "password",
 }
 
-// submitKeywords match submit button text (spec L4555).
+// submitKeywords match submit button text.
 var submitKeywords = []string{
 	"login", "sign in", "signin", "log in", "submit", "anmelden",
 	"anmeldung", "weiter", "continue", "go", "ok",
 }
 
 // DetectLoginForm finds a form with a password-type input, a username field,
-// and a submit button (spec L4555).
+// and a submit button.
 //
 // Detection rules:
 //   - password: input with type=password OR an exact password autocomplete token.
@@ -485,7 +485,7 @@ func containsAny(haystack string, needles []string) bool {
 
 func lower(s string) string { return strings.ToLower(s) }
 
-// VerifyPostLogin checks post-login persistence signals (spec L4555).
+// VerifyPostLogin checks post-login persistence signals.
 // Returns true when the login form is no longer visible AND a logged-in
 // signal is present (e.g. logout link, user avatar, account text).
 type PostLoginPage struct {

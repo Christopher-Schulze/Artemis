@@ -77,8 +77,8 @@ type AgentConfig struct {
 	ConfirmActions []string `json:"confirmActions,omitempty"`
 	// PolicyEngine is the embedding host's additional authorization boundary.
 	PolicyEngine bridge.PolicyEngine `json:"-"`
-	// AdBlock is the ad/tracker blocker shared by renderless and Chromium
-	// (spec L4206-L4210); nil builds one with the embedded base list.
+	// AdBlock is the ad/tracker blocker shared by renderless and Chromium;
+	// nil builds one with the embedded base list.
 	AdBlock *security.AdBlocker `json:"-"`
 	// DisableAdBlock turns ad/tracker blocking off for both engines.
 	DisableAdBlock bool `json:"disableAdBlock,omitempty"`

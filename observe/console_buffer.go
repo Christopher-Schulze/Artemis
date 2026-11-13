@@ -5,17 +5,17 @@ import (
 	"time"
 )
 
-// console_buffer.go (spec L4188: Console Log Capture).
+// console_buffer.go (Console Log Capture).
 //
 // A ring buffer of 1000 console messages per tab with level
 // (log/warn/error) + args + timestamp, thread-safe with RWMutex.
 // Captures CDP Runtime.consoleAPICalled events for diagnostics and
 // debugging.
 //
-// Reference: research/webstack/pinchtab-main/internal/bridge/observe/snapshot.go:1-352
+// Reference: github.com/pinchtab/pinchtab/internal/bridge/observe/snapshot.go:1-352
 
 // ConsoleLevel is the severity level of a console message
-// (spec L4188: level log/warn/error).
+// (level log/warn/error).
 type ConsoleLevel string
 
 const (
@@ -37,7 +37,7 @@ func (l ConsoleLevel) IsValid() bool {
 }
 
 // NormalizeLevel converts a CDP Runtime.consoleAPICalled type string
-// to a ConsoleLevel (spec L4188: level log/warn/error).
+// to a ConsoleLevel (level log/warn/error).
 func NormalizeLevel(cdpType string) ConsoleLevel {
 	switch cdpType {
 	case "log":
@@ -56,7 +56,7 @@ func NormalizeLevel(cdpType string) ConsoleLevel {
 }
 
 // ConsoleEntry is a single captured console message
-// (spec L4188: level + args + timestamp).
+// (level + args + timestamp).
 type ConsoleEntry struct {
 	Level     ConsoleLevel `json:"level"`
 	Args      []string     `json:"args"`
@@ -66,11 +66,11 @@ type ConsoleEntry struct {
 }
 
 // DefaultConsoleBufferSize is the spec-mandated ring buffer capacity
-// (spec L4188: 1000 messages per tab).
+// (1000 messages per tab).
 const DefaultConsoleBufferSize = 1000
 
 // ConsoleRingBuffer is a fixed-capacity ring buffer for console log
-// messages (spec L4188: 1000 cap, level/args/timestamp, RWMutex).
+// messages (1000 cap, level/args/timestamp, RWMutex).
 type ConsoleRingBuffer struct {
 	mu   sync.RWMutex
 	cap  int
@@ -81,7 +81,7 @@ type ConsoleRingBuffer struct {
 
 // NewConsoleRingBuffer creates a new console ring buffer with the
 // given capacity. If capacity <= 0, DefaultConsoleBufferSize (1000)
-// is used (spec L4188).
+// is used.
 func NewConsoleRingBuffer(capacity int) *ConsoleRingBuffer {
 	if capacity <= 0 {
 		capacity = DefaultConsoleBufferSize
@@ -92,7 +92,7 @@ func NewConsoleRingBuffer(capacity int) *ConsoleRingBuffer {
 	}
 }
 
-// Push appends a console entry to the ring buffer (spec L4188).
+// Push appends a console entry to the ring buffer.
 // When the buffer is full, the oldest entry is overwritten.
 func (r *ConsoleRingBuffer) Push(entry ConsoleEntry) {
 	r.mu.Lock()
@@ -119,7 +119,7 @@ func (r *ConsoleRingBuffer) PushMessage(level ConsoleLevel, args []string) {
 }
 
 // Snapshot returns a copy of all entries in chronological order
-// (oldest first, newest last) (spec L4188). The Args slices are
+// (oldest first, newest last). The Args slices are
 // deep-copied so callers cannot mutate the buffer's internal state.
 func (r *ConsoleRingBuffer) Snapshot() []ConsoleEntry {
 	r.mu.RLock()
@@ -180,7 +180,7 @@ func (r *ConsoleRingBuffer) Clear() {
 }
 
 // FilterByLevel returns entries matching the given level
-// (spec L4188: level filtering for diagnostics).
+// (level filtering for diagnostics).
 func (r *ConsoleRingBuffer) FilterByLevel(level ConsoleLevel) []ConsoleEntry {
 	all := r.Snapshot()
 	var out []ConsoleEntry

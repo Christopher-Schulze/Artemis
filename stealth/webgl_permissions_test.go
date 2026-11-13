@@ -6,18 +6,17 @@ import (
 
 // ==================== webgl.go tests ====================
 
-// TestTASK2243_NewWebGLOverride verifies creation with defaults
-// (spec L4089).
-func TestTASK2243_NewWebGLOverride(t *testing.T) {
+// TestNewWebGLOverride verifies creation with defaults.
+func TestNewWebGLOverride(t *testing.T) {
 	w := NewWebGLOverride()
 	if w.IsEnabled() {
 		t.Error("new override should be disabled")
 	}
 }
 
-// TestTASK2243_IsSwiftShader verifies SwiftShader detection
-// (spec L4091: Override headless "SwiftShader").
-func TestTASK2243_IsSwiftShader(t *testing.T) {
+// TestIsSwiftShader verifies SwiftShader detection
+// (Override headless "SwiftShader").
+func TestIsSwiftShader(t *testing.T) {
 	cases := []struct {
 		renderer string
 		expected bool
@@ -36,9 +35,9 @@ func TestTASK2243_IsSwiftShader(t *testing.T) {
 	}
 }
 
-// TestTASK2243_DetectGPU verifies DetectGPU returns a GPUInfo
-// (spec L4091: MEASURE-FIRST pattern).
-func TestTASK2243_DetectGPU(t *testing.T) {
+// TestDetectGPU verifies DetectGPU returns a GPUInfo
+// (MEASURE-FIRST pattern).
+func TestDetectGPU(t *testing.T) {
 	gpu := DetectGPU()
 	// On any OS, DetectGPU should return a GPUInfo (may or may not be detected).
 	if gpu.Source == "" {
@@ -46,10 +45,10 @@ func TestTASK2243_DetectGPU(t *testing.T) {
 	}
 }
 
-// TestTASK2243_MeasureAndOverride verifies the MEASURE-FIRST pattern
-// (spec L4091: MEASURE-FIRST. Override headless "SwiftShader" with
+// TestMeasureAndOverride verifies the MEASURE-FIRST pattern
+// (MEASURE-FIRST. Override headless "SwiftShader" with
 // REAL GPU name. Fallback: GPU undetectable -> DON'T spoof).
-func TestTASK2243_MeasureAndOverride(t *testing.T) {
+func TestMeasureAndOverride(t *testing.T) {
 	w := NewWebGLOverride()
 	result := w.MeasureAndOverride()
 	gpu := w.GPU()
@@ -67,10 +66,9 @@ func TestTASK2243_MeasureAndOverride(t *testing.T) {
 	}
 }
 
-// TestTASK2243_OverrideSwiftShaderWhenEnabled verifies that when the
-// override is enabled, SwiftShader is replaced with the real GPU
-// (spec L4089).
-func TestTASK2243_OverrideSwiftShaderWhenEnabled(t *testing.T) {
+// TestOverrideSwiftShaderWhenEnabled verifies that when the
+// override is enabled, SwiftShader is replaced with the real GPU.
+func TestOverrideSwiftShaderWhenEnabled(t *testing.T) {
 	w := NewWebGLOverride()
 	// Manually set GPU info for deterministic test.
 	w.mu.Lock()
@@ -91,9 +89,9 @@ func TestTASK2243_OverrideSwiftShaderWhenEnabled(t *testing.T) {
 	}
 }
 
-// TestTASK2243_OverrideSwiftShaderNotSwiftShader verifies no override
+// TestOverrideSwiftShaderNotSwiftShader verifies no override
 // when the renderer is NOT SwiftShader.
-func TestTASK2243_OverrideSwiftShaderNotSwiftShader(t *testing.T) {
+func TestOverrideSwiftShaderNotSwiftShader(t *testing.T) {
 	w := NewWebGLOverride()
 	w.mu.Lock()
 	w.gpu = GPUInfo{Vendor: "NVIDIA", Renderer: "RTX 3080", Detected: true}
@@ -106,9 +104,9 @@ func TestTASK2243_OverrideSwiftShaderNotSwiftShader(t *testing.T) {
 	}
 }
 
-// TestTASK2243_OverrideSwiftShaderDisabled verifies no override when
-// disabled (spec L4091: GPU undetectable -> DON'T spoof).
-func TestTASK2243_OverrideSwiftShaderDisabled(t *testing.T) {
+// TestOverrideSwiftShaderDisabled verifies no override when
+// disabled (GPU undetectable -> DON'T spoof).
+func TestOverrideSwiftShaderDisabled(t *testing.T) {
 	w := NewWebGLOverride()
 	override := w.OverrideSwiftShader("SwiftShader")
 	if override != "" {
@@ -116,8 +114,8 @@ func TestTASK2243_OverrideSwiftShaderDisabled(t *testing.T) {
 	}
 }
 
-// TestTASK2243_OverrideSwiftShaderNilSafe verifies nil is safe.
-func TestTASK2243_OverrideSwiftShaderNilSafe(t *testing.T) {
+// TestOverrideSwiftShaderNilSafe verifies nil is safe.
+func TestOverrideSwiftShaderNilSafe(t *testing.T) {
 	var w *WebGLOverride
 	if w.OverrideSwiftShader("SwiftShader") != "" {
 		t.Error("nil override should return empty string")
@@ -130,8 +128,8 @@ func TestTASK2243_OverrideSwiftShaderNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2243_ConsistencyChecked verifies consistency check state.
-func TestTASK2243_ConsistencyChecked(t *testing.T) {
+// TestConsistencyChecked verifies consistency check state.
+func TestConsistencyChecked(t *testing.T) {
 	w := NewWebGLOverride()
 	if w.ConsistencyChecked() {
 		t.Error("should not be checked before MeasureAndOverride")
@@ -139,7 +137,7 @@ func TestTASK2243_ConsistencyChecked(t *testing.T) {
 	w.MeasureAndOverride()
 	// MeasureAndOverride only runs the GPU-consistency check when a GPU is
 	// actually detected; on a headless / GPU-less host it bails out early
-	// (honest > fake, spec L4089) and leaves consistencyChecked false. Assert
+	// (honest > fake) and leaves consistencyChecked false. Assert
 	// against the real GPU-detection outcome so the test is correct both on a
 	// GPU host and on a headless CI runner.
 	if got, want := w.ConsistencyChecked(), DetectGPU().Detected; got != want {
@@ -147,8 +145,8 @@ func TestTASK2243_ConsistencyChecked(t *testing.T) {
 	}
 }
 
-// TestTASK2243_WebGLString verifies String method.
-func TestTASK2243_WebGLString(t *testing.T) {
+// TestWebGLString verifies String method.
+func TestWebGLString(t *testing.T) {
 	w := NewWebGLOverride()
 	s := w.String()
 	if s == "" {
@@ -156,16 +154,16 @@ func TestTASK2243_WebGLString(t *testing.T) {
 	}
 }
 
-// TestTASK2243_WebGLNilString verifies nil String is safe.
-func TestTASK2243_WebGLNilString(t *testing.T) {
+// TestWebGLNilString verifies nil String is safe.
+func TestWebGLNilString(t *testing.T) {
 	var w *WebGLOverride
 	if w.String() != "WebGLOverride(nil)" {
 		t.Error("nil String should return WebGLOverride(nil)")
 	}
 }
 
-// TestTASK2243_ExtractVendor verifies vendor extraction.
-func TestTASK2243_ExtractVendor(t *testing.T) {
+// TestExtractVendor verifies vendor extraction.
+func TestExtractVendor(t *testing.T) {
 	cases := []struct {
 		gpuName  string
 		expected string
@@ -182,37 +180,37 @@ func TestTASK2243_ExtractVendor(t *testing.T) {
 	}
 }
 
-// ==================== TASK-2581: consistency validation tests ====================
+// ==================== consistency validation tests ====================
 
-func TestTASK2581_CheckConsistencyValidApple(t *testing.T) {
+func TestCheckConsistencyValidApple(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "Apple", Renderer: "Apple M1 Pro", Source: "test", Detected: true})
 	if result.Status != ConsistencyValid {
 		t.Errorf("Apple M1 Pro: got status %s, want valid; reason: %s", result.Status, result.Reason)
 	}
 }
 
-func TestTASK2581_CheckConsistencyValidNVIDIA(t *testing.T) {
+func TestCheckConsistencyValidNVIDIA(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "NVIDIA", Renderer: "NVIDIA GeForce RTX 4090", Source: "test", Detected: true})
 	if result.Status != ConsistencyValid {
 		t.Errorf("RTX 4090: got status %s, want valid; reason: %s", result.Status, result.Reason)
 	}
 }
 
-func TestTASK2581_CheckConsistencyValidIntel(t *testing.T) {
+func TestCheckConsistencyValidIntel(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "Intel", Renderer: "Intel Iris OpenGL Engine", Source: "test", Detected: true})
 	if result.Status != ConsistencyValid {
 		t.Errorf("Intel Iris: got status %s, want valid; reason: %s", result.Status, result.Reason)
 	}
 }
 
-func TestTASK2581_CheckConsistencyValidAMD(t *testing.T) {
+func TestCheckConsistencyValidAMD(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "AMD", Renderer: "AMD Radeon RX 7900 XTX", Source: "test", Detected: true})
 	if result.Status != ConsistencyValid {
 		t.Errorf("Radeon: got status %s, want valid; reason: %s", result.Status, result.Reason)
 	}
 }
 
-func TestTASK2581_CheckConsistencyUnknownGPUFailsClosed(t *testing.T) {
+func TestCheckConsistencyUnknownGPUFailsClosed(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "Qualcomm", Renderer: "Adreno 730", Source: "test", Detected: true})
 	if result.Status != ConsistencyUnknownGPU {
 		t.Errorf("unknown GPU: got status %s, want unknown_gpu; reason: %s", result.Status, result.Reason)
@@ -222,21 +220,21 @@ func TestTASK2581_CheckConsistencyUnknownGPUFailsClosed(t *testing.T) {
 	}
 }
 
-func TestTASK2581_CheckConsistencyMismatch(t *testing.T) {
+func TestCheckConsistencyMismatch(t *testing.T) {
 	result := checkConsistency(GPUInfo{Vendor: "NVIDIA", Renderer: "Some Unknown Board", Source: "test", Detected: true})
 	if result.Status != ConsistencyMismatch {
 		t.Errorf("mismatch: got status %s, want mismatch; reason: %s", result.Status, result.Reason)
 	}
 }
 
-func TestTASK2581_CheckConsistencyUndetectable(t *testing.T) {
+func TestCheckConsistencyUndetectable(t *testing.T) {
 	result := checkConsistency(GPUInfo{Detected: false, Source: "test"})
 	if result.Status != ConsistencyUndetectable {
 		t.Errorf("undetectable: got status %s, want undetectable", result.Status)
 	}
 }
 
-func TestTASK2581_MeasureAndOverrideDisablesOnUnknownGPU(t *testing.T) {
+func TestMeasureAndOverrideDisablesOnUnknownGPU(t *testing.T) {
 	w := NewWebGLOverride()
 	w.mu.Lock()
 	w.gpu = GPUInfo{Vendor: "Qualcomm", Renderer: "Adreno 730", Source: "test", Detected: true}
@@ -247,7 +245,7 @@ func TestTASK2581_MeasureAndOverrideDisablesOnUnknownGPU(t *testing.T) {
 	}
 }
 
-func TestTASK2581_ConsistencyDiagnosticNilSafe(t *testing.T) {
+func TestConsistencyDiagnosticNilSafe(t *testing.T) {
 	var w *WebGLOverride
 	diag := w.ConsistencyDiagnostic()
 	if diag.Status != ConsistencyNotChecked {
@@ -255,7 +253,7 @@ func TestTASK2581_ConsistencyDiagnosticNilSafe(t *testing.T) {
 	}
 }
 
-func TestTASK2581_ConsistencyDiagnosticBeforeCheck(t *testing.T) {
+func TestConsistencyDiagnosticBeforeCheck(t *testing.T) {
 	w := NewWebGLOverride()
 	diag := w.ConsistencyDiagnostic()
 	if diag.Status != ConsistencyNotChecked {
@@ -263,7 +261,7 @@ func TestTASK2581_ConsistencyDiagnosticBeforeCheck(t *testing.T) {
 	}
 }
 
-func TestTASK2581_ConsistencyDiagnosticAfterMeasure(t *testing.T) {
+func TestConsistencyDiagnosticAfterMeasure(t *testing.T) {
 	w := NewWebGLOverride()
 	w.MeasureAndOverride()
 	diag := w.ConsistencyDiagnostic()
@@ -275,7 +273,7 @@ func TestTASK2581_ConsistencyDiagnosticAfterMeasure(t *testing.T) {
 	}
 }
 
-func TestTASK2581_ExpectedWebGLVendor(t *testing.T) {
+func TestExpectedWebGLVendor(t *testing.T) {
 	cases := []struct {
 		gpu  GPUInfo
 		want string
@@ -294,7 +292,7 @@ func TestTASK2581_ExpectedWebGLVendor(t *testing.T) {
 	}
 }
 
-func TestTASK2581_ConcurrentMeasureAndRead(t *testing.T) {
+func TestConcurrentMeasureAndRead(t *testing.T) {
 	w := NewWebGLOverride()
 	w.MeasureAndOverride()
 	done := make(chan struct{})
@@ -322,9 +320,8 @@ func TestTASK2581_ConcurrentMeasureAndRead(t *testing.T) {
 
 // ==================== permissions.go tests ====================
 
-// TestTASK2243_PermissionStateConstants verifies the state constants
-// (spec L4094).
-func TestTASK2243_PermissionStateConstants(t *testing.T) {
+// TestPermissionStateConstants verifies the state constants.
+func TestPermissionStateConstants(t *testing.T) {
 	if PermissionStatePrompt != "prompt" {
 		t.Error("PermissionStatePrompt mismatch")
 	}
@@ -336,9 +333,9 @@ func TestTASK2243_PermissionStateConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionNameConstants verifies the permission name
-// constants (spec L4094).
-func TestTASK2243_PermissionNameConstants(t *testing.T) {
+// TestPermissionNameConstants verifies the permission name
+// constants.
+func TestPermissionNameConstants(t *testing.T) {
 	if PermissionGeolocation != "geolocation" {
 		t.Error("PermissionGeolocation mismatch")
 	}
@@ -347,9 +344,8 @@ func TestTASK2243_PermissionNameConstants(t *testing.T) {
 	}
 }
 
-// TestTASK2243_NewPermissionAPI verifies creation with defaults
-// (spec L4094).
-func TestTASK2243_NewPermissionAPI(t *testing.T) {
+// TestNewPermissionAPI verifies creation with defaults.
+func TestNewPermissionAPI(t *testing.T) {
 	p := NewPermissionAPI()
 	if p.IsActive() {
 		t.Error("new PermissionAPI should be inactive")
@@ -359,10 +355,10 @@ func TestTASK2243_NewPermissionAPI(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionQueryInactive verifies that when inactive,
+// TestPermissionQueryInactive verifies that when inactive,
 // query returns "denied" (natural headless behavior)
-// (spec L4094: Real requests -> "denied").
-func TestTASK2243_PermissionQueryInactive(t *testing.T) {
+// (Real requests -> "denied").
+func TestPermissionQueryInactive(t *testing.T) {
 	p := NewPermissionAPI()
 	result := p.Query(PermissionGeolocation)
 	if result.State != PermissionStateDenied {
@@ -370,10 +366,10 @@ func TestTASK2243_PermissionQueryInactive(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionQueryActive verifies that when active,
+// TestPermissionQueryActive verifies that when active,
 // query returns "prompt" (PASSIVE-ONLY, safe)
-// (spec L4094: permissions.query() -> "prompt" (passive, safe)).
-func TestTASK2243_PermissionQueryActive(t *testing.T) {
+// (permissions.query() -> "prompt" (passive, safe)).
+func TestPermissionQueryActive(t *testing.T) {
 	p := NewPermissionAPI()
 	p.Activate()
 	result := p.Query(PermissionGeolocation)
@@ -382,9 +378,9 @@ func TestTASK2243_PermissionQueryActive(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionQueryName verifies the result has the
+// TestPermissionQueryName verifies the result has the
 // correct permission name.
-func TestTASK2243_PermissionQueryName(t *testing.T) {
+func TestPermissionQueryName(t *testing.T) {
 	p := NewPermissionAPI()
 	p.Activate()
 	result := p.Query(PermissionCamera)
@@ -393,11 +389,11 @@ func TestTASK2243_PermissionQueryName(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionRequestAlwaysDenied verifies that
+// TestPermissionRequestAlwaysDenied verifies that
 // requestPermission() always returns "denied"
-// (spec L4094: requestPermission() NOT touched. Real requests ->
+// (requestPermission() NOT touched. Real requests ->
 // "denied" (headless can't ask = natural)).
-func TestTASK2243_PermissionRequestAlwaysDenied(t *testing.T) {
+func TestPermissionRequestAlwaysDenied(t *testing.T) {
 	p := NewPermissionAPI()
 	p.Activate()
 	// Even when active, requestPermission returns "denied"
@@ -409,18 +405,18 @@ func TestTASK2243_PermissionRequestAlwaysDenied(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionRequestInactive verifies request returns
+// TestPermissionRequestInactive verifies request returns
 // denied when inactive.
-func TestTASK2243_PermissionRequestInactive(t *testing.T) {
+func TestPermissionRequestInactive(t *testing.T) {
 	p := NewPermissionAPI()
 	if p.Request(PermissionNotifications) != PermissionStateDenied {
 		t.Error("inactive request should return denied")
 	}
 }
 
-// TestTASK2243_PermissionActivateDeactivate verifies activate/deactivate
-// cycle (spec L4094: Activation: StealthStealth (Patch 7)).
-func TestTASK2243_PermissionActivateDeactivate(t *testing.T) {
+// TestPermissionActivateDeactivate verifies activate/deactivate
+// cycle (Activation: StealthStealth (Patch 7)).
+func TestPermissionActivateDeactivate(t *testing.T) {
 	p := NewPermissionAPI()
 	if p.IsActive() {
 		t.Error("should start inactive")
@@ -435,9 +431,9 @@ func TestTASK2243_PermissionActivateDeactivate(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionQueryAll verifies QueryAll returns all
+// TestPermissionQueryAll verifies QueryAll returns all
 // permissions with correct states.
-func TestTASK2243_PermissionQueryAll(t *testing.T) {
+func TestPermissionQueryAll(t *testing.T) {
 	p := NewPermissionAPI()
 	p.Activate()
 	all := p.QueryAll()
@@ -451,9 +447,9 @@ func TestTASK2243_PermissionQueryAll(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionQueryAllInactive verifies QueryAll returns
+// TestPermissionQueryAllInactive verifies QueryAll returns
 // "denied" for all when inactive.
-func TestTASK2243_PermissionQueryAllInactive(t *testing.T) {
+func TestPermissionQueryAllInactive(t *testing.T) {
 	p := NewPermissionAPI()
 	all := p.QueryAll()
 	for name, state := range all {
@@ -463,9 +459,9 @@ func TestTASK2243_PermissionQueryAllInactive(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionIsPassiveOnly verifies IsPassiveOnly is
-// always true (spec L4094: PASSIVE-ONLY override).
-func TestTASK2243_PermissionIsPassiveOnly(t *testing.T) {
+// TestPermissionIsPassiveOnly verifies IsPassiveOnly is
+// always true (PASSIVE-ONLY override).
+func TestPermissionIsPassiveOnly(t *testing.T) {
 	p := NewPermissionAPI()
 	if !p.IsPassiveOnly() {
 		t.Error("should always be passive-only")
@@ -476,8 +472,8 @@ func TestTASK2243_PermissionIsPassiveOnly(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionNilSafe verifies nil PermissionAPI is safe.
-func TestTASK2243_PermissionNilSafe(t *testing.T) {
+// TestPermissionNilSafe verifies nil PermissionAPI is safe.
+func TestPermissionNilSafe(t *testing.T) {
 	var p *PermissionAPI
 	p.Activate()
 	p.Deactivate()
@@ -499,8 +495,8 @@ func TestTASK2243_PermissionNilSafe(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionString verifies String method.
-func TestTASK2243_PermissionString(t *testing.T) {
+// TestPermissionString verifies String method.
+func TestPermissionString(t *testing.T) {
 	p := NewPermissionAPI()
 	s := p.String()
 	if s == "" {
@@ -508,19 +504,19 @@ func TestTASK2243_PermissionString(t *testing.T) {
 	}
 }
 
-// TestTASK2243_PermissionNilString verifies nil String.
-func TestTASK2243_PermissionNilString(t *testing.T) {
+// TestPermissionNilString verifies nil String.
+func TestPermissionNilString(t *testing.T) {
 	var p *PermissionAPI
 	if p.String() != "PermissionAPI(nil)" {
 		t.Error("nil String should return PermissionAPI(nil)")
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2243_FullSpecParity verifies full spec parity for L4091+L4094
-// (spec L4091: WebGL MEASURE-FIRST, L4094: Permission API PASSIVE-ONLY).
-func TestTASK2243_FullSpecParity(t *testing.T) {
+// TestWebGLPermissionsParity verifies full parity.
+// (WebGL MEASURE-FIRST, Permission API PASSIVE-ONLY).
+func TestWebGLPermissionsParity(t *testing.T) {
 	// 1. WebGL override
 	w := NewWebGLOverride()
 	if w.IsEnabled() {

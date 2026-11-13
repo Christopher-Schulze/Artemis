@@ -9,8 +9,8 @@ import (
 	"github.com/Christopher-Schulze/Artemis/security"
 )
 
-// newCLIIDPI returns the checker that labels standalone page-derived output
-// (spec L4202): default-on, taint+fence, no trusted origins.
+// newCLIIDPI returns the checker that labels standalone page-derived output:
+// default-on, taint+fence, no trusted origins.
 func newCLIIDPI() *security.IDPIChecker {
 	return security.NewIDPIChecker(security.DefaultIDPIConfig())
 }

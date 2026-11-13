@@ -14,15 +14,15 @@ import (
 	"time"
 )
 
-// navigation_policy.go (spec L4259: JSON navigation policy file + hot-reload).
+// navigation_policy.go (JSON navigation policy file + hot-reload).
 //
 // A NavigationPolicyFile is a JSON document that defines allow/deny rules
 // for browser navigation. The policy is loaded from a JSON file on disk and
 // hot-reloaded when its bounded content changes. The policy implements the
 // PolicyEngine interface so it can be wired into the existing PolicyHook
-// (spec L4247) without a separate integration path.
+// without a separate integration path.
 //
-// Reference: research/webstack/agent-browser-main/cli/src/native/policy.rs
+// Reference: github.com/vercel-labs/agent-browser/cli/src/native/policy.rs
 //
 // JSON schema:
 //
@@ -79,8 +79,7 @@ type PolicyFile struct {
 	actionConfigured bool
 }
 
-// NavigationPolicyConfig controls the file-backed navigation policy
-// (spec L4259).
+// NavigationPolicyConfig controls the file-backed navigation policy.
 type NavigationPolicyConfig struct {
 	// Path is the JSON policy file path. Required.
 	Path string
@@ -103,8 +102,8 @@ type NavigationPolicyStats struct {
 	Errors     atomic.Int64
 }
 
-// NavigationPolicy is a file-backed navigation policy with hot-reload
-// (spec L4259). It implements PolicyEngine so it can be wired into
+// NavigationPolicy is a file-backed navigation policy with hot-reload.
+// It implements PolicyEngine so it can be wired into
 // PolicyHook directly. It is safe for concurrent use.
 type NavigationPolicy struct {
 	mu           sync.RWMutex
@@ -206,7 +205,7 @@ func (r *PolicyRule) matchRule(testURL string) bool {
 }
 
 // Evaluate implements PolicyEngine. It evaluates the current policy rules
-// against the request URL and returns the decision (spec L4259).
+// against the request URL and returns the decision.
 func (p *NavigationPolicy) Evaluate(ctx context.Context, req PolicyRequest) (PolicyResponse, error) {
 	if p == nil || ctx == nil {
 		return PolicyResponse{Decision: PolicyDecisionDeny, Reason: "policy and context required"}, errors.New("navigation policy: policy and context required")

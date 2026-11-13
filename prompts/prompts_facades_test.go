@@ -7,9 +7,9 @@ import (
 
 // ==================== system.go tests ====================
 
-// TestTASK2251_SystemPrompt verifies system prompt content
-// (spec L4030: system.go - base behavior).
-func TestTASK2251_SystemPrompt(t *testing.T) {
+// TestSystemPrompt verifies system prompt content
+// (system.go - base behavior).
+func TestSystemPrompt(t *testing.T) {
 	p := SystemPrompt()
 	if p == "" {
 		t.Error("system prompt should not be empty")
@@ -19,17 +19,17 @@ func TestTASK2251_SystemPrompt(t *testing.T) {
 	}
 }
 
-// TestTASK2251_SystemPromptType verifies prompt type
-// (spec L4030: system.go).
-func TestTASK2251_SystemPromptType(t *testing.T) {
+// TestSystemPromptType verifies prompt type
+// (system.go).
+func TestSystemPromptType(t *testing.T) {
 	if SystemPromptType() != PromptSystem {
 		t.Error("system prompt type should be PromptSystem")
 	}
 }
 
-// TestTASK2251_SystemPromptTemplate verifies template
-// (spec L4030: system.go - base behavior).
-func TestTASK2251_SystemPromptTemplate(t *testing.T) {
+// TestSystemPromptTemplate verifies template
+// (system.go - base behavior).
+func TestSystemPromptTemplate(t *testing.T) {
 	tmpl := SystemPromptTemplate()
 	if tmpl.Name != "system" {
 		t.Errorf("name: got %s, want system", tmpl.Name)
@@ -44,9 +44,9 @@ func TestTASK2251_SystemPromptTemplate(t *testing.T) {
 
 // ==================== decompose.go tests ====================
 
-// TestTASK2251_DecomposePrompt verifies decomposition prompt
-// (spec L4030: decompose.go - task decomposition).
-func TestTASK2251_DecomposePrompt(t *testing.T) {
+// TestDecomposePrompt verifies decomposition prompt
+// (decompose.go - task decomposition).
+func TestDecomposePrompt(t *testing.T) {
 	p := DecomposePrompt()
 	if p == "" {
 		t.Error("decompose prompt should not be empty")
@@ -56,17 +56,17 @@ func TestTASK2251_DecomposePrompt(t *testing.T) {
 	}
 }
 
-// TestTASK2251_DecomposePromptType verifies prompt type
-// (spec L4030: decompose.go).
-func TestTASK2251_DecomposePromptType(t *testing.T) {
+// TestDecomposePromptType verifies prompt type
+// (decompose.go).
+func TestDecomposePromptType(t *testing.T) {
 	if DecomposePromptType() != PromptTaskDecomposition {
 		t.Error("decompose prompt type should be PromptTaskDecomposition")
 	}
 }
 
-// TestTASK2251_DecomposePromptTemplate verifies template
-// (spec L4030: decompose.go - task decomposition).
-func TestTASK2251_DecomposePromptTemplate(t *testing.T) {
+// TestDecomposePromptTemplate verifies template
+// (decompose.go - task decomposition).
+func TestDecomposePromptTemplate(t *testing.T) {
 	tmpl := DecomposePromptTemplate()
 	if tmpl.Name != "task_decomposition" {
 		t.Errorf("name: got %s, want task_decomposition", tmpl.Name)
@@ -76,24 +76,24 @@ func TestTASK2251_DecomposePromptTemplate(t *testing.T) {
 	}
 }
 
-// TestTASK2251_DecomposeReflectionPrompt verifies reflection prompt
-// (spec L4030: decompose.go - task decomposition).
-func TestTASK2251_DecomposeReflectionPrompt(t *testing.T) {
+// TestDecomposeReflectionPrompt verifies reflection prompt
+// (decompose.go - task decomposition).
+func TestDecomposeReflectionPrompt(t *testing.T) {
 	p := DecomposeReflectionPrompt()
 	if p == "" {
 		t.Error("reflection prompt should not be empty")
 	}
 }
 
-// TestTASK2251_DecomposeReflectionPromptType verifies prompt type.
-func TestTASK2251_DecomposeReflectionPromptType(t *testing.T) {
+// TestDecomposeReflectionPromptType verifies prompt type.
+func TestDecomposeReflectionPromptType(t *testing.T) {
 	if DecomposeReflectionPromptType() != PromptDecomposeReflection {
 		t.Error("reflection type should be PromptDecomposeReflection")
 	}
 }
 
-// TestTASK2251_DecomposeReflectionPromptTemplate verifies template.
-func TestTASK2251_DecomposeReflectionPromptTemplate(t *testing.T) {
+// TestDecomposeReflectionPromptTemplate verifies template.
+func TestDecomposeReflectionPromptTemplate(t *testing.T) {
 	tmpl := DecomposeReflectionPromptTemplate()
 	if tmpl.Type != PromptDecomposeReflection {
 		t.Error("type should be PromptDecomposeReflection")
@@ -102,9 +102,9 @@ func TestTASK2251_DecomposeReflectionPromptTemplate(t *testing.T) {
 
 // ==================== observe.go tests ====================
 
-// TestTASK2251_ObservePrompt verifies observation prompt
-// (spec L4030: observe.go - chunked observation).
-func TestTASK2251_ObservePrompt(t *testing.T) {
+// TestObservePrompt verifies observation prompt
+// (observe.go - chunked observation).
+func TestObservePrompt(t *testing.T) {
 	p := ObservePrompt()
 	if p == "" {
 		t.Error("observe prompt should not be empty")
@@ -114,17 +114,17 @@ func TestTASK2251_ObservePrompt(t *testing.T) {
 	}
 }
 
-// TestTASK2251_ObservePromptType verifies prompt type
-// (spec L4030: observe.go).
-func TestTASK2251_ObservePromptType(t *testing.T) {
+// TestObservePromptType verifies prompt type
+// (observe.go).
+func TestObservePromptType(t *testing.T) {
 	if ObservePromptType() != PromptObserveReasoning {
 		t.Error("observe prompt type should be PromptObserveReasoning")
 	}
 }
 
-// TestTASK2251_ObservePromptTemplate verifies template
-// (spec L4030: observe.go - chunked observation).
-func TestTASK2251_ObservePromptTemplate(t *testing.T) {
+// TestObservePromptTemplate verifies template
+// (observe.go - chunked observation).
+func TestObservePromptTemplate(t *testing.T) {
 	tmpl := ObservePromptTemplate()
 	if tmpl.Name != "observe_reasoning" {
 		t.Errorf("name: got %s, want observe_reasoning", tmpl.Name)
@@ -134,24 +134,24 @@ func TestTASK2251_ObservePromptTemplate(t *testing.T) {
 	}
 }
 
-// TestTASK2251_PureReasoningPrompt verifies pure reasoning prompt
-// (spec L4030: observe.go - chunked observation).
-func TestTASK2251_PureReasoningPrompt(t *testing.T) {
+// TestPureReasoningPrompt verifies pure reasoning prompt
+// (observe.go - chunked observation).
+func TestPureReasoningPrompt(t *testing.T) {
 	p := PureReasoningPrompt()
 	if p == "" {
 		t.Error("pure reasoning prompt should not be empty")
 	}
 }
 
-// TestTASK2251_PureReasoningPromptType verifies prompt type.
-func TestTASK2251_PureReasoningPromptType(t *testing.T) {
+// TestPureReasoningPromptType verifies prompt type.
+func TestPureReasoningPromptType(t *testing.T) {
 	if PureReasoningPromptType() != PromptPureReasoning {
 		t.Error("pure reasoning type should be PromptPureReasoning")
 	}
 }
 
-// TestTASK2251_PureReasoningPromptTemplate verifies template.
-func TestTASK2251_PureReasoningPromptTemplate(t *testing.T) {
+// TestPureReasoningPromptTemplate verifies template.
+func TestPureReasoningPromptTemplate(t *testing.T) {
 	tmpl := PureReasoningPromptTemplate()
 	if tmpl.Type != PromptPureReasoning {
 		t.Error("type should be PromptPureReasoning")
@@ -160,9 +160,9 @@ func TestTASK2251_PureReasoningPromptTemplate(t *testing.T) {
 
 // ==================== forms.go tests ====================
 
-// TestTASK2251_FormFillingPrompt verifies form filling prompt
-// (spec L4030: forms.go - form filling).
-func TestTASK2251_FormFillingPrompt(t *testing.T) {
+// TestFormFillingPrompt verifies form filling prompt
+// (forms.go - form filling).
+func TestFormFillingPrompt(t *testing.T) {
 	p := FormFillingPrompt()
 	if p == "" {
 		t.Error("form filling prompt should not be empty")
@@ -172,17 +172,17 @@ func TestTASK2251_FormFillingPrompt(t *testing.T) {
 	}
 }
 
-// TestTASK2251_FormFillingPromptType verifies prompt type
-// (spec L4030: forms.go).
-func TestTASK2251_FormFillingPromptType(t *testing.T) {
+// TestFormFillingPromptType verifies prompt type
+// (forms.go).
+func TestFormFillingPromptType(t *testing.T) {
 	if FormFillingPromptType() != PromptFormFilling {
 		t.Error("form filling type should be PromptFormFilling")
 	}
 }
 
-// TestTASK2251_FormFillingPromptTemplate verifies template
-// (spec L4030: forms.go - form filling).
-func TestTASK2251_FormFillingPromptTemplate(t *testing.T) {
+// TestFormFillingPromptTemplate verifies template
+// (forms.go - form filling).
+func TestFormFillingPromptTemplate(t *testing.T) {
 	tmpl := FormFillingPromptTemplate()
 	if tmpl.Name != "form_filling" {
 		t.Errorf("name: got %s, want form_filling", tmpl.Name)
@@ -194,26 +194,26 @@ func TestTASK2251_FormFillingPromptTemplate(t *testing.T) {
 
 // ==================== download.go tests ====================
 
-// TestTASK2251_FileDownloadPrompt verifies file download prompt
-// (spec L4030: download.go - file download).
-func TestTASK2251_FileDownloadPrompt(t *testing.T) {
+// TestFileDownloadPrompt verifies file download prompt
+// (download.go - file download).
+func TestFileDownloadPrompt(t *testing.T) {
 	p := FileDownloadPrompt()
 	if p == "" {
 		t.Error("file download prompt should not be empty")
 	}
 }
 
-// TestTASK2251_FileDownloadPromptType verifies prompt type
-// (spec L4030: download.go).
-func TestTASK2251_FileDownloadPromptType(t *testing.T) {
+// TestFileDownloadPromptType verifies prompt type
+// (download.go).
+func TestFileDownloadPromptType(t *testing.T) {
 	if FileDownloadPromptType() != PromptFileDownload {
 		t.Error("file download type should be PromptFileDownload")
 	}
 }
 
-// TestTASK2251_FileDownloadPromptTemplate verifies template
-// (spec L4030: download.go - file download).
-func TestTASK2251_FileDownloadPromptTemplate(t *testing.T) {
+// TestFileDownloadPromptTemplate verifies template
+// (download.go - file download).
+func TestFileDownloadPromptTemplate(t *testing.T) {
 	tmpl := FileDownloadPromptTemplate()
 	if tmpl.Name != "file_download" {
 		t.Errorf("name: got %s, want file_download", tmpl.Name)
@@ -225,26 +225,26 @@ func TestTASK2251_FileDownloadPromptTemplate(t *testing.T) {
 
 // ==================== summarize.go tests ====================
 
-// TestTASK2251_SummarizePrompt verifies summarize prompt
-// (spec L4030: summarize.go - task summarization).
-func TestTASK2251_SummarizePrompt(t *testing.T) {
+// TestSummarizePrompt verifies summarize prompt
+// (summarize.go - task summarization).
+func TestSummarizePrompt(t *testing.T) {
 	p := SummarizePrompt()
 	if p == "" {
 		t.Error("summarize prompt should not be empty")
 	}
 }
 
-// TestTASK2251_SummarizePromptType verifies prompt type
-// (spec L4030: summarize.go).
-func TestTASK2251_SummarizePromptType(t *testing.T) {
+// TestSummarizePromptType verifies prompt type
+// (summarize.go).
+func TestSummarizePromptType(t *testing.T) {
 	if SummarizePromptType() != PromptSummarizeTask {
 		t.Error("summarize type should be PromptSummarizeTask")
 	}
 }
 
-// TestTASK2251_SummarizePromptTemplate verifies template
-// (spec L4030: summarize.go - task summarization).
-func TestTASK2251_SummarizePromptTemplate(t *testing.T) {
+// TestSummarizePromptTemplate verifies template
+// (summarize.go - task summarization).
+func TestSummarizePromptTemplate(t *testing.T) {
 	tmpl := SummarizePromptTemplate()
 	if tmpl.Name != "summarize_task" {
 		t.Errorf("name: got %s, want summarize_task", tmpl.Name)
@@ -254,12 +254,12 @@ func TestTASK2251_SummarizePromptTemplate(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2251_FullSpecParity verifies all 6 spec-mandated files
-// (spec L4030: system.go, decompose.go, observe.go, forms.go,
+// TestPromptsFacadesParity verifies all 6 spec-mandated files
+// (system.go, decompose.go, observe.go, forms.go,
 // download.go, summarize.go).
-func TestTASK2251_FullSpecParity(t *testing.T) {
+func TestPromptsFacadesParity(t *testing.T) {
 	// 1. system.go - base behavior
 	if SystemPrompt() == "" {
 		t.Error("system.go: prompt should not be empty")

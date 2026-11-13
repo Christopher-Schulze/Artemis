@@ -12,7 +12,7 @@ import (
 )
 
 // page_lease.go owns exclusive write authority over a session Chromium page
-// (spec L4580-L4604 browser session authority) and the authenticated local
+// (browser session authority) and the authenticated local
 // handoff of that page to a human, for MFA or dialogs. A writer lease is
 // exclusive and expiring; observation stays available to readers. While a
 // lease is held, actions without its token are refused. Ending a handoff

@@ -8,7 +8,7 @@ import (
 )
 
 // pageResp answers with a page-derived value labeled by the page's current
-// origin and the IDPI verdict over the encoded value (spec L4202).
+// origin and the IDPI verdict over the encoded value.
 func (s *Server) pageResp(ctx context.Context, req *Request, session *artemis.Session, pageID, source string, value any) *Response {
 	pageURL, taskErr := session.PageURL(ctx, pageID)
 	if taskErr != nil {

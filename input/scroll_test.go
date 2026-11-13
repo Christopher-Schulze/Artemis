@@ -7,9 +7,8 @@ import (
 
 // ==================== ScrollStrategy tests ====================
 
-// TestTASK2242_ScrollStrategyConstants verifies the strategy constants
-// (spec L4095).
-func TestTASK2242_ScrollStrategyConstants(t *testing.T) {
+// TestScrollStrategyConstants verifies the strategy constants.
+func TestScrollStrategyConstants(t *testing.T) {
 	if ScrollStrategyDirect != "direct" {
 		t.Error("ScrollStrategyDirect mismatch")
 	}
@@ -20,9 +19,9 @@ func TestTASK2242_ScrollStrategyConstants(t *testing.T) {
 
 // ==================== DetectInfiniteScroll tests ====================
 
-// TestTASK2242_DetectInfiniteScrollNone verifies no indicators -> not
-// infinite (spec L4095).
-func TestTASK2242_DetectInfiniteScrollNone(t *testing.T) {
+// TestDetectInfiniteScrollNone verifies no indicators -> not
+// infinite.
+func TestDetectInfiniteScrollNone(t *testing.T) {
 	result := DetectInfiniteScroll(false, false)
 	if result.IsInfiniteScroll {
 		t.Error("no indicators should not be infinite scroll")
@@ -35,9 +34,9 @@ func TestTASK2242_DetectInfiniteScrollNone(t *testing.T) {
 	}
 }
 
-// TestTASK2242_DetectInfiniteScrollIO verifies IntersectionObserver ->
-// infinite (spec L4095).
-func TestTASK2242_DetectInfiniteScrollIO(t *testing.T) {
+// TestDetectInfiniteScrollIO verifies IntersectionObserver ->
+// infinite.
+func TestDetectInfiniteScrollIO(t *testing.T) {
 	result := DetectInfiniteScroll(true, false)
 	if !result.IsInfiniteScroll {
 		t.Error("IntersectionObserver should indicate infinite scroll")
@@ -47,9 +46,9 @@ func TestTASK2242_DetectInfiniteScrollIO(t *testing.T) {
 	}
 }
 
-// TestTASK2242_DetectInfiniteScrollListeners verifies scroll listeners
-// -> infinite (spec L4095).
-func TestTASK2242_DetectInfiniteScrollListeners(t *testing.T) {
+// TestDetectInfiniteScrollListeners verifies scroll listeners
+// -> infinite.
+func TestDetectInfiniteScrollListeners(t *testing.T) {
 	result := DetectInfiniteScroll(false, true)
 	if !result.IsInfiniteScroll {
 		t.Error("scroll listeners should indicate infinite scroll")
@@ -59,17 +58,17 @@ func TestTASK2242_DetectInfiniteScrollListeners(t *testing.T) {
 	}
 }
 
-// TestTASK2242_DetectInfiniteScrollBoth verifies both indicators ->
-// infinite (spec L4095).
-func TestTASK2242_DetectInfiniteScrollBoth(t *testing.T) {
+// TestDetectInfiniteScrollBoth verifies both indicators ->
+// infinite.
+func TestDetectInfiniteScrollBoth(t *testing.T) {
 	result := DetectInfiniteScroll(true, true)
 	if !result.IsInfiniteScroll {
 		t.Error("both indicators should indicate infinite scroll")
 	}
 }
 
-// TestTASK2242_DetectInfiniteScrollReason verifies reason is set.
-func TestTASK2242_DetectInfiniteScrollReason(t *testing.T) {
+// TestDetectInfiniteScrollReason verifies reason is set.
+func TestDetectInfiniteScrollReason(t *testing.T) {
 	result := DetectInfiniteScroll(true, true)
 	if result.Reason == "" {
 		t.Error("reason should not be empty")
@@ -82,9 +81,9 @@ func TestTASK2242_DetectInfiniteScrollReason(t *testing.T) {
 
 // ==================== ExecuteScroll tests ====================
 
-// TestTASK2242_ExecuteScrollInfinite verifies infinite scroll uses
-// direct strategy (spec L4095: Infinite scroll -> direct scrollTo()).
-func TestTASK2242_ExecuteScrollInfinite(t *testing.T) {
+// TestExecuteScrollInfinite verifies infinite scroll uses
+// direct strategy (Infinite scroll -> direct scrollTo()).
+func TestExecuteScrollInfinite(t *testing.T) {
 	detection := DetectInfiniteScroll(true, false)
 	result := ExecuteScroll(1000, 10, detection)
 	if result.Strategy != ScrollStrategyDirect {
@@ -101,9 +100,9 @@ func TestTASK2242_ExecuteScrollInfinite(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ExecuteScrollNormal verifies normal scroll uses eased
-// strategy (spec L4095: No infinite scroll -> easeInOut curve).
-func TestTASK2242_ExecuteScrollNormal(t *testing.T) {
+// TestExecuteScrollNormal verifies normal scroll uses eased
+// strategy (No infinite scroll -> easeInOut curve).
+func TestExecuteScrollNormal(t *testing.T) {
 	detection := DetectInfiniteScroll(false, false)
 	result := ExecuteScroll(1000, 10, detection)
 	if result.Strategy != ScrollStrategyEased {
@@ -117,9 +116,9 @@ func TestTASK2242_ExecuteScrollNormal(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ExecuteScrollDirectDuration verifies direct scroll has
+// TestExecuteScrollDirectDuration verifies direct scroll has
 // zero duration (instant).
-func TestTASK2242_ExecuteScrollDirectDuration(t *testing.T) {
+func TestExecuteScrollDirectDuration(t *testing.T) {
 	detection := DetectInfiniteScroll(true, false)
 	result := ExecuteScroll(500, 10, detection)
 	if result.Duration != 0 {
@@ -127,9 +126,9 @@ func TestTASK2242_ExecuteScrollDirectDuration(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ExecuteScrollEasedDuration verifies eased scroll has
+// TestExecuteScrollEasedDuration verifies eased scroll has
 // non-zero duration.
-func TestTASK2242_ExecuteScrollEasedDuration(t *testing.T) {
+func TestExecuteScrollEasedDuration(t *testing.T) {
 	detection := DetectInfiniteScroll(false, false)
 	result := ExecuteScroll(500, 10, detection)
 	if result.Duration <= 0 {
@@ -142,9 +141,9 @@ func TestTASK2242_ExecuteScrollEasedDuration(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ExecuteScrollDefaultSteps verifies default steps when
+// TestExecuteScrollDefaultSteps verifies default steps when
 // steps<=0.
-func TestTASK2242_ExecuteScrollDefaultSteps(t *testing.T) {
+func TestExecuteScrollDefaultSteps(t *testing.T) {
 	detection := DetectInfiniteScroll(false, false)
 	result := ExecuteScroll(1000, 0, detection)
 	if result.Steps != 10 {
@@ -155,9 +154,9 @@ func TestTASK2242_ExecuteScrollDefaultSteps(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ExecuteScrollNegativeSteps verifies negative steps use
+// TestExecuteScrollNegativeSteps verifies negative steps use
 // default.
-func TestTASK2242_ExecuteScrollNegativeSteps(t *testing.T) {
+func TestExecuteScrollNegativeSteps(t *testing.T) {
 	detection := DetectInfiniteScroll(false, false)
 	result := ExecuteScroll(1000, -5, detection)
 	if result.Steps != 10 {
@@ -167,9 +166,9 @@ func TestTASK2242_ExecuteScrollNegativeSteps(t *testing.T) {
 
 // ==================== Scroll (convenience) tests ====================
 
-// TestTASK2242_ScrollInfinite verifies the Scroll convenience function
+// TestScrollInfinite verifies the Scroll convenience function
 // with infinite scroll.
-func TestTASK2242_ScrollInfinite(t *testing.T) {
+func TestScrollInfinite(t *testing.T) {
 	result := Scroll(800, 10, true, false)
 	if !result.IsDirect() {
 		t.Error("should use direct strategy")
@@ -179,9 +178,9 @@ func TestTASK2242_ScrollInfinite(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ScrollNormal verifies the Scroll convenience function
+// TestScrollNormal verifies the Scroll convenience function
 // with normal scroll.
-func TestTASK2242_ScrollNormal(t *testing.T) {
+func TestScrollNormal(t *testing.T) {
 	result := Scroll(800, 10, false, false)
 	if !result.IsEased() {
 		t.Error("should use eased strategy")
@@ -193,8 +192,8 @@ func TestTASK2242_ScrollNormal(t *testing.T) {
 
 // ==================== ScrollResult method tests ====================
 
-// TestTASK2242_ScrollResultIsDirect verifies IsDirect method.
-func TestTASK2242_ScrollResultIsDirect(t *testing.T) {
+// TestScrollResultIsDirect verifies IsDirect method.
+func TestScrollResultIsDirect(t *testing.T) {
 	result := Scroll(100, 5, true, false)
 	if !result.IsDirect() {
 		t.Error("should be direct")
@@ -204,8 +203,8 @@ func TestTASK2242_ScrollResultIsDirect(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ScrollResultIsEased verifies IsEased method.
-func TestTASK2242_ScrollResultIsEased(t *testing.T) {
+// TestScrollResultIsEased verifies IsEased method.
+func TestScrollResultIsEased(t *testing.T) {
 	result := Scroll(100, 5, false, false)
 	if !result.IsEased() {
 		t.Error("should be eased")
@@ -215,9 +214,9 @@ func TestTASK2242_ScrollResultIsEased(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ScrollResultTotalOffset verifies TotalOffset equals
+// TestScrollResultTotalOffset verifies TotalOffset equals
 // Distance.
-func TestTASK2242_ScrollResultTotalOffset(t *testing.T) {
+func TestScrollResultTotalOffset(t *testing.T) {
 	result := Scroll(1000, 10, false, false)
 	total := result.TotalOffset()
 	if total != 1000 {
@@ -225,9 +224,9 @@ func TestTASK2242_ScrollResultTotalOffset(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ScrollResultTotalOffsetDirect verifies TotalOffset for
+// TestScrollResultTotalOffsetDirect verifies TotalOffset for
 // direct scroll.
-func TestTASK2242_ScrollResultTotalOffsetDirect(t *testing.T) {
+func TestScrollResultTotalOffsetDirect(t *testing.T) {
 	result := Scroll(500, 10, true, false)
 	total := result.TotalOffset()
 	if total != 500 {
@@ -235,8 +234,8 @@ func TestTASK2242_ScrollResultTotalOffsetDirect(t *testing.T) {
 	}
 }
 
-// TestTASK2242_ScrollResultString verifies String method.
-func TestTASK2242_ScrollResultString(t *testing.T) {
+// TestScrollResultString verifies String method.
+func TestScrollResultString(t *testing.T) {
 	result := Scroll(100, 5, false, false)
 	s := result.String()
 	if s == "" {
@@ -244,11 +243,11 @@ func TestTASK2242_ScrollResultString(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2242_FullSpecParity verifies full spec parity for L4095
-// (spec L4095: Scroll Simulation with INFINITE SCROLL GUARD).
-func TestTASK2242_FullSpecParity(t *testing.T) {
+// TestScrollParity verifies full parity.
+// (Scroll Simulation with INFINITE SCROLL GUARD).
+func TestScrollParity(t *testing.T) {
 	// 1. Detect infinite scroll
 	detection := DetectInfiniteScroll(true, false)
 	if !detection.IsInfiniteScroll {

@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// manager.go (spec L4021: bridge/tabs/manager.go - tab registry +
+// manager.go (bridge/tabs/manager.go - tab registry +
 // lifecycle).
 //
 // Multi-tab management: tab registry and lifecycle management.
 // Tracks all open tabs, their state, and provides CRUD operations.
 
 // TabState enumerates tab lifecycle states
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 type TabState string
 
 const (
@@ -34,9 +34,9 @@ const maxTargetSnapshotAttempts = 3
 const targetCompensationTimeout = 2 * time.Second
 
 // Tab represents a browser tab in the registry
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 // TabEntry is the spec-mandated tab entry with full lifecycle fields
-// (spec L4216: TabEntry: context + cancelFunc + CDPID + timestamps +
+// (TabEntry: context + cancelFunc + CDPID + timestamps +
 // policy state + process_id + owner_ref=turn|subagent|connector|ui).
 type Tab struct {
 	ID            string    `json:"id"`
@@ -48,7 +48,7 @@ type Tab struct {
 	LastActive    time.Time `json:"lastActive"`
 	Index         int       `json:"index"`
 	metadataKnown bool
-	// ProcessSpec lifecycle fields (spec L4216)
+	// ProcessSpec lifecycle fields
 	CDPID            string `json:"cdpId,omitempty"` // CDP target ID
 	BrowserContextID string `json:"browserContextId,omitempty"`
 	ProcessID        string `json:"processId,omitempty"`    // ProcessSpec ID
@@ -129,7 +129,7 @@ var ErrTargetSourceRequired = errors.New("tabs: bridge target source required")
 var ErrTargetNotFound = errors.New("tabs: bridge target not found")
 
 // TabRegistry is the tab registry that tracks all open tabs
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 type TabRegistry struct {
 	mu              sync.RWMutex
 	operationInitMu sync.Mutex
@@ -145,7 +145,7 @@ type TabRegistry struct {
 }
 
 // NewTabRegistry creates a new tab registry
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func NewTabRegistry(sources ...TargetSource) *TabRegistry {
 	var source TargetSource
 	if len(sources) > 0 {
@@ -155,7 +155,7 @@ func NewTabRegistry(sources ...TargetSource) *TabRegistry {
 }
 
 // CreateTab creates a new tab and adds it to the registry
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) CreateTab(userID, url string) *Tab {
 	tab, _ := r.CreateTabContext(context.Background(), userID, url)
 	return tab
@@ -284,7 +284,7 @@ func (r *TabRegistry) snapshotIDs() map[string]struct{} {
 }
 
 // GetTab retrieves a tab by ID
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) GetTab(id string) (*Tab, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -305,7 +305,7 @@ func (r *TabRegistry) GetTabContext(ctx context.Context, id string) (*Tab, bool,
 }
 
 // CloseTab marks a tab as closed and removes it from the registry
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) CloseTab(id string) bool {
 	ok, _ := r.CloseTabContext(context.Background(), id)
 	return ok
@@ -450,7 +450,7 @@ func (r *TabRegistry) UpdateOwnerMetadata(id string, metadata TabOwnerMetadata) 
 }
 
 // ListTabs returns all tabs for a given user
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) ListTabs(userID string) []*Tab {
 	tabs, _ := r.ListTabsContext(context.Background(), userID)
 	return tabs
@@ -475,7 +475,7 @@ func (r *TabRegistry) ListTabsContext(ctx context.Context, userID string) ([]*Ta
 }
 
 // UpdateTabState updates the state of a tab
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) UpdateTabState(id string, state TabState) bool {
 	return r.UpdateTabStateContext(context.Background(), id, state)
 }
@@ -491,7 +491,7 @@ func (r *TabRegistry) UpdateTabStateContext(ctx context.Context, id string, stat
 }
 
 // UpdateTabURL updates the URL and title of a tab
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) UpdateTabURL(id, url, title string) bool {
 	return r.UpdateTabURLContext(context.Background(), id, url, title)
 }
@@ -507,7 +507,7 @@ func (r *TabRegistry) UpdateTabURLContext(ctx context.Context, id, url, title st
 }
 
 // Count returns the total number of tabs
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) Count() int {
 	count, _ := r.CountContext(context.Background())
 	return count
@@ -523,7 +523,7 @@ func (r *TabRegistry) CountContext(ctx context.Context) (int, error) {
 }
 
 // CloseAll closes all tabs for a given user
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func (r *TabRegistry) CloseAll(userID string) int {
 	closed, _ := r.CloseAllContext(context.Background(), userID)
 	return closed
@@ -696,7 +696,7 @@ func cloneTab(tab *Tab) *Tab {
 }
 
 // IsValidTabState reports whether a tab state is valid
-// (spec L4021: tab registry + lifecycle).
+// (tab registry + lifecycle).
 func IsValidTabState(state TabState) bool {
 	switch state {
 	case TabStateOpen, TabStateLoading, TabStateActive, TabStateIdle, TabStateClosed, TabStateCrashed, TabStateLost:

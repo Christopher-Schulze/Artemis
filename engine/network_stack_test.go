@@ -239,7 +239,7 @@ func TestEngineRoutesJavaScriptWebSocketThroughConfiguredProxy(t *testing.T) {
 	if direct.Load() != 0 {
 		t.Fatalf("WebSocket also connected directly to the target: %d", direct.Load())
 	}
-	// Spec L4148: a proxied hostname is resolved by the proxy, never locally.
+	// A proxied hostname is resolved by the proxy, never locally.
 	hostURL := fmt.Sprintf("ws://unresolvable-ws.invalid:%d/socket", targetPort)
 	if _, err := page.Eval(context.Background(), `new WebSocket('`+hostURL+`')`); err != nil {
 		t.Fatalf("Eval hostname socket: %v", err)

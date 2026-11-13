@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// type.go (spec L4020: bridge/actions/type.go - text input w/
+// type.go (bridge/actions/type.go - text input w/
 // keystroke timing).
 //
 // High-level actions: text input with human-like keystroke timing.
 
 // TypeAction represents a text input action with keystroke timing
-// (spec L4020: text input w/ keystroke timing).
+// (text input w/ keystroke timing).
 type TypeAction struct {
 	Ref        string        // element reference (eN) or CSS selector
 	Text       string        // text to type
@@ -22,7 +22,7 @@ type TypeAction struct {
 }
 
 // TypeResult is the result of a type action
-// (spec L4020: text input w/ keystroke timing).
+// (text input w/ keystroke timing).
 type TypeResult struct {
 	Success    bool          `json:"success"`
 	Ref        string        `json:"ref"`
@@ -32,7 +32,7 @@ type TypeResult struct {
 }
 
 // NewTypeAction creates a new TypeAction with default keystroke timing
-// (spec L4020: text input w/ keystroke timing).
+// (text input w/ keystroke timing).
 func NewTypeAction(ref string, text string) TypeAction {
 	return TypeAction{
 		Ref:        ref,
@@ -79,7 +79,7 @@ func (a TypeAction) ExecuteWith(ctx context.Context, runtime *Runtime) TypeResul
 }
 
 // EstimatedDuration estimates the total typing duration
-// (spec L4020: text input w/ keystroke timing).
+// (text input w/ keystroke timing).
 func (a TypeAction) EstimatedDuration() time.Duration {
 	if a.Text == "" {
 		return 0

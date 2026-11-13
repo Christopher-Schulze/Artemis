@@ -1,6 +1,6 @@
 package network
 
-// tls_fingerprint.go (spec L4373: TLS Fingerprint Spoofing).
+// tls_fingerprint.go (TLS Fingerprint Spoofing).
 //
 // This file is static reference metadata, not the emitted transport identity.
 // The live Chrome-like transport (tls_chrome.go) sends uTLS HelloChrome_Auto
@@ -17,7 +17,7 @@ import (
 )
 
 // TLSFingerprint describes a browser TLS fingerprint for spoofing
-// (spec L4373: utls JA3/HTTP2/HTTP3 parity).
+// (utls JA3/HTTP2/HTTP3 parity).
 type TLSFingerprint struct {
 	// Browser is the browser family (e.g. "chrome").
 	Browser string
@@ -44,7 +44,7 @@ type TLSFingerprint struct {
 }
 
 // Chrome145Fingerprint returns a realistic Chrome 145 TLS
-// fingerprint (spec L4373). The JA3 string, cipher suite order,
+// fingerprint. The JA3 string, cipher suite order,
 // curves, and signature algorithms mirror Chrome 145's ClientHello
 // as captured by utls's HelloChrome_Auto / HelloChrome_120 specs.
 func Chrome145Fingerprint() TLSFingerprint {
@@ -91,7 +91,7 @@ func Chrome145Fingerprint() TLSFingerprint {
 }
 
 // VerifyJA3 reports whether the actual JA3 string (or JA3 hash)
-// matches this fingerprint (spec L4373). The actual value may be
+// matches this fingerprint. The actual value may be
 // either a full JA3 string or a JA3 hash; both are compared.
 func (f TLSFingerprint) VerifyJA3(actual string) bool {
 	if actual == "" {
@@ -107,7 +107,7 @@ func (f TLSFingerprint) VerifyJA3(actual string) bool {
 }
 
 // VerifyHTTP2 reports whether the actual HTTP/2 fingerprint string
-// matches this fingerprint (spec L4373).
+// matches this fingerprint.
 func (f TLSFingerprint) VerifyHTTP2(actual string) bool {
 	if actual == "" || f.HTTP2Fingerprint == "" {
 		return false
@@ -116,7 +116,7 @@ func (f TLSFingerprint) VerifyHTTP2(actual string) bool {
 }
 
 // VerifyHTTP3 reports whether the actual HTTP/3 fingerprint string
-// matches this fingerprint (spec L4373).
+// matches this fingerprint.
 func (f TLSFingerprint) VerifyHTTP3(actual string) bool {
 	if actual == "" || f.HTTP3Fingerprint == "" {
 		return false
@@ -135,7 +135,7 @@ func (f TLSFingerprint) HasParity() bool {
 }
 
 // ToTLSConfig returns a stdlib *tls.Config projected from the
-// fingerprint's cipher suites, curves, and ALPN list (spec L4373).
+// fingerprint's cipher suites, curves, and ALPN list.
 // The returned config is suitable as a base for a utls transport;
 // the JA3/HTTP2/HTTP3 strings themselves are consumed by the utls
 // ClientHelloSpec at the bridge/ layer.
@@ -158,7 +158,7 @@ func (f TLSFingerprint) ToTLSConfig() *tls.Config {
 }
 
 // MatchScore returns the percentage (0-100) of fingerprint
-// components that match the actual values (spec L4373). Each of the
+// components that match the actual values. Each of the
 // three fingerprints (JA3, HTTP/2, HTTP/3) contributes equally; a
 // missing actual value counts as a mismatch.
 func (f TLSFingerprint) MatchScore(actualJA3, actualHTTP2, actualHTTP3 string) int {
@@ -196,7 +196,7 @@ func (f TLSFingerprint) String() string {
 }
 
 // H2SettingID enumerates the HTTP/2 SETTINGS frame identifiers
-// (spec L4099: HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
+// (HEADER_TABLE_SIZE, ENABLE_PUSH, MAX_CONCURRENT,
 // INITIAL_WINDOW, MAX_FRAME, MAX_HEADER).
 type H2SettingID uint16
 
@@ -236,14 +236,14 @@ func (id H2SettingID) String() string {
 }
 
 // H2Setting is one setting in an HTTP/2 SETTINGS frame
-// (spec L4099: ordered settings matching real Chromium build).
+// (ordered settings matching real Chromium build).
 type H2Setting struct {
 	ID    H2SettingID
 	Value uint32
 }
 
 // H2SettingsFrame is the ordered HTTP/2 SETTINGS frame
-// (spec L4099: H2 settings frame order matches real Chromium build).
+// (H2 settings frame order matches real Chromium build).
 // Cloudflare + Akamai use the H2 SETTINGS frame order for detection,
 // so the order of Settings MUST match real Chromium exactly.
 type H2SettingsFrame struct {
@@ -251,7 +251,7 @@ type H2SettingsFrame struct {
 }
 
 // ChromiumH2Settings returns the H2 SETTINGS frame matching real
-// Chromium builds (spec L4099). The order is:
+// Chromium builds. The order is:
 // HEADER_TABLE_SIZE=65536, ENABLE_PUSH=0, MAX_CONCURRENT_STREAMS=1000,
 // INITIAL_WINDOW_SIZE=6291456, MAX_FRAME_SIZE=16384,
 // MAX_HEADER_LIST_SIZE=262144.
@@ -269,7 +269,7 @@ func ChromiumH2Settings() H2SettingsFrame {
 }
 
 // Serialize returns the Akamai fingerprint string format
-// "ID:VALUE;ID:VALUE;..." (spec L4099). The order of settings in the
+// "ID:VALUE;ID:VALUE;...". The order of settings in the
 // frame is preserved in the serialized string, which is what
 // Cloudflare/Akamai use for detection.
 func (f H2SettingsFrame) Serialize() string {
@@ -284,7 +284,7 @@ func (f H2SettingsFrame) Serialize() string {
 }
 
 // ParseH2SettingsFrame parses an Akamai fingerprint string
-// "ID:VALUE;ID:VALUE;..." into an H2SettingsFrame (spec L4099).
+// "ID:VALUE;ID:VALUE;..." into an H2SettingsFrame.
 // Returns an error if the string is malformed.
 func ParseH2SettingsFrame(s string) (H2SettingsFrame, error) {
 	if s == "" {
@@ -310,7 +310,7 @@ func ParseH2SettingsFrame(s string) (H2SettingsFrame, error) {
 }
 
 // MatchesChromium reports whether this frame's settings order and
-// values match real Chromium builds (spec L4099: MUST match).
+// values match real Chromium builds (MUST match).
 func (f H2SettingsFrame) MatchesChromium() bool {
 	expected := ChromiumH2Settings()
 	if len(f.Settings) != len(expected.Settings) {
@@ -324,8 +324,8 @@ func (f H2SettingsFrame) MatchesChromium() bool {
 	return true
 }
 
-// Validate checks that the frame has valid setting IDs and values
-// (spec L4099). Returns an error if any setting is invalid.
+// Validate checks that the frame has valid setting IDs and values.
+// Returns an error if any setting is invalid.
 func (f H2SettingsFrame) Validate() error {
 	if len(f.Settings) == 0 {
 		return fmt.Errorf("h2 settings: empty frame")
@@ -368,7 +368,7 @@ func (f H2SettingsFrame) Get(id H2SettingID) (uint32, bool) {
 }
 
 // HasAllChromiumSettings reports whether the frame contains all 6
-// Chromium-mandated setting IDs (spec L4099).
+// Chromium-mandated setting IDs.
 func (f H2SettingsFrame) HasAllChromiumSettings() bool {
 	required := []H2SettingID{
 		H2SettingHeaderTableSize,
@@ -387,7 +387,7 @@ func (f H2SettingsFrame) HasAllChromiumSettings() bool {
 }
 
 // OrderMatchesChromium reports whether the setting IDs are in the
-// same order as real Chromium builds (spec L4099: frame order matches).
+// same order as real Chromium builds (frame order matches).
 func (f H2SettingsFrame) OrderMatchesChromium() bool {
 	expected := ChromiumH2Settings()
 	if len(f.Settings) != len(expected.Settings) {

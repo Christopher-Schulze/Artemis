@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// ua.go (spec L4023: stealth/ua.go - UA mgmt + version coherence).
+// ua.go (stealth/ua.go - UA mgmt + version coherence).
 //
 // Anti-detection: User-Agent management with version coherence.
 // The UA string must be consistent with the navigator.userAgentData
@@ -14,7 +14,7 @@ import (
 // a common bot-detection signal.
 
 // UAInfo describes a User-Agent with version coherence metadata
-// (spec L4023: ua.go - UA mgmt + version coherence).
+// (ua.go - UA mgmt + version coherence).
 type UAInfo struct {
 	UserAgent string `json:"userAgent"` // full UA string
 	Browser   string `json:"browser"`   // browser family (e.g. "chrome")
@@ -24,7 +24,7 @@ type UAInfo struct {
 }
 
 // DefaultUAInfo returns the default Chrome UA info
-// (spec L4023: ua.go - UA mgmt + version coherence).
+// (ua.go - UA mgmt + version coherence).
 // Matches the UA in patches.go Defaults().
 func DefaultUAInfo() UAInfo {
 	return UAInfo{
@@ -37,20 +37,19 @@ func DefaultUAInfo() UAInfo {
 }
 
 // UAManager manages User-Agent strings with version coherence
-// (spec L4023: ua.go - UA mgmt + version coherence).
+// (ua.go - UA mgmt + version coherence).
 type UAManager struct {
 	mu      sync.RWMutex
 	current UAInfo
 }
 
-// NewUAManager creates a new UAManager with default Chrome UA
-// (spec L4023).
+// NewUAManager creates a new UAManager with default Chrome UA.
 func NewUAManager() *UAManager {
 	return &UAManager{current: DefaultUAInfo()}
 }
 
 // SetUA sets the current User-Agent info
-// (spec L4023: ua.go - UA mgmt + version coherence).
+// (ua.go - UA mgmt + version coherence).
 func (m *UAManager) SetUA(ua UAInfo) {
 	if m == nil {
 		return
@@ -60,8 +59,7 @@ func (m *UAManager) SetUA(ua UAInfo) {
 	m.current = ua
 }
 
-// Current returns the current UA info
-// (spec L4023).
+// Current returns the current UA info.
 func (m *UAManager) Current() UAInfo {
 	if m == nil {
 		return DefaultUAInfo()
@@ -71,8 +69,7 @@ func (m *UAManager) Current() UAInfo {
 	return m.current
 }
 
-// UserAgent returns the current UA string
-// (spec L4023).
+// UserAgent returns the current UA string.
 func (m *UAManager) UserAgent() string {
 	if m == nil {
 		return DefaultUAInfo().UserAgent
@@ -83,7 +80,7 @@ func (m *UAManager) UserAgent() string {
 }
 
 // Version returns the current browser major version
-// (spec L4023: version coherence).
+// (version coherence).
 func (m *UAManager) Version() string {
 	if m == nil {
 		return "126"
@@ -94,7 +91,7 @@ func (m *UAManager) Version() string {
 }
 
 // CheckCoherence verifies that the UA string is coherent with the
-// version and platform (spec L4023: version coherence).
+// version and platform (version coherence).
 func (ua UAInfo) CheckCoherence() error {
 	if ua.UserAgent == "" {
 		return fmt.Errorf("ua: empty UserAgent string")
@@ -110,13 +107,13 @@ func (ua UAInfo) CheckCoherence() error {
 }
 
 // IsCoherent reports whether the UA info is coherent
-// (spec L4023: version coherence).
+// (version coherence).
 func (ua UAInfo) IsCoherent() bool {
 	return ua.CheckCoherence() == nil
 }
 
 // ParseChromeVersion extracts the Chrome major version from a UA string
-// (spec L4023: version coherence).
+// (version coherence).
 func ParseChromeVersion(ua string) string {
 	idx := strings.Index(ua, "Chrome/")
 	if idx < 0 {

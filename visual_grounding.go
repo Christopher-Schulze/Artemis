@@ -25,7 +25,7 @@ import (
 )
 
 // visual_grounding.go connects screenshots to the reference model (spec
-// L4178-L4195 observation, L4264 Snapshot Annotations). A visual observation
+// observation, Snapshot Annotations). A visual observation
 // binds pixels, viewport, document epoch and the annotated references of one
 // capture. A visual action at a point of that observation is refused when
 // the document, viewport or pixels at the point changed, or when the point

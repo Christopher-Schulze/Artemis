@@ -18,7 +18,7 @@ func mediumHTML() string {
 }
 
 // largeHTML5000 builds a ~5000-element HTML document to match the
-// Scrapling research floor benchmark (5000 nested elements, 2.02ms
+// Scrapling upstream benchmark (5000 nested elements, 2.02ms
 // text extraction on Scrapling's Python parser).
 func largeHTML5000() string {
 	var b strings.Builder
@@ -48,10 +48,10 @@ func BenchmarkParseMedium(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_ParseLarge5000 measures parsing a ~5000-element
-// HTML document for direct comparison against the Scrapling research
+// BenchmarkParseLarge5000 measures parsing a ~5000-element
+// HTML document for direct comparison against the Scrapling upstream
 // floor (2.02ms text extraction, 5000 nested elements).
-func BenchmarkTASK2344_ParseLarge5000(b *testing.B) {
+func BenchmarkParseLarge5000(b *testing.B) {
 	src := largeHTML5000()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

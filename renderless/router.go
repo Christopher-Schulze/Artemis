@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// router.go (spec L4022: renderless/router.go - inline+external
+// router.go (renderless/router.go - inline+external
 // script execution router).
 //
 // In-process no-render JS browser path: inline+external script dispatch. The
@@ -13,7 +13,7 @@ import (
 // handlers and fails closed when no handler is bound.
 
 // ScriptType enumerates script types
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 type ScriptType string
 
 const (
@@ -24,7 +24,7 @@ const (
 )
 
 // ScriptRequest represents a script execution request
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 type ScriptRequest struct {
 	Type    ScriptType `json:"type"`
 	Source  string     `json:"source"` // inline code or external URL
@@ -34,7 +34,7 @@ type ScriptRequest struct {
 }
 
 // ScriptResult is the result of script execution
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 type ScriptResult struct {
 	Success  bool   `json:"success"`
 	Output   string `json:"output,omitempty"`
@@ -43,14 +43,14 @@ type ScriptResult struct {
 }
 
 // ScriptRouter routes script execution requests
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 type ScriptRouter struct {
 	mu       sync.RWMutex
 	handlers map[ScriptType]func(req ScriptRequest) ScriptResult
 }
 
 // NewScriptRouter creates a new ScriptRouter with fail-closed default handlers
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 func NewScriptRouter() *ScriptRouter {
 	r := &ScriptRouter{handlers: make(map[ScriptType]func(req ScriptRequest) ScriptResult)}
 	r.RegisterHandler(ScriptTypeInline, r.defaultInlineHandler)
@@ -61,7 +61,7 @@ func NewScriptRouter() *ScriptRouter {
 }
 
 // RegisterHandler registers a handler for a script type
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 func (r *ScriptRouter) RegisterHandler(t ScriptType, handler func(req ScriptRequest) ScriptResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -73,7 +73,7 @@ func (r *ScriptRouter) RegisterHandler(t ScriptType, handler func(req ScriptRequ
 }
 
 // Execute routes and executes a script request
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 func (r *ScriptRouter) Execute(req ScriptRequest) ScriptResult {
 	r.mu.RLock()
 	handler, ok := r.handlers[req.Type]
@@ -111,7 +111,7 @@ func unavailableScriptResult(req ScriptRequest, kind string) ScriptResult {
 }
 
 // IsValidScriptType reports whether a script type is valid
-// (spec L4022: inline+external script execution).
+// (inline+external script execution).
 func IsValidScriptType(t ScriptType) bool {
 	switch t {
 	case ScriptTypeInline, ScriptTypeExternal, ScriptTypeModule, ScriptTypeClassic:

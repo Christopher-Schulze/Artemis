@@ -8,10 +8,10 @@ import (
 	"github.com/Christopher-Schulze/Artemis/webapi"
 )
 
-// BenchmarkTASK2344_NodeTableHandleNew measures the Handle hot path
+// BenchmarkNodeTableHandleNew measures the Handle hot path
 // for a node not yet in the table (insert path — the common case
 // during DOM traversal).
-func BenchmarkTASK2344_NodeTableHandleNew(b *testing.B) {
+func BenchmarkNodeTableHandleNew(b *testing.B) {
 	t := newNodeTable()
 	nodes := make([]*webapi.Node, b.N)
 	for i := range nodes {
@@ -23,10 +23,10 @@ func BenchmarkTASK2344_NodeTableHandleNew(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_NodeTableHandleExisting measures the Handle hot
+// BenchmarkNodeTableHandleExisting measures the Handle hot
 // path for a node already in the table (lookup path — the common case
 // during repeated DOM access from JS).
-func BenchmarkTASK2344_NodeTableHandleExisting(b *testing.B) {
+func BenchmarkNodeTableHandleExisting(b *testing.B) {
 	t := newNodeTable()
 	n := webapi.Wrap(&html.Node{Type: html.ElementNode, Data: "div"})
 	t.Handle(n) // pre-register
@@ -36,9 +36,9 @@ func BenchmarkTASK2344_NodeTableHandleExisting(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_NodeTableGet measures the Get hot path (JS→Go
+// BenchmarkNodeTableGet measures the Get hot path (JS→Go
 // node handle resolution — called on every DOM API call from JS).
-func BenchmarkTASK2344_NodeTableGet(b *testing.B) {
+func BenchmarkNodeTableGet(b *testing.B) {
 	t := newNodeTable()
 	n := webapi.Wrap(&html.Node{Type: html.ElementNode, Data: "div"})
 	id := t.Handle(n) // pre-register
@@ -50,9 +50,9 @@ func BenchmarkTASK2344_NodeTableGet(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_NodeTableGetMiss measures the Get hot path for a
+// BenchmarkNodeTableGetMiss measures the Get hot path for a
 // handle that doesn't exist (miss — returns nil).
-func BenchmarkTASK2344_NodeTableGetMiss(b *testing.B) {
+func BenchmarkNodeTableGetMiss(b *testing.B) {
 	t := newNodeTable()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -62,9 +62,9 @@ func BenchmarkTASK2344_NodeTableGetMiss(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_JsonStringLiteral measures the jsonStringLiteral
+// BenchmarkJsonStringLiteral measures the jsonStringLiteral
 // hot path (called per pooled context reset with the page URL).
-func BenchmarkTASK2344_JsonStringLiteral(b *testing.B) {
+func BenchmarkJsonStringLiteral(b *testing.B) {
 	url := "https://www.example.com/path/to/page?query=value&foo=bar#fragment"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -72,18 +72,18 @@ func BenchmarkTASK2344_JsonStringLiteral(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_Itoa measures the itoa hot path (called per
+// BenchmarkItoa measures the itoa hot path (called per
 // integer-to-string conversion in the JS bridge).
-func BenchmarkTASK2344_Itoa(b *testing.B) {
+func BenchmarkItoa(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = itoa(123456789)
 	}
 }
 
-// BenchmarkTASK2344_JsStringLit measures the jsStringLit hot path
+// BenchmarkJsStringLit measures the jsStringLit hot path
 // (called for JS string literal escaping in the DOM bridge).
-func BenchmarkTASK2344_JsStringLit(b *testing.B) {
+func BenchmarkJsStringLit(b *testing.B) {
 	s := "hello \"world\"\n with \\ backslash"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

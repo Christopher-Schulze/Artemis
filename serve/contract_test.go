@@ -102,8 +102,7 @@ func TestDecodeTypedResultOK(t *testing.T) {
 
 // TestConformanceFullOpSet drives every published command over the
 // wire against a live in-process server + httptest page and asserts
-// structured responses. This is the same-TASK conformance test
-// required by TASK-2326.
+// structured responses. This is the serve protocol conformance test.
 func TestConformanceFullOpSet(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeTestResponse(t, w, `<!doctype html><html><head><title>Conformance</title></head><body><h1 id="hi">Hello</h1><input id="q" type="text" value=""></body></html>`)

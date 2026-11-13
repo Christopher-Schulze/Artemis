@@ -14,7 +14,7 @@ import (
 )
 
 // workflow_recording.go is the browser producer of the Workflow Capture
-// Recorder (spec L4551-L4563): while a page records, every ActChromiumPage
+// Recorder: while a page records, every ActChromiumPage
 // action appends an owned before/action/after record with stable selectors
 // and, for low-confidence selectors, real fallback pixels. Typed and filled
 // values and AX node values are never recorded.

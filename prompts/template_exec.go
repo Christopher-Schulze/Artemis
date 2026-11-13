@@ -1,7 +1,7 @@
 // Package prompts provides the 9 AgentScope browser agent prompt templates
 // (spec ss28.11) as Go string constants. This file implements the
 // TemplateExecutor that integrates template selection with browser skill
-// execution (spec L4338-L4346): the agent selects one of the 9 templates
+// execution: the agent selects one of the 9 templates
 // per situation, renders it with variables, and applies token
 // optimization (pure reasoning first, chunked observation, early
 // completion).
@@ -72,7 +72,7 @@ func (e *TemplateExecutor) SetMaxTokens(n int) {
 // with the given variables, and returns the rendered prompt. When the
 // situation does not require visual inspection and the estimated page
 // token count exceeds the budget, Execute uses PromptPureReasoning first
-// (token optimization per spec L4338-L4346).
+// (token optimization).
 func (e *TemplateExecutor) Execute(ctx context.Context, situation string, variables map[string]string) (string, error) {
 	if e == nil {
 		return "", fmt.Errorf("prompts: TemplateExecutor is nil")

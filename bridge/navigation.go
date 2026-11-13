@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// WaitMode is the page load wait strategy (spec L4557).
+// WaitMode is the page load wait strategy.
 type WaitMode string
 
 const (
@@ -17,8 +17,7 @@ const (
 	WaitCustom           WaitMode = "custom"
 )
 
-// PageLoadStrategy configures how navigation waits for page readiness
-// (spec L4557).
+// PageLoadStrategy configures how navigation waits for page readiness.
 type PageLoadStrategy struct {
 	Mode            WaitMode
 	CustomSelector  string        // for WaitCustom
@@ -62,7 +61,7 @@ func (p PageLoadStrategy) Validate() error {
 }
 
 // ResolveMode applies SPA auto-detect: if SPADetected is true and mode is
-// not explicitly custom, force networkidle (spec L4557).
+// not explicitly custom, force networkidle.
 func (p PageLoadStrategy) ResolveMode() WaitMode {
 	if p.SPADetected && p.Mode != WaitCustom {
 		return WaitNetworkIdle
@@ -71,7 +70,7 @@ func (p PageLoadStrategy) ResolveMode() WaitMode {
 }
 
 // EffectiveFallback returns the fallback duration, only meaningful for
-// networkidle mode (spec L4557: infinite polling -> proceed after 10s).
+// networkidle mode (infinite polling -> proceed after 10s).
 func (p PageLoadStrategy) EffectiveFallback() time.Duration {
 	if p.ResolveMode() != WaitNetworkIdle {
 		return 0
@@ -103,7 +102,7 @@ type Navigator interface {
 	DetectSPA(ctx context.Context, url string) bool
 }
 
-// Navigate executes a navigation with the given strategy (spec L4557).
+// Navigate executes a navigation with the given strategy.
 //
 // Pipeline:
 //  1. Validate strategy.
@@ -148,7 +147,7 @@ func Navigate(ctx context.Context, nav Navigator, url string, strategy PageLoadS
 		}
 	case WaitNetworkIdle:
 		// Use a fallback context so we proceed after FallbackAfter even if
-		// networkidle never settles (spec L4557: infinite polling -> proceed).
+		// networkidle never settles (infinite polling -> proceed).
 		fbCtx, fbCancel := context.WithTimeout(navCtx, strategy.EffectiveFallback())
 		err := nav.WaitNetworkIdle(fbCtx, strategy.NetworkIdleWait)
 		fbCancel()

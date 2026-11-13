@@ -8,14 +8,14 @@ import (
 	"github.com/Christopher-Schulze/Artemis/input"
 )
 
-// click.go (spec L4020: bridge/actions/click.go - click w/ human-like
+// click.go (bridge/actions/click.go - click w/ human-like
 // movement).
 //
 // High-level actions: click with human-like mouse movement using
 // Bezier curves and jitter from the input package.
 
 // ClickAction represents a click action with human-like movement
-// (spec L4020: click w/ human-like movement).
+// (click w/ human-like movement).
 type ClickAction struct {
 	Ref      string          // element reference (eN) or CSS selector
 	Button   string          // "left", "right", "middle"
@@ -24,7 +24,7 @@ type ClickAction struct {
 }
 
 // ClickResult is the result of a click action
-// (spec L4020: click w/ human-like movement).
+// (click w/ human-like movement).
 type ClickResult struct {
 	Success  bool          `json:"success"`
 	Ref      string        `json:"ref"`
@@ -33,7 +33,7 @@ type ClickResult struct {
 }
 
 // NewClickAction creates a new ClickAction
-// (spec L4020: click w/ human-like movement).
+// (click w/ human-like movement).
 func NewClickAction(ref string) ClickAction {
 	return ClickAction{
 		Ref:    ref,
@@ -66,13 +66,13 @@ func (a ClickAction) ExecuteWith(ctx context.Context, runtime *Runtime) ClickRes
 }
 
 // GenerateClickPath generates a human-like mouse path for clicking
-// (spec L4020: click w/ human-like movement).
+// (click w/ human-like movement).
 func GenerateClickPath(start, end input.MousePoint) input.MousePath {
 	return input.MoveMouse(start, end)
 }
 
 // ClickWithMovement clicks ref on runtime after moving along a generated
-// human-like path from start to target (spec L4020: click w/ human-like movement).
+// human-like path from start to target (click w/ human-like movement).
 func ClickWithMovement(ctx context.Context, runtime *Runtime, ref string, start, target input.MousePoint) ClickResult {
 	action := NewClickAction(ref)
 	action.MovePath = GenerateClickPath(start, target)

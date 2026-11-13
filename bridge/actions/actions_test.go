@@ -10,9 +10,9 @@ import (
 
 // ==================== click.go tests ====================
 
-// TestTASK2253_NewClickAction verifies creation
-// (spec L4020: click w/ human-like movement).
-func TestTASK2253_NewClickAction(t *testing.T) {
+// TestNewClickAction verifies creation
+// (click w/ human-like movement).
+func TestNewClickAction(t *testing.T) {
 	a := NewClickAction("e5")
 	if a.Ref != "e5" {
 		t.Errorf("ref: got %s, want e5", a.Ref)
@@ -22,9 +22,9 @@ func TestTASK2253_NewClickAction(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ClickExecute verifies execution
-// (spec L4020: click w/ human-like movement).
-func TestTASK2253_ClickExecute(t *testing.T) {
+// TestClickExecute verifies execution
+// (click w/ human-like movement).
+func TestClickExecute(t *testing.T) {
 	a := NewClickAction("e5")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -35,8 +35,8 @@ func TestTASK2253_ClickExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ClickExecuteEmptyRef verifies empty ref fails.
-func TestTASK2253_ClickExecuteEmptyRef(t *testing.T) {
+// TestClickExecuteEmptyRef verifies empty ref fails.
+func TestClickExecuteEmptyRef(t *testing.T) {
 	a := NewClickAction("")
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -44,9 +44,9 @@ func TestTASK2253_ClickExecuteEmptyRef(t *testing.T) {
 	}
 }
 
-// TestTASK2253_GenerateClickPath verifies path generation
-// (spec L4020: click w/ human-like movement).
-func TestTASK2253_GenerateClickPath(t *testing.T) {
+// TestGenerateClickPath verifies path generation
+// (click w/ human-like movement).
+func TestGenerateClickPath(t *testing.T) {
 	path := GenerateClickPath(
 		input.MousePoint{X: 0, Y: 0},
 		input.MousePoint{X: 100, Y: 100},
@@ -56,9 +56,9 @@ func TestTASK2253_GenerateClickPath(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ClickWithMovement verifies combined click
-// (spec L4020: click w/ human-like movement).
-func TestTASK2253_ClickWithMovement(t *testing.T) {
+// TestClickWithMovement verifies combined click
+// (click w/ human-like movement).
+func TestClickWithMovement(t *testing.T) {
 	result := ClickWithMovement(
 		context.Background(),
 		nil,
@@ -71,8 +71,8 @@ func TestTASK2253_ClickWithMovement(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ClickResultString verifies String.
-func TestTASK2253_ClickResultString(t *testing.T) {
+// TestClickResultString verifies String.
+func TestClickResultString(t *testing.T) {
 	r := ClickResult{Success: true, Ref: "e5", Duration: 10 * time.Millisecond}
 	s := r.String()
 	if s == "" {
@@ -82,9 +82,9 @@ func TestTASK2253_ClickResultString(t *testing.T) {
 
 // ==================== type.go tests ====================
 
-// TestTASK2253_NewTypeAction verifies creation
-// (spec L4020: text input w/ keystroke timing).
-func TestTASK2253_NewTypeAction(t *testing.T) {
+// TestNewTypeAction verifies creation
+// (text input w/ keystroke timing).
+func TestNewTypeAction(t *testing.T) {
 	a := NewTypeAction("e3", "hello")
 	if a.Ref != "e3" {
 		t.Errorf("ref: got %s, want e3", a.Ref)
@@ -97,9 +97,9 @@ func TestTASK2253_NewTypeAction(t *testing.T) {
 	}
 }
 
-// TestTASK2253_TypeExecute verifies execution
-// (spec L4020: text input w/ keystroke timing).
-func TestTASK2253_TypeExecute(t *testing.T) {
+// TestTypeExecute verifies execution
+// (text input w/ keystroke timing).
+func TestTypeExecute(t *testing.T) {
 	a := NewTypeAction("e3", "hello")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -110,8 +110,8 @@ func TestTASK2253_TypeExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_TypeExecuteEmptyRef verifies empty ref fails.
-func TestTASK2253_TypeExecuteEmptyRef(t *testing.T) {
+// TestTypeExecuteEmptyRef verifies empty ref fails.
+func TestTypeExecuteEmptyRef(t *testing.T) {
 	a := NewTypeAction("", "hello")
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -119,8 +119,8 @@ func TestTASK2253_TypeExecuteEmptyRef(t *testing.T) {
 	}
 }
 
-// TestTASK2253_TypeExecuteEmptyText verifies empty text fails.
-func TestTASK2253_TypeExecuteEmptyText(t *testing.T) {
+// TestTypeExecuteEmptyText verifies empty text fails.
+func TestTypeExecuteEmptyText(t *testing.T) {
 	a := NewTypeAction("e3", "")
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -128,9 +128,9 @@ func TestTASK2253_TypeExecuteEmptyText(t *testing.T) {
 	}
 }
 
-// TestTASK2253_TypeEstimatedDuration verifies duration estimate
-// (spec L4020: text input w/ keystroke timing).
-func TestTASK2253_TypeEstimatedDuration(t *testing.T) {
+// TestTypeEstimatedDuration verifies duration estimate
+// (text input w/ keystroke timing).
+func TestTypeEstimatedDuration(t *testing.T) {
 	a := NewTypeAction("e3", "hello")
 	d := a.EstimatedDuration()
 	if d <= 0 {
@@ -142,8 +142,8 @@ func TestTASK2253_TypeEstimatedDuration(t *testing.T) {
 	}
 }
 
-// TestTASK2253_TypeEstimatedDurationEmpty verifies empty text.
-func TestTASK2253_TypeEstimatedDurationEmpty(t *testing.T) {
+// TestTypeEstimatedDurationEmpty verifies empty text.
+func TestTypeEstimatedDurationEmpty(t *testing.T) {
 	a := NewTypeAction("e3", "")
 	if a.EstimatedDuration() != 0 {
 		t.Error("empty text should have 0 duration")
@@ -152,9 +152,9 @@ func TestTASK2253_TypeEstimatedDurationEmpty(t *testing.T) {
 
 // ==================== form.go tests ====================
 
-// TestTASK2253_FormActionTypes verifies action type constants
-// (spec L4020: form fill/select/check/submit).
-func TestTASK2253_FormActionTypes(t *testing.T) {
+// TestFormActionTypes verifies action type constants
+// (form fill/select/check/submit).
+func TestFormActionTypes(t *testing.T) {
 	if FormActionFill != "fill" {
 		t.Error("fill mismatch")
 	}
@@ -169,9 +169,9 @@ func TestTASK2253_FormActionTypes(t *testing.T) {
 	}
 }
 
-// TestTASK2253_NewFormFill verifies fill creation
-// (spec L4020: form fill).
-func TestTASK2253_NewFormFill(t *testing.T) {
+// TestNewFormFill verifies fill creation
+// (form fill).
+func TestNewFormFill(t *testing.T) {
 	a := NewFormFill("e5", "test value")
 	if a.Type != FormActionFill {
 		t.Error("type should be fill")
@@ -181,9 +181,9 @@ func TestTASK2253_NewFormFill(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormFillExecute verifies fill execution
-// (spec L4020: form fill).
-func TestTASK2253_FormFillExecute(t *testing.T) {
+// TestFormFillExecute verifies fill execution
+// (form fill).
+func TestFormFillExecute(t *testing.T) {
 	a := NewFormFill("e5", "test")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -191,8 +191,8 @@ func TestTASK2253_FormFillExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormFillEmptyValue verifies empty value fails.
-func TestTASK2253_FormFillEmptyValue(t *testing.T) {
+// TestFormFillEmptyValue verifies empty value fails.
+func TestFormFillEmptyValue(t *testing.T) {
 	a := NewFormFill("e5", "")
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -200,9 +200,9 @@ func TestTASK2253_FormFillEmptyValue(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormSelectExecute verifies select execution
-// (spec L4020: select).
-func TestTASK2253_FormSelectExecute(t *testing.T) {
+// TestFormSelectExecute verifies select execution
+// (select).
+func TestFormSelectExecute(t *testing.T) {
 	a := NewFormSelect("e5", "option1")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -210,9 +210,9 @@ func TestTASK2253_FormSelectExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormCheckExecute verifies check execution
-// (spec L4020: check).
-func TestTASK2253_FormCheckExecute(t *testing.T) {
+// TestFormCheckExecute verifies check execution
+// (check).
+func TestFormCheckExecute(t *testing.T) {
 	a := NewFormCheck("e5")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -220,9 +220,9 @@ func TestTASK2253_FormCheckExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormSubmitExecute verifies submit execution
-// (spec L4020: submit).
-func TestTASK2253_FormSubmitExecute(t *testing.T) {
+// TestFormSubmitExecute verifies submit execution
+// (submit).
+func TestFormSubmitExecute(t *testing.T) {
 	a := NewFormSubmit("e5")
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -230,8 +230,8 @@ func TestTASK2253_FormSubmitExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormEmptyRef verifies empty ref fails.
-func TestTASK2253_FormEmptyRef(t *testing.T) {
+// TestFormEmptyRef verifies empty ref fails.
+func TestFormEmptyRef(t *testing.T) {
 	a := NewFormFill("", "value")
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -239,9 +239,9 @@ func TestTASK2253_FormEmptyRef(t *testing.T) {
 	}
 }
 
-// TestTASK2253_FormBatch verifies batch execution
-// (spec L4020: form fill/select/check/submit).
-func TestTASK2253_FormBatch(t *testing.T) {
+// TestFormBatch verifies batch execution
+// (form fill/select/check/submit).
+func TestFormBatch(t *testing.T) {
 	actions := []FormAction{
 		NewFormFill("e1", "user"),
 		NewFormFill("e2", "pass"),
@@ -258,8 +258,8 @@ func TestTASK2253_FormBatch(t *testing.T) {
 	}
 }
 
-// TestTASK2253_IsValidFormActionType verifies validation.
-func TestTASK2253_IsValidFormActionType(t *testing.T) {
+// TestIsValidFormActionType verifies validation.
+func TestIsValidFormActionType(t *testing.T) {
 	if !IsValidFormActionType(FormActionFill) {
 		t.Error("fill should be valid")
 	}
@@ -270,9 +270,9 @@ func TestTASK2253_IsValidFormActionType(t *testing.T) {
 
 // ==================== scroll.go tests ====================
 
-// TestTASK2253_ScrollDirections verifies direction constants
-// (spec L4020: scroll w/ easeInOut).
-func TestTASK2253_ScrollDirections(t *testing.T) {
+// TestScrollDirections verifies direction constants
+// (scroll w/ easeInOut).
+func TestScrollDirections(t *testing.T) {
 	if ScrollUp != "up" {
 		t.Error("up mismatch")
 	}
@@ -287,9 +287,9 @@ func TestTASK2253_ScrollDirections(t *testing.T) {
 	}
 }
 
-// TestTASK2253_NewScrollAction verifies creation
-// (spec L4020: scroll w/ easeInOut).
-func TestTASK2253_NewScrollAction(t *testing.T) {
+// TestNewScrollAction verifies creation
+// (scroll w/ easeInOut).
+func TestNewScrollAction(t *testing.T) {
 	a := NewScrollAction(ScrollDown, 500)
 	if a.Direction != ScrollDown {
 		t.Error("direction should be down")
@@ -299,9 +299,9 @@ func TestTASK2253_NewScrollAction(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ScrollExecute verifies execution
-// (spec L4020: scroll w/ easeInOut).
-func TestTASK2253_ScrollExecute(t *testing.T) {
+// TestScrollExecute verifies execution
+// (scroll w/ easeInOut).
+func TestScrollExecute(t *testing.T) {
 	a := NewScrollAction(ScrollDown, 500)
 	result := a.Execute(context.Background())
 	if result.Success || result.Error == "" {
@@ -309,8 +309,8 @@ func TestTASK2253_ScrollExecute(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ScrollExecuteZeroAmount verifies zero amount fails.
-func TestTASK2253_ScrollExecuteZeroAmount(t *testing.T) {
+// TestScrollExecuteZeroAmount verifies zero amount fails.
+func TestScrollExecuteZeroAmount(t *testing.T) {
 	a := NewScrollAction(ScrollDown, 0)
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -318,8 +318,8 @@ func TestTASK2253_ScrollExecuteZeroAmount(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ScrollInvalidDirection verifies invalid direction fails.
-func TestTASK2253_ScrollInvalidDirection(t *testing.T) {
+// TestScrollInvalidDirection verifies invalid direction fails.
+func TestScrollInvalidDirection(t *testing.T) {
 	a := NewScrollAction(ScrollDirection("invalid"), 100)
 	result := a.Execute(context.Background())
 	if result.Success {
@@ -327,9 +327,9 @@ func TestTASK2253_ScrollInvalidDirection(t *testing.T) {
 	}
 }
 
-// TestTASK2253_EaseInOut verifies easeInOut function
-// (spec L4020: scroll w/ easeInOut).
-func TestTASK2253_EaseInOut(t *testing.T) {
+// TestEaseInOut verifies easeInOut function
+// (scroll w/ easeInOut).
+func TestEaseInOut(t *testing.T) {
 	// t=0 should return 0
 	if EaseInOut(0) != 0 {
 		t.Error("easeInOut(0) should be 0")
@@ -345,9 +345,9 @@ func TestTASK2253_EaseInOut(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ComputeScrollSteps verifies step computation
-// (spec L4020: scroll w/ easeInOut).
-func TestTASK2253_ComputeScrollSteps(t *testing.T) {
+// TestComputeScrollSteps verifies step computation
+// (scroll w/ easeInOut).
+func TestComputeScrollSteps(t *testing.T) {
 	steps := ComputeScrollSteps(1000, 10)
 	if len(steps) != 10 {
 		t.Errorf("steps: got %d, want 10", len(steps))
@@ -362,8 +362,8 @@ func TestTASK2253_ComputeScrollSteps(t *testing.T) {
 	}
 }
 
-// TestTASK2253_IsValidScrollDirection verifies validation.
-func TestTASK2253_IsValidScrollDirection(t *testing.T) {
+// TestIsValidScrollDirection verifies validation.
+func TestIsValidScrollDirection(t *testing.T) {
 	if !IsValidScrollDirection(ScrollUp) {
 		t.Error("up should be valid")
 	}
@@ -374,9 +374,9 @@ func TestTASK2253_IsValidScrollDirection(t *testing.T) {
 
 // ==================== resolve.go tests ====================
 
-// TestTASK2253_ResolveSelectorRef verifies element ref resolution
-// (spec L4020: unified selector resolution).
-func TestTASK2253_ResolveSelectorRef(t *testing.T) {
+// TestActionsResolveSelectorRef verifies element ref resolution
+// (unified selector resolution).
+func TestActionsResolveSelectorRef(t *testing.T) {
 	r, err := ResolveSelector("e123")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -389,9 +389,9 @@ func TestTASK2253_ResolveSelectorRef(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ResolveSelectorXPath verifies XPath resolution
-// (spec L4020: unified selector resolution).
-func TestTASK2253_ResolveSelectorXPath(t *testing.T) {
+// TestResolveSelectorXPath verifies XPath resolution
+// (unified selector resolution).
+func TestResolveSelectorXPath(t *testing.T) {
 	r, err := ResolveSelector("//div[@id='main']")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -404,9 +404,9 @@ func TestTASK2253_ResolveSelectorXPath(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ResolveSelectorCSS verifies CSS resolution
-// (spec L4020: unified selector resolution).
-func TestTASK2253_ResolveSelectorCSS(t *testing.T) {
+// TestResolveSelectorCSS verifies CSS resolution
+// (unified selector resolution).
+func TestResolveSelectorCSS(t *testing.T) {
 	r, err := ResolveSelector("div.container")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -419,17 +419,17 @@ func TestTASK2253_ResolveSelectorCSS(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ResolveSelectorEmpty verifies empty selector errors.
-func TestTASK2253_ResolveSelectorEmpty(t *testing.T) {
+// TestResolveSelectorEmpty verifies empty selector errors.
+func TestResolveSelectorEmpty(t *testing.T) {
 	_, err := ResolveSelector("")
 	if err == nil {
 		t.Error("empty selector should error")
 	}
 }
 
-// TestTASK2253_IsElementRef verifies element ref detection
-// (spec L4020: unified selector resolution).
-func TestTASK2253_IsElementRef(t *testing.T) {
+// TestIsElementRef verifies element ref detection
+// (unified selector resolution).
+func TestIsElementRef(t *testing.T) {
 	if !IsElementRef("e5") {
 		t.Error("e5 should be a ref")
 	}
@@ -447,9 +447,9 @@ func TestTASK2253_IsElementRef(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ResolveAndValidate verifies validation
-// (spec L4020: unified selector resolution).
-func TestTASK2253_ResolveAndValidate(t *testing.T) {
+// TestResolveAndValidate verifies validation
+// (unified selector resolution).
+func TestResolveAndValidate(t *testing.T) {
 	r, err := ResolveAndValidate(context.Background(), "e5")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -459,8 +459,8 @@ func TestTASK2253_ResolveAndValidate(t *testing.T) {
 	}
 }
 
-// TestTASK2253_IsValidSelectorKind verifies validation.
-func TestTASK2253_IsValidSelectorKind(t *testing.T) {
+// TestIsValidSelectorKind verifies validation.
+func TestIsValidSelectorKind(t *testing.T) {
 	if !IsValidSelectorKind(SelectorKindRef) {
 		t.Error("ref should be valid")
 	}
@@ -472,8 +472,8 @@ func TestTASK2253_IsValidSelectorKind(t *testing.T) {
 	}
 }
 
-// TestTASK2253_ResolvedSelectorIsMethods verifies Is* methods.
-func TestTASK2253_ResolvedSelectorIsMethods(t *testing.T) {
+// TestResolvedSelectorIsMethods verifies Is* methods.
+func TestResolvedSelectorIsMethods(t *testing.T) {
 	ref := ResolvedSelector{Kind: SelectorKindRef}
 	css := ResolvedSelector{Kind: SelectorKindCSS}
 	xpath := ResolvedSelector{Kind: SelectorKindXPath}
@@ -492,11 +492,11 @@ func TestTASK2253_ResolvedSelectorIsMethods(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2253_FullSpecParity verifies all 5 spec-mandated files
-// (spec L4020: click.go, type.go, form.go, scroll.go, resolve.go).
-func TestTASK2253_FullSpecParity(t *testing.T) {
+// TestActionsParity verifies all 5 spec-mandated files
+// (click.go, type.go, form.go, scroll.go, resolve.go).
+func TestActionsParity(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. click.go - click w/ human-like movement

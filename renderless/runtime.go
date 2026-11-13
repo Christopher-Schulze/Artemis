@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// runtime.go (spec L4022: renderless/runtime.go - runtime context
+// runtime.go (renderless/runtime.go - runtime context
 // management).
 //
 // In-process no-render JS browser path: runtime context management
@@ -14,7 +14,7 @@ import (
 // its own global scope and execution state.
 
 // RuntimeContext represents a V8 runtime context
-// (spec L4022: runtime context management).
+// (runtime context management).
 type RuntimeContext struct {
 	mu        sync.Mutex
 	id        string
@@ -26,7 +26,7 @@ type RuntimeContext struct {
 }
 
 // NewRuntimeContext creates a new runtime context
-// (spec L4022: runtime context management).
+// (runtime context management).
 func NewRuntimeContext(id string, isolateID int) *RuntimeContext {
 	return &RuntimeContext{
 		id:        id,
@@ -38,19 +38,19 @@ func NewRuntimeContext(id string, isolateID int) *RuntimeContext {
 }
 
 // ID returns the context ID
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) ID() string {
 	return c.id
 }
 
 // IsolateID returns the isolate ID
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) IsolateID() int {
 	return c.isolateID
 }
 
 // SetGlobal sets a global variable in the context
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) SetGlobal(name string, value interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -59,7 +59,7 @@ func (c *RuntimeContext) SetGlobal(name string, value interface{}) {
 }
 
 // GetGlobal retrieves a global variable from the context
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) GetGlobal(name string) (interface{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -69,7 +69,7 @@ func (c *RuntimeContext) GetGlobal(name string) (interface{}, bool) {
 }
 
 // Globals returns all global variable names
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) Globals() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -81,7 +81,7 @@ func (c *RuntimeContext) Globals() []string {
 }
 
 // Touch updates the last-used timestamp
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) Touch() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -89,7 +89,7 @@ func (c *RuntimeContext) Touch() {
 }
 
 // LastUsed returns the last-used timestamp
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) LastUsed() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -97,7 +97,7 @@ func (c *RuntimeContext) LastUsed() time.Time {
 }
 
 // Close closes the runtime context
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -106,7 +106,7 @@ func (c *RuntimeContext) Close() {
 }
 
 // IsClosed reports whether the context is closed
-// (spec L4022: runtime context management).
+// (runtime context management).
 func (c *RuntimeContext) IsClosed() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()

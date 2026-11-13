@@ -1,6 +1,6 @@
 // Package profile: proxy_profiles.go implements Session-Level Proxy with
-// Hybrid Geo-Modes (spec L4028). Adapted from
-// research/neueskram/camofox-browser-main/src/utils/proxy-profiles.ts:
+// Hybrid Geo-Modes. Adapted from
+// github.com/redf0x1/camofox-browser/src/utils/proxy-profiles.ts:
 // ProxyProfileConfig + ResolvedProxyConfig + GeoMode + getConfiguredServerProxy
 // + named-profile resolution + validation + contextHash session-isolation.
 package profile
@@ -18,7 +18,7 @@ import (
 )
 
 // GeoMode enumerates the hybrid geo-modes for session-level proxy
-// (spec L4028, adapted from research proxy-profiles.ts GeoMode).
+// (adapted from camofox-browser proxy-profiles.ts GeoMode).
 type GeoMode string
 
 const (
@@ -31,14 +31,14 @@ const (
 	GeoModeProxyLocked GeoMode = "proxy_locked"
 )
 
-// GeolocationConfig is a lat/long pair (spec L4028, research types.ts).
+// GeolocationConfig is a lat/long pair (camofox-browser types.ts).
 type GeolocationConfig struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 }
 
 // ProxyProfileConfig is a named proxy profile loaded from
-// the browser proxy-profiles file (research
+// the browser proxy-profiles file (camofox-browser
 // proxy-profiles.ts ProxyProfileConfig).
 type ProxyProfileConfig struct {
 	Server      string             `json:"server"`
@@ -50,7 +50,7 @@ type ProxyProfileConfig struct {
 }
 
 // ProxySource enumerates how the proxy was resolved
-// (spec L4028, research proxy-profiles.ts source field).
+// (camofox-browser proxy-profiles.ts source field).
 type ProxySource string
 
 const (
@@ -61,7 +61,7 @@ const (
 
 // ResolvedProxyConfig is the resolved proxy configuration after
 // named-profile resolution or raw-credentials normalization
-// (spec L4028, research proxy-profiles.ts ResolvedProxyConfig).
+// (camofox-browser proxy-profiles.ts ResolvedProxyConfig).
 type ResolvedProxyConfig struct {
 	Source      ProxySource        `json:"source"`
 	ProfileName string             `json:"profile_name,omitempty"`
@@ -74,7 +74,7 @@ type ResolvedProxyConfig struct {
 }
 
 // SessionProfileInput is the per-session proxy specification
-// (spec L4028, research proxy-profiles.ts SessionProfileInput).
+// (camofox-browser proxy-profiles.ts SessionProfileInput).
 type SessionProfileInput struct {
 	ProxyProfile string             `json:"proxyProfile,omitempty"`
 	RawProxy     *RawProxyOverride  `json:"proxy,omitempty"`
@@ -84,7 +84,7 @@ type SessionProfileInput struct {
 	Geolocation  *GeolocationConfig `json:"geolocation,omitempty"`
 }
 
-// RawProxyOverride is inline proxy credentials (spec L4028, research
+// RawProxyOverride is inline proxy credentials (camofox-browser
 // proxy-profiles.ts RawProxyOverride).
 type RawProxyOverride struct {
 	Host     string `json:"host"`
@@ -93,8 +93,7 @@ type RawProxyOverride struct {
 	Password string `json:"password,omitempty"`
 }
 
-// localeRegex validates BCP47 locale strings (spec L4028:
-// ^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$ max-35-chars).
+// localeRegex validates BCP47 locale strings (// ^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$ max-35-chars).
 var localeRegex = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 
 // ProxyProfileStore manages named proxy profiles loaded from a JSON
@@ -111,7 +110,7 @@ func NewProxyProfileStore() *ProxyProfileStore {
 }
 
 // LoadProxyProfiles loads named proxy profiles from a JSON file
-// (spec L4028, adapted from research proxy-profiles.ts loadProxyProfiles).
+// (adapted from camofox-browser proxy-profiles.ts loadProxyProfiles).
 // Returns an empty store on error (proxy profiles are optional).
 func LoadProxyProfiles(filePath string) (*ProxyProfileStore, error) {
 	s := NewProxyProfileStore()
@@ -137,8 +136,7 @@ func LoadProxyProfiles(filePath string) (*ProxyProfileStore, error) {
 	return s, nil
 }
 
-// Get returns a proxy profile by name (case-insensitive lookup,
-// spec L4028).
+// Get returns a proxy profile by name (case-insensitive lookup).
 func (s *ProxyProfileStore) Get(name string) (ProxyProfileConfig, bool) {
 	if s == nil {
 		return ProxyProfileConfig{}, false
@@ -164,7 +162,7 @@ func (s *ProxyProfileStore) Names() []string {
 }
 
 // validateProxyProfile validates a single proxy profile
-// (spec L4028, adapted from research proxy-profiles.ts validateProxyProfile).
+// (adapted from camofox-browser proxy-profiles.ts validateProxyProfile).
 func validateProxyProfile(name string, p ProxyProfileConfig) error {
 	if strings.TrimSpace(p.Server) == "" {
 		return fmt.Errorf("profile %q must have a non-empty server", name)
@@ -186,7 +184,7 @@ func validateProxyProfile(name string, p ProxyProfileConfig) error {
 }
 
 // ConfiguredServerProxy holds the fallback server proxy from environment
-// (spec L4028: PROXY_HOST/PROXY_PORT/PROXY_USERNAME/PROXY_PASSWORD).
+// (PROXY_HOST/PROXY_PORT/PROXY_USERNAME/PROXY_PASSWORD).
 type ConfiguredServerProxy struct {
 	Host     string
 	Port     int
@@ -195,7 +193,7 @@ type ConfiguredServerProxy struct {
 }
 
 // GetConfiguredServerProxy resolves the fallback server proxy
-// (spec L4028, adapted from research proxy-profiles.ts getConfiguredServerProxy).
+// (adapted from camofox-browser proxy-profiles.ts getConfiguredServerProxy).
 func GetConfiguredServerProxy(c ConfiguredServerProxy) *ResolvedProxyConfig {
 	if c.Host == "" || c.Port == 0 {
 		return nil
@@ -209,7 +207,7 @@ func GetConfiguredServerProxy(c ConfiguredServerProxy) *ResolvedProxyConfig {
 }
 
 // NormalizeRawProxy converts a RawProxyOverride to a ResolvedProxyConfig
-// (spec L4028, adapted from research proxy-profiles.ts normalizeRawProxy).
+// (adapted from camofox-browser proxy-profiles.ts normalizeRawProxy).
 func NormalizeRawProxy(raw RawProxyOverride) (*ResolvedProxyConfig, error) {
 	if raw.Host == "" || raw.Port == 0 {
 		return nil, fmt.Errorf("proxy.host and proxy.port are required")
@@ -223,8 +221,8 @@ func NormalizeRawProxy(raw RawProxyOverride) (*ResolvedProxyConfig, error) {
 }
 
 // ResolveSessionProxy resolves the proxy for a session based on the
-// input and available profiles/fallback (spec L4028, adapted from
-// research proxy-profiles.ts resolveSessionProfileInput).
+// input and available profiles/fallback (adapted from
+// camofox-browser proxy-profiles.ts resolveSessionProfileInput).
 // Returns the resolved proxy config and an error if validation fails
 // (e.g. proxy-locked mode with explicit overrides).
 func ResolveSessionProxy(input SessionProfileInput, store *ProxyProfileStore, serverFallback *ResolvedProxyConfig) (*ResolvedProxyConfig, error) {
@@ -268,7 +266,7 @@ func ResolveSessionProxy(input SessionProfileInput, store *ProxyProfileStore, se
 	}
 
 	// Validate proxy-locked mode: explicit overrides are not allowed
-	// (spec L4028, research proxy-profiles.ts proxy-locked validation).
+	// (camofox-browser proxy-profiles.ts proxy-locked validation).
 	if geoMode == GeoModeProxyLocked && proxy != nil {
 		if input.Locale != "" {
 			return nil, fmt.Errorf("proxy-locked does not allow explicit locale overrides")
@@ -299,7 +297,7 @@ func ResolveSessionProxy(input SessionProfileInput, store *ProxyProfileStore, se
 
 // ContextHash computes a deterministic SHA-256 hash (first 8 hex chars)
 // for session-isolation across different proxy profiles per-user
-// (spec L4023: contextHash(opts)=sha256(canonical_json){:8}).
+// (contextHash(opts)=sha256(canonical_json){:8}).
 func ContextHash(proxy *ResolvedProxyConfig, geoMode GeoMode) string {
 	canonical := struct {
 		Proxy   *ResolvedProxyConfig `json:"proxy"`
@@ -319,7 +317,7 @@ func ContextHash(proxy *ResolvedProxyConfig, geoMode GeoMode) string {
 }
 
 // ValidateProxyProfileInput validates a SessionProfileInput
-// (spec L4028: validation - server-non-empty, lat/long bounds,
+// (validation - server-non-empty, lat/long bounds,
 // locale BCP47, timezoneId IANA).
 func ValidateProxyProfileInput(input SessionProfileInput) error {
 	if input.Geolocation != nil {

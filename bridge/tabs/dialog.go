@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// dialog.go (spec L4021: bridge/tabs/dialog.go - alert/confirm/prompt
+// dialog.go (bridge/tabs/dialog.go - alert/confirm/prompt
 // handling).
 //
 // Multi-tab management: alert/confirm/prompt dialog handling.
@@ -14,7 +14,7 @@ import (
 // dismissed.
 
 // DialogType enumerates JavaScript dialog types
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 type DialogType string
 
 const (
@@ -25,7 +25,7 @@ const (
 )
 
 // DialogAction enumerates actions to take on a dialog
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 type DialogAction string
 
 const (
@@ -34,7 +34,7 @@ const (
 )
 
 // PendingDialog represents a pending JavaScript dialog on a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 type PendingDialog struct {
 	SessionID     string       `json:"sessionId,omitempty"`
 	Generation    uint64       `json:"generation"`
@@ -48,7 +48,7 @@ type PendingDialog struct {
 }
 
 // DialogHandler manages dialogs per tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 type DialogHandler struct {
 	mu             sync.Mutex
 	dialogs        map[string][]PendingDialog // tabID -> immutable pending values
@@ -56,7 +56,7 @@ type DialogHandler struct {
 }
 
 // NewDialogHandler creates a new DialogHandler
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func NewDialogHandler() *DialogHandler {
 	return &DialogHandler{
 		dialogs: make(map[string][]PendingDialog),
@@ -64,7 +64,7 @@ func NewDialogHandler() *DialogHandler {
 }
 
 // Enqueue adds a pending dialog for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) Enqueue(tabID string, dialog *PendingDialog) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -98,7 +98,7 @@ func boundedDialogText(text string) string {
 }
 
 // Dequeue removes and returns the next pending dialog for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) Dequeue(tabID string) (*PendingDialog, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -116,7 +116,7 @@ func (h *DialogHandler) Dequeue(tabID string) (*PendingDialog, bool) {
 }
 
 // Peek returns the next pending dialog without removing it
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) Peek(tabID string) (*PendingDialog, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -180,7 +180,7 @@ func (h *DialogHandler) ClearSession(tabID, sessionID string) {
 }
 
 // Pending returns the number of pending dialogs for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) Pending(tabID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -188,7 +188,7 @@ func (h *DialogHandler) Pending(tabID string) int {
 }
 
 // Clear removes all pending dialogs for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) Clear(tabID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -198,7 +198,7 @@ func (h *DialogHandler) Clear(tabID string) int {
 }
 
 // AcceptAll accepts all pending dialogs for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) AcceptAll(tabID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -208,7 +208,7 @@ func (h *DialogHandler) AcceptAll(tabID string) int {
 }
 
 // DismissAll dismisses all pending dialogs for a tab
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func (h *DialogHandler) DismissAll(tabID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -218,7 +218,7 @@ func (h *DialogHandler) DismissAll(tabID string) int {
 }
 
 // IsValidDialogType reports whether a dialog type is valid
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func IsValidDialogType(dt DialogType) bool {
 	switch dt {
 	case DialogTypeAlert, DialogTypeConfirm, DialogTypePrompt, DialogTypeBeforeUnload:
@@ -228,7 +228,7 @@ func IsValidDialogType(dt DialogType) bool {
 }
 
 // IsValidDialogAction reports whether a dialog action is valid
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func IsValidDialogAction(da DialogAction) bool {
 	switch da {
 	case DialogActionAccept, DialogActionDismiss:
@@ -238,7 +238,7 @@ func IsValidDialogAction(da DialogAction) bool {
 }
 
 // NewAlertDialog creates a new alert dialog
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func NewAlertDialog(message, url string) *PendingDialog {
 	return &PendingDialog{
 		Type:    DialogTypeAlert,
@@ -249,7 +249,7 @@ func NewAlertDialog(message, url string) *PendingDialog {
 }
 
 // NewConfirmDialog creates a new confirm dialog
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func NewConfirmDialog(message, url string) *PendingDialog {
 	return &PendingDialog{
 		Type:    DialogTypeConfirm,
@@ -260,7 +260,7 @@ func NewConfirmDialog(message, url string) *PendingDialog {
 }
 
 // NewPromptDialog creates a new prompt dialog
-// (spec L4021: alert/confirm/prompt handling).
+// (alert/confirm/prompt handling).
 func NewPromptDialog(message, url, defaultPrompt string) *PendingDialog {
 	return &PendingDialog{
 		Type:          DialogTypePrompt,

@@ -8,14 +8,14 @@ import (
 	"github.com/Christopher-Schulze/Artemis/network"
 )
 
-// SetRequestFilter replaces the browser-wide subresource filter (spec L4206);
+// SetRequestFilter replaces the browser-wide subresource filter;
 // nil turns ad/tracker blocking off for every page of this browser.
 func (b *ChromiumBrowser) SetRequestFilter(filter network.RequestFilter) {
 	b.policy.SetRequestFilter(filter)
 }
 
 // AdBlockedRequests returns how many requests of the current top-level
-// document the ad/tracker filter dropped (spec L4208 Case B signal).
+// document the ad/tracker filter dropped (Case B signal).
 func (p *Page) AdBlockedRequests() int64 {
 	return p.adBlocked.Load()
 }

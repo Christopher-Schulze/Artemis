@@ -15,7 +15,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// adblock.go is the Artemis ad/tracker blocker (spec L4206-L4210). Layer 1
+// adblock.go is the Artemis ad/tracker blocker. Layer 1
 // matches every admitted subresource against the embedded base list, custom
 // operator rules and the active EasyList/EasyPrivacy version; a newly
 // downloaded version is rolled out to half of all sessions for the rollout
@@ -168,7 +168,7 @@ func (a *AdBlocker) Enable() {
 	}
 }
 
-// Disable turns blocking off (spec L4210: disableable in settings).
+// Disable turns blocking off (disableable in settings).
 func (a *AdBlocker) Disable() {
 	if a != nil {
 		a.enabled.Store(false)

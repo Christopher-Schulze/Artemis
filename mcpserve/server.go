@@ -1,5 +1,5 @@
 // Package mcpserve exposes one Artemis session as a Model Context Protocol
-// server (spec L4036-L4038 dual-mode docking point) on the official MCP Go
+// server (dual-mode docking point) on the official MCP Go
 // SDK. Tools call the same Session operations as the steering server, so
 // page identity, policy, leases, observation epochs and typed errors are
 // those of the browser owner; there is no second browser runtime.

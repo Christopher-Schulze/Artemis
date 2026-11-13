@@ -116,7 +116,7 @@ func (n *Node) Children() []*Node {
 
 // Tag returns the lowercase tag name. It is empty for non-element nodes.
 //
-// Optimization (TASK-2344): the HTML parser (golang.org/x/net/html)
+// Optimization: the HTML parser (golang.org/x/net/html)
 // stores DataAtom for known tags and sets Data to the atom's string
 // (already lowercase). For unknown tags, Data is the raw token text
 // which may not be lowercase. We fast-path the common case (known
@@ -140,7 +140,7 @@ func (n *Node) Data() string { return n.raw.Data }
 // present. Attribute names are matched case-insensitively per HTML
 // semantics.
 //
-// Optimization (TASK-2344): the HTML tokenizer (golang.org/x/net/html)
+// Optimization: the HTML tokenizer (golang.org/x/net/html)
 // lowercases all attribute keys, so a fast-path exact match on the
 // lowercased name covers the common case. The EqualFold fallback
 // handles attributes injected by user code (mutation APIs) that may

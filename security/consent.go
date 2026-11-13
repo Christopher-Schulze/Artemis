@@ -19,7 +19,7 @@ func DefaultConsentAction() ConsentAction {
 	return ConsentDeny
 }
 
-// ConsentMode controls cookie consent prompt handling (spec L4553, L4583).
+// ConsentMode controls cookie consent prompt handling.
 type ConsentMode string
 
 const (
@@ -61,27 +61,27 @@ type ConsentDecision struct {
 	Reason          string // why the decision was made (audit/explainability)
 }
 
-// highRiskDomainSuffixes are never auto-accepted (spec L4553).
+// highRiskDomainSuffixes are never auto-accepted.
 var highRiskDomainSuffixes = []string{
 	".bank.", ".banking.", ".admin.", ".gov.", ".govt.",
 	".medical.", ".health.", ".klinik.", ".krankenhaus.",
 	".legal.", ".anwalt.", ".recht.",
 }
 
-// bannerKeywords match the cookie banner text (spec L4553).
+// bannerKeywords match the cookie banner text.
 var bannerKeywords = []string{
 	"cookie", "consent", "privacy", "datenschutz",
 	"gdpr", "dsgvo", "tracker", "zustimmung",
 }
 
-// acceptKeywords match the accept button text (spec L4553).
+// acceptKeywords match the accept button text.
 var acceptKeywords = []string{
 	"accept", "akzeptieren", "agree", "zustimmen", "allow",
 	"erlauben", "ok", "verstanden", "got it", "alle akzeptieren",
 	"accept all", "accept all cookies", "allow all",
 }
 
-// AutoConfirm runs the cookie-consent auto-confirm heuristic (spec L4553).
+// AutoConfirm runs the cookie-consent auto-confirm heuristic.
 //
 // Pipeline:
 //  1. Find cookie banner (position:fixed/sticky + z-index>999 + text matches
@@ -175,7 +175,7 @@ func isBannerCandidate(el ConsentElement) bool {
 }
 
 // findAcceptButton returns the index (into banner.Children) and text of the
-// accept button. Multiple matches take the LARGEST by text length (spec L4553).
+// accept button. Multiple matches take the LARGEST by text length.
 func findAcceptButton(banner ConsentElement) (int, string) {
 	bestIdx := -1
 	bestText := ""

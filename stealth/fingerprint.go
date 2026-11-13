@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// fingerprint.go (spec L4023: stealth/fingerprint.go - browser
+// fingerprint.go (stealth/fingerprint.go - browser
 // fingerprint spoofing).
 //
 // Anti-detection: browser fingerprint spoofing for canvas, WebGL,
@@ -14,7 +14,7 @@ import (
 // configuration and management types.
 
 // FingerprintConfig describes browser fingerprint spoofing settings
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
+// (fingerprint.go - browser fingerprint spoofing).
 type FingerprintConfig struct {
 	CanvasNoise         bool   `json:"canvasNoise"`         // add noise to canvas rendering
 	WebGLOverride       bool   `json:"webglOverride"`       // override WebGL renderer
@@ -25,7 +25,7 @@ type FingerprintConfig struct {
 }
 
 // DefaultFingerprintConfig returns the default fingerprint config
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
+// (fingerprint.go - browser fingerprint spoofing).
 func DefaultFingerprintConfig() FingerprintConfig {
 	return FingerprintConfig{
 		CanvasNoise:         true,
@@ -38,20 +38,19 @@ func DefaultFingerprintConfig() FingerprintConfig {
 }
 
 // FingerprintManager manages browser fingerprint spoofing
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
+// (fingerprint.go - browser fingerprint spoofing).
 type FingerprintManager struct {
 	mu      sync.RWMutex
 	current FingerprintConfig
 }
 
-// NewFingerprintManager creates a new FingerprintManager with defaults
-// (spec L4023).
+// NewFingerprintManager creates a new FingerprintManager with defaults.
 func NewFingerprintManager() *FingerprintManager {
 	return &FingerprintManager{current: DefaultFingerprintConfig()}
 }
 
 // SetConfig sets the fingerprint configuration
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
+// (fingerprint.go - browser fingerprint spoofing).
 func (m *FingerprintManager) SetConfig(c FingerprintConfig) {
 	if m == nil {
 		return
@@ -61,8 +60,7 @@ func (m *FingerprintManager) SetConfig(c FingerprintConfig) {
 	m.current = c
 }
 
-// Current returns the current fingerprint config
-// (spec L4023).
+// Current returns the current fingerprint config.
 func (m *FingerprintManager) Current() FingerprintConfig {
 	if m == nil {
 		return DefaultFingerprintConfig()
@@ -73,7 +71,7 @@ func (m *FingerprintManager) Current() FingerprintConfig {
 }
 
 // IsCanvasNoiseEnabled reports whether canvas noise is enabled
-// (spec L4023: fingerprint.go).
+// (fingerprint.go).
 func (m *FingerprintManager) IsCanvasNoiseEnabled() bool {
 	if m == nil {
 		return true
@@ -84,7 +82,7 @@ func (m *FingerprintManager) IsCanvasNoiseEnabled() bool {
 }
 
 // IsWebGLOverrideEnabled reports whether WebGL override is enabled
-// (spec L4023: fingerprint.go).
+// (fingerprint.go).
 func (m *FingerprintManager) IsWebGLOverrideEnabled() bool {
 	if m == nil {
 		return true
@@ -95,7 +93,7 @@ func (m *FingerprintManager) IsWebGLOverrideEnabled() bool {
 }
 
 // Validate checks that the fingerprint config is valid
-// (spec L4023: fingerprint.go - browser fingerprint spoofing).
+// (fingerprint.go - browser fingerprint spoofing).
 func (c FingerprintConfig) Validate() error {
 	if c.HardwareConcurrency < 1 || c.HardwareConcurrency > 64 {
 		return fmt.Errorf("fingerprint: hardwareConcurrency %d out of range [1,64]", c.HardwareConcurrency)

@@ -8,7 +8,7 @@ import (
 )
 
 // TestProjectHygieneFiles verifies that the public-facing project hygiene
-// files required by TASK-2361 exist and contain the minimum required
+// files exist and contain the minimum required
 // sections. These files are part of the public release surface and must
 // survive the subtree split.
 func TestProjectHygieneFiles(t *testing.T) {

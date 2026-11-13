@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// state.go (spec L4018: bridge/state.go - Bridge State Machine).
+// state.go (bridge/state.go - Bridge State Machine).
 //
 // This file provides the spec-mandated Bridge State Machine.
 // Tracks the bridge lifecycle state and enforces valid transitions.
 
 // BridgeState enumerates bridge states
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 type BridgeState string
 
 const (
@@ -27,7 +27,7 @@ const (
 )
 
 // BridgeStateMachine manages bridge state transitions
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 type BridgeStateMachine struct {
 	mu            sync.RWMutex
 	state         BridgeState
@@ -37,7 +37,7 @@ type BridgeStateMachine struct {
 }
 
 // NewBridgeStateMachine creates a new BridgeStateMachine
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func NewBridgeStateMachine() *BridgeStateMachine {
 	return &BridgeStateMachine{
 		state:       BridgeStateUninitialized,
@@ -60,7 +60,7 @@ func defaultTransitions() map[BridgeState][]BridgeState {
 }
 
 // Transition attempts to transition to a new state
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func (sm *BridgeStateMachine) Transition(newState BridgeState) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -85,7 +85,7 @@ func (sm *BridgeStateMachine) Transition(newState BridgeState) error {
 }
 
 // State returns the current state
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func (sm *BridgeStateMachine) State() BridgeState {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -93,7 +93,7 @@ func (sm *BridgeStateMachine) State() BridgeState {
 }
 
 // PreviousState returns the previous state
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func (sm *BridgeStateMachine) PreviousState() BridgeState {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -101,7 +101,7 @@ func (sm *BridgeStateMachine) PreviousState() BridgeState {
 }
 
 // EnteredAt returns when the current state was entered
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func (sm *BridgeStateMachine) EnteredAt() time.Time {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -109,7 +109,7 @@ func (sm *BridgeStateMachine) EnteredAt() time.Time {
 }
 
 // CanTransition reports whether a transition is valid
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func (sm *BridgeStateMachine) CanTransition(newState BridgeState) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -126,7 +126,7 @@ func (sm *BridgeStateMachine) CanTransition(newState BridgeState) bool {
 }
 
 // IsValidBridgeState reports whether a state is valid
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func IsValidBridgeState(s BridgeState) bool {
 	switch s {
 	case BridgeStateUninitialized, BridgeStateInitializing, BridgeStateReady,
@@ -139,13 +139,13 @@ func IsValidBridgeState(s BridgeState) bool {
 
 // IsTerminalState reports whether a state is terminal (no further
 // transitions except restart)
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func IsTerminalState(s BridgeState) bool {
 	return s == BridgeStateStopped || s == BridgeStateError
 }
 
 // IsActiveState reports whether a state is an active/running state
-// (spec L4018: Bridge State Machine).
+// (Bridge State Machine).
 func IsActiveState(s BridgeState) bool {
 	return s == BridgeStateReady || s == BridgeStateActive || s == BridgeStateDegraded
 }

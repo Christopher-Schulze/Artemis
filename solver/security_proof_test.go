@@ -252,12 +252,12 @@ func TestChallengeDetectorIgnoresPagesWithoutChallenge(t *testing.T) {
 	}
 }
 
-// ==================== TASK-2344 pipeline hot-path benchmarks ====================
+// ==================== pipeline hot-path benchmarks ====================
 
-// BenchmarkTASK2344_PipelineVisionSolved measures the pipeline hot path
+// BenchmarkPipelineVisionSolved measures the pipeline hot path
 // when vision solve succeeds on the first attempt (best case).
-func BenchmarkTASK2344_PipelineVisionSolved(b *testing.B) {
-	hub := &task2247MockHub{
+func BenchmarkPipelineVisionSolved(b *testing.B) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: true, Answer: "click", Local: true},
 	}
 	v := NewVisionSolver(hub)
@@ -275,10 +275,10 @@ func BenchmarkTASK2344_PipelineVisionSolved(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_PipelineUserFallback measures the pipeline hot path
+// BenchmarkPipelineUserFallback measures the pipeline hot path
 // when vision fails and user escalation hook solves (fallback case).
-func BenchmarkTASK2344_PipelineUserFallback(b *testing.B) {
-	hub := &task2247MockHub{
+func BenchmarkPipelineUserFallback(b *testing.B) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)
@@ -299,10 +299,10 @@ func BenchmarkTASK2344_PipelineUserFallback(b *testing.B) {
 	}
 }
 
-// BenchmarkTASK2344_PipelineNilHook measures the pipeline hot path when
+// BenchmarkPipelineNilHook measures the pipeline hot path when
 // vision fails and no user escalation hook is configured (error path).
-func BenchmarkTASK2344_PipelineNilHook(b *testing.B) {
-	hub := &task2247MockHub{
+func BenchmarkPipelineNilHook(b *testing.B) {
+	hub := &visionMockHub{
 		response: InferenceHubResponse{Solved: false, Error: "fail"},
 	}
 	v := NewVisionSolver(hub)

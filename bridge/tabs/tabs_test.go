@@ -154,9 +154,9 @@ func newTestRegistry() *TabRegistry { return NewTabRegistry(newTestTargetSource(
 
 // ==================== manager.go tests ====================
 
-// TestTASK2254_NewTabRegistry verifies creation
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_NewTabRegistry(t *testing.T) {
+// TestNewTabRegistry verifies creation
+// (tab registry + lifecycle).
+func TestNewTabRegistry(t *testing.T) {
 	r := NewTabRegistry()
 	if r == nil {
 		t.Fatal("registry should not be nil")
@@ -166,7 +166,7 @@ func TestTASK2254_NewTabRegistry(t *testing.T) {
 	}
 }
 
-func TestTASK2568_TabRegistryRequiresBridgeSourceAndProjectsCrash(t *testing.T) {
+func TestTabRegistryRequiresBridgeSourceAndProjectsCrash(t *testing.T) {
 	withoutSource := NewTabRegistry()
 	if tab := withoutSource.CreateTab("user", "https://example.com"); tab != nil {
 		t.Fatal("tab registry created an independent tab identity")
@@ -187,7 +187,7 @@ func TestTASK2568_TabRegistryRequiresBridgeSourceAndProjectsCrash(t *testing.T) 
 	}
 }
 
-func TestTASK2568_TabLifecycleFailureDoesNotMutateProjection(t *testing.T) {
+func TestTabLifecycleFailureDoesNotMutateProjection(t *testing.T) {
 	source := newTestTargetSource()
 	registry := NewTabRegistry(source)
 	source.failCreate = true
@@ -205,7 +205,7 @@ func TestTASK2568_TabLifecycleFailureDoesNotMutateProjection(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CreateProjectsReturnedTargetWithoutListRefresh(t *testing.T) {
+func TestCreateProjectsReturnedTargetWithoutListRefresh(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{
 		ID: "created-target", URL: "https://example.com", Title: "Example", State: "attached",
@@ -229,7 +229,7 @@ func TestTASK2784_CreateProjectsReturnedTargetWithoutListRefresh(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CreateCompensatesKnownPartialTarget(t *testing.T) {
+func TestCreateCompensatesKnownPartialTarget(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "partial-target", State: "attached"}
 	source.createErr = errors.New("created page metadata failed")
@@ -252,7 +252,7 @@ func TestTASK2784_CreateCompensatesKnownPartialTarget(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CreateWithoutTargetIDReportsUnknownOutcome(t *testing.T) {
+func TestCreateWithoutTargetIDReportsUnknownOutcome(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{State: "attached"}
 	source.useCreateResult = true
@@ -268,7 +268,7 @@ func TestTASK2784_CreateWithoutTargetIDReportsUnknownOutcome(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CreateRetainsOwnedPartialTargetWhenCompensationFails(t *testing.T) {
+func TestCreateRetainsOwnedPartialTargetWhenCompensationFails(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "uncertain-target", URL: "https://example.com", State: "attached"}
 	source.createErr = errors.New("target inspection failed")
@@ -286,7 +286,7 @@ func TestTASK2784_CreateRetainsOwnedPartialTargetWhenCompensationFails(t *testin
 	}
 }
 
-func TestTASK2784_CreateRejectsNonLiveTargetStates(t *testing.T) {
+func TestCreateRejectsNonLiveTargetStates(t *testing.T) {
 	for _, state := range []string{"closed", "crashed", "detached"} {
 		t.Run(state, func(t *testing.T) {
 			source := newTestTargetSource()
@@ -315,7 +315,7 @@ func TestTASK2784_CreateRejectsNonLiveTargetStates(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CanceledCreateUsesBoundedContextForCompensation(t *testing.T) {
+func TestCanceledCreateUsesBoundedContextForCompensation(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "cancelled-create-target", State: "attached"}
 	source.createErr = &TargetCreateError{TargetID: "cancelled-create-target", Err: errors.New("page setup failed")}
@@ -344,7 +344,7 @@ func TestTASK2784_CanceledCreateUsesBoundedContextForCompensation(t *testing.T) 
 	}
 }
 
-func TestTASK2784_SyncRetainsMetadataAndDoesNotInventActivity(t *testing.T) {
+func TestSyncRetainsMetadataAndDoesNotInventActivity(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "metadata-target", URL: "https://example.com", Title: "Example", State: "attached",
 		ContextID: "context-1", CreatedAt: time.Unix(100, 0)}
@@ -390,7 +390,7 @@ func TestTASK2784_SyncRetainsMetadataAndDoesNotInventActivity(t *testing.T) {
 	}
 }
 
-func TestTASK2784_ConcurrentOwnerMetadataUpdatesSurviveSync(t *testing.T) {
+func TestConcurrentOwnerMetadataUpdatesSurviveSync(t *testing.T) {
 	source := newTestTargetSource()
 	source.targets["target-a"] = Target{ID: "target-a", State: "attached"}
 	source.targets["target-b"] = Target{ID: "target-b", State: "attached"}
@@ -451,7 +451,7 @@ func TestTASK2784_ConcurrentOwnerMetadataUpdatesSurviveSync(t *testing.T) {
 	}
 }
 
-func TestTASK2784_SyncClearsObservedEmptyPageMetadata(t *testing.T) {
+func TestSyncClearsObservedEmptyPageMetadata(t *testing.T) {
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "metadata-target", URL: "https://example.com", Title: "Example", State: "attached", MetadataKnown: true}
 	registry := NewTabRegistry(source)
@@ -476,7 +476,7 @@ func TestTASK2784_SyncClearsObservedEmptyPageMetadata(t *testing.T) {
 	}
 }
 
-func TestTASK2784_ActivationRecordsOnlyConfirmedActivity(t *testing.T) {
+func TestActivationRecordsOnlyConfirmedActivity(t *testing.T) {
 	source := newTestTargetSource()
 	registry := NewTabRegistry(source)
 	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
@@ -504,7 +504,7 @@ func TestTASK2784_ActivationRecordsOnlyConfirmedActivity(t *testing.T) {
 	}
 }
 
-func TestTASK2784_InvalidSnapshotDoesNotPartiallyPublish(t *testing.T) {
+func TestInvalidSnapshotDoesNotPartiallyPublish(t *testing.T) {
 	source := newTestTargetSource()
 	registry := NewTabRegistry(source)
 	tab := registry.CreateTab("owner-1", "https://example.com")
@@ -527,7 +527,7 @@ func TestTASK2784_InvalidSnapshotDoesNotPartiallyPublish(t *testing.T) {
 	}
 }
 
-func TestTASK2784_ConcurrentCreateSyncRetainsOwner(t *testing.T) {
+func TestConcurrentCreateSyncRetainsOwner(t *testing.T) {
 	gate := &targetCreateGate{started: make(chan struct{}), release: make(chan struct{})}
 	source := newTestTargetSource()
 	source.createResult = Target{ID: "concurrent-target", URL: "https://example.com", State: "attached"}
@@ -552,7 +552,7 @@ func TestTASK2784_ConcurrentCreateSyncRetainsOwner(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CreateSurvivesEarlierDelayedEmptySnapshot(t *testing.T) {
+func TestCreateSurvivesEarlierDelayedEmptySnapshot(t *testing.T) {
 	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
 	source := newTestTargetSource()
 	source.listGates = map[int]*targetListGate{1: gate}
@@ -575,7 +575,7 @@ func TestTASK2784_CreateSurvivesEarlierDelayedEmptySnapshot(t *testing.T) {
 	}
 }
 
-func TestTASK2784_ActivityInvalidatesEarlierSnapshotBeforeInitialProjection(t *testing.T) {
+func TestActivityInvalidatesEarlierSnapshotBeforeInitialProjection(t *testing.T) {
 	activity := time.Unix(300, 0)
 	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
 	source := newTestTargetSource()
@@ -603,7 +603,7 @@ func TestTASK2784_ActivityInvalidatesEarlierSnapshotBeforeInitialProjection(t *t
 	}
 }
 
-func TestTASK2784_OlderSyncCannotResurrectConfirmedClose(t *testing.T) {
+func TestOlderSyncCannotResurrectConfirmedClose(t *testing.T) {
 	gate := &targetListGate{started: make(chan struct{}), release: make(chan struct{})}
 	source := newTestTargetSource()
 	source.targets["target-1"] = Target{ID: "target-1", URL: "https://example.com", State: "attached"}
@@ -625,7 +625,7 @@ func TestTASK2784_OlderSyncCannotResurrectConfirmedClose(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CloseDoesNotRefreshAfterConfirmedEffect(t *testing.T) {
+func TestCloseDoesNotRefreshAfterConfirmedEffect(t *testing.T) {
 	source := newTestTargetSource()
 	source.failListAfterClose = true
 	registry := NewTabRegistry(source)
@@ -645,7 +645,7 @@ func TestTASK2784_CloseDoesNotRefreshAfterConfirmedEffect(t *testing.T) {
 	}
 }
 
-func TestTASK2784_ConcurrentCloseConfirmsExactlyOnce(t *testing.T) {
+func TestConcurrentCloseConfirmsExactlyOnce(t *testing.T) {
 	source := newTestTargetSource()
 	registry := NewTabRegistry(source)
 	tab, err := registry.CreateTabContext(context.Background(), "owner-1", "https://example.com")
@@ -681,7 +681,7 @@ func TestTASK2784_ConcurrentCloseConfirmsExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestTASK2784_CanceledLifecycleWaitReturnsBeforePriorOperationFinishes(t *testing.T) {
+func TestCanceledLifecycleWaitReturnsBeforePriorOperationFinishes(t *testing.T) {
 	gate := &targetCreateGate{started: make(chan struct{}), release: make(chan struct{})}
 	source := newTestTargetSource()
 	source.targets["existing-target"] = Target{ID: "existing-target", State: "attached"}
@@ -741,9 +741,9 @@ func waitForRegistrySignal(t *testing.T, signal <-chan struct{}, description str
 	}
 }
 
-// TestTASK2254_CreateTab verifies tab creation
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_CreateTab(t *testing.T) {
+// TestCreateTab verifies tab creation
+// (tab registry + lifecycle).
+func TestCreateTab(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if tab == nil {
@@ -763,9 +763,9 @@ func TestTASK2254_CreateTab(t *testing.T) {
 	}
 }
 
-// TestTASK2254_GetTab verifies tab retrieval
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_GetTab(t *testing.T) {
+// TestGetTab verifies tab retrieval
+// (tab registry + lifecycle).
+func TestGetTab(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	got, ok := r.GetTab(tab.ID)
@@ -781,9 +781,9 @@ func TestTASK2254_GetTab(t *testing.T) {
 	}
 }
 
-// TestTASK2254_CloseTab verifies tab closing
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_CloseTab(t *testing.T) {
+// TestCloseTab verifies tab closing
+// (tab registry + lifecycle).
+func TestCloseTab(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if !r.CloseTab(tab.ID) {
@@ -797,9 +797,9 @@ func TestTASK2254_CloseTab(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ListTabs verifies tab listing
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_ListTabs(t *testing.T) {
+// TestListTabs verifies tab listing
+// (tab registry + lifecycle).
+func TestListTabs(t *testing.T) {
 	r := newTestRegistry()
 	r.CreateTab("user1", "https://a.com")
 	r.CreateTab("user1", "https://b.com")
@@ -814,9 +814,9 @@ func TestTASK2254_ListTabs(t *testing.T) {
 	}
 }
 
-// TestTASK2254_UpdateTabState verifies state updates
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_UpdateTabState(t *testing.T) {
+// TestUpdateTabState verifies state updates
+// (tab registry + lifecycle).
+func TestUpdateTabState(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if !r.UpdateTabState(tab.ID, TabStateOpen) {
@@ -828,9 +828,9 @@ func TestTASK2254_UpdateTabState(t *testing.T) {
 	}
 }
 
-// TestTASK2254_UpdateTabURL verifies URL updates
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_UpdateTabURL(t *testing.T) {
+// TestUpdateTabURL verifies URL updates
+// (tab registry + lifecycle).
+func TestUpdateTabURL(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	if r.UpdateTabURL(tab.ID, "https://new.com", "New Title") {
@@ -845,9 +845,9 @@ func TestTASK2254_UpdateTabURL(t *testing.T) {
 	}
 }
 
-// TestTASK2254_CloseAll verifies closing all tabs for a user
-// (spec L4021: tab registry + lifecycle).
-func TestTASK2254_CloseAll(t *testing.T) {
+// TestCloseAll verifies closing all tabs for a user
+// (tab registry + lifecycle).
+func TestCloseAll(t *testing.T) {
 	r := newTestRegistry()
 	r.CreateTab("user1", "https://a.com")
 	r.CreateTab("user1", "https://b.com")
@@ -861,8 +861,8 @@ func TestTASK2254_CloseAll(t *testing.T) {
 	}
 }
 
-// TestTASK2254_IsValidTabState verifies validation.
-func TestTASK2254_IsValidTabState(t *testing.T) {
+// TestIsValidTabState verifies validation.
+func TestIsValidTabState(t *testing.T) {
 	if !IsValidTabState(TabStateOpen) {
 		t.Error("open should be valid")
 	}
@@ -874,8 +874,8 @@ func TestTASK2254_IsValidTabState(t *testing.T) {
 	}
 }
 
-// TestTASK2254_TabString verifies String.
-func TestTASK2254_TabString(t *testing.T) {
+// TestTabString verifies String.
+func TestTabString(t *testing.T) {
 	tab := Tab{ID: "t1", UserID: "u1", URL: "https://x.com", State: TabStateOpen}
 	s := tab.String()
 	if s == "" {
@@ -885,9 +885,9 @@ func TestTASK2254_TabString(t *testing.T) {
 
 // ==================== executor.go tests ====================
 
-// TestTASK2254_NewTabExecutor verifies creation
-// (spec L4021: concurrent tab execution).
-func TestTASK2254_NewTabExecutor(t *testing.T) {
+// TestNewTabExecutor verifies creation
+// (concurrent tab execution).
+func TestNewTabExecutor(t *testing.T) {
 	r := newTestRegistry()
 	e := NewTabExecutor(r, 4)
 	if e == nil {
@@ -898,8 +898,8 @@ func TestTASK2254_NewTabExecutor(t *testing.T) {
 	}
 }
 
-// TestTASK2254_NewTabExecutorDefault verifies default concurrency.
-func TestTASK2254_NewTabExecutorDefault(t *testing.T) {
+// TestNewTabExecutorDefault verifies default concurrency.
+func TestNewTabExecutorDefault(t *testing.T) {
 	r := newTestRegistry()
 	e := NewTabExecutor(r, 0)
 	if e.MaxConcurrent() != 4 {
@@ -907,9 +907,9 @@ func TestTASK2254_NewTabExecutorDefault(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ExecuteTask verifies task execution
-// (spec L4021: concurrent tab execution).
-func TestTASK2254_ExecuteTask(t *testing.T) {
+// TestExecuteTask verifies task execution
+// (concurrent tab execution).
+func TestExecuteTask(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	e := NewTabExecutor(r, 4)
@@ -925,8 +925,8 @@ func TestTASK2254_ExecuteTask(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ExecuteTaskNotFound verifies nonexistent tab.
-func TestTASK2254_ExecuteTaskNotFound(t *testing.T) {
+// TestExecuteTaskNotFound verifies nonexistent tab.
+func TestExecuteTaskNotFound(t *testing.T) {
 	r := newTestRegistry()
 	e := NewTabExecutor(r, 4)
 	task := TabTask{
@@ -941,8 +941,8 @@ func TestTASK2254_ExecuteTaskNotFound(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ExecuteTaskError verifies error propagation.
-func TestTASK2254_ExecuteTaskError(t *testing.T) {
+// TestExecuteTaskError verifies error propagation.
+func TestExecuteTaskError(t *testing.T) {
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")
 	e := NewTabExecutor(r, 4)
@@ -961,9 +961,9 @@ func TestTASK2254_ExecuteTaskError(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ExecuteConcurrent verifies concurrent execution
-// (spec L4021: concurrent tab execution).
-func TestTASK2254_ExecuteConcurrent(t *testing.T) {
+// TestExecuteConcurrent verifies concurrent execution
+// (concurrent tab execution).
+func TestExecuteConcurrent(t *testing.T) {
 	r := newTestRegistry()
 	tab1 := r.CreateTab("user1", "https://a.com")
 	tab2 := r.CreateTab("user1", "https://b.com")
@@ -983,9 +983,9 @@ func TestTASK2254_ExecuteConcurrent(t *testing.T) {
 	}
 }
 
-// TestTASK2254_ExecuteSequential verifies sequential execution
-// (spec L4021: concurrent tab execution).
-func TestTASK2254_ExecuteSequential(t *testing.T) {
+// TestExecuteSequential verifies sequential execution
+// (concurrent tab execution).
+func TestExecuteSequential(t *testing.T) {
 	r := newTestRegistry()
 	tab1 := r.CreateTab("user1", "https://a.com")
 	tab2 := r.CreateTab("user1", "https://b.com")
@@ -1000,8 +1000,8 @@ func TestTASK2254_ExecuteSequential(t *testing.T) {
 	}
 }
 
-// TestTASK2254_TabTaskResultString verifies String.
-func TestTASK2254_TabTaskResultString(t *testing.T) {
+// TestTabTaskResultString verifies String.
+func TestTabTaskResultString(t *testing.T) {
 	r := TabTaskResult{TabID: "t1", Success: true, Duration: 10 * time.Millisecond}
 	s := r.String()
 	if s == "" {
@@ -1011,9 +1011,9 @@ func TestTASK2254_TabTaskResultString(t *testing.T) {
 
 // ==================== dialog.go tests ====================
 
-// TestTASK2254_DialogTypes verifies type constants
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogTypes(t *testing.T) {
+// TestDialogTypes verifies type constants
+// (alert/confirm/prompt handling).
+func TestDialogTypes(t *testing.T) {
 	if DialogTypeAlert != "alert" {
 		t.Error("alert mismatch")
 	}
@@ -1025,9 +1025,9 @@ func TestTASK2254_DialogTypes(t *testing.T) {
 	}
 }
 
-// TestTASK2254_NewDialogHandler verifies creation
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_NewDialogHandler(t *testing.T) {
+// TestNewDialogHandler verifies creation
+// (alert/confirm/prompt handling).
+func TestNewDialogHandler(t *testing.T) {
 	h := NewDialogHandler()
 	if h == nil {
 		t.Fatal("handler should not be nil")
@@ -1037,9 +1037,9 @@ func TestTASK2254_NewDialogHandler(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogEnqueueDequeue verifies queue operations
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogEnqueueDequeue(t *testing.T) {
+// TestDialogEnqueueDequeue verifies queue operations
+// (alert/confirm/prompt handling).
+func TestDialogEnqueueDequeue(t *testing.T) {
 	h := NewDialogHandler()
 	d := NewAlertDialog("Hello", "https://example.com")
 	h.Enqueue("tab1", d)
@@ -1058,8 +1058,8 @@ func TestTASK2254_DialogEnqueueDequeue(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogDequeueEmpty verifies empty queue.
-func TestTASK2254_DialogDequeueEmpty(t *testing.T) {
+// TestDialogDequeueEmpty verifies empty queue.
+func TestDialogDequeueEmpty(t *testing.T) {
 	h := NewDialogHandler()
 	_, ok := h.Dequeue("tab1")
 	if ok {
@@ -1067,9 +1067,9 @@ func TestTASK2254_DialogDequeueEmpty(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogPeek verifies peek
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogPeek(t *testing.T) {
+// TestDialogPeek verifies peek
+// (alert/confirm/prompt handling).
+func TestDialogPeek(t *testing.T) {
 	h := NewDialogHandler()
 	d := NewConfirmDialog("Are you sure?", "https://example.com")
 	h.Enqueue("tab1", d)
@@ -1085,9 +1085,9 @@ func TestTASK2254_DialogPeek(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogClear verifies clear
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogClear(t *testing.T) {
+// TestDialogClear verifies clear
+// (alert/confirm/prompt handling).
+func TestDialogClear(t *testing.T) {
 	h := NewDialogHandler()
 	h.Enqueue("tab1", NewAlertDialog("a", "url"))
 	h.Enqueue("tab1", NewAlertDialog("b", "url"))
@@ -1100,9 +1100,9 @@ func TestTASK2254_DialogClear(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogAcceptAll verifies accept all
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogAcceptAll(t *testing.T) {
+// TestDialogAcceptAll verifies accept all
+// (alert/confirm/prompt handling).
+func TestDialogAcceptAll(t *testing.T) {
 	h := NewDialogHandler()
 	h.Enqueue("tab1", NewAlertDialog("a", "url"))
 	h.Enqueue("tab1", NewConfirmDialog("b", "url"))
@@ -1112,9 +1112,9 @@ func TestTASK2254_DialogAcceptAll(t *testing.T) {
 	}
 }
 
-// TestTASK2254_DialogDismissAll verifies dismiss all
-// (spec L4021: alert/confirm/prompt handling).
-func TestTASK2254_DialogDismissAll(t *testing.T) {
+// TestDialogDismissAll verifies dismiss all
+// (alert/confirm/prompt handling).
+func TestDialogDismissAll(t *testing.T) {
 	h := NewDialogHandler()
 	h.Enqueue("tab1", NewAlertDialog("a", "url"))
 	h.Enqueue("tab1", NewConfirmDialog("b", "url"))
@@ -1124,8 +1124,8 @@ func TestTASK2254_DialogDismissAll(t *testing.T) {
 	}
 }
 
-// TestTASK2254_NewAlertDialog verifies alert creation.
-func TestTASK2254_NewAlertDialog(t *testing.T) {
+// TestNewAlertDialog verifies alert creation.
+func TestNewAlertDialog(t *testing.T) {
 	d := NewAlertDialog("msg", "url")
 	if d.Type != DialogTypeAlert {
 		t.Error("type should be alert")
@@ -1135,8 +1135,8 @@ func TestTASK2254_NewAlertDialog(t *testing.T) {
 	}
 }
 
-// TestTASK2254_NewConfirmDialog verifies confirm creation.
-func TestTASK2254_NewConfirmDialog(t *testing.T) {
+// TestNewConfirmDialog verifies confirm creation.
+func TestNewConfirmDialog(t *testing.T) {
 	d := NewConfirmDialog("msg", "url")
 	if d.Type != DialogTypeConfirm {
 		t.Error("type should be confirm")
@@ -1146,8 +1146,8 @@ func TestTASK2254_NewConfirmDialog(t *testing.T) {
 	}
 }
 
-// TestTASK2254_NewPromptDialog verifies prompt creation.
-func TestTASK2254_NewPromptDialog(t *testing.T) {
+// TestNewPromptDialog verifies prompt creation.
+func TestNewPromptDialog(t *testing.T) {
 	d := NewPromptDialog("msg", "url", "default")
 	if d.Type != DialogTypePrompt {
 		t.Error("type should be prompt")
@@ -1157,8 +1157,8 @@ func TestTASK2254_NewPromptDialog(t *testing.T) {
 	}
 }
 
-// TestTASK2254_IsValidDialogType verifies validation.
-func TestTASK2254_IsValidDialogType(t *testing.T) {
+// TestIsValidDialogType verifies validation.
+func TestIsValidDialogType(t *testing.T) {
 	if !IsValidDialogType(DialogTypeAlert) {
 		t.Error("alert should be valid")
 	}
@@ -1167,8 +1167,8 @@ func TestTASK2254_IsValidDialogType(t *testing.T) {
 	}
 }
 
-// TestTASK2254_IsValidDialogAction verifies validation.
-func TestTASK2254_IsValidDialogAction(t *testing.T) {
+// TestIsValidDialogAction verifies validation.
+func TestIsValidDialogAction(t *testing.T) {
 	if !IsValidDialogAction(DialogActionAccept) {
 		t.Error("accept should be valid")
 	}
@@ -1177,8 +1177,8 @@ func TestTASK2254_IsValidDialogAction(t *testing.T) {
 	}
 }
 
-// TestTASK2254_PendingDialogString verifies String.
-func TestTASK2254_PendingDialogString(t *testing.T) {
+// TestPendingDialogString verifies String.
+func TestPendingDialogString(t *testing.T) {
 	d := PendingDialog{Type: DialogTypeAlert, Message: "msg", Action: DialogActionAccept}
 	s := d.String()
 	if s == "" {
@@ -1188,9 +1188,9 @@ func TestTASK2254_PendingDialogString(t *testing.T) {
 
 // ==================== lock.go tests ====================
 
-// TestTASK2254_NewTabLock verifies creation
-// (spec L4021: per-tab locking).
-func TestTASK2254_NewTabLock(t *testing.T) {
+// TestNewTabLock verifies creation
+// (per-tab locking).
+func TestNewTabLock(t *testing.T) {
 	l := NewTabLock()
 	if l == nil {
 		t.Fatal("lock should not be nil")
@@ -1200,9 +1200,9 @@ func TestTASK2254_NewTabLock(t *testing.T) {
 	}
 }
 
-// TestTASK2254_LockUnlock verifies basic lock/unlock
-// (spec L4021: per-tab locking).
-func TestTASK2254_LockUnlock(t *testing.T) {
+// TestLockUnlock verifies basic lock/unlock
+// (per-tab locking).
+func TestLockUnlock(t *testing.T) {
 	l := NewTabLock()
 	l.Lock("tab1", "owner1")
 	if !l.IsLocked("tab1") {
@@ -1221,9 +1221,9 @@ func TestTASK2254_LockUnlock(t *testing.T) {
 	l.Unlock("tab1")
 }
 
-// TestTASK2254_TryLock verifies non-blocking lock
-// (spec L4021: per-tab locking).
-func TestTASK2254_TryLock(t *testing.T) {
+// TestTryLock verifies non-blocking lock
+// (per-tab locking).
+func TestTryLock(t *testing.T) {
 	l := NewTabLock()
 	if !l.TryLock("tab1", "owner1") {
 		t.Error("first TryLock should succeed")
@@ -1238,9 +1238,9 @@ func TestTASK2254_TryLock(t *testing.T) {
 	l.Unlock("tab1")
 }
 
-// TestTASK2254_LockWithTimeout verifies timeout
-// (spec L4021: per-tab locking).
-func TestTASK2254_LockWithTimeout(t *testing.T) {
+// TestLockWithTimeout verifies timeout
+// (per-tab locking).
+func TestLockWithTimeout(t *testing.T) {
 	l := NewTabLock()
 	l.Lock("tab1", "owner1")
 	// Should timeout since tab1 is locked
@@ -1255,9 +1255,9 @@ func TestTASK2254_LockWithTimeout(t *testing.T) {
 	l.Unlock("tab1")
 }
 
-// TestTASK2254_LockConcurrent verifies concurrent locking
-// (spec L4021: per-tab locking).
-func TestTASK2254_LockConcurrent(t *testing.T) {
+// TestLockConcurrent verifies concurrent locking
+// (per-tab locking).
+func TestLockConcurrent(t *testing.T) {
 	l := NewTabLock()
 	var wg sync.WaitGroup
 	count := 0
@@ -1280,9 +1280,9 @@ func TestTASK2254_LockConcurrent(t *testing.T) {
 	}
 }
 
-// TestTASK2254_LockedTabs verifies locked tab listing
-// (spec L4021: per-tab locking).
-func TestTASK2254_LockedTabs(t *testing.T) {
+// TestLockedTabs verifies locked tab listing
+// (per-tab locking).
+func TestLockedTabs(t *testing.T) {
 	l := NewTabLock()
 	l.Lock("tab1", "owner1")
 	l.Lock("tab2", "owner2")
@@ -1294,9 +1294,9 @@ func TestTASK2254_LockedTabs(t *testing.T) {
 	l.Unlock("tab1")
 }
 
-// TestTASK2254_LockRemove verifies removal
-// (spec L4021: per-tab locking).
-func TestTASK2254_LockRemove(t *testing.T) {
+// TestLockRemove verifies removal
+// (per-tab locking).
+func TestLockRemove(t *testing.T) {
 	l := NewTabLock()
 	l.Lock("tab1", "owner1")
 	if l.Remove("tab1") {
@@ -1308,8 +1308,8 @@ func TestTASK2254_LockRemove(t *testing.T) {
 	}
 }
 
-// TestTASK2254_LockString verifies String.
-func TestTASK2254_LockString(t *testing.T) {
+// TestLockString verifies String.
+func TestLockString(t *testing.T) {
 	l := NewTabLock()
 	l.Lock("tab1", "owner1")
 	s := l.String()
@@ -1319,11 +1319,11 @@ func TestTASK2254_LockString(t *testing.T) {
 	l.Unlock("tab1")
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2254_FullSpecParity verifies all 4 spec-mandated files
-// (spec L4021: manager.go, executor.go, dialog.go, lock.go).
-func TestTASK2254_FullSpecParity(t *testing.T) {
+// TestTabsParity verifies all 4 spec-mandated files
+// (manager.go, executor.go, dialog.go, lock.go).
+func TestTabsParity(t *testing.T) {
 	// 1. manager.go - tab registry + lifecycle
 	r := newTestRegistry()
 	tab := r.CreateTab("user1", "https://example.com")

@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-// form.go (spec L4020: bridge/actions/form.go - form fill/select/
+// form.go (bridge/actions/form.go - form fill/select/
 // check/submit).
 //
 // High-level actions: form filling, select, checkbox toggle, and
 // form submission.
 
 // FormAction represents a form action
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 type FormAction struct {
 	Type      FormActionType `json:"type"`
 	Ref       string         `json:"ref"`
@@ -22,7 +22,7 @@ type FormAction struct {
 }
 
 // FormActionType enumerates form action types
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 type FormActionType string
 
 const (
@@ -33,7 +33,7 @@ const (
 )
 
 // FormResult is the result of a form action
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 type FormResult struct {
 	Success  bool           `json:"success"`
 	Type     FormActionType `json:"type"`
@@ -43,31 +43,31 @@ type FormResult struct {
 }
 
 // NewFormFill creates a form fill action
-// (spec L4020: form fill).
+// (form fill).
 func NewFormFill(ref, value string) FormAction {
 	return FormAction{Type: FormActionFill, Ref: ref, Value: value}
 }
 
 // NewFormSelect creates a form select action
-// (spec L4020: select).
+// (select).
 func NewFormSelect(ref, value string) FormAction {
 	return FormAction{Type: FormActionSelect, Ref: ref, Value: value}
 }
 
 // NewFormCheck creates a checkbox toggle action
-// (spec L4020: check).
+// (check).
 func NewFormCheck(ref string) FormAction {
 	return FormAction{Type: FormActionCheck, Ref: ref}
 }
 
 // NewFormSubmit creates a form submit action
-// (spec L4020: submit).
+// (submit).
 func NewFormSubmit(ref string) FormAction {
 	return FormAction{Type: FormActionSubmit, Ref: ref}
 }
 
 // Execute executes the form action
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 func (a FormAction) Execute(ctx context.Context) FormResult {
 	start := time.Now()
 	if a.Ref == "" {
@@ -106,7 +106,7 @@ func (a FormAction) ExecuteWith(ctx context.Context, runtime *Runtime) FormResul
 }
 
 // FormBatch executes multiple form actions in sequence
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 func FormBatch(ctx context.Context, actions []FormAction) []FormResult {
 	results := make([]FormResult, len(actions))
 	for i, a := range actions {
@@ -124,7 +124,7 @@ func FormBatchWith(ctx context.Context, runtime *Runtime, actions []FormAction) 
 }
 
 // IsValidFormActionType reports whether a form action type is valid
-// (spec L4020: form fill/select/check/submit).
+// (form fill/select/check/submit).
 func IsValidFormActionType(t FormActionType) bool {
 	switch t {
 	case FormActionFill, FormActionSelect, FormActionCheck, FormActionSubmit:

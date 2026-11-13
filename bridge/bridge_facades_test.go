@@ -9,36 +9,36 @@ import (
 
 // ==================== bridge.go tests ====================
 
-// TestTASK2257_NewBridgeContextTree verifies context tree creation
-// (spec L4018: Context Hierarchy).
-func TestTASK2257_NewBridgeContextTree(t *testing.T) {
+// TestNewBridgeContextTree verifies context tree creation
+// (Context Hierarchy).
+func TestNewBridgeContextTree(t *testing.T) {
 	tree := NewBridgeContextTree()
 	if tree == nil {
 		t.Fatal("tree should not be nil")
 	}
 }
 
-// TestTASK2257_BridgeContextUnit verifies a context hierarchy unit
-// (spec L4018: Context Hierarchy).
-func TestTASK2257_BridgeContextUnit(t *testing.T) {
+// TestBridgeContextUnit verifies a context hierarchy unit
+// (Context Hierarchy).
+func TestBridgeContextUnit(t *testing.T) {
 	unit := BridgeContextUnit{ID: "ctx-1", ParentID: "root", Kind: "tab"}
 	if unit.ID != "ctx-1" {
 		t.Error("ID mismatch")
 	}
 }
 
-// TestTASK2257_NewBridgeProviderRegistry verifies registry creation
-// (spec L4018: Chrome Launch).
-func TestTASK2257_NewBridgeProviderRegistry(t *testing.T) {
+// TestNewBridgeProviderRegistry verifies registry creation
+// (Chrome Launch).
+func TestNewBridgeProviderRegistry(t *testing.T) {
 	r := NewBridgeProviderRegistry()
 	if r == nil {
 		t.Fatal("registry should not be nil")
 	}
 }
 
-// TestTASK2257_IsValidContextKind verifies validation
-// (spec L4018: Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
-func TestTASK2257_IsValidContextKind(t *testing.T) {
+// TestIsValidContextKind verifies validation
+// (Context Hierarchy AllocCtx -> BrowserCtx -> TabCtx).
+func TestIsValidContextKind(t *testing.T) {
 	if !IsValidContextKind(ContextKindAlloc) {
 		t.Error("alloc should be valid")
 	}
@@ -53,9 +53,9 @@ func TestTASK2257_IsValidContextKind(t *testing.T) {
 	}
 }
 
-// TestTASK2257_IsParentContext verifies parent check
-// (spec L4018: Context Hierarchy).
-func TestTASK2257_IsParentContext(t *testing.T) {
+// TestIsParentContext verifies parent check
+// (Context Hierarchy).
+func TestIsParentContext(t *testing.T) {
 	if !IsParentContext(ContextKindAlloc) {
 		t.Error("alloc should be parent")
 	}
@@ -67,9 +67,9 @@ func TestTASK2257_IsParentContext(t *testing.T) {
 	}
 }
 
-// TestTASK2257_IsLeafContext verifies leaf check
-// (spec L4018: Context Hierarchy).
-func TestTASK2257_IsLeafContext(t *testing.T) {
+// TestIsLeafContext verifies leaf check
+// (Context Hierarchy).
+func TestIsLeafContext(t *testing.T) {
 	if !IsLeafContext(ContextKindTab) {
 		t.Error("tab should be leaf")
 	}
@@ -80,9 +80,9 @@ func TestTASK2257_IsLeafContext(t *testing.T) {
 
 // ==================== init.go tests ====================
 
-// TestTASK2257_NewBridgeInitializer verifies creation
-// (spec L4018: Lifecycle).
-func TestTASK2257_NewBridgeInitializer(t *testing.T) {
+// TestNewBridgeInitializer verifies creation
+// (Lifecycle).
+func TestNewBridgeInitializer(t *testing.T) {
 	bi := NewBridgeInitializer(BridgeInitConfig{ProviderName: "local"})
 	if bi == nil {
 		t.Fatal("initializer should not be nil")
@@ -92,9 +92,9 @@ func TestTASK2257_NewBridgeInitializer(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitStart verifies start
-// (spec L4018: Chrome Launch + Stealth Injection).
-func TestTASK2257_BridgeInitStart(t *testing.T) {
+// TestBridgeInitStart verifies start
+// (Chrome Launch + Stealth Injection).
+func TestBridgeInitStart(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
@@ -110,8 +110,8 @@ func TestTASK2257_BridgeInitStart(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitStartTwice verifies double start fails.
-func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
+// TestBridgeInitStartTwice verifies double start fails.
+func TestBridgeInitStartTwice(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	t.Cleanup(func() {
 		if bi.IsStarted() {
@@ -127,9 +127,9 @@ func TestTASK2257_BridgeInitStartTwice(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitStop verifies stop
-// (spec L4018: Lifecycle).
-func TestTASK2257_BridgeInitStop(t *testing.T) {
+// TestBridgeInitStop verifies stop
+// (Lifecycle).
+func TestBridgeInitStop(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	if err := bi.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -143,8 +143,8 @@ func TestTASK2257_BridgeInitStop(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitStopNotStarted verifies stop without start.
-func TestTASK2257_BridgeInitStopNotStarted(t *testing.T) {
+// TestBridgeInitStopNotStarted verifies stop without start.
+func TestBridgeInitStopNotStarted(t *testing.T) {
 	bi := NewBridgeInitializer(testBridgeInitConfig())
 	err := bi.Stop()
 	if err == nil {
@@ -211,9 +211,9 @@ func (p *initializerTestProvider) Close() error {
 
 func (p *initializerTestProvider) Healthy() bool { return true }
 
-// TestTASK2257_BridgeInitConfigDefaults verifies defaults
-// (spec L4018: Lifecycle).
-func TestTASK2257_BridgeInitConfigDefaults(t *testing.T) {
+// TestBridgeInitConfigDefaults verifies defaults
+// (Lifecycle).
+func TestBridgeInitConfigDefaults(t *testing.T) {
 	cfg := BridgeInitConfig{}
 	cfg.ApplyDefaults()
 	if cfg.ProviderName != "local-chrome" {
@@ -224,9 +224,9 @@ func TestTASK2257_BridgeInitConfigDefaults(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitConfig verifies config retrieval
-// (spec L4018: Lifecycle).
-func TestTASK2257_BridgeInitConfig(t *testing.T) {
+// TestBridgeInitConfig verifies config retrieval
+// (Lifecycle).
+func TestBridgeInitConfig(t *testing.T) {
 	bi := NewBridgeInitializer(BridgeInitConfig{ProviderName: "test", MaxTabs: 5})
 	cfg := bi.Config()
 	if cfg.ProviderName != "test" {
@@ -237,9 +237,9 @@ func TestTASK2257_BridgeInitConfig(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeInitRegistry verifies registry access
-// (spec L4018: Chrome Launch).
-func TestTASK2257_BridgeInitRegistry(t *testing.T) {
+// TestBridgeInitRegistry verifies registry access
+// (Chrome Launch).
+func TestBridgeInitRegistry(t *testing.T) {
 	bi := NewBridgeInitializer(BridgeInitConfig{})
 	r := bi.Registry()
 	if r == nil {
@@ -249,9 +249,9 @@ func TestTASK2257_BridgeInitRegistry(t *testing.T) {
 
 // ==================== state.go tests ====================
 
-// TestTASK2257_NewBridgeStateMachine verifies creation
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_NewBridgeStateMachine(t *testing.T) {
+// TestNewBridgeStateMachine verifies creation
+// (Bridge State Machine).
+func TestNewBridgeStateMachine(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	if sm == nil {
 		t.Fatal("state machine should not be nil")
@@ -261,9 +261,9 @@ func TestTASK2257_NewBridgeStateMachine(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeStateTransition verifies valid transition
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_BridgeStateTransition(t *testing.T) {
+// TestBridgeStateTransition verifies valid transition
+// (Bridge State Machine).
+func TestBridgeStateTransition(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	err := sm.Transition(BridgeStateInitializing)
 	if err != nil {
@@ -274,9 +274,9 @@ func TestTASK2257_BridgeStateTransition(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeStateInvalidTransition verifies invalid transition
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_BridgeStateInvalidTransition(t *testing.T) {
+// TestBridgeStateInvalidTransition verifies invalid transition
+// (Bridge State Machine).
+func TestBridgeStateInvalidTransition(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	err := sm.Transition(BridgeStateActive)
 	if err == nil {
@@ -284,9 +284,9 @@ func TestTASK2257_BridgeStateInvalidTransition(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeStateCanTransition verifies can-transition check
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_BridgeStateCanTransition(t *testing.T) {
+// TestBridgeStateCanTransition verifies can-transition check
+// (Bridge State Machine).
+func TestBridgeStateCanTransition(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	if !sm.CanTransition(BridgeStateInitializing) {
 		t.Error("should be able to transition to initializing")
@@ -296,9 +296,9 @@ func TestTASK2257_BridgeStateCanTransition(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeStatePrevious verifies previous state
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_BridgeStatePrevious(t *testing.T) {
+// TestBridgeStatePrevious verifies previous state
+// (Bridge State Machine).
+func TestBridgeStatePrevious(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	if err := sm.Transition(BridgeStateInitializing); err != nil {
 		t.Fatal(err)
@@ -308,9 +308,9 @@ func TestTASK2257_BridgeStatePrevious(t *testing.T) {
 	}
 }
 
-// TestTASK2257_BridgeStateFullCycle verifies full lifecycle
-// (spec L4018: Bridge State Machine).
-func TestTASK2257_BridgeStateFullCycle(t *testing.T) {
+// TestBridgeStateFullCycle verifies full lifecycle
+// (Bridge State Machine).
+func TestBridgeStateFullCycle(t *testing.T) {
 	sm := NewBridgeStateMachine()
 	steps := []BridgeState{
 		BridgeStateInitializing,
@@ -330,8 +330,8 @@ func TestTASK2257_BridgeStateFullCycle(t *testing.T) {
 	}
 }
 
-// TestTASK2257_IsValidBridgeState verifies validation.
-func TestTASK2257_IsValidBridgeState(t *testing.T) {
+// TestIsValidBridgeState verifies validation.
+func TestIsValidBridgeState(t *testing.T) {
 	if !IsValidBridgeState(BridgeStateReady) {
 		t.Error("ready should be valid")
 	}
@@ -340,8 +340,8 @@ func TestTASK2257_IsValidBridgeState(t *testing.T) {
 	}
 }
 
-// TestTASK2257_IsTerminalState verifies terminal check.
-func TestTASK2257_IsTerminalState(t *testing.T) {
+// TestIsTerminalState verifies terminal check.
+func TestIsTerminalState(t *testing.T) {
 	if !IsTerminalState(BridgeStateStopped) {
 		t.Error("stopped should be terminal")
 	}
@@ -353,8 +353,8 @@ func TestTASK2257_IsTerminalState(t *testing.T) {
 	}
 }
 
-// TestTASK2257_IsActiveState verifies active check.
-func TestTASK2257_IsActiveState(t *testing.T) {
+// TestIsActiveState verifies active check.
+func TestIsActiveState(t *testing.T) {
 	if !IsActiveState(BridgeStateActive) {
 		t.Error("active should be active state")
 	}
@@ -366,11 +366,11 @@ func TestTASK2257_IsActiveState(t *testing.T) {
 	}
 }
 
-// ==================== full spec parity test ====================
+// ==================== parity test ====================
 
-// TestTASK2257_FullSpecParity verifies all 3 spec-mandated files
-// (spec L4018: bridge.go, init.go, state.go).
-func TestTASK2257_FullSpecParity(t *testing.T) {
+// TestBridgeFacadesParity verifies all 3 spec-mandated files
+// (bridge.go, init.go, state.go).
+func TestBridgeFacadesParity(t *testing.T) {
 	// 1. bridge.go - CDP Bridge context hierarchy
 	tree := NewBridgeContextTree()
 	if tree == nil {

@@ -34,7 +34,7 @@ func (s *partialCreateTargetSource) ActivateTarget(context.Context, string) erro
 
 func (s *partialCreateTargetSource) CloseTarget(context.Context, string) error { return s.closeErr }
 
-func TestTASK2784_TabOpenAndListUseRuntimeOwner(t *testing.T) {
+func TestTabOpenAndListUseRuntimeOwner(t *testing.T) {
 	source := &partialCreateTargetSource{
 		target: tabs.Target{ID: "owned-target", State: "attached"},
 		listTargets: []tabs.Target{
@@ -64,7 +64,7 @@ func TestTASK2784_TabOpenAndListUseRuntimeOwner(t *testing.T) {
 	}
 }
 
-func TestTASK2784_TabOpenReturnsIdentityWhenCompensationFails(t *testing.T) {
+func TestTabOpenReturnsIdentityWhenCompensationFails(t *testing.T) {
 	source := &partialCreateTargetSource{
 		target:    tabs.Target{ID: "uncertain-target", State: "attached"},
 		createErr: &tabs.TargetCreateError{TargetID: "uncertain-target", Err: errors.New("target metadata unavailable")},
@@ -82,7 +82,7 @@ func TestTASK2784_TabOpenReturnsIdentityWhenCompensationFails(t *testing.T) {
 	}
 }
 
-func TestTASK2784_TabOpenReportsUnknownCreateEffectWithoutIdentity(t *testing.T) {
+func TestTabOpenReportsUnknownCreateEffectWithoutIdentity(t *testing.T) {
 	source := &partialCreateTargetSource{
 		createErr: &tabs.TargetCreateError{OutcomeUnknown: true, Err: errors.New("create reply was lost")},
 	}
@@ -109,7 +109,7 @@ func TestTASK2784_TabOpenReportsUnknownCreateEffectWithoutIdentity(t *testing.T)
 	}
 }
 
-func TestTASK2784_PageTargetSourcePreservesUnknownCreateOutcome(t *testing.T) {
+func TestPageTargetSourcePreservesUnknownCreateOutcome(t *testing.T) {
 	target, err := targetCreateFailure(&bridge.TargetError{
 		State: bridge.TargetStateDetached, Message: "create receipt lost", OutcomeUnknown: true,
 	})

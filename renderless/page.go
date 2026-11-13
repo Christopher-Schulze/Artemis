@@ -12,17 +12,15 @@ import (
 	"github.com/Christopher-Schulze/Artemis/js"
 )
 
-// page.go (spec L4022: renderless/page.go - shared Page extraction
+// page.go (renderless/page.go - shared Page extraction
 // surface).
 //
 // In-process no-render JS browser path: shared Page extraction
 // surface. The Page represents a fetched page with DOM access,
 // text extraction, and structured data extraction.
-//
-// Ref: research/artemis/engine/page.go:1-65
 
 // Page represents a fetched page in the renderless engine
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 type Page struct {
 	URL        string
 	StatusCode int
@@ -37,7 +35,7 @@ type Page struct {
 
 // NewPage creates a detached page value for extraction/status helpers. It is
 // not an execution owner; fetched pages are created only by Engine.Fetch.
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func NewPage(url string, statusCode int, body []byte) *Page {
 	return &Page{
 		URL:        url,
@@ -101,45 +99,45 @@ func (p *Page) Close() error {
 }
 
 // ContentLength returns the content length in bytes
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) ContentLength() int {
 	return len(p.RawBody)
 }
 
 // IsHTML reports whether the page content is HTML
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) IsHTML() bool {
 	ct := p.Headers.Get("Content-Type")
 	return contains(ct, "text/html")
 }
 
 // IsJSON reports whether the page content is JSON
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) IsJSON() bool {
 	ct := p.Headers.Get("Content-Type")
 	return contains(ct, "application/json")
 }
 
 // IsSuccess reports whether the status code is 2xx
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) IsSuccess() bool {
 	return p.StatusCode >= 200 && p.StatusCode < 300
 }
 
 // IsRedirect reports whether the status code is 3xx
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) IsRedirect() bool {
 	return p.StatusCode >= 300 && p.StatusCode < 400
 }
 
 // IsError reports whether the status code is 4xx or 5xx
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) IsError() bool {
 	return p.StatusCode >= 400
 }
 
 // SetHeader sets a header on the page
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) SetHeader(key, value string) {
 	if p.Headers == nil {
 		p.Headers = make(http.Header)
@@ -148,7 +146,7 @@ func (p *Page) SetHeader(key, value string) {
 }
 
 // GetHeader retrieves a header from the page
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) GetHeader(key string) string {
 	if p.Headers == nil {
 		return ""
@@ -157,7 +155,7 @@ func (p *Page) GetHeader(key string) string {
 }
 
 // Age returns the age of the page since fetch
-// (spec L4022: shared Page extraction surface).
+// (shared Page extraction surface).
 func (p *Page) Age() time.Duration {
 	return time.Since(p.FetchedAt)
 }

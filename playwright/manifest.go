@@ -58,7 +58,7 @@ const (
 	AdmissionOnDemand  AdmissionMode = "policy_approved_on_demand"
 )
 
-// Capability is one Playwright-lane operation family (docs/spec.md:L2760).
+// Capability is one Playwright-lane operation family.
 type Capability string
 
 const (

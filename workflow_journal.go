@@ -13,7 +13,7 @@ import (
 )
 
 // workflow_journal.go persists a workflow run as an append-only JSONL step
-// journal (spec L4559-L4561, durable resume). Every step writes an intent
+// journal (durable resume). Every step writes an intent
 // before its effect and a receipt after it; each line is fsynced, so after a
 // crash the journal tells which steps verified, which failed without effect,
 // and which were in flight. An unterminated tail is a torn append and is

@@ -10,7 +10,7 @@ import (
 )
 
 // GPUInfo describes the real GPU detected on the system
-// (spec L4091: MEASURE-FIRST pattern. Real GPU via system_profiler
+// (MEASURE-FIRST pattern. Real GPU via system_profiler
 // (macOS) / lspci (Linux)).
 type GPUInfo struct {
 	Vendor   string
@@ -31,14 +31,14 @@ const (
 )
 
 // ConsistencyResult carries the full diagnostic truth of a consistency
-// check (spec L4091: Mismatch -> disable + warn; honest > fake).
+// check (Mismatch -> disable + warn; honest > fake).
 type ConsistencyResult struct {
 	Status ConsistencyStatus
 	Reason string
 }
 
 // gpuFamily is a build-time known GPU family with its expected WebGL
-// vendor string and renderer pattern (spec L4091: lookup table, build-time).
+// vendor string and renderer pattern (lookup table, build-time).
 type gpuFamily struct {
 	VendorPattern   string
 	RendererPattern string
@@ -47,7 +47,7 @@ type gpuFamily struct {
 
 // gpuLookupTable is the build-time GPU-to-WebGL consistency table.
 // Only GPUs in this table are eligible for override; unknown GPUs
-// fail closed (spec L4091: Mismatch -> disable + warn).
+// fail closed (Mismatch -> disable + warn).
 var gpuLookupTable = []gpuFamily{
 	{VendorPattern: "apple", RendererPattern: "apple", WebGLVendor: "Apple"},
 	{VendorPattern: "apple", RendererPattern: "apple m", WebGLVendor: "Apple"},
@@ -65,7 +65,7 @@ var gpuLookupTable = []gpuFamily{
 }
 
 // WebGLOverride is the WebGL renderer override configuration
-// (spec L4091: Override headless "SwiftShader" with REAL GPU name).
+// (Override headless "SwiftShader" with REAL GPU name).
 type WebGLOverride struct {
 	mu                 sync.RWMutex
 	gpu                GPUInfo
@@ -75,13 +75,13 @@ type WebGLOverride struct {
 }
 
 // NewWebGLOverride creates a new WebGL override instance
-// (spec L4091: MEASURE-FIRST pattern).
+// (MEASURE-FIRST pattern).
 func NewWebGLOverride() *WebGLOverride {
 	return &WebGLOverride{enabled: false}
 }
 
 // DetectGPU detects the real GPU on the system
-// (spec L4091: Real GPU via system_profiler SPDisplaysDataType (macOS)
+// (Real GPU via system_profiler SPDisplaysDataType (macOS)
 // / lspci | grep VGA (Linux)).
 func DetectGPU() GPUInfo {
 	switch runtime.GOOS {
@@ -95,7 +95,7 @@ func DetectGPU() GPUInfo {
 }
 
 // detectGPUMacOS detects GPU on macOS via system_profiler
-// (spec L4091: system_profiler SPDisplaysDataType).
+// (system_profiler SPDisplaysDataType).
 func detectGPUMacOS() GPUInfo {
 	cmd := exec.CommandContext(context.Background(), "system_profiler", "SPDisplaysDataType", "-detailLevel", "mini")
 	output, err := cmd.Output()
@@ -140,7 +140,7 @@ func detectGPUMacOS() GPUInfo {
 }
 
 // detectGPULinux detects GPU on Linux via lspci
-// (spec L4091: lspci | grep VGA).
+// (lspci | grep VGA).
 func detectGPULinux() GPUInfo {
 	cmd := exec.CommandContext(context.Background(), "lspci")
 	output, err := cmd.Output()
@@ -183,7 +183,7 @@ func extractVendor(gpuName string) string {
 
 // MeasureAndOverride performs the MEASURE-FIRST pattern: detect the
 // real GPU, then override SwiftShader if detected
-// (spec L4091: MEASURE-FIRST. Override headless "SwiftShader" with
+// (MEASURE-FIRST. Override headless "SwiftShader" with
 // REAL GPU name. Fallback: GPU undetectable -> DON'T spoof).
 func (w *WebGLOverride) MeasureAndOverride() bool {
 	if w == nil {
@@ -213,7 +213,7 @@ func (w *WebGLOverride) MeasureAndOverride() bool {
 }
 
 // checkConsistency validates the detected GPU against the build-time
-// lookup table (spec L4091: Consistency check: WebGL extensions must
+// lookup table (Consistency check: WebGL extensions must
 // match GPU (lookup table, build-time). Mismatch -> disable + warn).
 // Unknown GPUs fail closed.
 func checkConsistency(gpu GPUInfo) ConsistencyResult {
@@ -283,15 +283,14 @@ func (w *WebGLOverride) GPU() GPUInfo {
 }
 
 // IsSwiftShader reports whether the given renderer string is the
-// headless SwiftShader (spec L4091: Override headless "SwiftShader").
+// headless SwiftShader (Override headless "SwiftShader").
 func IsSwiftShader(renderer string) bool {
 	r := strings.ToLower(renderer)
 	return strings.Contains(r, "swiftshader")
 }
 
 // OverrideSwiftShader returns the real GPU renderer to replace
-// SwiftShader, or empty string if no override is available
-// (spec L4091).
+// SwiftShader, or empty string if no override is available.
 func (w *WebGLOverride) OverrideSwiftShader(currentRenderer string) string {
 	if w == nil || !w.IsEnabled() {
 		return ""
@@ -325,7 +324,7 @@ func (w *WebGLOverride) ConsistencyOK() bool {
 }
 
 // ConsistencyDiagnostic returns the full consistency result for
-// truthful reporting (spec L4091: honest > fake).
+// truthful reporting (honest > fake).
 func (w *WebGLOverride) ConsistencyDiagnostic() ConsistencyResult {
 	if w == nil {
 		return ConsistencyResult{Status: ConsistencyNotChecked, Reason: "nil override"}

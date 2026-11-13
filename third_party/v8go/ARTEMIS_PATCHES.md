@@ -29,7 +29,7 @@ built by Artemis' `cmd/artemis-v8go-binding`, so darwin builds need no special
 `.cc` or `.h` file changes without rebuilding the archives. On Linux cgo
 compiles the sources and needs `CC=clang-21 CXX=clang++-21 CGO_CXXFLAGS=-nostdinc++`.
 
-## Added: process-wide startup snapshot (TASK 042, TASK-2996)
+## Added: process-wide startup snapshot
 
 Artemis bakes the parse and first run of every JS bootstrap script into a
 startup snapshot (`js/snapshot.bin`) so each page realm deserialises in

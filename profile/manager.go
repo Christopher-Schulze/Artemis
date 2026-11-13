@@ -16,7 +16,7 @@ import (
 var profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 var ownerRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$`)
 
-// ShareScope controls profile sharing (spec L4585).
+// ShareScope controls profile sharing.
 type ShareScope string
 
 const (
@@ -25,7 +25,7 @@ const (
 	ShareWorkspaceShared ShareScope = "workspace_shared"
 )
 
-// BrowserProfile is one enterprise browser profile (spec L4583).
+// BrowserProfile is one enterprise browser profile.
 type BrowserProfile struct {
 	ID                  ProfileID  `json:"id"`
 	Name                string     `json:"name"`
@@ -47,14 +47,14 @@ type BrowserProfile struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
-// AccessDecision is the outcome of BrowserProfileAccessGate (spec L4585).
+// AccessDecision is the outcome of BrowserProfileAccessGate.
 type AccessDecision struct {
 	Allowed bool
 	Reason  string
 }
 
 // BrowserProfileAccessGate enforces caller permission before profile use
-// (spec L4585: private only owner, operator_shared owner+operators,
+// (private only owner, operator_shared owner+operators,
 // workspace_shared listed users).
 type BrowserProfileAccessGate struct {
 	// IsOperator reports whether the caller user ref is an operator for the
@@ -100,7 +100,7 @@ func (g *BrowserProfileAccessGate) Check(profile *BrowserProfile, callerUserRef 
 	}
 }
 
-// ProfileManager is the multi-profile CRUD manager (spec L4583).
+// ProfileManager is the multi-profile CRUD manager.
 type ProfileManager struct {
 	mu           sync.Mutex
 	profiles     map[string]*BrowserProfile // keyed by Name
@@ -324,7 +324,7 @@ func (m *ProfileManager) Delete(name, callerUserRef string) error {
 }
 
 // SwitchProfile activates one profile and deactivates all others owned by
-// the same user (spec L4587: user-context switch closes/evicts active
+// the same user (user-context switch closes/evicts active
 // tabs for the previous user).
 func (m *ProfileManager) SwitchProfile(name, callerUserRef string) (*BrowserProfile, error) {
 	if m == nil {

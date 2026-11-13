@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ConfigHashConfig controls sandbox config hashing behavior (spec L4310).
+// ConfigHashConfig controls sandbox config hashing behavior.
 // A config hash is computed over the JSON-normalized sandbox config and is
 // used to decide whether a running browser bridge can be reused or must be
 // recreated. The hot window is the grace period during which a mismatch

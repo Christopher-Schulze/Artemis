@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// api.go (spec L4601: REST API for browser profiles, sessions, cookies, storage, settings).
+// api.go (REST API for browser profiles, sessions, cookies, storage, settings).
 //
 // REST API endpoints:
 //   GET/POST /api/browser/profiles
@@ -22,7 +22,7 @@ import (
 //   GET/PUT /api/browser/settings
 
 // BrowserAPI is the REST API handler for browser profile/session/cookie/storage
-// operations (spec L4601).
+// operations.
 type BrowserAPI struct {
 	mu       sync.RWMutex
 	Manager  *ProfileManager
@@ -39,7 +39,7 @@ func (a *BrowserAPI) WithRuntime(runtime *RuntimeManager) *BrowserAPI {
 	return a
 }
 
-// BrowserSettings holds browser-level settings (spec L4601: GET/PUT /api/browser/settings).
+// BrowserSettings holds browser-level settings (GET/PUT /api/browser/settings).
 type BrowserSettings struct {
 	Headless       bool   `json:"headless"`
 	DownloadDir    string `json:"download_dir"`
@@ -70,7 +70,7 @@ func NewBrowserAPI(manager *ProfileManager, sessions *SessionManager, cookies *C
 	}
 }
 
-// Routes returns the HTTP handler with all REST API routes registered (spec L4601).
+// Routes returns the HTTP handler with all REST API routes registered.
 func (a *BrowserAPI) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/browser/profiles", a.handleProfiles)
