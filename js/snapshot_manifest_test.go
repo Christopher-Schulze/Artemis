@@ -42,6 +42,39 @@ func TestCurrentSnapshotManifestMatchesEmbeddedInputs(t *testing.T) {
 	}
 }
 
+func TestSnapshotManifestBindsTheGoReleaseLineNotThePatch(t *testing.T) {
+	// The committed target is passed explicitly, so the Go-line rule is
+	// proven on every build host, not only on the snapshot target.
+	manifest, err := EmbeddedSnapshotManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetOS, targetArch := manifest.TargetOS, manifest.TargetArch
+	if manifest.GoVersion != "go1.27" || manifest.ToolchainRef != snapshotToolchainRef(v8.Version(), "go1.27.0", targetOS, targetArch) {
+		t.Fatalf("manifest go_version=%q toolchain_ref=%q, want the go1.27 release line", manifest.GoVersion, manifest.ToolchainRef)
+	}
+	input, err := BuildSnapshotInputManifest(SnapshotStubBootstrap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		goVersion string
+		valid     bool
+	}{
+		{"go1.27.0", true}, {"go1.27.3", true}, {"go1.27.4", true}, {"go1.27.19", true}, {"go1.27rc2", true},
+		{"go1.26.9", false}, {"go1.28.0", false}, {"go1.2", false}, {"devel go1.28-0123456789ab", false}, {"", false},
+	}
+	for _, test := range tests {
+		err := ValidateSnapshotManifest(manifest, snapshotBlob, input, v8.Version(), test.goVersion, targetOS, targetArch)
+		if (err == nil) != test.valid {
+			t.Fatalf("%q: err=%v, want valid=%t", test.goVersion, err, test.valid)
+		}
+	}
+	if fresh := NewSnapshotManifest(input, snapshotBlob, v8.Version(), "go1.27.4", targetOS, targetArch); fresh.GoVersion != manifest.GoVersion || fresh.ToolchainRef != manifest.ToolchainRef {
+		t.Fatalf("a go1.27.4 generation records %q/%q, committed %q/%q", fresh.GoVersion, fresh.ToolchainRef, manifest.GoVersion, manifest.ToolchainRef)
+	}
+}
+
 func TestSnapshotManifestUsesStandaloneIdentity(t *testing.T) {
 	manifest, err := EmbeddedSnapshotManifest()
 	if err != nil {

@@ -11,9 +11,6 @@ on:
 permissions:
   contents: read
 
-env:
-  GOTOOLCHAIN: go1.27.3
-
 jobs:
   test-linux:
     name: Linux - Build + Test
@@ -30,9 +27,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod pins go 1.27.3, the Go release named in
-          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
-          go-version-file: go.mod
+          # The latest Go 1.27 patch: js/snapshot_manifest.json binds the
+          # committed V8 snapshot to the go1.27 release line, not a patch.
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
 
       - name: Install LLVM Clang 21
@@ -59,8 +57,13 @@ jobs:
         run: go test -vet=off -count=1 -p 1 -timeout 600s ./...
 
   test-macos-arm64:
-    name: macOS Apple Silicon - Build + Test
-    runs-on: macos-14
+    name: macOS Apple Silicon (${{ matrix.os }}) - Build + Test
+    # The oldest supported macOS release and the newest runner image.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -69,9 +72,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          # go.mod pins go 1.27.3, the Go release named in
-          # js/snapshot_manifest.json, which the committed V8 snapshot needs.
-          go-version-file: go.mod
+          # The latest Go 1.27 patch: js/snapshot_manifest.json binds the
+          # committed V8 snapshot to the go1.27 release line, not a patch.
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
 
       - name: Install C toolchain

@@ -83,6 +83,12 @@ func runMode(checkOnly bool) error {
 }
 
 func generateSnapshot() ([]byte, error) {
+	// The SnapshotCreator owns a V8 isolate entered on the creating OS
+	// thread; every later call must run on that thread. Without the lock a
+	// goroutine migration between cgo calls crashes V8 (reproducible with
+	// GOMAXPROCS=1).
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	// --predictable forces V8 to use a deterministic random seed and a
 	// stable allocation strategy so the produced snapshot bytes are
