@@ -141,9 +141,34 @@ type CDPTransport struct {
 	pending    map[int64]chan cdpResponse
 	subs       map[uint64]*cdpSubscriber
 	terminal   error
+	closeCause func() error
+	finishing  atomic.Bool
 	maxPending int
 	nextID     atomic.Int64
 	nextSubID  atomic.Uint64
+}
+
+// setCloseCause installs the owner's explanation for an unexpected hang-up
+// (the owned Chromium process exit status and recent output). It is consulted
+// once, only when the peer closes the connection, never on an explicit Close.
+func (t *CDPTransport) setCloseCause(cause func() error) {
+	t.mu.Lock()
+	t.closeCause = cause
+	t.mu.Unlock()
+}
+
+// unexpectedCloseCause explains a read failure that this side did not start.
+func (t *CDPTransport) unexpectedCloseCause() error {
+	if t.finishing.Load() {
+		return nil
+	}
+	t.mu.Lock()
+	cause := t.closeCause
+	t.mu.Unlock()
+	if cause == nil {
+		return nil
+	}
+	return cause()
 }
 
 // DialCDPTransport validates and connects a bounded CDP transport.
@@ -301,6 +326,9 @@ func (t *CDPTransport) readLoop(ctx context.Context) {
 	for {
 		messageType, payload, err := t.conn.Read(ctx)
 		if err != nil {
+			if cause := t.unexpectedCloseCause(); cause != nil {
+				err = errors.Join(err, cause)
+			}
 			t.finish(&CDPError{Code: CDPErrorClosed, Op: "read", Err: err})
 			return
 		}
@@ -397,6 +425,7 @@ func (t *CDPTransport) removeSubscription(id uint64) {
 
 func (t *CDPTransport) finish(err error) {
 	t.finishOnce.Do(func() {
+		t.finishing.Store(true)
 		t.cancel()
 		_ = t.conn.CloseNow()
 		t.mu.Lock()

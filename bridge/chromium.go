@@ -286,6 +286,7 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		browser.monitorTargets(monitor)
 	}()
 	if processOwner != nil {
+		transport.setCloseCause(func() error { return chromiumHangUpCause(processOwner, chromiumHangUpWait) })
 		browser.processDone = make(chan struct{})
 		go func() {
 			defer close(browser.processDone)
@@ -293,6 +294,28 @@ func connectChromium(ctx context.Context, endpoint string, processOwner *browser
 		}()
 	}
 	return browser, nil
+}
+
+// chromiumHangUpWait bounds how long an unexpected CDP hang-up waits for the
+// owned process to report its exit before the error is returned.
+const chromiumHangUpWait = time.Second
+
+// chromiumHangUpCause explains why an owned Chromium closed its CDP socket:
+// the process exit status and recent Chromium output, or, if the process is
+// still alive, that the socket closed without a process exit.
+func chromiumHangUpCause(processOwner *browserprocess.Browser, wait time.Duration) error {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-processOwner.Exited():
+		exit := processOwner.WaitError()
+		if exit == nil {
+			exit = errors.New("exit status 0")
+		}
+		return fmt.Errorf("chromium exited: %w; recent output: %s", exit, processOwner.Output())
+	case <-timer.C:
+		return fmt.Errorf("chromium still running %s after the CDP socket closed; recent output: %s", wait, processOwner.Output())
+	}
 }
 
 // Version returns the immutable validated browser identity.
@@ -818,6 +841,8 @@ func (b *ChromiumBrowser) close() error {
 	var gracefulErr error
 	var warning string
 	if b.owned {
+		// The hang-up after Browser.close is expected, not a crash.
+		b.transport.setCloseCause(nil)
 		closeCtx, cancel := context.WithTimeout(context.Background(), defaultCDPDialTimeout)
 		err := b.transport.Call(closeCtx, "Browser.close", nil, nil)
 		gracefulErr = err
