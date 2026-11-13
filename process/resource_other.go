@@ -6,6 +6,8 @@ import "fmt"
 
 func platformResourceDefaults() ResourceBudget { return ResourceBudget{} }
 
+func newResourceSampler() resourceSampler { return sampleProcessResources }
+
 func sampleProcessResources(_ int, profileDir string) (ResourceUsage, error) {
 	profileBytes, err := directorySize(profileDir)
 	if err != nil {

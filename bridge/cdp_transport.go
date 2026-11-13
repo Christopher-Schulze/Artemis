@@ -473,6 +473,17 @@ func (t *CDPTransport) PendingCalls() int {
 	return len(t.pending)
 }
 
+// closeWithCause closes the transport after its owner observed the peer's
+// death, so every waiter and later call reports that cause.
+func (t *CDPTransport) closeWithCause(op string, cause error) {
+	select {
+	case <-t.done:
+	default:
+		t.finish(&CDPError{Code: CDPErrorClosed, Op: op, Err: cause})
+	}
+	<-t.readDone
+}
+
 // Close immediately closes the WebSocket and unblocks every waiter.
 func (t *CDPTransport) Close() error {
 	select {

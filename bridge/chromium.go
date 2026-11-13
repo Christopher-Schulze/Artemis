@@ -304,18 +304,30 @@ const chromiumHangUpWait = time.Second
 // the process exit status and recent Chromium output, or, if the process is
 // still alive, that the socket closed without a process exit.
 func chromiumHangUpCause(processOwner *browserprocess.Browser, wait time.Duration) error {
+	select {
+	case <-processOwner.Exited():
+		return chromiumExitCause(processOwner)
+	default:
+	}
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
 	case <-processOwner.Exited():
-		exit := processOwner.WaitError()
-		if exit == nil {
-			exit = errors.New("exit status 0")
-		}
-		return fmt.Errorf("chromium exited: %w; recent output: %s", exit, processOwner.Output())
+		return chromiumExitCause(processOwner)
 	case <-timer.C:
 		return fmt.Errorf("chromium still running %s after the CDP socket closed; recent output: %s", wait, processOwner.Output())
 	}
+}
+
+func chromiumExitCause(processOwner *browserprocess.Browser) error {
+	exit := processOwner.WaitError()
+	if exit == nil {
+		exit = errors.New("exit status 0")
+	}
+	if stopped := processOwner.TerminationCause(); stopped != nil {
+		return fmt.Errorf("chromium exited: %w; terminated by Artemis: %w; recent output: %s", exit, stopped, processOwner.Output())
+	}
+	return fmt.Errorf("chromium exited: %w; recent output: %s", exit, processOwner.Output())
 }
 
 // Version returns the immutable validated browser identity.
@@ -529,7 +541,8 @@ func (b *ChromiumBrowser) monitorProcess(processOwner *browserprocess.Browser) {
 	terminal := b.terminal
 	b.mu.Unlock()
 	if terminal != nil {
-		_ = b.transport.Close()
+		// Calls that race the exit must report it, not a bare closed socket.
+		b.transport.closeWithCause("browser exit", chromiumExitCause(processOwner))
 		if b.policyProxy != nil {
 			_ = b.policyProxy.Close()
 		}

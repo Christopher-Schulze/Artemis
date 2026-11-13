@@ -182,7 +182,7 @@ func normalizeLaunchConfig(config LaunchConfig) (LaunchConfig, Binary, error) {
 		return LaunchConfig{}, Binary{}, invalidConfig(err.Error())
 	}
 	if config.resourceSampler == nil {
-		config.resourceSampler = sampleProcessResources
+		config.resourceSampler = newResourceSampler()
 	}
 	if config.StartupTimeout < 0 || config.ShutdownTimeout < 0 || config.OutputLimit < 1024 {
 		return LaunchConfig{}, Binary{}, invalidConfig("timeouts must be positive and output limit must be at least 1024 bytes")
@@ -611,6 +611,12 @@ func (b *Browser) waitForEndpoint(ctx context.Context, timeout time.Duration) (s
 		case <-ticker.C:
 		}
 	}
+}
+
+// TerminationCause reports why Artemis itself terminated Chromium (resource
+// budget, session timeout, failed sampling), or nil when it did not.
+func (b *Browser) TerminationCause() error {
+	return b.terminalError()
 }
 
 func (b *Browser) terminalError() error {

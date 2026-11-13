@@ -77,3 +77,33 @@ func TestChromiumKilledProcessExplainsTheClosedTransport(t *testing.T) {
 		t.Fatalf("closed transport does not explain the killed process: %v", listErr)
 	}
 }
+
+// TestChromiumStoppedByArtemisNamesTheBudget reproduces the CI failure mode:
+// Artemis' resource supervisor ends Chromium with SIGTERM, Chromium exits 0,
+// and every later call must say that Artemis stopped it and why.
+func TestChromiumStoppedByArtemisNamesTheBudget(t *testing.T) {
+	binary := requireChromium(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	browser, err := LaunchChromium(ctx, browserprocess.LaunchConfig{
+		BinaryPath: binary.Path, Headless: true, StartupTimeout: 10 * time.Second,
+		ResourceBudget: browserprocess.ResourceBudget{MaxMemoryBytes: 1, SampleInterval: 2 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := browser.Close(); closeErr != nil && !strings.Contains(closeErr.Error(), "memory bytes") {
+			t.Logf("close stopped Chromium: %v", closeErr)
+		}
+	}()
+	select {
+	case <-browser.Transport().Done():
+	case <-ctx.Done():
+		t.Fatal("the resource budget did not stop Chromium")
+	}
+	_, listErr := browser.listTargetInfos(ctx)
+	if listErr == nil || !strings.Contains(listErr.Error(), "terminated by Artemis") || !strings.Contains(listErr.Error(), "memory bytes") {
+		t.Fatalf("closed transport does not name the Artemis budget stop: %v", listErr)
+	}
+}
