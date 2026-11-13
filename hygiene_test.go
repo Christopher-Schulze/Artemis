@@ -25,7 +25,7 @@ func TestProjectHygieneFiles(t *testing.T) {
 		{"README.md", []string{"Artemis"}},
 		{filepath.Join("third_party", "v8go", "PROVENANCE.md"), []string{"github.com/tommie/v8go", "v0.39.0", "ARTEMIS_PATCHES.md", "LICENSE"}},
 		{filepath.Join("third_party", "v8go", "ARTEMIS_PATCHES.md"), []string{"github.com/tommie/v8go", "SetProcessSnapshot", "LICENSE"}},
-		{".github/workflows/ci.yml", []string{"test-linux", "test-macos-arm64", "runs-on: macos-15", "runs-on: ubuntu-latest"}},
+		{".github/workflows/ci.yml", []string{"test-linux", "runs-on: ubuntu-latest"}},
 		{"docs/release-procedures.md", []string{"Signing", "Rollback", "Revocation", "Vulnerability Response", "Operator Gate"}},
 	}
 
@@ -42,6 +42,16 @@ func TestProjectHygieneFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+	// macOS is verified locally (make full); the public CI runs Linux only.
+	for _, workflow := range []string{".github/workflows/ci.yml", ".github/workflows/full.yml"} {
+		data, err := os.ReadFile(filepath.Join(root, workflow))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "macos") {
+			t.Errorf("%s runs a macOS job; macOS is tested locally", workflow)
+		}
 	}
 }
 
