@@ -54,9 +54,36 @@ func sampleProcfsGroup(root string, processGroupID int) (float64, int64, error) 
 			return 0, 0, fmt.Errorf("parse %s/%s/stat: invalid cpu or rss field", root, entry.Name())
 		}
 		cpuSeconds += float64(utime+stime) / procfsClockTicks
-		memoryBytes += rssPages * pageSize
+		// RSS counts the Chromium binary, libraries and shared memory once
+		// per process; PSS shares them out, so the group sum is real usage.
+		if pss, ok := procfsPSS(filepath.Join(root, entry.Name(), "smaps_rollup")); ok {
+			memoryBytes += pss
+		} else {
+			memoryBytes += rssPages * pageSize
+		}
 	}
 	return cpuSeconds, memoryBytes, nil
+}
+
+// procfsPSS reads the proportional set size from a smaps_rollup file. It
+// reports false when the file is missing (the process exited or the kernel
+// predates smaps_rollup) or carries no Pss line.
+func procfsPSS(path string) (int64, bool) {
+	rollup, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(rollup), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "Pss:" && fields[2] == "kB" {
+			kib, err := strconv.ParseInt(fields[1], 10, 64)
+			if err != nil {
+				return 0, false
+			}
+			return kib * 1024, true
+		}
+	}
+	return 0, false
 }
 
 // cpuLoad turns cumulative process-group CPU seconds into the CPU percent

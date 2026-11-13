@@ -52,6 +52,33 @@ func TestSampleProcfsGroupSumsOnlyTheGroup(t *testing.T) {
 	}
 }
 
+// TestSampleProcfsGroupCountsSharedMemoryOnce is the second Linux CI
+// regression: summed RSS counted shared pages once per Chromium process and
+// crossed the 2 GiB budget; the group sum uses PSS, with RSS only as fallback.
+func TestSampleProcfsGroupCountsSharedMemoryOnce(t *testing.T) {
+	root := t.TempDir()
+	pageSize := int64(os.Getpagesize())
+	writeProcStat(t, root, "300", "chrome", 300, 1, 1, 100000)
+	writeProcStat(t, root, "301", "chrome", 300, 1, 1, 100000)
+	writeProcStat(t, root, "302", "chrome", 300, 1, 1, 7)
+	for pid, rollup := range map[string]string{
+		"300": "55c4e7a1d000-7ffd61bfe000 ---p 00000000 00:00 0 [rollup]\nRss:  400000 kB\nPss:   120000 kB\nPss_Anon: 90000 kB\n",
+		"301": "Rss:  400000 kB\nPss:    80000 kB\n",
+		"302": "Rss:  28 kB\n", // no Pss line: RSS fallback
+	} {
+		if err := os.WriteFile(filepath.Join(root, pid, "smaps_rollup"), []byte(rollup), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, memoryBytes, err := sampleProcfsGroup(root, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (120000+80000)*int64(1024) + 7*pageSize; memoryBytes != want {
+		t.Fatalf("memory bytes %d, want PSS sum plus RSS fallback %d (summed RSS would be %d)", memoryBytes, want, 200007*pageSize)
+	}
+}
+
 // TestCPULoadReportsTheLoadSinceTheLastSample is the Linux CI regression: a
 // fresh Chromium with a large lifetime CPU total must not read as a load
 // spike; only CPU used between samples counts.
