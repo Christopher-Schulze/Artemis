@@ -57,13 +57,9 @@ jobs:
         run: go test -vet=off -count=1 -p 1 -timeout 600s ./...
 
   test-macos-arm64:
-    name: macOS Apple Silicon (${{ matrix.os }}) - Build + Test
-    # The oldest supported macOS release and the newest runner image.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: macOS Apple Silicon - Build + Test
+    # macOS 15 is the supported development and release platform.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
         with:
