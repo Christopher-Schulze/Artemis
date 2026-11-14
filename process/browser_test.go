@@ -528,7 +528,7 @@ func TestASustainedCPUBreachEndsTheBrowser(t *testing.T) {
 		t.Fatal("browser survived a sustained cpu breach")
 	}
 	err = browser.Err()
-	if !IsCode(err, ErrorResourceBudget) || !strings.Contains(err.Error(), "cpu percent 450.00 exceeds 100.00 in 3 samples in a row") {
+	if !IsCode(err, ErrorResourceBudget) || !strings.Contains(err.Error(), "cpu percent 450.00 exceeds 100.00 in 10 samples in a row") {
 		t.Fatalf("cpu breach error=%v", err)
 	}
 }

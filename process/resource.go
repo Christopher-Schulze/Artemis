@@ -63,8 +63,9 @@ func (b ResourceBudget) validate() error {
 }
 
 // cpuBudgetSustainedSamples is how many samples in a row must exceed the CPU budget before the
-// browser is ended. Loading pages bursts above the budget for a moment; a runaway stays above it.
-const cpuBudgetSustainedSamples = 3
+// browser is ended (ten seconds at the default interval). Loading pages bursts above the budget
+// for seconds on a busy host; a runaway stays above it.
+const cpuBudgetSustainedSamples = 10
 
 // exceeded reports a memory or profile-disk breach, either of which ends the browser at once.
 func (b ResourceBudget) exceeded(usage ResourceUsage) error {
