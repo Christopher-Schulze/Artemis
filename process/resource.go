@@ -62,10 +62,13 @@ func (b ResourceBudget) validate() error {
 	return nil
 }
 
+// cpuBudgetSustainedSamples is how many samples in a row must exceed the CPU budget before the
+// browser is ended. Loading pages bursts above the budget for a moment; a runaway stays above it.
+const cpuBudgetSustainedSamples = 3
+
+// exceeded reports a memory or profile-disk breach, either of which ends the browser at once.
 func (b ResourceBudget) exceeded(usage ResourceUsage) error {
 	switch {
-	case b.MaxCPUPercent > 0 && usage.CPUPercent > b.MaxCPUPercent:
-		return fmt.Errorf("cpu percent %.2f exceeds %.2f", usage.CPUPercent, b.MaxCPUPercent)
 	case b.MaxMemoryBytes > 0 && usage.MemoryBytes > b.MaxMemoryBytes:
 		return fmt.Errorf("memory bytes %d exceeds %d", usage.MemoryBytes, b.MaxMemoryBytes)
 	case b.MaxProfileDiskBytes > 0 && usage.ProfileDiskBytes > b.MaxProfileDiskBytes:
@@ -73,6 +76,15 @@ func (b ResourceBudget) exceeded(usage ResourceUsage) error {
 	default:
 		return nil
 	}
+}
+
+// cpuExceeded reports one CPU sample above the budget; only cpuBudgetSustainedSamples of them in
+// a row end the browser.
+func (b ResourceBudget) cpuExceeded(usage ResourceUsage) error {
+	if b.MaxCPUPercent > 0 && usage.CPUPercent > b.MaxCPUPercent {
+		return fmt.Errorf("cpu percent %.2f exceeds %.2f", usage.CPUPercent, b.MaxCPUPercent)
+	}
+	return nil
 }
 
 type resourceSampler func(int, string) (ResourceUsage, error)

@@ -110,6 +110,8 @@ type Browser struct {
 	releaseCPU      func() error
 	cpuAffinity     platform.ProbeResult
 	warnings        []string
+	// cpuBreaches counts CPU samples above the budget in a row; only supervise touches it.
+	cpuBreaches int
 }
 
 // Launch starts Chromium with an isolated loopback CDP endpoint.
@@ -549,6 +551,16 @@ func (b *Browser) sampleAndEnforce(config LaunchConfig, enforceBudget bool) bool
 		b.terminateAfterFailure()
 		return false
 	}
+	if err := config.ResourceBudget.cpuExceeded(usage); err != nil {
+		b.cpuBreaches++
+		if b.cpuBreaches < cpuBudgetSustainedSamples {
+			return true
+		}
+		b.setTerminalError(&Error{Code: ErrorResourceBudget, Op: "enforce browser resources", Err: fmt.Errorf("%w in %d samples in a row", err, b.cpuBreaches)})
+		b.terminateAfterFailure()
+		return false
+	}
+	b.cpuBreaches = 0
 	return true
 }
 

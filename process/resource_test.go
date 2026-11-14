@@ -17,7 +17,6 @@ func TestResourceBudgetEnforcesEveryMeasuredDimension(t *testing.T) {
 		name  string
 		usage ResourceUsage
 	}{
-		{name: "cpu", usage: ResourceUsage{CPUPercent: 100.01}},
 		{name: "memory", usage: ResourceUsage{MemoryBytes: 201}},
 		{name: "profile", usage: ResourceUsage{ProfileDiskBytes: 301}},
 	} {
@@ -27,7 +26,14 @@ func TestResourceBudgetEnforcesEveryMeasuredDimension(t *testing.T) {
 			}
 		})
 	}
-	if err := budget.exceeded(ResourceUsage{CPUPercent: 100, MemoryBytes: 200, ProfileDiskBytes: 300}); err != nil {
+	if err := budget.cpuExceeded(ResourceUsage{CPUPercent: 100.01}); err == nil {
+		t.Fatal("a cpu sample above the budget was accepted")
+	}
+	if err := budget.exceeded(ResourceUsage{CPUPercent: 1000}); err != nil {
+		t.Fatalf("cpu counted as an immediate breach: %v", err)
+	}
+	exact := ResourceUsage{CPUPercent: 100, MemoryBytes: 200, ProfileDiskBytes: 300}
+	if err := errors.Join(budget.exceeded(exact), budget.cpuExceeded(exact)); err != nil {
 		t.Fatalf("exact limits rejected: %v", err)
 	}
 }

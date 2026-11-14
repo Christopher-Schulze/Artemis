@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -474,6 +475,61 @@ func TestResourceBudgetBreachTerminatesProcessGroup(t *testing.T) {
 	}
 	if err := browser.Err(); !IsCode(err, ErrorResourceBudget) {
 		t.Fatalf("resource error=%v", err)
+	}
+}
+
+// Loading pages bursts above the CPU budget for a sample or two; the browser keeps running as
+// long as the next sample is back under it.
+func TestABriefCPUBurstAboveTheBudgetDoesNotEndTheBrowser(t *testing.T) {
+	var samples atomic.Int64
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{MaxCPUPercent: 100, SampleInterval: 5 * time.Millisecond},
+		resourceSampler: func(int, string) (ResourceUsage, error) {
+			// Two samples above the budget, one under, again and again: never three in a row.
+			if samples.Add(1)%3 == 0 {
+				return ResourceUsage{CPUPercent: 50}, nil
+			}
+			return ResourceUsage{CPUPercent: 450}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-browser.Done():
+		t.Fatalf("a brief burst ended the browser: %v", browser.Err())
+	case <-time.After(300 * time.Millisecond):
+	}
+	if samples.Load() < 10 {
+		t.Fatalf("only %d samples were taken", samples.Load())
+	}
+	if err := browser.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A browser that stays above the CPU budget is ended once the breach holds for the sustained
+// number of samples, and the error says so.
+func TestASustainedCPUBreachEndsTheBrowser(t *testing.T) {
+	browser, err := Launch(context.Background(), LaunchConfig{
+		BinaryPath: writeBrowserScript(t, browserReadyScript), StartupTimeout: 5 * time.Second, ShutdownTimeout: time.Second,
+		ResourceBudget: ResourceBudget{MaxCPUPercent: 100, SampleInterval: 5 * time.Millisecond},
+		resourceSampler: func(int, string) (ResourceUsage, error) {
+			return ResourceUsage{CPUPercent: 450}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-browser.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("browser survived a sustained cpu breach")
+	}
+	err = browser.Err()
+	if !IsCode(err, ErrorResourceBudget) || !strings.Contains(err.Error(), "cpu percent 450.00 exceeds 100.00 in 3 samples in a row") {
+		t.Fatalf("cpu breach error=%v", err)
 	}
 }
 
