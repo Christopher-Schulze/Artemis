@@ -15,6 +15,15 @@ func ConfigureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// ProcessGroupAlive reports whether any live member of the group created for
+// an owned command remains; a group of only zombies counts as gone.
+func ProcessGroupAlive(process *os.Process) bool {
+	if process == nil {
+		return false
+	}
+	return syscall.Kill(-process.Pid, 0) == nil
+}
+
 // SignalProcessGroup signals only the group created for an owned command.
 func SignalProcessGroup(process *os.Process, signal syscall.Signal) error {
 	if process == nil {

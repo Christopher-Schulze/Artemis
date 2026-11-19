@@ -8,6 +8,9 @@ import (
 	"syscall"
 )
 
+// ProcessGroupAlive is false where no owned process group exists.
+func ProcessGroupAlive(*os.Process) bool { return false }
+
 // ConfigureProcessGroup retains the platform's direct-process semantics.
 func ConfigureProcessGroup(_ *exec.Cmd) {}
 

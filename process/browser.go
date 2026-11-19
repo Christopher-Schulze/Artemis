@@ -142,7 +142,7 @@ func Launch(ctx context.Context, config LaunchConfig) (browser *Browser, returnE
 			returnErr = errors.Join(returnErr, releaseCPU())
 		}
 	}()
-	profileDir, removeProfile, profileLease, err := prepareProfile(normalized.UserDataDir)
+	profileDir, removeProfile, profileLease, err := prepareProfile(ctx, normalized.UserDataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -234,9 +234,9 @@ func invalidConfig(message string) error {
 	return &Error{Code: ErrorInvalidConfig, Op: "validate launch config", Err: errors.New(message)}
 }
 
-func prepareProfile(configured string) (string, bool, string, error) {
+func prepareProfile(ctx context.Context, configured string) (string, bool, string, error) {
 	if configured != "" {
-		return prepareConfiguredProfile(configured)
+		return prepareConfiguredProfile(ctx, configured)
 	}
 	dir, err := os.MkdirTemp("", "artemis-chromium-")
 	if err != nil {
@@ -250,13 +250,16 @@ func prepareProfile(configured string) (string, bool, string, error) {
 	return dir, true, lease, nil
 }
 
-func prepareConfiguredProfile(configured string) (string, bool, string, error) {
+func prepareConfiguredProfile(ctx context.Context, configured string) (string, bool, string, error) {
 	abs, err := filepath.Abs(configured)
 	if err != nil {
 		return "", false, "", invalidConfig(fmt.Sprintf("profile path: %v", err))
 	}
 	if mkdirErr := os.MkdirAll(abs, 0o700); mkdirErr != nil {
 		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "create configured profile", Err: mkdirErr}
+	}
+	if err := RecoverOrphanedProfile(ctx, abs); err != nil {
+		return "", false, "", &Error{Code: ErrorLaunchFailed, Op: "recover orphaned profile", Err: err}
 	}
 	lease, err := acquireProfileLease(abs)
 	if err != nil {
@@ -341,6 +344,10 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 			return nil, false, &Error{Code: ErrorCancelled, Op: "start", Err: errors.Join(startErr, ctxErr)}
 		}
 		return nil, false, &Error{Code: ErrorLaunchFailed, Op: "start", Err: startErr}
+	}
+	if err := recordLeaseBrowserGroup(profileLease, cmd.Process.Pid); err != nil {
+		browser.startLifetime(ctx, config)
+		return nil, true, &Error{Code: ErrorLaunchFailed, Op: "record browser group in profile lease", Err: errors.Join(err, browser.Close())}
 	}
 	if config.ChildProcessRegistrar != nil {
 		cleanup, err := config.ChildProcessRegistrar.RegisterChild(cmd.Process.Pid, filepath.Base(binary.Path))
@@ -580,14 +587,28 @@ func (b *Browser) terminateAfterFailure() {
 	}
 }
 
+// reapHelpers ends the browser's helper processes after its main process
+// exited. After a crash they are killed at once. A graceful close lets them
+// finish for a bounded time and then kills the rest, so the profile is
+// released only when no browser process can still write into it.
 func (b *Browser) reapHelpers() {
 	b.mu.RLock()
 	closing := b.closing
 	b.mu.RUnlock()
-	if !closing {
-		_ = SignalProcessGroup(b.cmd.Process, syscall.SIGKILL)
+	if closing {
+		deadline := time.Now().Add(min(b.shutdown/2, helperExitWait))
+		for ProcessGroupAlive(b.cmd.Process) && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !ProcessGroupAlive(b.cmd.Process) {
+			return
+		}
 	}
+	_ = SignalProcessGroup(b.cmd.Process, syscall.SIGKILL)
 }
+
+// helperExitWait bounds how long a graceful close waits for helper processes.
+const helperExitWait = 2 * time.Second
 
 func (b *Browser) waitForEndpoint(ctx context.Context, timeout time.Duration) (string, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
