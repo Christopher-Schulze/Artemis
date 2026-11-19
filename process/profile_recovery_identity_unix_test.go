@@ -142,7 +142,7 @@ func TestRecoverOrphanedProfileNeverSignalsUnprovenGroupMembers(t *testing.T) {
 // owner with its recorded identity keeps the lease.
 func TestRecoverOrphanedProfileDetectsAReusedOwnerPid(t *testing.T) {
 	profile := tempProfile(t)
-	orphan := startFakeBrowser(t, "--user-data-dir="+profile)
+	orphan := startFakeBrowser(t, "token-a", "--user-data-dir="+profile)
 	reusedOwner := os.Getppid()
 	writeLease(t, profile, profileLease{owner: reusedOwner, ownerStart: "1.000000", token: "token-a"})
 	if err := RecoverOrphanedProfile(t.Context(), profile); err != nil {
@@ -153,7 +153,7 @@ func TestRecoverOrphanedProfileDetectsAReusedOwnerPid(t *testing.T) {
 	}
 
 	live := tempProfile(t)
-	browser := startFakeBrowser(t, "--user-data-dir="+live)
+	browser := startFakeBrowser(t, "token-b", "--user-data-dir="+live)
 	start, err := processStartID(reusedOwner)
 	if err != nil {
 		t.Fatal(err)

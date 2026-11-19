@@ -34,8 +34,9 @@ var errProcessGone = errors.New("process is gone")
 // in their environment, and the guardian shell that names this owner and
 // profile. Any other member of that group, for example after the group id was
 // reused, refuses the recovery with ErrProfileOwnershipUnproven and keeps the
-// lease. Every process whose command line carries exactly this profile's
-// --user-data-dir is killed as well, and the stale lease and DevToolsActivePort
+// lease. A process whose command line carries exactly this profile's
+// --user-data-dir is killed only when it carries the lease token as well; any
+// other such process is a conflict. The stale lease and DevToolsActivePort
 // file are removed. Without a lease nothing proves the browser is ours, so a
 // profile without a lease is left unchanged.
 func RecoverOrphanedProfile(ctx context.Context, profileDir string) error {
@@ -63,7 +64,7 @@ func RecoverOrphanedProfile(ctx context.Context, profileDir string) error {
 			return err
 		}
 	}
-	if err := killOrphanedBrowser(ctx, abs); err != nil {
+	if err := killOrphanedBrowser(ctx, abs, lease); err != nil {
 		return err
 	}
 	for _, stale := range []string{leasePath, filepath.Join(abs, "DevToolsActivePort")} {
@@ -87,17 +88,20 @@ func leaseOwnerAlive(lease profileLease) bool {
 	return err == nil && start == lease.ownerStart
 }
 
-// killOrphanedBrowser kills every process running on profileDir and waits for
-// them to exit; the process list, not Chromium's SingletonLock, identifies
-// them, because Chromium removes the lock early in its own shutdown while it
-// still writes into the profile.
-func killOrphanedBrowser(ctx context.Context, profileDir string) error {
+// killOrphanedBrowser kills every process running on profileDir that proves it
+// belongs to the lease by the lease token in its environment, and waits for
+// them to exit; the process list, not Chromium's SingletonLock, finds them,
+// because Chromium removes the lock early in its own shutdown while it still
+// writes into the profile. A process naming the profile without the token, or
+// any match under a lease without token, refuses the recovery with
+// ErrProfileOwnershipUnproven before any signal is sent.
+func killOrphanedBrowser(ctx context.Context, profileDir string, lease profileLease) error {
 	listing, err := exec.CommandContext(ctx, "ps", "-axo", "pid=,command=").Output() // #nosec G204 -- fixed ps argv.
 	if err != nil {
 		return fmt.Errorf("recover profile: list processes: %w", err)
 	}
 	marker := "--user-data-dir=" + profileDir
-	var orphans []int
+	var orphans, unproven []int
 	for _, line := range strings.Split(string(listing), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || !strings.Contains(line+" ", marker+" ") {
@@ -107,14 +111,26 @@ func killOrphanedBrowser(ctx context.Context, profileDir string) error {
 		if err != nil || pid <= 1 || pid == os.Getpid() {
 			continue
 		}
-		orphans = append(orphans, pid)
-	}
-	for _, pid := range orphans {
-		// The browser leads its own process group (Setpgid), so the group kill
-		// also reaches helpers; a helper pid is not a group leader.
-		if err := syscall.Kill(-pid, syscall.SIGKILL); err == nil || errors.Is(err, syscall.ESRCH) {
+		proven := false
+		if lease.token != "" {
+			carries, envErr := processEnvironContains(pid, profileLeaseTokenEnv+"="+lease.token)
+			if envErr != nil && !pidAlive(pid) {
+				continue
+			}
+			proven = carries
+		}
+		if !proven {
+			unproven = append(unproven, pid)
 			continue
 		}
+		orphans = append(orphans, pid)
+	}
+	if len(unproven) != 0 {
+		return fmt.Errorf("%w: processes %v name the profile", ErrProfileOwnershipUnproven, unproven)
+	}
+	for _, pid := range orphans {
+		// Each proven process is killed by its pid; the proven members of
+		// the browser group were already ended through the recorded group.
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return fmt.Errorf("recover profile: kill orphaned browser %d: %w", pid, err)
 		}
