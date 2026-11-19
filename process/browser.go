@@ -284,10 +284,12 @@ func acquireProfileLease(profileDir string) (string, error) {
 		}
 		return "", &Error{Code: ErrorLaunchFailed, Op: "acquire profile lease", Err: err}
 	}
-	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
-		_ = file.Close()
-		_ = os.Remove(lease)
-		return "", &Error{Code: ErrorLaunchFailed, Op: "write profile lease", Err: err}
+	identity, err := newProfileLease()
+	if err != nil {
+		return "", errors.Join(&Error{Code: ErrorLaunchFailed, Op: "describe profile lease", Err: err}, file.Close(), os.Remove(lease))
+	}
+	if _, err := file.Write(identity.encode()); err != nil {
+		return "", errors.Join(&Error{Code: ErrorLaunchFailed, Op: "write profile lease", Err: err}, file.Close(), os.Remove(lease))
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(lease)
@@ -315,6 +317,15 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 	}
 	args := chromiumArgs(config, profileDir)
 	cmd := newProcessCommand(ctx, binary.Path, profileDir, removeProfile, args)
+	if profileLease != "" {
+		// The browser and every helper inherit the lease token, which proves to a
+		// later recovery that they belong to this lease.
+		lease, err := readProfileLease(profileLease)
+		if err != nil {
+			return nil, false, &Error{Code: ErrorLaunchFailed, Op: "read profile lease", Err: err}
+		}
+		cmd.Env = browserEnvironment(lease)
+	}
 	cmd.WaitDelay = config.ShutdownTimeout
 	ConfigureProcessGroup(cmd)
 	output := newCappedOutput(config.OutputLimit)

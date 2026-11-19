@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -145,38 +144,5 @@ func TestRecoverOrphanedProfileKillsOnlyLeaseProvenBrowsersOfExactlyThisProfile(
 	}
 	if !pidAlive(sibling.Process.Pid) {
 		t.Fatal("recovery killed a browser of a sibling profile")
-	}
-}
-
-// When the browser's main process already exited, the group recorded in the
-// stale lease still reaches a helper that does not name the profile.
-func TestRecoverOrphanedProfileKillsTheRecordedGroupAfterTheMainProcessExited(t *testing.T) {
-	profile, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	pidFile := filepath.Join(profile, "helper.pid")
-	leader := exec.Command("sh", "-c", `(trap "" TERM INT; while :; do sleep 1; done) & echo $! > "$1"; exit 0`, "main", pidFile)
-	leader.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := leader.Run(); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	helper, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = syscall.Kill(helper, syscall.SIGKILL) })
-	if err := os.WriteFile(filepath.Join(profile, profileLeaseName), []byte(fmt.Sprintf("%d\n%d\n", deadPID(t), leader.Process.Pid)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecoverOrphanedProfile(t.Context(), profile); err != nil {
-		t.Fatal(err)
-	}
-	if pidAlive(helper) {
-		t.Fatal("the helper of the recorded browser group still runs")
 	}
 }
