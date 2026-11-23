@@ -3,28 +3,35 @@ package serve
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
 	"net/url"
-	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"github.com/Christopher-Schulze/Artemis/security"
 	"github.com/coder/websocket"
 )
 
-// Client is a serialized authenticated connection to the existing steering owner.
+// Client is a concurrent authenticated connection to the existing steering owner.
 // Keep ClientID across connections to retain access; a new identity cannot inherit sessions.
 type Client struct {
-	lease            chan struct{}
 	connection       *websocket.Conn
 	identity         string
-	sequence         uint64
 	requestPrefix    string
 	serverInstanceID string
 	serverProcessID  int
+	mu               sync.Mutex
+	sequence         atomic.Uint64
+	pending          map[string]*controlCall
+	outgoing         chan *controlCall
+	done             chan struct{}
+	cancel           context.CancelFunc
+	terminal         error
+	closeErr         error
+	stopOnce         sync.Once
+	workers          sync.WaitGroup
 }
 
 func Dial(ctx context.Context, endpoint, token, clientID string) (*Client, error) {
@@ -55,13 +62,20 @@ func Dial(ctx context.Context, endpoint, token, clientID string) (*Client, error
 		return nil, errorsWithClose(connection, fmt.Errorf("control owner did not issue a client identity"))
 	}
 	connection.SetReadLimit(8 << 20)
-	client := &Client{connection: connection, identity: identity, lease: make(chan struct{}, 1), requestPrefix: rand.Text()}
+	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	client := &Client{
+		connection: connection, identity: identity, requestPrefix: rand.Text(),
+		pending: make(map[string]*controlCall), outgoing: make(chan *controlCall, maxPendingControlCalls),
+		done: make(chan struct{}), cancel: cancel,
+	}
+	client.workers.Go(func() { client.readOutcomes(lifetime) })
+	client.workers.Go(func() { client.writeRequests(lifetime) })
 	var version VersionResponse
 	if err := client.Call(ctx, CmdVersion, nil, &version); err != nil {
-		return nil, errorsWithClose(connection, err)
+		return nil, closeFailedHandshake(client, err)
 	}
 	if majorVersion(version.Protocol) != majorVersion(ProtocolVersion) {
-		return nil, errorsWithClose(connection, fmt.Errorf("incompatible control protocol %q", version.Protocol))
+		return nil, closeFailedHandshake(client, fmt.Errorf("incompatible control protocol %q", version.Protocol))
 	}
 	client.serverInstanceID = version.InstanceID
 	client.serverProcessID = version.ProcessID
@@ -83,7 +97,11 @@ func (c *Client) ServerInstanceID() string { return c.serverInstanceID }
 // ServerProcessID is the process observed during the authenticated handshake.
 func (c *Client) ServerProcessID() int { return c.serverProcessID }
 
-func (c *Client) Close() error { return c.connection.Close(websocket.StatusNormalClosure, "") }
+func (c *Client) Close() error {
+	c.stop(ErrControlClosed)
+	c.workers.Wait()
+	return c.closeErr
+}
 
 // Call never retries a command after dispatch; a lost response may represent a real effect.
 func (c *Client) Call(ctx context.Context, command Command, params, result any) error {
@@ -94,45 +112,13 @@ func (c *Client) Call(ctx context.Context, command Command, params, result any) 
 // CallLabeled is Call that also returns the response trust label; it is nil
 // for results that are not page-derived.
 func (c *Client) CallLabeled(ctx context.Context, command Command, params, result any) (*security.ContentTrust, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("control context required")
-	}
-	select {
-	case c.lease <- struct{}{}:
-		defer func() { <-c.lease }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	c.sequence++
-	request, err := MarshalTyped(c.requestPrefix+"-"+strconv.FormatUint(c.sequence, 10), command, params)
+	response, err := c.call(ctx, command, params)
 	if err != nil {
 		return nil, err
 	}
-	request.Version = ProtocolVersion
-	data, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
+	err = DecodeTypedResult(&response, result)
+	if err != nil && response.OK {
+		err = fmt.Errorf("%w: %w", ErrControlProtocol, err)
 	}
-	if err := c.connection.Write(ctx, websocket.MessageText, data); err != nil {
-		return nil, errors.Join(fmt.Errorf("dispatch %s: %w", command, err), ctx.Err())
-	}
-	for {
-		_, data, err := c.connection.Read(ctx)
-		if err != nil {
-			// A cancellation that closes the connection first still reports
-			// context.Canceled, so callers can tell abort from transport loss.
-			return nil, errors.Join(fmt.Errorf("receive %s outcome (do not blindly replay effects): %w", command, err), ctx.Err())
-		}
-		var response Response
-		if err := json.Unmarshal(data, &response); err != nil {
-			return nil, fmt.Errorf("decode control outcome: %w", err)
-		}
-		if response.ID == "" && !response.OK && response.Error != nil {
-			return nil, DecodeTypedResult(&response, result)
-		}
-		if response.ID != request.ID {
-			continue
-		}
-		return response.Trust, DecodeTypedResult(&response, result)
-	}
+	return response.Trust, err
 }

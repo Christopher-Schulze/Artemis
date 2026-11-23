@@ -322,9 +322,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+		var req Request
+		decodeErr := json.Unmarshal(data, &req)
 		if !connectionLimiter.allow(time.Now()) || !s.clientLimiter.allow(client.rateKey) {
 			consecutiveRateHits++
-			s.writeResp(ctx, c, errResp("", string(ErrRateExceeded), "rate limit exceeded"))
+			s.writeResp(ctx, c, errResp(req.ID, string(ErrRateExceeded), "rate limit exceeded"))
 			if consecutiveRateHits >= 10 {
 				if closeErr := c.Close(websocket.StatusPolicyViolation, "rate limit exceeded"); closeErr != nil {
 					s.opts.Logger.Warn("close rate-limited websocket", "err", closeErr)
@@ -334,11 +336,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		consecutiveRateHits = 0
-		var req Request
-		if err := json.Unmarshal(data, &req); err != nil {
+		if decodeErr != nil {
 			s.writeResp(ctx, c, &Response{
 				ID: req.ID, OK: false,
-				Error: &Err{Code: string(ErrBadRequest), Message: err.Error()},
+				Error: &Err{Code: string(ErrBadRequest), Message: decodeErr.Error()},
 			})
 			continue
 		}

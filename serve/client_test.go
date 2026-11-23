@@ -27,7 +27,7 @@ func TestControlClientRejectsCredentialAndNonNumericEndpoints(t *testing.T) {
 	}
 }
 
-func TestClientLeaseCancellationAndOwnedServerClose(t *testing.T) {
+func TestClientConcurrentHeartbeatAndOwnedServerClose(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +61,10 @@ func TestClientLeaseCancellationAndOwnedServerClose(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("real fetch never reached fixture")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	if err := client.Call(ctx, CmdHeartbeat, nil, nil); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("queued call ignored its deadline: %v", err)
+	if err := client.Call(ctx, CmdHeartbeat, nil, nil); err != nil {
+		t.Fatalf("independent heartbeat was blocked by page fetch: %v", err)
 	}
 	if err := server.Close(); err != nil {
 		t.Fatal(err)
