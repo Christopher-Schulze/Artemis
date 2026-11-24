@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -157,5 +159,56 @@ func TestHandshakeKeepsExternalAttachShort(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 3*time.Second {
 		t.Fatalf("external attach waited %s", elapsed)
+	}
+}
+
+// A DevTools broker that accepts the WebSocket but never answers costs one
+// bounded attempt; the handshake retries on a fresh connection instead of
+// waiting for the caller's whole deadline.
+func TestHandshakeRetriesAStalledAttemptOnAFreshConnection(t *testing.T) {
+	var connections atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("accept: %v", err)
+			return
+		}
+		defer func() {
+			if err := conn.CloseNow(); err != nil && websocket.CloseStatus(err) == -1 && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("close fake DevTools connection: %v", err)
+			}
+		}()
+		stalled := connections.Add(1) == 1
+		for {
+			command, err := readCDPCommand(r.Context(), conn)
+			if err != nil {
+				return
+			}
+			if stalled {
+				continue
+			}
+			result := map[string]any{}
+			if command.Method == "Browser.getVersion" {
+				result = map[string]any{"protocolVersion": "1.3", "product": "HeadlessChrome/fixture"}
+			}
+			if err := writeCDPMessage(r.Context(), conn, map[string]any{"id": command.ID, "result": result}); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	started := time.Now()
+	transport, monitor, version, err := handshakeChromium(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/devtools/browser/x", nil)
+	if err != nil {
+		t.Fatalf("handshake did not recover from a stalled attempt: %v", err)
+	}
+	monitor.Close()
+	if err := transport.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > handshakeAttemptTimeout+3*time.Second || connections.Load() != 2 || version.Product != "HeadlessChrome/fixture" {
+		t.Fatalf("stalled attempt was not bounded: elapsed=%s connections=%d version=%+v", elapsed, connections.Load(), version)
 	}
 }

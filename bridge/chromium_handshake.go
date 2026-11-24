@@ -19,6 +19,11 @@ const (
 	// owned process short: there is no liveness signal to justify waiting.
 	externalHandshakeAttempts = 5
 	maxHandshakeBackoff       = 500 * time.Millisecond
+	// handshakeAttemptTimeout bounds one dial-and-validate attempt, so a
+	// connection whose DevTools broker accepts the WebSocket but never answers
+	// is retried on a fresh connection instead of consuming the caller's
+	// whole deadline.
+	handshakeAttemptTimeout = 5 * time.Second
 )
 
 // handshakeChromium dials the endpoint and completes the full attach
@@ -47,9 +52,14 @@ func handshakeChromium(ctx context.Context, endpoint string, processOwner *brows
 			case <-time.After(backoff):
 			}
 		}
-		transport, monitor, version, err := attemptChromiumHandshake(ctx, endpoint)
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, handshakeAttemptTimeout)
+		transport, monitor, version, err := attemptChromiumHandshake(attemptCtx, endpoint)
+		cancelAttempt()
 		if err == nil {
 			return transport, monitor, version, nil
+		}
+		if ctx.Err() != nil {
+			return nil, nil, BrowserVersion{}, errors.Join(ctx.Err(), err)
 		}
 		lastErr = err
 		select {
