@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -187,7 +188,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	go func() { errCh <- server.Serve(listener) }()
 	select {
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// The serving context is already done; shutdown keeps its values
+		// without its cancellation for the bounded drain.
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		shutdownErr := server.Shutdown(shutCtx)
 		var closeErr error
@@ -322,11 +325,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-		var req Request
-		decodeErr := json.Unmarshal(data, &req)
+		// Both rate limits apply before the payload is decoded: a refused
+		// message costs only the scan for its request ID.
 		if !connectionLimiter.allow(time.Now()) || !s.clientLimiter.allow(client.rateKey) {
 			consecutiveRateHits++
-			s.writeResp(ctx, c, errResp(req.ID, string(ErrRateExceeded), "rate limit exceeded"))
+			s.writeResp(ctx, c, errResp(leadingRequestID(data), string(ErrRateExceeded), "rate limit exceeded"))
 			if consecutiveRateHits >= 10 {
 				if closeErr := c.Close(websocket.StatusPolicyViolation, "rate limit exceeded"); closeErr != nil {
 					s.opts.Logger.Warn("close rate-limited websocket", "err", closeErr)
@@ -336,7 +339,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		consecutiveRateHits = 0
-		if decodeErr != nil {
+		var req Request
+		if decodeErr := json.Unmarshal(data, &req); decodeErr != nil {
 			s.writeResp(ctx, c, &Response{
 				ID: req.ID, OK: false,
 				Error: &Err{Code: string(ErrBadRequest), Message: decodeErr.Error()},
@@ -1171,6 +1175,35 @@ func (s *Server) cmdAdBlockWhitelist(req *Request) *Response {
 
 func okResp(id string, value any) *Response {
 	return &Response{ID: id, OK: true, Value: value}
+}
+
+// leadingRequestID reads the top-level "id" of a request message token by
+// token and stops there, so a refused message is answered under its ID
+// without decoding or validating the rest of the payload. Go clients write
+// the ID first; a message without a readable ID gets an empty one.
+func leadingRequestID(data []byte) string {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if open, err := decoder.Token(); err != nil || open != json.Delim('{') {
+		return ""
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return ""
+		}
+		if key == "id" {
+			value, err := decoder.Token()
+			if id, ok := value.(string); err == nil && ok {
+				return id
+			}
+			return ""
+		}
+		var skipped json.RawMessage
+		if err := decoder.Decode(&skipped); err != nil {
+			return ""
+		}
+	}
+	return ""
 }
 
 func errResp(id, code, msg string) *Response {
