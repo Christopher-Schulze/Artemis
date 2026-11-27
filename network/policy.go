@@ -78,6 +78,9 @@ type PolicyConfig struct {
 	MaxDownloadBytes     int64
 	MaxRedirects         int
 	DialTimeout          time.Duration
+	// DestinationAdmission can narrow the configured policy using live host
+	// authority. Proxied targets pass no addresses because DNS is remote.
+	DestinationAdmission func([]netip.Addr) error `json:"-" yaml:"-"`
 }
 
 func DefaultPolicyConfig() PolicyConfig {
@@ -276,6 +279,9 @@ func (p *Policy) ValidateProxiedRequest(ctx context.Context, rawURL, method, con
 			return err
 		}
 	}
+	if err := p.admitDestination(kind, parsed, sessionID, nil); err != nil {
+		return err
+	}
 	if err := p.emit(Decision{Action: DecisionAllow, Kind: kind, Scheme: parsed.Scheme, Host: host, Port: port, Reason: "policy_match_proxied", SessionID: sessionID}); err != nil {
 		return fmt.Errorf("%w: %w", ErrPolicyDenied, err)
 	}
@@ -345,6 +351,16 @@ func (p *Policy) admitAddresses(kind TargetKind, parsed *url.URL, sessionID stri
 	return nil
 }
 
+func (p *Policy) admitDestination(kind TargetKind, parsed *url.URL, sessionID string, addresses []netip.Addr) error {
+	if p.config.DestinationAdmission == nil {
+		return nil
+	}
+	if err := p.config.DestinationAdmission(addresses); err != nil {
+		return errors.Join(err, p.deny(kind, parsed, sessionID, "destination_admission_denied"))
+	}
+	return nil
+}
+
 func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind, sessionID string) ([]netip.Addr, error) {
 	parsed, host, port, err := p.admitTarget(ctx, rawURL, kind, sessionID)
 	if err != nil {
@@ -355,6 +371,9 @@ func (p *Policy) ResolveURL(ctx context.Context, rawURL string, kind TargetKind,
 		return nil, errors.Join(err, p.deny(kind, parsed, sessionID, "dns_failed"))
 	}
 	if err := p.admitAddresses(kind, parsed, sessionID, addresses); err != nil {
+		return nil, err
+	}
+	if err := p.admitDestination(kind, parsed, sessionID, addresses); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -419,6 +438,11 @@ func (p *Policy) dialContextWithDialer(ctx context.Context, networkName, address
 		}
 		if !p.config.AllowPrivateNetworks && blockedAddress(candidate) {
 			return nil, p.dialDeny(networkName, host, port, sessionID, "non_public_address")
+		}
+	}
+	if p.config.DestinationAdmission != nil {
+		if err := p.config.DestinationAdmission(addresses); err != nil {
+			return nil, errors.Join(err, p.dialDeny(networkName, host, port, sessionID, "destination_admission_denied"))
 		}
 	}
 	if err := p.emit(Decision{Action: DecisionAllow, Kind: TargetSocket, Scheme: strings.ToLower(networkName), Host: host, Port: port, Reason: "policy_match", SessionID: sessionID}); err != nil {

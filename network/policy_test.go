@@ -3,12 +3,58 @@ package network
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 )
+
+func TestDestinationAdmissionRechecksResolvedAndProxiedRequests(t *testing.T) {
+	ctx := t.Context()
+	denied := errors.New("destination temporarily unavailable")
+	restrict := false
+	config := DefaultPolicyConfig()
+	config.AllowPrivateNetworks = true
+	config.DestinationAdmission = func(addresses []netip.Addr) error {
+		if !restrict {
+			return nil
+		}
+		if len(addresses) != 1 || !addresses[0].IsLoopback() {
+			return denied
+		}
+		return nil
+	}
+	policy, err := NewPolicy(config, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const remote = "https://93.184.216.34"
+	if err := policy.ValidateRequest(ctx, remote, "GET", "", 0, TargetNavigation, "test"); err != nil {
+		t.Fatalf("admitted online navigation: %v", err)
+	}
+	restrict = true
+	if err := policy.ValidateRequest(ctx, remote, "GET", "", 0, TargetNavigation, "test"); !errors.Is(err, denied) || !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("navigation did not revalidate destination: %v", err)
+	}
+	const local = "http://127.0.0.1"
+	if err := policy.ValidateRequest(ctx, local, "GET", "", 0, TargetNavigation, "test"); err != nil {
+		t.Fatalf("local direct navigation: %v", err)
+	}
+	if err := policy.ValidateProxiedRequest(ctx, local, "GET", "", 0, TargetNavigation, "test"); !errors.Is(err, denied) {
+		t.Fatalf("remote proxy substituted for verified local DNS: %v", err)
+	}
+	socketAttempted := false
+	dialer := &net.Dialer{Control: func(string, string, syscall.RawConn) error {
+		socketAttempted = true
+		return errors.New("unexpected socket creation")
+	}}
+	if _, err := policy.dialContextWithDialer(ctx, "tcp", "93.184.216.34:443", "test", dialer); !errors.Is(err, denied) || socketAttempted {
+		t.Fatalf("socket guard did not fail before opening a connection: attempted=%v err=%v", socketAttempted, err)
+	}
+}
 
 type resolverResult struct {
 	addresses []netip.Addr
