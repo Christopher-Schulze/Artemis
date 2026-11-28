@@ -43,6 +43,12 @@ type ChildProcessRegistrar interface {
 	RegisterChild(pid int, name string) (func(), error)
 }
 
+// AdmittedChildProcessRegistrar receives the existing launch grant when the
+// embedding host binds durable CPU ownership to the Chromium process group.
+type AdmittedChildProcessRegistrar interface {
+	RegisterAdmittedChild(context.Context, int, string) (func(), error)
+}
+
 // SandboxPolicy controls whether Chromium's OS sandbox must remain enabled.
 type SandboxPolicy string
 
@@ -361,7 +367,14 @@ func startProcess(ctx context.Context, config LaunchConfig, binary Binary, profi
 		return nil, true, &Error{Code: ErrorLaunchFailed, Op: "record browser group in profile lease", Err: errors.Join(err, browser.Close())}
 	}
 	if config.ChildProcessRegistrar != nil {
-		cleanup, err := config.ChildProcessRegistrar.RegisterChild(cmd.Process.Pid, filepath.Base(binary.Path))
+		var cleanup func()
+		var err error
+		name := filepath.Base(binary.Path)
+		if registrar, ok := config.ChildProcessRegistrar.(AdmittedChildProcessRegistrar); ok {
+			cleanup, err = registrar.RegisterAdmittedChild(ctx, cmd.Process.Pid, name)
+		} else {
+			cleanup, err = config.ChildProcessRegistrar.RegisterChild(cmd.Process.Pid, name)
+		}
 		if err != nil {
 			browser.startLifetime(ctx, config)
 			return nil, true, &Error{Code: ErrorLaunchFailed, Op: "register Chromium process", Err: errors.Join(err, browser.Close())}
